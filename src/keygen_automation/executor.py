@@ -7,7 +7,6 @@ from datetime import datetime
 from playwright.sync_api import sync_playwright
 
 from keygen_automation.actions import ActionExecutor
-from keygen_automation.ai_registry import AiRegistry
 from keygen_automation.config import load_plan_config
 from keygen_automation.logger import RunLogger
 from keygen_automation.results import PlanResult, write_result_json
@@ -62,7 +61,6 @@ def execute_plan(
             plan_path=resolved_plan_path,
             package_dir=plan_dir,
             variables=variables,
-            ai_registry=AiRegistry(plan_config),
         )
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
         executor = ActionExecutor(state)

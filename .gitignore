@@ -22,7 +22,6 @@ dist/
 .env
 .env.*
 !.env.example
-config/ai-services.json
 config/
 *.local.json
 *.secret.json
@@ -40,7 +39,6 @@ downloads/
 plans/**/output/
 test-plans/**/output/
 output/
-examples/
 *.log
 
 # Local-only scratch plans or ad hoc artifacts

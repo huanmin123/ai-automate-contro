@@ -65,7 +65,7 @@ plan-package/
 ## 配置优先级
 
 - `plans/config.json`: 公开示例 plan 的集合级共享配置。
-- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量和 AI 服务注册。
+- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量。
 - `plan-package/config.json`: 当前 plan 包局部配置，只能当前 plan 访问。
 - 相同字段局部配置覆盖全局配置。
 - `config.variables` 会注入为变量，也可以通过 `{{config.xxx}}` 访问完整合并配置。
@@ -85,4 +85,4 @@ plan-package/
 - `read`: 通过 `type` 读取 `json`、`text`、`csv`
 - `write`: 通过 `type` 写出 `json`、`text`、`csv`、`variables`
 
-`open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、AI 节点这类参数或生命周期明显不同的能力保持独立组件。
+`open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download` 这类参数或生命周期明显不同的能力保持独立组件。

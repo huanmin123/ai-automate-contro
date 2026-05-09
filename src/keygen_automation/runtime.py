@@ -6,7 +6,6 @@ from typing import Any
 
 from playwright.sync_api import Browser, BrowserContext, Dialog, Download, Page, Playwright
 
-from keygen_automation.ai_registry import AiRegistry
 from keygen_automation.logger import RunLogger
 
 
@@ -63,7 +62,6 @@ class RuntimeState:
     downloads: list[str] = field(default_factory=list)
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
-    ai_registry: AiRegistry | None = None
     sub_plan_stack: list[Path] = field(default_factory=list)
 
     def require_session(self, name: str) -> BrowserSession:

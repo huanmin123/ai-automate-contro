@@ -2,14 +2,11 @@ from __future__ import annotations
 
 import csv
 import json
-import mimetypes
-import re
 from pathlib import Path
 from typing import Any
 
 from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeoutError
 
-from keygen_automation.ai_registry import data_url_to_bytes, upload_image_to_ocr
 from keygen_automation.browser import BrowserConfig
 from keygen_automation.conditions import ConditionEvaluator
 from keygen_automation.plan_loader import load_plan
@@ -535,117 +532,6 @@ class ActionExecutor:
     def _action_print(self, step: dict[str, Any]) -> None:
         self.state.logger.log("info", str(step["message"]))
 
-    def _action_ocr_image(self, step: dict[str, Any]) -> None:
-        if self.state.ai_registry is None:
-            raise RuntimeError("AI registry is not initialized.")
-        service = self.state.ai_registry.get_ocr_service(step["service"])
-
-        image_bytes: bytes
-        content_type = "image/png"
-        filename = step.get("filename", "ocr-input.png")
-
-        if "path" in step:
-            source_path = self._resolve_path(step["path"])
-            image_bytes = source_path.read_bytes()
-            content_type = mimetypes.guess_type(str(source_path))[0] or content_type
-            filename = source_path.name
-        elif "data_url" in step:
-            image_bytes, content_type = data_url_to_bytes(str(step["data_url"]))
-        elif "selector" in step:
-            output_path = self._resolve_output_path(
-                step.get("capture_path", f"{step['save_as']}.png"),
-                category="ocr-captures",
-            )
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            self._locator(step).screenshot(path=str(output_path))
-            image_bytes = output_path.read_bytes()
-            content_type = "image/png"
-            filename = output_path.name
-        else:
-            raise ValueError("ocr_image requires one of: path, data_url, selector")
-
-        result = upload_image_to_ocr(service, image_bytes, filename, content_type)
-        self.state.variables[step["save_as"]] = result
-        if "save_text_as" in step:
-            self.state.variables[step["save_text_as"]] = result.get("text", "")
-        self.state.logger.log(
-            "info",
-            "ocr completed",
-            service=step["service"],
-            save_as=step["save_as"],
-            text_length=len(str(result.get("text", ""))),
-        )
-
-    def _action_llm_chat(self, step: dict[str, Any]) -> None:
-        if self.state.ai_registry is None:
-            raise RuntimeError("AI registry is not initialized.")
-        service = self.state.ai_registry.get_llm_service(step["service"])
-        client = self.state.ai_registry.build_llm_client(service)
-        response = client.chat.completions.create(
-            model=step.get("model", service.model),
-            messages=step["messages"],
-            temperature=float(step.get("temperature", 0)),
-        )
-        payload = response.model_dump()
-        self.state.variables[step["save_as"]] = payload
-        if "save_text_as" in step:
-            text = ""
-            if response.choices:
-                text = response.choices[0].message.content or ""
-            self.state.variables[step["save_text_as"]] = text
-        self.state.logger.log(
-            "info",
-            "llm chat completed",
-            service=step["service"],
-            model=step.get("model", service.model),
-            save_as=step["save_as"],
-        )
-
-    def _action_llm_extract_json(self, step: dict[str, Any]) -> None:
-        if self.state.ai_registry is None:
-            raise RuntimeError("AI registry is not initialized.")
-        service = self.state.ai_registry.get_llm_service(step["service"])
-        client = self.state.ai_registry.build_llm_client(service)
-
-        schema = step.get("schema_description", "")
-        input_text = str(step["input"])
-        system_prompt = str(
-            step.get(
-                "system_prompt",
-                "你是一个结构化信息提取助手。请严格只输出 JSON 对象，不要输出解释、Markdown 或代码块。",
-            )
-        )
-        user_prompt = (
-            f"请从下面内容中提取结构化信息，并严格输出 JSON 对象。\n"
-            f"目标结构说明：{schema}\n"
-            f"原始内容：\n{input_text}"
-        )
-
-        response = client.chat.completions.create(
-            model=step.get("model", service.model),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            temperature=float(step.get("temperature", 0)),
-        )
-
-        raw_text = ""
-        if response.choices:
-            raw_text = response.choices[0].message.content or ""
-        parsed = self._extract_json_from_text(raw_text)
-
-        self.state.variables[step["save_as"]] = parsed
-        if "save_text_as" in step:
-            self.state.variables[step["save_text_as"]] = raw_text
-        self.state.logger.log(
-            "info",
-            "llm json extracted",
-            service=step["service"],
-            model=step.get("model", service.model),
-            save_as=step["save_as"],
-        )
-
     def _action_dialog(self, step: dict[str, Any]) -> None:
         dialog_type = step["type"]
         if dialog_type == "accept":
@@ -1042,25 +928,6 @@ class ActionExecutor:
         self.state.pending_dialog = dialog
         self.state.last_dialog_message = dialog.message
         self.state.logger.log("info", "dialog captured", dialog_type=dialog.type, dialog_message=dialog.message)
-
-    def _extract_json_from_text(self, raw_text: str) -> Any:
-        text = raw_text.strip()
-        if not text:
-            raise ValueError("Model returned empty text, cannot extract JSON.")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-
-        fenced_match = re.search(r"```(?:json)?\s*(\{.*?\}|\[.*?\])\s*```", text, flags=re.S)
-        if fenced_match:
-            return json.loads(fenced_match.group(1))
-
-        object_match = re.search(r"(\{.*\}|\[.*\])", text, flags=re.S)
-        if object_match:
-            return json.loads(object_match.group(1))
-
-        raise ValueError("Could not extract JSON object from model response.")
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:
