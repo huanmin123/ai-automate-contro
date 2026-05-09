@@ -31,7 +31,7 @@ python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
 
 - `main.py`: 命令行入口，负责读取 `plan.json` 并执行。
 - `src/keygen_automation/`: 自动化执行内核。
-- `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是全局 plan 配置。
+- `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是公开示例 plan 的集合级配置。
 - `test-plans/`: 项目真实自动化需求 plan 包。
 - `handbook/`: 面向人的组件手册。
 - `docs/`: 项目架构、设计、排期、问题和重构记录。
@@ -52,7 +52,7 @@ plan-package/
 ```
 
 - `plan.json`: 需求入口，也是最小可执行单元。
-- `config.json`: 本 plan 包局部配置，只对当前 plan 可见，优先级高于 `plans/config.json`。
+- `config.json`: 本 plan 包局部配置，只对当前 plan 可见，优先级高于所属集合的 `config.json`。
 - `sub-plans/*-plan.json`: 同包内部子计划，只能被本包 `plan.json` 通过 `run_sub_plan` 引用。
 - `resources/`: 本需求独占资源。
 - `output/`: 本需求运行输出，由 Git 忽略。截图、录屏、下载、日志、报告和运行中间产物都必须写在这里。
@@ -64,11 +64,12 @@ plan-package/
 
 ## 配置优先级
 
-- `plans/config.json`: 全局共享配置。
+- `plans/config.json`: 公开示例 plan 的集合级共享配置。
+- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量和 AI 服务注册。
 - `plan-package/config.json`: 当前 plan 包局部配置，只能当前 plan 访问。
 - 相同字段局部配置覆盖全局配置。
 - `config.variables` 会注入为变量，也可以通过 `{{config.xxx}}` 访问完整合并配置。
-- 变量优先级：内置变量 < 全局 `config.variables` < 局部 `config.variables` < `plan.json` 的 `variables`。
+- 变量优先级：内置变量 < 集合级 `config.variables` < 局部 `config.variables` < `plan.json` 的 `variables`。
 
 ## 当前支持的动作组件
 

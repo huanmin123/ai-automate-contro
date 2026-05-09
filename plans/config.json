@@ -1,5 +1,5 @@
 {
-  "description": "Global shared plan configuration. Local plan config.json can override these values.",
+  "description": "Shared configuration for public example plans. Plan-local config.json can override these values.",
   "variables": {
     "default_timeout_ms": 15000
   }

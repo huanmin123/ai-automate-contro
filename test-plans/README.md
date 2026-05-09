@@ -26,7 +26,7 @@ test-plans/<category>/<requirement>/
 
 禁止让一个主 `plan.json` 引用另一个需求的 `plan.json`。不同需求之间保持独立；需要批量执行时，优先由外部脚本扫描多个 plan 包。
 
-全局共享配置放在 `plans/config.json`。如果当前 plan 包也有 `config.json`，相同字段以当前 plan 包为准。
+本测试集合共享配置放在 `test-plans/config.json`。如果当前 plan 包也有 `config.json`，相同字段以当前 plan 包为准。
 
 `test-plans/` 下面直接按类别存放 plan 包，不再增加 `plans/`、`suites/`、`workspaces/` 这类中间目录：
 

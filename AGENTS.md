@@ -16,11 +16,10 @@
 - `main.py`: CLI 入口，负责加载 `plan.json` 并执行。
 - `src/keygen_automation/`: 自动化执行内核，修改功能逻辑优先从这里入手。
 - `handbook/`: 唯一教程来源；新增或变更动作组件时，必须同步补充对应手册。
-- `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是全局 plan 配置。
+- `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是公开示例 plan 的集合级配置。
 - `test-plans/`: 项目真实自动化 plan 包。
 - `docs/`: 架构、功能设计、计划、缺陷和重构记录。
-- `config/ai-services.example.json`: AI 服务配置示例。
-- `config/ai-services.json`: 本地真实配置，可能包含密钥或内网地址，不应提交。
+- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量和 AI 服务注册。
 - `plans/**/output/` 和 `test-plans/**/output/`: plan 的运行输出，不应提交。
 
 ## 常用命令
@@ -39,7 +38,7 @@ python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
 - `plan.json` 是最小可执行单元，可以通过 `run_sub_plan` 调用同包内的 `sub-plans/*-plan.json` 子计划。
 - 子计划只能放在当前 plan 包的 `sub-plans/` 目录下，文件名使用 kebab-case 并以 `-plan.json` 结尾；顺序敏感时可使用 `01-xxx-plan.json`。
 - `test-plans/` 下面直接按类别放 plan 包，不要再增加 `plans/`、`suites/`、`workspaces/` 中间层。
-- 全局 plan 配置固定放在 `plans/config.json`；局部 plan 配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。
+- 集合级 plan 配置固定放在 `plans/config.json` 或 `test-plans/config.json`；局部 plan 配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。
 - 禁止让一个主 `plan.json` 引用另一个主 `plan.json`，不同需求包之间保持独立。
 - 运行产物必须写入当前 plan 包的 `output/` 目录；输出动作的配置路径是相对于 `output/` 的路径，不能以 `output/` 开头。截图、录屏、下载、HTML、JSON、CSV、TXT、storage state、失败截图和 OCR 临时截图都不能写到源码、`resources/` 或仓库其他位置。
 - 参数级别一致的组件必须收敛为单个 action，并通过 `type` 区分具体操作，例如 `navigate`、`page`、`element`、`wait`、`extract`、`assert`、`capture`、`read`、`write`。
@@ -61,5 +60,5 @@ python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
 
 - 允许提交源码、文档、手册和可复现示例。
 - 不提交任何 plan 包下的 `output/` 目录。
-- 不提交 `config/ai-services.json`，只维护 `config/ai-services.example.json`。
+- 不再使用根目录 `config/` 存放 plan 运行配置；共享配置放到对应 plan 集合的 `config.json`。
 - 如果历史上已经跟踪了应忽略文件，`.gitignore` 不会自动移除它们，需要单独从索引中移除。

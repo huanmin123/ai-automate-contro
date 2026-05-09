@@ -62,7 +62,7 @@ def execute_plan(
             plan_path=resolved_plan_path,
             package_dir=plan_dir,
             variables=variables,
-            ai_registry=AiRegistry(root_path, resolved_plan_path.parent if resolved_plan_path else root_path),
+            ai_registry=AiRegistry(plan_config),
         )
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
         executor = ActionExecutor(state)

@@ -23,8 +23,8 @@
 ### 1. AI 服务注册层
 
 - `src/keygen_automation/ai_registry.py`
-- `config/ai-services.json`
-- `config/ai-services.local.json`
+- `plans/config.json`
+- `test-plans/config.json`
 
 职责：
 

@@ -40,15 +40,11 @@
 
 ## 配置入口
 
-推荐在项目根目录维护：
+AI 服务注册属于 plan 集合级共享配置。
 
-- `config/ai-services.example.json`
-- `config/ai-services.local.json`
-
-其中：
-
-- `example` 用来示范结构
-- `local` 用来放你自己机器或内网服务的真实配置
+- 公开示例 plan 使用 `plans/config.json`
+- 项目测试 plan 使用 `test-plans/config.json`
+- 单个 plan 的特殊配置放在该 plan 包根目录的 `config.json`
 
 ## 配置设计
 

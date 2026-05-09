@@ -1,4 +1,8 @@
 {
+  "description": "Shared configuration for project test plans. Plan-local config.json can override these values.",
+  "variables": {
+    "default_timeout_ms": 15000
+  },
   "ocr_services": {
     "local_ocr": {
       "base_url": "http://192.168.1.203:18731",

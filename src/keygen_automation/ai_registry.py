@@ -29,10 +29,8 @@ class LlmServiceConfig:
 
 
 class AiRegistry:
-    def __init__(self, project_root: Path, plan_dir: Path | None) -> None:
-        self.project_root = project_root
-        self.plan_dir = plan_dir or project_root
-        self.config = self._load_config()
+    def __init__(self, config: dict[str, Any]) -> None:
+        self.config = config
 
     def get_ocr_service(self, name: str) -> OcrServiceConfig:
         services = self.config.get("ocr_services", {})
@@ -85,18 +83,6 @@ class AiRegistry:
             base_url=service.base_url,
             timeout=service.timeout_seconds,
         )
-
-    def _load_config(self) -> dict[str, Any]:
-        candidates = [
-            self.project_root / "config" / "ai-services.local.json",
-            self.project_root / "config" / "ai-services.json",
-        ]
-        for path in candidates:
-            if path.exists():
-                with path.open("r", encoding="utf-8") as file:
-                    return json.load(file)
-        return {"ocr_services": {}, "llm_services": {}}
-
 
 def data_url_to_bytes(data_url: str) -> tuple[bytes, str]:
     if not data_url.startswith("data:"):

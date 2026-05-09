@@ -23,6 +23,7 @@ dist/
 .env.*
 !.env.example
 config/ai-services.json
+config/
 *.local.json
 *.secret.json
 *.secrets.json
