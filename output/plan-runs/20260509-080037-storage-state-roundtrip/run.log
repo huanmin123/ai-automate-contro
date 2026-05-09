@@ -1,0 +1,16 @@
+[2026-05-09T08:00:37][INFO] plan started | {"run_name": "storage-state-roundtrip", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\storage_state_roundtrip.example.json"}
+[2026-05-09T08:00:37][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "state_demo"}
+[2026-05-09T08:00:38][INFO] browser opened | {"browser": "state_demo"}
+[2026-05-09T08:00:38][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "state_demo"}
+[2026-05-09T08:00:38][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:00:39][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:00:39][INFO] step 3 start | {"step": 3, "action": "save_storage_state", "step_name": "save_storage_state"}
+[2026-05-09T08:00:39][INFO] storage state saved | {"browser": "state_demo", "path": "F:\\python\\keygen-openai-account\\output\\examples\\state-demo.json"}
+[2026-05-09T08:00:39][INFO] step 3 finished | {"step": 3, "action": "save_storage_state", "step_name": "save_storage_state"}
+[2026-05-09T08:00:39][INFO] step 4 start | {"step": 4, "action": "load_storage_state", "step_name": "load_storage_state"}
+[2026-05-09T08:00:39][INFO] storage state path loaded | {"save_as": "saved_state_path", "path": "F:\\python\\keygen-openai-account\\output\\examples\\state-demo.json"}
+[2026-05-09T08:00:39][INFO] step 4 finished | {"step": 4, "action": "load_storage_state", "step_name": "load_storage_state"}
+[2026-05-09T08:00:39][INFO] step 5 start | {"step": 5, "action": "dump_variables", "step_name": "dump_variables"}
+[2026-05-09T08:00:39][INFO] variables dumped | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\storage-state-roundtrip.variables.json"}
+[2026-05-09T08:00:39][INFO] step 5 finished | {"step": 5, "action": "dump_variables", "step_name": "dump_variables"}
+[2026-05-09T08:00:40][INFO] plan finished | {"run_name": "storage-state-roundtrip"}

@@ -1,0 +1,12 @@
+{
+  "run_name": "navigation-controls",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\navigation_controls.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-073249-navigation-controls",
+  "started_at": "2026-05-09T07:32:49",
+  "finished_at": "2026-05-09T07:32:55",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {}
+}

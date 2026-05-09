@@ -1,0 +1,12 @@
+{
+  "run_name": "file-io",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\file_io.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-024314-file-io",
+  "started_at": "2026-05-09T02:43:14",
+  "finished_at": "2026-05-09T02:43:15",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {}
+}

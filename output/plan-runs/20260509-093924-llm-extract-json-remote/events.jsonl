@@ -1,0 +1,4 @@
+{"timestamp": "2026-05-09T09:39:24", "level": "INFO", "message": "plan started", "fields": {"run_name": "llm-extract-json-remote", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\llm_extract_json_remote.example.json"}}
+{"timestamp": "2026-05-09T09:39:24", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "llm_extract_json", "step_name": "llm_extract_json"}}
+{"timestamp": "2026-05-09T09:42:27", "level": "ERROR", "message": "step 1 failed", "fields": {"step": 1, "action": "llm_extract_json", "step_name": "llm_extract_json", "error": "Request timed out."}}
+{"timestamp": "2026-05-09T09:42:27", "level": "INFO", "message": "plan finished", "fields": {"run_name": "llm-extract-json-remote"}}

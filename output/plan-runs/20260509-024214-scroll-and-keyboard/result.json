@@ -1,0 +1,12 @@
+{
+  "run_name": "scroll-and-keyboard",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\scroll_and_keyboard.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-024214-scroll-and-keyboard",
+  "started_at": "2026-05-09T02:42:14",
+  "finished_at": "2026-05-09T02:42:21",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {}
+}

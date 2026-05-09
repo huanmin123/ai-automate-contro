@@ -1,0 +1,13 @@
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "plan started", "fields": {"run_name": "extract-table", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\extract_table.example.json"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "browser opened", "fields": {"browser": "demo"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "extract_table", "step_name": "extract_table"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "table extracted", "fields": {"save_as": "table_rows", "count": 2}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "extract_table", "step_name": "extract_table"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 4 start", "fields": {"step": 4, "action": "write_json", "step_name": "write_json"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "json written", "fields": {"path": "F:\\python\\keygen-openai-account\\output\\examples\\extract-table.json"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "step 4 finished", "fields": {"step": 4, "action": "write_json", "step_name": "write_json"}}
+{"timestamp": "2026-05-09T08:12:43", "level": "INFO", "message": "plan finished", "fields": {"run_name": "extract-table"}}

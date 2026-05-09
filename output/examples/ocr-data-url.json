@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "source_type": "image",
+  "text": "HELLO\n123",
+  "blocks": [
+    {
+      "text": "HELLO",
+      "confidence": 0.96,
+      "bbox": [
+        42,
+        40,
+        101,
+        70
+      ]
+    },
+    {
+      "text": "123",
+      "confidence": 0.94,
+      "bbox": [
+        112,
+        44,
+        144,
+        60
+      ]
+    }
+  ],
+  "meta": {
+    "engine": "tesseract",
+    "language": "ch",
+    "filename": "ocr-sample.png",
+    "block_count": 2,
+    "selected_strategy": "upscale2",
+    "selected_config": "--psm 6",
+    "score": 87.0,
+    "avg_confidence": 0.95,
+    "low_confidence_block_count": 0,
+    "errors": [],
+    "elapsed_ms": 554,
+    "worker_backend": "threadpool",
+    "ocr_workers": 5,
+    "candidate_count": 3
+  },
+  "errors": []
+}

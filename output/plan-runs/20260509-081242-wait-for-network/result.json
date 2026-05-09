@@ -1,0 +1,15 @@
+{
+  "run_name": "wait-for-network",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\wait_for_network.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-081242-wait-for-network",
+  "started_at": "2026-05-09T08:12:42",
+  "finished_at": "2026-05-09T08:12:44",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

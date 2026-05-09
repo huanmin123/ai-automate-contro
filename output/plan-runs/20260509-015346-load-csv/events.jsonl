@@ -1,0 +1,11 @@
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "plan started", "fields": {"run_name": "load-csv", "plan_path": "F:\\python\\keygen-openai-account\\plans\\load_csv.example.json"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "load_csv", "step_name": "load_csv"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "csv loaded", "fields": {"path": "F:\\python\\keygen-openai-account\\data\\sample_accounts.csv", "save_as": "rows", "count": 3}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "load_csv", "step_name": "load_csv"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "print", "step_name": "print"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "CSV 已加载，行数为 [{'email': 'alpha@example.com', 'project': 'project-a'}, {'email': 'beta@example.com', 'project': 'project-b'}, {'email': 'gamma@example.com', 'project': 'project-c'}]", "fields": {}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "print", "step_name": "print"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "dump_variables", "step_name": "dump_variables"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "variables dumped", "fields": {"path": "F:\\python\\keygen-openai-account\\output\\examples\\load-csv.variables.json"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "dump_variables", "step_name": "dump_variables"}}
+{"timestamp": "2026-05-09T01:53:47", "level": "INFO", "message": "plan finished", "fields": {"run_name": "load-csv"}}

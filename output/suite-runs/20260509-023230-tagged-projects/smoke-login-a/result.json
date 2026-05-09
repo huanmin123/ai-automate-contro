@@ -1,0 +1,16 @@
+{
+  "run_name": "smoke-login-a",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\fill_system_account.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\suite-runs\\20260509-023230-tagged-projects\\smoke-login-a",
+  "started_at": "2026-05-09T02:32:30",
+  "finished_at": "2026-05-09T02:32:39",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [
+    "smoke",
+    "login",
+    "project-a"
+  ],
+  "metadata": {}
+}

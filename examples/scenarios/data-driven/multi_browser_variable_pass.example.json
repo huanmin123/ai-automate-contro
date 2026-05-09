@@ -1,0 +1,51 @@
+{
+  "name": "multi-browser-variable-pass",
+  "variables": {
+    "login_url": "https://aijh.huanmin.top/"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "source",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "source",
+      "url": "{{login_url}}"
+    },
+    {
+      "action": "manual_confirm",
+      "prompt": "请手动在 source 页面准备好数据，然后输入 y 继续: "
+    },
+    {
+      "action": "extract_value",
+      "browser": "source",
+      "selector": "input[autocomplete='username']",
+      "save_as": "shared_email"
+    },
+    {
+      "action": "open_browser",
+      "name": "target",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "target",
+      "url": "{{login_url}}"
+    },
+    {
+      "action": "fill",
+      "browser": "target",
+      "selector": "input[autocomplete='username']",
+      "value": "{{shared_email}}"
+    },
+    {
+      "action": "wait",
+      "browser": "target",
+      "seconds": 5
+    }
+  ]
+}

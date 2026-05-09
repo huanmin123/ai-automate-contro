@@ -1,0 +1,30 @@
+{
+  "name": "storage-state-roundtrip",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "state_demo",
+      "headed": true
+    },
+    {
+      "action": "goto",
+      "browser": "state_demo",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "save_storage_state",
+      "browser": "state_demo",
+      "path": "../../../output/examples/state-demo.json"
+    },
+    {
+      "action": "load_storage_state",
+      "path": "../../../output/examples/state-demo.json",
+      "save_as": "saved_state_path"
+    },
+    {
+      "action": "dump_variables",
+      "path": "../../../output/examples/storage-state-roundtrip.variables.json"
+    }
+  ]
+}

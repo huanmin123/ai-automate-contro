@@ -1,0 +1,35 @@
+{
+  "variables": {
+    "email": "test@example.com"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "login",
+      "headed": true,
+      "slow_mo_ms": 200,
+      "timeout_ms": 15000
+    },
+    {
+      "action": "goto",
+      "browser": "login",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "wait_for_selector",
+      "browser": "login",
+      "selector": "input[autocomplete='username']"
+    },
+    {
+      "action": "fill",
+      "browser": "login",
+      "selector": "input[autocomplete='username']",
+      "value": "{{email}}"
+    },
+    {
+      "action": "wait",
+      "browser": "login",
+      "seconds": 5
+    }
+  ]
+}

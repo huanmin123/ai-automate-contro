@@ -1,0 +1,28 @@
+{
+  "name": "if-branch",
+  "variables": {
+    "mode": "debug"
+  },
+  "steps": [
+    {
+      "action": "if",
+      "condition": {
+        "type": "equals",
+        "left": "{{mode}}",
+        "right": "debug"
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "当前是调试模式"
+        }
+      ],
+      "else": [
+        {
+          "action": "print",
+          "message": "当前不是调试模式"
+        }
+      ]
+    }
+  ]
+}

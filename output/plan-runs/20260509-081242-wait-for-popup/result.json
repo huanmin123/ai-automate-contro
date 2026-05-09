@@ -1,0 +1,17 @@
+{
+  "run_name": "wait-for-popup",
+  "status": "failed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\wait_for_popup.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-081242-wait-for-popup",
+  "started_at": "2026-05-09T08:12:42",
+  "finished_at": "2026-05-09T08:12:58",
+  "error": "Timeout 15000ms exceeded while waiting for event \"popup\"\n=========================== logs ===========================\nwaiting for event \"popup\"\n============================================================",
+  "failure_screenshots": [
+    "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-081242-wait-for-popup\\failure-screenshots\\step-003-demo-main-wait_for_popup.png"
+  ],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

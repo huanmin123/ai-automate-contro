@@ -1,0 +1,35 @@
+{
+  "name": "wait-variants",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "wait_for_text",
+      "browser": "demo",
+      "selector": "button:has-text('进入控制台')",
+      "text": "进入控制台",
+      "mode": "equals"
+    },
+    {
+      "action": "wait_for_count",
+      "browser": "demo",
+      "selector": "input",
+      "expected": 3
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 2
+    }
+  ]
+}

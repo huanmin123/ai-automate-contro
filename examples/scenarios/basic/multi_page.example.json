@@ -1,0 +1,48 @@
+{
+  "name": "multi-page",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "open_new_page",
+      "browser": "demo",
+      "page": "docs",
+      "url": "https://example.com"
+    },
+    {
+      "action": "assert_url_contains",
+      "browser": "demo",
+      "expected": "example.com"
+    },
+    {
+      "action": "switch_page",
+      "browser": "demo",
+      "page": "main"
+    },
+    {
+      "action": "assert_url_contains",
+      "browser": "demo",
+      "expected": "huanmin.top"
+    },
+    {
+      "action": "close_page",
+      "browser": "demo",
+      "page": "docs"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 2
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "run_name": "ocr-selector-capture",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_selector_capture.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-093554-ocr-selector-capture",
+  "started_at": "2026-05-09T09:35:54",
+  "finished_at": "2026-05-09T09:35:56",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

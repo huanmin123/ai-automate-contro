@@ -1,0 +1,14 @@
+[2026-05-09T08:13:28][INFO] plan started | {"run_name": "wait-for-popup", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\wait_for_popup.example.json"}
+[2026-05-09T08:13:28][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T08:13:29][INFO] browser opened | {"browser": "demo"}
+[2026-05-09T08:13:29][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T08:13:29][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:13:29][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:13:29][INFO] step 3 start | {"step": 3, "action": "wait_for_popup", "step_name": "wait_for_popup"}
+[2026-05-09T08:13:29][INFO] step 4 start | {"step": 4, "action": "click", "step_name": "click"}
+[2026-05-09T08:13:29][INFO] step 4 finished | {"step": 4, "action": "click", "step_name": "click"}
+[2026-05-09T08:13:29][INFO] popup captured | {"browser": "demo", "page": "popup", "url": "https://example.com/?popup=1"}
+[2026-05-09T08:13:29][INFO] step 3 finished | {"step": 3, "action": "wait_for_popup", "step_name": "wait_for_popup"}
+[2026-05-09T08:13:29][INFO] step 5 start | {"step": 5, "action": "assert_text", "step_name": "assert_text"}
+[2026-05-09T08:13:29][INFO] step 5 finished | {"step": 5, "action": "assert_text", "step_name": "assert_text"}
+[2026-05-09T08:13:29][INFO] plan finished | {"run_name": "wait-for-popup"}

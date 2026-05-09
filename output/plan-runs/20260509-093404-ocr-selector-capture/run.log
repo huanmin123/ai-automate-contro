@@ -1,0 +1,10 @@
+[2026-05-09T09:34:04][INFO] plan started | {"run_name": "ocr-selector-capture", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_selector_capture.example.json"}
+[2026-05-09T09:34:04][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T09:34:05][INFO] browser opened | {"browser": "demo"}
+[2026-05-09T09:34:05][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T09:34:05][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T09:34:05][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T09:34:05][INFO] step 3 start | {"step": 3, "action": "ocr_image", "step_name": "ocr_image"}
+[2026-05-09T09:34:20][WARNING] failure screenshot captured | {"step": 3, "step_name": "ocr_image", "browser": "demo", "page": "main", "path": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-093404-ocr-selector-capture\\failure-screenshots\\step-003-demo-main-ocr_image.png"}
+[2026-05-09T09:34:20][ERROR] step 3 failed | {"step": 3, "action": "ocr_image", "step_name": "ocr_image", "error": "Locator.screenshot: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#ocr-target\")\n"}
+[2026-05-09T09:34:20][INFO] plan finished | {"run_name": "ocr-selector-capture"}

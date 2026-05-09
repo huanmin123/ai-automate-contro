@@ -1,0 +1,21 @@
+{"timestamp": "2026-05-09T02:42:14", "level": "INFO", "message": "plan started", "fields": {"run_name": "scroll-and-keyboard", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\scroll_and_keyboard.example.json"}}
+{"timestamp": "2026-05-09T02:42:14", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T02:42:14", "level": "INFO", "message": "browser opened", "fields": {"browser": "demo"}}
+{"timestamp": "2026-05-09T02:42:14", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T02:42:14", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T02:42:15", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T02:42:15", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "focus", "step_name": "focus"}}
+{"timestamp": "2026-05-09T02:42:15", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "focus", "step_name": "focus"}}
+{"timestamp": "2026-05-09T02:42:15", "level": "INFO", "message": "step 4 start", "fields": {"step": 4, "action": "keyboard_type", "step_name": "keyboard_type"}}
+{"timestamp": "2026-05-09T02:42:16", "level": "INFO", "message": "step 4 finished", "fields": {"step": 4, "action": "keyboard_type", "step_name": "keyboard_type"}}
+{"timestamp": "2026-05-09T02:42:16", "level": "INFO", "message": "step 5 start", "fields": {"step": 5, "action": "keyboard_press", "step_name": "keyboard_press"}}
+{"timestamp": "2026-05-09T02:42:16", "level": "INFO", "message": "step 5 finished", "fields": {"step": 5, "action": "keyboard_press", "step_name": "keyboard_press"}}
+{"timestamp": "2026-05-09T02:42:16", "level": "INFO", "message": "step 6 start", "fields": {"step": 6, "action": "keyboard_type", "step_name": "keyboard_type"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 6 finished", "fields": {"step": 6, "action": "keyboard_type", "step_name": "keyboard_type"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 7 start", "fields": {"step": 7, "action": "scroll_by", "step_name": "scroll_by"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 7 finished", "fields": {"step": 7, "action": "scroll_by", "step_name": "scroll_by"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 8 start", "fields": {"step": 8, "action": "mouse_wheel", "step_name": "mouse_wheel"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 8 finished", "fields": {"step": 8, "action": "mouse_wheel", "step_name": "mouse_wheel"}}
+{"timestamp": "2026-05-09T02:42:18", "level": "INFO", "message": "step 9 start", "fields": {"step": 9, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T02:42:21", "level": "INFO", "message": "step 9 finished", "fields": {"step": 9, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T02:42:21", "level": "INFO", "message": "plan finished", "fields": {"run_name": "scroll-and-keyboard"}}

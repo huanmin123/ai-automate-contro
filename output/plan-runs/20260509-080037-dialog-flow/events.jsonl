@@ -1,0 +1,10 @@
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "plan started", "fields": {"run_name": "dialog-flow", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\dialog_flow.example.json"}}
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "dialog_demo"}}
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "browser opened", "fields": {"browser": "dialog_demo"}}
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "dialog_demo"}}
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:00:38", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:00:38", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "click", "step_name": "click"}}
+{"timestamp": "2026-05-09T08:00:53", "level": "WARNING", "message": "failure screenshot capture failed", "fields": {"step": 3, "step_name": "click", "browser": "dialog_demo", "error": "'BrowserSession' object has no attribute 'page'"}}
+{"timestamp": "2026-05-09T08:00:53", "level": "ERROR", "message": "step 3 failed", "fields": {"step": 3, "action": "click", "step_name": "click", "error": "Locator.click: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#alertBtn\")\n    - locator resolved to <button id=\"alertBtn\" onclick=\"alert(\"hello dialog\")\">Open Alert</button>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n    - element is visible, enabled and stable\n    - scrolling into view if needed\n    - done scrolling\n    - performing click action\n"}}
+{"timestamp": "2026-05-09T08:00:53", "level": "INFO", "message": "plan finished", "fields": {"run_name": "dialog-flow"}}

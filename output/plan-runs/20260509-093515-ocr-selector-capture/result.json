@@ -1,0 +1,17 @@
+{
+  "run_name": "ocr-selector-capture",
+  "status": "failed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_selector_capture.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-093515-ocr-selector-capture",
+  "started_at": "2026-05-09T09:35:15",
+  "finished_at": "2026-05-09T09:35:31",
+  "error": "Page.wait_for_selector: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#ocr-target\") to be visible\n",
+  "failure_screenshots": [
+    "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-093515-ocr-selector-capture\\failure-screenshots\\step-003-demo-main-wait_for_selector.png"
+  ],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

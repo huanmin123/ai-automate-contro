@@ -1,0 +1,10 @@
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "plan started", "fields": {"run_name": "save-page-html", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\save_page_html.example.json"}}
+{"timestamp": "2026-05-09T08:00:37", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T08:00:38", "level": "INFO", "message": "browser opened", "fields": {"browser": "demo"}}
+{"timestamp": "2026-05-09T08:00:38", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T08:00:38", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:00:40", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T08:00:40", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "save_page_html", "step_name": "save_page_html"}}
+{"timestamp": "2026-05-09T08:00:40", "level": "INFO", "message": "page html saved", "fields": {"path": "F:\\python\\keygen-openai-account\\output\\examples\\login-page.html"}}
+{"timestamp": "2026-05-09T08:00:40", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "save_page_html", "step_name": "save_page_html"}}
+{"timestamp": "2026-05-09T08:00:40", "level": "INFO", "message": "plan finished", "fields": {"run_name": "save-page-html"}}

@@ -1,0 +1,4 @@
+[2026-05-09T08:31:31][INFO] plan started | {"run_name": "llm-chat-local-gateway", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\llm_chat_local_gateway.example.json"}
+[2026-05-09T08:31:31][INFO] step 1 start | {"step": 1, "action": "llm_chat", "step_name": "llm_chat"}
+[2026-05-09T08:34:34][ERROR] step 1 failed | {"step": 1, "action": "llm_chat", "step_name": "llm_chat", "error": "Request timed out."}
+[2026-05-09T08:34:34][INFO] plan finished | {"run_name": "llm-chat-local-gateway"}

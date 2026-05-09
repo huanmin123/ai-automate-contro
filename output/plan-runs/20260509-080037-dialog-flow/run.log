@@ -1,0 +1,10 @@
+[2026-05-09T08:00:37][INFO] plan started | {"run_name": "dialog-flow", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\dialog_flow.example.json"}
+[2026-05-09T08:00:37][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "dialog_demo"}
+[2026-05-09T08:00:37][INFO] browser opened | {"browser": "dialog_demo"}
+[2026-05-09T08:00:37][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "dialog_demo"}
+[2026-05-09T08:00:37][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:00:38][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:00:38][INFO] step 3 start | {"step": 3, "action": "click", "step_name": "click"}
+[2026-05-09T08:00:53][WARNING] failure screenshot capture failed | {"step": 3, "step_name": "click", "browser": "dialog_demo", "error": "'BrowserSession' object has no attribute 'page'"}
+[2026-05-09T08:00:53][ERROR] step 3 failed | {"step": 3, "action": "click", "step_name": "click", "error": "Locator.click: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#alertBtn\")\n    - locator resolved to <button id=\"alertBtn\" onclick=\"alert(\"hello dialog\")\">Open Alert</button>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n    - element is visible, enabled and stable\n    - scrolling into view if needed\n    - done scrolling\n    - performing click action\n"}
+[2026-05-09T08:00:53][INFO] plan finished | {"run_name": "dialog-flow"}

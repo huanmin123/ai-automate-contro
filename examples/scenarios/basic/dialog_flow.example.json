@@ -1,0 +1,30 @@
+{
+  "name": "dialog-flow",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "dialog_demo",
+      "headed": true
+    },
+    {
+      "action": "goto",
+      "browser": "dialog_demo",
+      "url": "data:text/html,<html><body><button id='alertBtn' onclick='confirm(\"hello dialog\")'>Open Dialog</button></body></html>"
+    },
+    {
+      "action": "accept_dialog",
+      "browser": "dialog_demo",
+      "trigger": {
+        "action": "click",
+        "browser": "dialog_demo",
+        "selector": "#alertBtn"
+      }
+    },
+    {
+      "action": "wait",
+      "browser": "dialog_demo",
+      "seconds": 1
+    }
+  ]
+}

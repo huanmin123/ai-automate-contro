@@ -1,0 +1,13 @@
+{"timestamp": "2026-05-09T02:37:33", "level": "INFO", "message": "plan started", "fields": {"run_name": "smoke-login-a", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\fill_system_account.example.json"}}
+{"timestamp": "2026-05-09T02:37:33", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "login"}}
+{"timestamp": "2026-05-09T02:37:33", "level": "INFO", "message": "browser opened", "fields": {"browser": "login"}}
+{"timestamp": "2026-05-09T02:37:33", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "login"}}
+{"timestamp": "2026-05-09T02:37:33", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 4 start", "fields": {"step": 4, "action": "fill", "step_name": "fill"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 4 finished", "fields": {"step": 4, "action": "fill", "step_name": "fill"}}
+{"timestamp": "2026-05-09T02:37:36", "level": "INFO", "message": "step 5 start", "fields": {"step": 5, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T02:37:41", "level": "INFO", "message": "step 5 finished", "fields": {"step": 5, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T02:37:42", "level": "INFO", "message": "plan finished", "fields": {"run_name": "smoke-login-a"}}

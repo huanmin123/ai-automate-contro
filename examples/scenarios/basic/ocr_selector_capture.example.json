@@ -1,0 +1,39 @@
+{
+  "name": "ocr-selector-capture",
+  "variables": {},
+  "steps": [
+    {
+      "action": "write_text",
+      "path": "../../../output/examples/ocr-selector-capture.html",
+      "content": "<html><body><div id=\"ocr-target\" style=\"display:inline-block;border:1px solid #333;padding:16px;font-size:28px;font-family:Arial;background:#fff;color:#000\">ORDER-9281</div></body></html>"
+    },
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "file:///F:/python/keygen-openai-account/output/examples/ocr-selector-capture.html"
+    },
+    {
+      "action": "wait_for_selector",
+      "browser": "demo",
+      "selector": "#ocr-target"
+    },
+    {
+      "action": "ocr_image",
+      "service": "local_ocr",
+      "browser": "demo",
+      "selector": "#ocr-target",
+      "save_as": "ocr_result",
+      "save_text_as": "ocr_text"
+    },
+    {
+      "action": "write_json",
+      "path": "../../../output/examples/ocr-selector-capture.json",
+      "value": "{{ocr_result}}"
+    }
+  ]
+}

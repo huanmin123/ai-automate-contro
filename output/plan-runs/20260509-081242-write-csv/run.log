@@ -1,0 +1,11 @@
+[2026-05-09T08:12:43][INFO] plan started | {"run_name": "write-csv", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\write_csv.example.json"}
+[2026-05-09T08:12:43][INFO] step 1 start | {"step": 1, "action": "write_csv", "step_name": "write_csv"}
+[2026-05-09T08:12:43][INFO] csv written | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\write-csv.csv"}
+[2026-05-09T08:12:43][INFO] step 1 finished | {"step": 1, "action": "write_csv", "step_name": "write_csv"}
+[2026-05-09T08:12:43][INFO] step 2 start | {"step": 2, "action": "load_csv", "step_name": "load_csv"}
+[2026-05-09T08:12:43][INFO] csv loaded | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\write-csv.csv", "save_as": "loaded_rows", "count": 2}
+[2026-05-09T08:12:43][INFO] step 2 finished | {"step": 2, "action": "load_csv", "step_name": "load_csv"}
+[2026-05-09T08:12:43][INFO] step 3 start | {"step": 3, "action": "write_json", "step_name": "write_json"}
+[2026-05-09T08:12:43][INFO] json written | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\write-csv.json"}
+[2026-05-09T08:12:43][INFO] step 3 finished | {"step": 3, "action": "write_json", "step_name": "write_json"}
+[2026-05-09T08:12:43][INFO] plan finished | {"run_name": "write-csv"}

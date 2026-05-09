@@ -1,0 +1,15 @@
+{
+  "run_name": "dialog-flow",
+  "status": "failed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\dialog_flow.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-080129-dialog-flow",
+  "started_at": "2026-05-09T08:01:29",
+  "finished_at": "2026-05-09T08:02:00",
+  "error": "Locator.click: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#alertBtn\")\n    - locator resolved to <button id=\"alertBtn\" onclick=\"confirm(\"hello dialog\")\">Open Dialog</button>\n  - attempting click action\n    - waiting for element to be visible, enabled and stable\n    - element is visible, enabled and stable\n    - scrolling into view if needed\n    - done scrolling\n    - performing click action\n",
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": "hello dialog"
+  }
+}

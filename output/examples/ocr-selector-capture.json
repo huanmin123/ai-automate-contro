@@ -1,0 +1,34 @@
+{
+  "ok": true,
+  "source_type": "image",
+  "text": "ORDER-9281",
+  "blocks": [
+    {
+      "text": "ORDER-9281",
+      "confidence": 0.92,
+      "bbox": [
+        18,
+        22,
+        185,
+        42
+      ]
+    }
+  ],
+  "meta": {
+    "engine": "tesseract",
+    "language": "ch",
+    "filename": "ocr_result.png",
+    "block_count": 1,
+    "selected_strategy": "original",
+    "selected_config": "--psm 6",
+    "score": 84.1,
+    "avg_confidence": 0.92,
+    "low_confidence_block_count": 0,
+    "errors": [],
+    "elapsed_ms": 567,
+    "worker_backend": "threadpool",
+    "ocr_workers": 5,
+    "candidate_count": 3
+  },
+  "errors": []
+}

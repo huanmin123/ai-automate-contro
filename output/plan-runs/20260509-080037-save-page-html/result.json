@@ -1,0 +1,15 @@
+{
+  "run_name": "save-page-html",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\save_page_html.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-080037-save-page-html",
+  "started_at": "2026-05-09T08:00:37",
+  "finished_at": "2026-05-09T08:00:40",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

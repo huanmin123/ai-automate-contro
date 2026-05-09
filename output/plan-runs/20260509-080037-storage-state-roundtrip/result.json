@@ -1,0 +1,15 @@
+{
+  "run_name": "storage-state-roundtrip",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\storage_state_roundtrip.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-080037-storage-state-roundtrip",
+  "started_at": "2026-05-09T08:00:37",
+  "finished_at": "2026-05-09T08:00:40",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

@@ -1,0 +1,22 @@
+{"timestamp": "2026-05-09T07:47:15", "level": "INFO", "message": "plan started", "fields": {"run_name": "multi-page", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\multi_page.example.json"}}
+{"timestamp": "2026-05-09T07:47:15", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T07:47:15", "level": "INFO", "message": "browser opened", "fields": {"browser": "demo"}}
+{"timestamp": "2026-05-09T07:47:15", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T07:47:15", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T07:47:17", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T07:47:17", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "open_new_page", "step_name": "open_new_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "new page opened", "fields": {"browser": "demo", "page": "docs"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 3 finished", "fields": {"step": 3, "action": "open_new_page", "step_name": "open_new_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 4 start", "fields": {"step": 4, "action": "assert_url_contains", "step_name": "assert_url_contains"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 4 finished", "fields": {"step": 4, "action": "assert_url_contains", "step_name": "assert_url_contains"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 5 start", "fields": {"step": 5, "action": "switch_page", "step_name": "switch_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "page switched", "fields": {"browser": "demo", "page": "main"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 5 finished", "fields": {"step": 5, "action": "switch_page", "step_name": "switch_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 6 start", "fields": {"step": 6, "action": "assert_url_contains", "step_name": "assert_url_contains"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 6 finished", "fields": {"step": 6, "action": "assert_url_contains", "step_name": "assert_url_contains"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 7 start", "fields": {"step": 7, "action": "close_page", "step_name": "close_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "page closed", "fields": {"browser": "demo", "page": "docs"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 7 finished", "fields": {"step": 7, "action": "close_page", "step_name": "close_page"}}
+{"timestamp": "2026-05-09T07:47:18", "level": "INFO", "message": "step 8 start", "fields": {"step": 8, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T07:47:20", "level": "INFO", "message": "step 8 finished", "fields": {"step": 8, "action": "wait", "step_name": "wait"}}
+{"timestamp": "2026-05-09T07:47:20", "level": "INFO", "message": "plan finished", "fields": {"run_name": "multi-page"}}

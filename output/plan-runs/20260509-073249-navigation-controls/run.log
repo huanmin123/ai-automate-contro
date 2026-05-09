@@ -1,0 +1,19 @@
+[2026-05-09T07:32:49][INFO] plan started | {"run_name": "navigation-controls", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\navigation_controls.example.json"}
+[2026-05-09T07:32:49][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T07:32:50][INFO] browser opened | {"browser": "demo"}
+[2026-05-09T07:32:50][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T07:32:50][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T07:32:53][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T07:32:53][INFO] step 3 start | {"step": 3, "action": "assert_url_contains", "step_name": "assert_url_contains"}
+[2026-05-09T07:32:53][INFO] step 3 finished | {"step": 3, "action": "assert_url_contains", "step_name": "assert_url_contains"}
+[2026-05-09T07:32:53][INFO] step 4 start | {"step": 4, "action": "goto", "step_name": "goto"}
+[2026-05-09T07:32:53][INFO] step 4 finished | {"step": 4, "action": "goto", "step_name": "goto"}
+[2026-05-09T07:32:53][INFO] step 5 start | {"step": 5, "action": "go_back", "step_name": "go_back"}
+[2026-05-09T07:32:53][INFO] step 5 finished | {"step": 5, "action": "go_back", "step_name": "go_back"}
+[2026-05-09T07:32:53][INFO] step 6 start | {"step": 6, "action": "go_forward", "step_name": "go_forward"}
+[2026-05-09T07:32:53][INFO] step 6 finished | {"step": 6, "action": "go_forward", "step_name": "go_forward"}
+[2026-05-09T07:32:53][INFO] step 7 start | {"step": 7, "action": "refresh", "step_name": "refresh"}
+[2026-05-09T07:32:53][INFO] step 7 finished | {"step": 7, "action": "refresh", "step_name": "refresh"}
+[2026-05-09T07:32:53][INFO] step 8 start | {"step": 8, "action": "wait", "step_name": "wait"}
+[2026-05-09T07:32:55][INFO] step 8 finished | {"step": 8, "action": "wait", "step_name": "wait"}
+[2026-05-09T07:32:55][INFO] plan finished | {"run_name": "navigation-controls"}

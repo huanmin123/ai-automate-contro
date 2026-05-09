@@ -1,0 +1,18 @@
+{
+  "name": "ocr-data-url",
+  "variables": {},
+  "steps": [
+    {
+      "action": "ocr_image",
+      "service": "local_ocr",
+      "path": "../../../output/examples/ocr-sample.png",
+      "save_as": "ocr_result",
+      "save_text_as": "ocr_text"
+    },
+    {
+      "action": "write_json",
+      "path": "../../../output/examples/ocr-data-url.json",
+      "value": "{{ocr_result}}"
+    }
+  ]
+}

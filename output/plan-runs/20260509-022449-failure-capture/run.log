@@ -1,0 +1,10 @@
+[2026-05-09T02:24:50][INFO] plan started | {"run_name": "failure-capture", "plan_path": "F:\\python\\keygen-openai-account\\plans\\failure_capture.example.json"}
+[2026-05-09T02:24:50][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T02:24:50][INFO] browser opened | {"browser": "demo"}
+[2026-05-09T02:24:50][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T02:24:50][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T02:24:52][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T02:24:52][INFO] step 3 start | {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector"}
+[2026-05-09T02:25:08][WARNING] failure screenshot captured | {"step": 3, "step_name": "wait_for_selector", "browser": "demo", "path": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-022449-failure-capture\\failure-screenshots\\step-003-demo-wait_for_selector.png"}
+[2026-05-09T02:25:08][ERROR] step 3 failed | {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector", "error": "Page.wait_for_selector: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#this-selector-does-not-exist\") to be visible\n"}
+[2026-05-09T02:25:08][INFO] plan finished | {"run_name": "failure-capture"}

@@ -1,0 +1,46 @@
+{
+  "name": "assert-and-extract",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "assert_text",
+      "browser": "demo",
+      "selector": "button:has-text('进入控制台')",
+      "expected": "进入控制台"
+    },
+    {
+      "action": "extract_attribute",
+      "browser": "demo",
+      "selector": "img[alt='验证码']",
+      "attribute": "src",
+      "save_as": "captcha_src"
+    },
+    {
+      "action": "extract_count",
+      "browser": "demo",
+      "selector": "input",
+      "save_as": "input_count"
+    },
+    {
+      "action": "assert_count",
+      "browser": "demo",
+      "selector": "input",
+      "expected": 3
+    },
+    {
+      "action": "dump_variables",
+      "path": "../../../output/examples/assert-and-extract.variables.json"
+    }
+  ]
+}

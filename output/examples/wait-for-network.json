@@ -1,0 +1,12 @@
+{
+  "request": {
+    "url": "https://httpbin.org/get?case=request-demo",
+    "method": "GET",
+    "resource_type": "fetch"
+  },
+  "response": {
+    "url": "https://httpbin.org/get?case=response-demo",
+    "status": 200,
+    "ok": true
+  }
+}

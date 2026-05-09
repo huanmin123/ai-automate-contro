@@ -1,0 +1,16 @@
+{
+  "rows": [
+    {
+      "email": "alpha@example.com",
+      "project": "project-a"
+    },
+    {
+      "email": "beta@example.com",
+      "project": "project-b"
+    },
+    {
+      "email": "gamma@example.com",
+      "project": "project-c"
+    }
+  ]
+}

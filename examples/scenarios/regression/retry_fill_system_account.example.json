@@ -1,0 +1,42 @@
+{
+  "name": "retry-fill-system-account",
+  "variables": {
+    "email": "test@example.com"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "login",
+      "headed": true,
+      "slow_mo_ms": 200
+    },
+    {
+      "action": "goto",
+      "browser": "login",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "retry",
+      "attempts": 3,
+      "wait_seconds": 1,
+      "steps": [
+        {
+          "action": "wait_for_selector",
+          "browser": "login",
+          "selector": "input[autocomplete='username']"
+        },
+        {
+          "action": "fill",
+          "browser": "login",
+          "selector": "input[autocomplete='username']",
+          "value": "{{email}}"
+        }
+      ]
+    },
+    {
+      "action": "wait",
+      "browser": "login",
+      "seconds": 3
+    }
+  ]
+}

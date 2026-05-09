@@ -1,0 +1,15 @@
+{
+  "run_name": "wait-for-popup",
+  "status": "passed",
+  "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\wait_for_popup.example.json",
+  "output_dir": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-081328-wait-for-popup",
+  "started_at": "2026-05-09T08:13:28",
+  "finished_at": "2026-05-09T08:13:29",
+  "error": null,
+  "failure_screenshots": [],
+  "tags": [],
+  "metadata": {
+    "downloads": [],
+    "last_dialog_message": null
+  }
+}

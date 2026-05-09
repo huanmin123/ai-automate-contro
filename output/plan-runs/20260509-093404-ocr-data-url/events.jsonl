@@ -1,0 +1,8 @@
+{"timestamp": "2026-05-09T09:34:04", "level": "INFO", "message": "plan started", "fields": {"run_name": "ocr-data-url", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_data_url.example.json"}}
+{"timestamp": "2026-05-09T09:34:04", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "ocr completed", "fields": {"service": "local_ocr", "save_as": "ocr_result", "text_length": 9}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "write_json", "step_name": "write_json"}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "json written", "fields": {"path": "F:\\python\\keygen-openai-account\\output\\examples\\ocr-data-url.json"}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "write_json", "step_name": "write_json"}}
+{"timestamp": "2026-05-09T09:34:06", "level": "INFO", "message": "plan finished", "fields": {"run_name": "ocr-data-url"}}

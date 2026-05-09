@@ -1,0 +1,10 @@
+{"timestamp": "2026-05-09T09:34:04", "level": "INFO", "message": "plan started", "fields": {"run_name": "ocr-selector-capture", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_selector_capture.example.json"}}
+{"timestamp": "2026-05-09T09:34:04", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T09:34:05", "level": "INFO", "message": "browser opened", "fields": {"browser": "demo"}}
+{"timestamp": "2026-05-09T09:34:05", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "open_browser", "step_name": "demo"}}
+{"timestamp": "2026-05-09T09:34:05", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T09:34:05", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "goto", "step_name": "goto"}}
+{"timestamp": "2026-05-09T09:34:05", "level": "INFO", "message": "step 3 start", "fields": {"step": 3, "action": "ocr_image", "step_name": "ocr_image"}}
+{"timestamp": "2026-05-09T09:34:20", "level": "WARNING", "message": "failure screenshot captured", "fields": {"step": 3, "step_name": "ocr_image", "browser": "demo", "page": "main", "path": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-093404-ocr-selector-capture\\failure-screenshots\\step-003-demo-main-ocr_image.png"}}
+{"timestamp": "2026-05-09T09:34:20", "level": "ERROR", "message": "step 3 failed", "fields": {"step": 3, "action": "ocr_image", "step_name": "ocr_image", "error": "Locator.screenshot: Timeout 15000ms exceeded.\nCall log:\n  - waiting for locator(\"#ocr-target\")\n"}}
+{"timestamp": "2026-05-09T09:34:20", "level": "INFO", "message": "plan finished", "fields": {"run_name": "ocr-selector-capture"}}

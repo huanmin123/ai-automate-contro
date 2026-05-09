@@ -1,0 +1,25 @@
+{
+  "name": "file-io",
+  "variables": {
+    "message": "hello automation"
+  },
+  "steps": [
+    {
+      "action": "write_text",
+      "path": "../../../output/examples/file-io.txt",
+      "content": "first line\n"
+    },
+    {
+      "action": "append_text",
+      "path": "../../../output/examples/file-io.txt",
+      "content": "second line\n"
+    },
+    {
+      "action": "write_json",
+      "path": "../../../output/examples/file-io.json",
+      "value": {
+        "message": "{{message}}"
+      }
+    }
+  ]
+}

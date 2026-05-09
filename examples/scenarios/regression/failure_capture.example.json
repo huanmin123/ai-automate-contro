@@ -1,0 +1,24 @@
+{
+  "name": "failure-capture",
+  "tags": ["debug", "failure-demo"],
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "https://aijh.huanmin.top/"
+    },
+    {
+      "action": "wait_for_selector",
+      "browser": "demo",
+      "selector": "#this-selector-does-not-exist",
+      "state": "visible"
+    }
+  ]
+}

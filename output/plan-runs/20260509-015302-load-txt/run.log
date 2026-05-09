@@ -1,0 +1,8 @@
+[2026-05-09T01:53:02][INFO] plan started | {"run_name": "load-txt", "plan_path": "F:\\python\\keygen-openai-account\\plans\\load_txt.example.json"}
+[2026-05-09T01:53:02][INFO] step 1 start | {"step": 1, "action": "load_txt", "step_name": "load_txt"}
+[2026-05-09T01:53:02][INFO] text loaded | {"path": "F:\\python\\keygen-openai-account\\data\\sample_lines.txt", "save_as": "emails"}
+[2026-05-09T01:53:02][INFO] step 1 finished | {"step": 1, "action": "load_txt", "step_name": "load_txt"}
+[2026-05-09T01:53:02][INFO] step 2 start | {"step": 2, "action": "dump_variables", "step_name": "dump_variables"}
+[2026-05-09T01:53:02][INFO] variables dumped | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\load-txt.variables.json"}
+[2026-05-09T01:53:02][INFO] step 2 finished | {"step": 2, "action": "dump_variables", "step_name": "dump_variables"}
+[2026-05-09T01:53:02][INFO] plan finished | {"run_name": "load-txt"}

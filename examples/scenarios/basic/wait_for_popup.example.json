@@ -1,0 +1,35 @@
+{
+  "name": "wait-for-popup",
+  "variables": {
+    "popup_demo_url": "data:text/html,<html><body><a id='open' href='https://example.com/?popup=1' target='_blank'>Open popup</a></body></html>"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "goto",
+      "browser": "demo",
+      "url": "{{popup_demo_url}}"
+    },
+    {
+      "action": "wait_for_popup",
+      "browser": "demo",
+      "popup_page": "popup",
+      "trigger": {
+        "action": "click",
+        "browser": "demo",
+        "selector": "#open"
+      }
+    },
+    {
+      "action": "assert_text",
+      "browser": "demo",
+      "page": "popup",
+      "selector": "h1",
+      "expected": "Example Domain"
+    }
+  ]
+}

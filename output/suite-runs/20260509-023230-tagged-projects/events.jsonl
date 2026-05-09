@@ -1,0 +1,7 @@
+{"timestamp": "2026-05-09T02:32:30", "level": "INFO", "message": "suite started", "fields": {"suite": "tagged-projects", "mode": "sequential", "count": 3, "include_tags": ["smoke", "login"], "exclude_tags": [], "tag_mode": "all"}}
+{"timestamp": "2026-05-09T02:32:30", "level": "INFO", "message": "suite item skipped", "fields": {"name": "regression-login-b", "tags": ["regression", "login", "project-b"]}}
+{"timestamp": "2026-05-09T02:32:30", "level": "INFO", "message": "suite item skipped", "fields": {"name": "debug-failure", "tags": ["debug", "failure-demo"]}}
+{"timestamp": "2026-05-09T02:32:30", "level": "INFO", "message": "suite item start", "fields": {"index": 1, "name": "smoke-login-a"}}
+{"timestamp": "2026-05-09T02:32:30", "level": "INFO", "message": "plan dispatch", "fields": {"name": "smoke-login-a", "path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\fill_system_account.example.json", "tags": ["smoke", "login", "project-a"]}}
+{"timestamp": "2026-05-09T02:32:39", "level": "INFO", "message": "suite item finished", "fields": {"index": 1, "name": "smoke-login-a"}}
+{"timestamp": "2026-05-09T02:32:39", "level": "INFO", "message": "suite finished", "fields": {"suite": "tagged-projects", "mode": "sequential", "count": 3}}

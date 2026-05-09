@@ -1,0 +1,16 @@
+{
+  "name": "load-txt",
+  "variables": {},
+  "steps": [
+    {
+      "action": "load_txt",
+      "path": "../../data/sample_lines.txt",
+      "save_as": "emails",
+      "split_lines": true
+    },
+    {
+      "action": "dump_variables",
+      "path": "../../output/examples/load-txt.variables.json"
+    }
+  ]
+}

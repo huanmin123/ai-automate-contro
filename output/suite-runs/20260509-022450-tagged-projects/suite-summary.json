@@ -1,0 +1,60 @@
+{
+  "suite": "tagged-projects",
+  "mode": "sequential",
+  "total": 3,
+  "passed": 1,
+  "failed": 0,
+  "skipped": 2,
+  "items": [
+    {
+      "name": "regression-login-b",
+      "path": "../plans/fill_system_account.example.json",
+      "status": "skipped",
+      "tags": [
+        "regression",
+        "login",
+        "project-b"
+      ],
+      "result": null,
+      "skip_reason": "tag filtered"
+    },
+    {
+      "name": "debug-failure",
+      "path": "../plans/failure_capture.example.json",
+      "status": "skipped",
+      "tags": [
+        "debug",
+        "failure-demo"
+      ],
+      "result": null,
+      "skip_reason": "tag filtered"
+    },
+    {
+      "name": "smoke-login-a",
+      "path": "../plans/fill_system_account.example.json",
+      "status": "passed",
+      "tags": [
+        "smoke",
+        "login",
+        "project-a"
+      ],
+      "result": {
+        "run_name": "smoke-login-a",
+        "status": "passed",
+        "plan_path": "F:\\python\\keygen-openai-account\\plans\\fill_system_account.example.json",
+        "output_dir": "F:\\python\\keygen-openai-account\\output\\suite-runs\\20260509-022450-tagged-projects\\smoke-login-a",
+        "started_at": "2026-05-09T02:24:50",
+        "finished_at": "2026-05-09T02:25:00",
+        "error": null,
+        "failure_screenshots": [],
+        "tags": [
+          "smoke",
+          "login",
+          "project-a"
+        ],
+        "metadata": {}
+      },
+      "skip_reason": null
+    }
+  ]
+}

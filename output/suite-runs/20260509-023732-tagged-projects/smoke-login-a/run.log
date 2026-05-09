@@ -1,0 +1,13 @@
+[2026-05-09T02:37:33][INFO] plan started | {"run_name": "smoke-login-a", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\fill_system_account.example.json"}
+[2026-05-09T02:37:33][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "login"}
+[2026-05-09T02:37:33][INFO] browser opened | {"browser": "login"}
+[2026-05-09T02:37:33][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "login"}
+[2026-05-09T02:37:33][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T02:37:36][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T02:37:36][INFO] step 3 start | {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector"}
+[2026-05-09T02:37:36][INFO] step 3 finished | {"step": 3, "action": "wait_for_selector", "step_name": "wait_for_selector"}
+[2026-05-09T02:37:36][INFO] step 4 start | {"step": 4, "action": "fill", "step_name": "fill"}
+[2026-05-09T02:37:36][INFO] step 4 finished | {"step": 4, "action": "fill", "step_name": "fill"}
+[2026-05-09T02:37:36][INFO] step 5 start | {"step": 5, "action": "wait", "step_name": "wait"}
+[2026-05-09T02:37:41][INFO] step 5 finished | {"step": 5, "action": "wait", "step_name": "wait"}
+[2026-05-09T02:37:42][INFO] plan finished | {"run_name": "smoke-login-a"}

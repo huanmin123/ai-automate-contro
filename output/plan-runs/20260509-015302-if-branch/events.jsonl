@@ -1,0 +1,8 @@
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "plan started", "fields": {"run_name": "if-branch", "plan_path": "F:\\python\\keygen-openai-account\\plans\\if_branch.example.json"}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "if", "step_name": "if"}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "if evaluated", "fields": {"matched": true}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "step 2 start", "fields": {"step": 2, "action": "print", "step_name": "print"}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "当前是调试模式", "fields": {}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "step 2 finished", "fields": {"step": 2, "action": "print", "step_name": "print"}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "step 1 finished", "fields": {"step": 1, "action": "if", "step_name": "if"}}
+{"timestamp": "2026-05-09T01:53:02", "level": "INFO", "message": "plan finished", "fields": {"run_name": "if-branch"}}

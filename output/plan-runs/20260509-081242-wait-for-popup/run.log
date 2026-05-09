@@ -1,0 +1,12 @@
+[2026-05-09T08:12:42][INFO] plan started | {"run_name": "wait-for-popup", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\wait_for_popup.example.json"}
+[2026-05-09T08:12:42][INFO] step 1 start | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T08:12:43][INFO] browser opened | {"browser": "demo"}
+[2026-05-09T08:12:43][INFO] step 1 finished | {"step": 1, "action": "open_browser", "step_name": "demo"}
+[2026-05-09T08:12:43][INFO] step 2 start | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:12:43][INFO] step 2 finished | {"step": 2, "action": "goto", "step_name": "goto"}
+[2026-05-09T08:12:43][INFO] step 3 start | {"step": 3, "action": "wait_for_popup", "step_name": "wait_for_popup"}
+[2026-05-09T08:12:43][INFO] step 4 start | {"step": 4, "action": "click", "step_name": "click"}
+[2026-05-09T08:12:43][INFO] step 4 finished | {"step": 4, "action": "click", "step_name": "click"}
+[2026-05-09T08:12:58][WARNING] failure screenshot captured | {"step": 3, "step_name": "wait_for_popup", "browser": "demo", "page": "main", "path": "F:\\python\\keygen-openai-account\\output\\plan-runs\\20260509-081242-wait-for-popup\\failure-screenshots\\step-003-demo-main-wait_for_popup.png"}
+[2026-05-09T08:12:58][ERROR] step 3 failed | {"step": 3, "action": "wait_for_popup", "step_name": "wait_for_popup", "error": "Timeout 15000ms exceeded while waiting for event \"popup\"\n=========================== logs ===========================\nwaiting for event \"popup\"\n============================================================"}
+[2026-05-09T08:12:58][INFO] plan finished | {"run_name": "wait-for-popup"}

@@ -1,0 +1,8 @@
+[2026-05-09T08:30:11][INFO] plan started | {"run_name": "ocr-data-url", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_data_url.example.json"}
+[2026-05-09T08:30:11][INFO] step 1 start | {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}
+[2026-05-09T08:30:12][INFO] ocr completed | {"service": "local_ocr", "save_as": "ocr_result", "text_length": 9}
+[2026-05-09T08:30:12][INFO] step 1 finished | {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}
+[2026-05-09T08:30:12][INFO] step 2 start | {"step": 2, "action": "write_json", "step_name": "write_json"}
+[2026-05-09T08:30:12][INFO] json written | {"path": "F:\\python\\keygen-openai-account\\output\\examples\\ocr-data-url.json"}
+[2026-05-09T08:30:12][INFO] step 2 finished | {"step": 2, "action": "write_json", "step_name": "write_json"}
+[2026-05-09T08:30:12][INFO] plan finished | {"run_name": "ocr-data-url"}
