@@ -1,0 +1,57 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments and local Python tooling
+.venv/
+venv/
+env/
+ENV/
+pip-wheel-metadata/
+*.egg-info/
+build/
+dist/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+config/ai-services.json
+*.local.json
+*.secret.json
+*.secrets.json
+
+# Playwright/browser runtime state
+playwright-report/
+test-results/
+blob-report/
+.auth/
+storage-state*.json
+downloads/
+
+# Plan runtime outputs
+plans/**/output/
+test-plans/**/output/
+output/
+examples/
+*.log
+
+# Local-only scratch plans or ad hoc artifacts
+test/
+tmp/
+temp/
+
+# IDE/editor and OS metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+Desktop.ini
+.DS_Store

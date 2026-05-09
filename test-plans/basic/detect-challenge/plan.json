@@ -1,0 +1,45 @@
+{
+  "name": "detect-challenge",
+  "variables": {
+    "challenge_url": "{{resources_file_url}}/verification_challenge.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{challenge_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "detect_challenge",
+      "browser": "demo",
+      "save_as": "challenge",
+      "save_detected_as": "challenge_detected",
+      "save_label_as": "challenge_label",
+      "rules": [
+        {
+          "type": "selector_visible",
+          "selector": "#verification-panel",
+          "label": "verification_panel"
+        },
+        {
+          "type": "text_contains",
+          "selector": "body",
+          "text": "验证码",
+          "label": "captcha_text"
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "detect-challenge.json",
+      "value": "{{challenge}}"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "description": "Local config for the minimal browser reference plan.",
+  "variables": {
+    "demo_expected_title": "Minimal Plan"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{resources_file_url}}/demo.html",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "#title",
+      "expected": "{{demo_expected_title}}",
+      "type": "text"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "result.json",
+      "value": {
+        "title": "{{demo_expected_title}}",
+        "status": "passed"
+      }
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "assert-and-extract",
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "#submit-btn",
+      "expected": "进入控制台",
+      "type": "text"
+    },
+    {
+      "action": "extract",
+      "browser": "demo",
+      "selector": "#username",
+      "attribute": "placeholder",
+      "save_as": "username_placeholder",
+      "type": "attribute"
+    },
+    {
+      "action": "extract",
+      "browser": "demo",
+      "selector": "input",
+      "save_as": "input_count",
+      "type": "count"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "input",
+      "expected": 3,
+      "type": "count"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "variables.json"
+    }
+  ]
+}

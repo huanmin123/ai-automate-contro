@@ -1,0 +1,38 @@
+{
+  "name": "wait-for-popup",
+  "variables": {
+    "popup_demo_url": "{{resources_file_url}}/popup_parent.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{popup_demo_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "wait_for_popup",
+      "browser": "demo",
+      "popup_page": "popup",
+      "trigger": {
+        "action": "element",
+        "browser": "demo",
+        "selector": "#open",
+        "type": "click"
+      }
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "page": "popup",
+      "selector": "h1",
+      "expected": "Example Domain",
+      "type": "text"
+    }
+  ]
+}

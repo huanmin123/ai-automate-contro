@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scroll Keyboard Fixture</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; }
+      header { position: sticky; top: 0; background: #fafafa; padding: 16px; border-bottom: 1px solid #ddd; }
+      main { padding: 24px; }
+      .field { max-width: 360px; margin-bottom: 12px; }
+      input { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 8px; }
+      .spacer { height: 1400px; background: linear-gradient(#fff, #eef3ff); margin-top: 24px; }
+    </style>
+  </head>
+  <body>
+    <header>键盘与滚动测试页</header>
+    <main>
+      <div class="field">
+        <input id="username" autocomplete="username" placeholder="键盘输入用户名" />
+      </div>
+      <div class="field">
+        <input id="password" autocomplete="current-password" placeholder="键盘输入密码" />
+      </div>
+      <div class="spacer"></div>
+    </main>
+  </body>
+  </html>

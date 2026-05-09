@@ -1,0 +1,40 @@
+{
+  "name": "wait-variants",
+  "variables": {
+    "wait_url": "{{resources_file_url}}/wait_variants.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{wait_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "selector": "#submit-btn",
+      "text": "进入控制台",
+      "mode": "equals",
+      "type": "text"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "selector": "input",
+      "expected": 3,
+      "type": "count"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 1
+    }
+  ]
+}

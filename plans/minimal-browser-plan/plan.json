@@ -1,0 +1,9 @@
+{
+  "name": "minimal-browser-plan",
+  "steps": [
+    {
+      "action": "run_sub_plan",
+      "path": "sub-plans/open-demo-plan.json"
+    }
+  ]
+}

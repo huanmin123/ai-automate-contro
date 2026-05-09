@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Basic Login Fixture</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; }
+      .login-card { width: 360px; border: 1px solid #ddd; padding: 20px; border-radius: 12px; }
+      .field { margin-bottom: 12px; }
+      label { display: block; margin-bottom: 6px; font-weight: 600; }
+      input { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 8px; }
+      button { padding: 10px 14px; border-radius: 8px; border: 0; background: #222; color: #fff; cursor: pointer; }
+      .hint { margin-top: 10px; color: #666; }
+    </style>
+  </head>
+  <body>
+    <div class="login-card">
+      <div class="field">
+        <label for="username">系统账户</label>
+        <input id="username" autocomplete="username" placeholder="请输入系统账户" />
+      </div>
+      <div class="field">
+        <label for="password">登录密码</label>
+        <input id="password" autocomplete="current-password" type="password" placeholder="请输入登录密码" />
+      </div>
+      <div class="field">
+        <label for="captcha">验证码</label>
+        <input id="captcha" placeholder="请输入验证码" />
+      </div>
+      <button id="submit-btn" type="button">进入控制台</button>
+      <div class="hint" id="status-text">等待输入</div>
+    </div>
+    <script>
+      document.getElementById("submit-btn").addEventListener("click", () => {
+        const user = document.getElementById("username").value;
+        document.getElementById("status-text").textContent = user ? `已提交:${user}` : "未填写系统账户";
+      });
+    </script>
+  </body>
+  </html>

@@ -1,0 +1,37 @@
+{
+  "variables": {
+    "email": "test@example.com",
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "receiver",
+      "headed": true,
+      "slow_mo_ms": 200,
+      "timeout_ms": 15000
+    },
+    {
+      "action": "navigate",
+      "browser": "receiver",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "manual_confirm",
+      "prompt": "页面已经打开。手动完成前置操作后输入 y 继续: "
+    },
+    {
+      "action": "element",
+      "browser": "receiver",
+      "selector": "input[autocomplete='username']",
+      "value": "{{email}}",
+      "type": "fill"
+    },
+    {
+      "action": "wait",
+      "browser": "receiver",
+      "seconds": 1
+    }
+  ]
+}

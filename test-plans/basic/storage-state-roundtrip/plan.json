@@ -1,0 +1,36 @@
+{
+  "name": "storage-state-roundtrip",
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "state_demo",
+      "headed": true
+    },
+    {
+      "action": "navigate",
+      "browser": "state_demo",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "capture",
+      "browser": "state_demo",
+      "path": "state-demo.json",
+      "type": "storage_state"
+    },
+    {
+      "action": "read",
+      "path": "output/storage-states/state-demo.json",
+      "save_as": "saved_state_path",
+      "type": "storage_state"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "variables.json"
+    }
+  ]
+}

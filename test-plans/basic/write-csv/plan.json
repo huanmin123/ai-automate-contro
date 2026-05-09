@@ -1,0 +1,35 @@
+{
+  "name": "write-csv",
+  "variables": {
+    "rows": [
+      {
+        "email": "demo1@example.com",
+        "role": "admin"
+      },
+      {
+        "email": "demo2@example.com",
+        "role": "tester"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "action": "write",
+      "type": "csv",
+      "path": "accounts.csv",
+      "value": "{{rows}}"
+    },
+    {
+      "action": "read",
+      "type": "csv",
+      "path": "output/csv/accounts.csv",
+      "save_as": "loaded_rows"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "loaded-rows.json",
+      "value": "{{loaded_rows}}"
+    }
+  ]
+}

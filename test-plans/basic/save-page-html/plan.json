@@ -1,0 +1,25 @@
+{
+  "name": "save-page-html",
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "capture",
+      "browser": "demo",
+      "path": "login-page.html",
+      "type": "html"
+    }
+  ]
+}

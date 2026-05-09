@@ -1,0 +1,45 @@
+{
+  "name": "retry-fill-system-account",
+  "variables": {
+    "email": "test@example.com",
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "login",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "login",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "retry",
+      "attempts": 3,
+      "wait_seconds": 1,
+      "steps": [
+        {
+          "action": "wait",
+          "browser": "login",
+          "selector": "input[autocomplete='username']",
+          "type": "selector"
+        },
+        {
+          "action": "element",
+          "browser": "login",
+          "selector": "input[autocomplete='username']",
+          "value": "{{email}}",
+          "type": "fill"
+        }
+      ]
+    },
+    {
+      "action": "wait",
+      "browser": "login",
+      "seconds": 1
+    }
+  ]
+}

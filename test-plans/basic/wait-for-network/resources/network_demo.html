@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Demo</title>
+  </head>
+  <body>
+    <button id="request-btn">Send Request</button>
+    <button id="response-btn">Send Response</button>
+    <script>
+      document.getElementById("request-btn").addEventListener("click", () => {
+        fetch("https://fixture.local/request-demo");
+      });
+      document.getElementById("response-btn").addEventListener("click", () => {
+        fetch("https://fixture.local/response-demo");
+      });
+    </script>
+  </body>
+  </html>

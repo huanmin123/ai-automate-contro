@@ -1,0 +1,31 @@
+{
+  "name": "failure-capture",
+  "tags": [
+    "debug",
+    "failure-demo"
+  ],
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "selector": "#this-selector-does-not-exist",
+      "state": "visible",
+      "type": "selector"
+    }
+  ]
+}

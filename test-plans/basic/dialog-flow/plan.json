@@ -1,0 +1,33 @@
+{
+  "name": "dialog-flow",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "dialog_demo",
+      "headed": true
+    },
+    {
+      "action": "navigate",
+      "browser": "dialog_demo",
+      "url": "{{resources_file_url}}/dialog_demo.html",
+      "type": "goto"
+    },
+    {
+      "action": "dialog",
+      "browser": "dialog_demo",
+      "trigger": {
+        "action": "element",
+        "browser": "dialog_demo",
+        "selector": "#alertBtn",
+        "type": "click"
+      },
+      "type": "accept"
+    },
+    {
+      "action": "wait",
+      "browser": "dialog_demo",
+      "seconds": 1
+    }
+  ]
+}

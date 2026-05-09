@@ -1,0 +1,35 @@
+{
+  "name": "extract-table",
+  "variables": {
+    "table_demo_url": "{{resources_file_url}}/table_demo.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{table_demo_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "extract",
+      "browser": "demo",
+      "row_selector": "tbody tr",
+      "cell_selector": "td",
+      "include_header": true,
+      "header_selector": "thead th",
+      "save_as": "table_rows",
+      "type": "table"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "table.json",
+      "value": "{{table_rows}}"
+    }
+  ]
+}

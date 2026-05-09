@@ -1,0 +1,29 @@
+{
+  "name": "file-io",
+  "variables": {
+    "message": "hello automation"
+  },
+  "steps": [
+    {
+      "action": "write",
+      "type": "text",
+      "path": "message.txt",
+      "value": "first line\n"
+    },
+    {
+      "action": "write",
+      "type": "text",
+      "append": true,
+      "path": "message.txt",
+      "value": "second line\n"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "message.json",
+      "value": {
+        "message": "{{message}}"
+      }
+    }
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "name": "scroll-and-keyboard",
+  "variables": {
+    "scroll_url": "{{resources_file_url}}/scroll_keyboard.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{scroll_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "element",
+      "browser": "demo",
+      "selector": "#username",
+      "type": "focus"
+    },
+    {
+      "action": "keyboard",
+      "browser": "demo",
+      "value": "test-from-keyboard",
+      "delay_ms": 50,
+      "type": "type"
+    },
+    {
+      "action": "keyboard",
+      "browser": "demo",
+      "key": "Tab",
+      "type": "press"
+    },
+    {
+      "action": "keyboard",
+      "browser": "demo",
+      "value": "keyboard-password",
+      "delay_ms": 50,
+      "type": "type"
+    },
+    {
+      "action": "scroll",
+      "browser": "demo",
+      "delta_y": 300,
+      "type": "by"
+    },
+    {
+      "action": "mouse",
+      "browser": "demo",
+      "delta_y": -300,
+      "type": "wheel"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 1
+    }
+  ]
+}

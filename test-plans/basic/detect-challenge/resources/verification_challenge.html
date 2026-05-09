@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verification Challenge Fixture</title>
+    <style>
+      body { font-family: Arial, sans-serif; padding: 24px; }
+      .panel { width: 420px; border: 1px solid #ddd; padding: 20px; border-radius: 10px; }
+      .captcha-box { margin-top: 12px; padding: 14px; border: 1px dashed #999; background: #fafafa; }
+      input { width: 100%; padding: 10px; border: 1px solid #bbb; border-radius: 8px; margin-top: 10px; }
+      button { margin-top: 12px; padding: 10px 14px; border: 0; border-radius: 8px; background: #222; color: #fff; }
+    </style>
+  </head>
+  <body>
+    <section id="verification-panel" class="panel" data-challenge="captcha">
+      <h1>需要验证</h1>
+      <p id="challenge-message">请完成验证码后继续</p>
+      <div class="captcha-box" id="captcha-widget">ABCD</div>
+      <input id="captcha-input" placeholder="请输入验证码" />
+      <button id="continue-btn">继续</button>
+    </section>
+  </body>
+  </html>

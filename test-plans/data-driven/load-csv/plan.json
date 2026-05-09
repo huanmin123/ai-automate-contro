@@ -1,0 +1,21 @@
+{
+  "name": "load-csv",
+  "variables": {},
+  "steps": [
+    {
+      "action": "read",
+      "type": "csv",
+      "path": "resources/sample_accounts.csv",
+      "save_as": "rows"
+    },
+    {
+      "action": "print",
+      "message": "CSV 已加载，行数为 {{rows}}"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "variables.json"
+    }
+  ]
+}

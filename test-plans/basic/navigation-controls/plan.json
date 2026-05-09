@@ -1,0 +1,54 @@
+{
+  "name": "navigation-controls",
+  "variables": {
+    "home_url": "{{resources_file_url}}/navigation_home.html",
+    "details_url": "{{resources_file_url}}/navigation_details.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{home_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "expected": "navigation_home.html",
+      "type": "url",
+      "mode": "contains"
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{details_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "type": "back"
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "type": "forward"
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "type": "refresh"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 1
+    }
+  ]
+}

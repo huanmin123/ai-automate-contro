@@ -1,0 +1,59 @@
+{
+  "name": "multi-page",
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html",
+    "details_url": "{{resources_file_url}}/navigation_details.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": true,
+      "slow_mo_ms": 100
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "page",
+      "browser": "demo",
+      "page": "docs",
+      "url": "{{details_url}}",
+      "type": "open"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "expected": "navigation_details.html",
+      "type": "url",
+      "mode": "contains"
+    },
+    {
+      "action": "page",
+      "browser": "demo",
+      "page": "main",
+      "type": "switch"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "expected": "basic_login.html",
+      "type": "url",
+      "mode": "contains"
+    },
+    {
+      "action": "page",
+      "browser": "demo",
+      "page": "docs",
+      "type": "close"
+    },
+    {
+      "action": "wait",
+      "browser": "demo",
+      "seconds": 1
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "variables": {
+    "email": "test@example.com",
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "login",
+      "headed": false,
+      "timeout_ms": 15000
+    },
+    {
+      "action": "navigate",
+      "browser": "login",
+      "url": "{{login_url}}",
+      "type": "goto"
+    },
+    {
+      "action": "wait",
+      "browser": "login",
+      "selector": "input[autocomplete='username']",
+      "type": "selector"
+    },
+    {
+      "action": "element",
+      "browser": "login",
+      "selector": "input[autocomplete='username']",
+      "value": "{{email}}",
+      "type": "fill"
+    },
+    {
+      "action": "wait",
+      "browser": "login",
+      "seconds": 1
+    }
+  ]
+}
