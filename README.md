@@ -2,141 +2,86 @@
 
 这是一个基于 Playwright + Python 的 JSON 编排自动化内核。
 
-你不需要每次改 Python 代码，而是通过编写计划文件来描述动作流程，执行器负责读取 JSON 并按顺序执行。
+你不需要每次改 Python 代码，而是通过维护 plan 包描述动作流程。执行器读取 `plan.json` 后按顺序执行。
 
 `handbook/` 是唯一教程来源。
-`examples/` 只放可运行示例，不承担教学职责。
 
 ## 快速开始
 
 ```powershell
 python -m pip install -r .\requirements.txt
 python -m playwright install chromium
-python .\main.py --file .\examples\scenarios\basic\fill_system_account.example.json
+python .\main.py --file .\plans\minimal-browser-plan\plan.json
 ```
 
-运行带标签筛选的 suite：
+运行项目测试 plan：
 
 ```powershell
-python .\main.py --file .\examples\suites\smoke\tagged_projects.example.json --include-tags smoke,login --tag-mode all
+python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
 ```
 
 ## 先看哪里
 
 - 组件手册入口：`.\handbook\README.md`
 - 计划结构说明：`.\handbook\计划结构.md`
-- 第一个示例：`.\handbook\第一个计划示例.md`
+- 根目录参考样例：`.\plans\minimal-browser-plan\`
+- 项目测试计划：`.\test-plans\README.md`
 
 ## 当前目录
 
-- `main.py`: 命令行入口，负责读取 JSON 计划并执行
-- `src/keygen_automation/`: 自动化执行内核
-- `handbook/`: 面向人的组件手册，每个动作一个独立文档
-- `examples/`: 可运行示例资产，不作为教程入口
-- `docs/`: 项目架构、设计、排期、错题本、重构记录
+- `main.py`: 命令行入口，负责读取 `plan.json` 并执行。
+- `src/keygen_automation/`: 自动化执行内核。
+- `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是全局 plan 配置。
+- `test-plans/`: 项目真实自动化需求 plan 包。
+- `handbook/`: 面向人的组件手册。
+- `docs/`: 项目架构、设计、排期、问题和重构记录。
 
-## examples 分层
+## Plan 包结构
 
-- `examples/scenarios/basic/`: 基础交互示例
-- `examples/scenarios/data-driven/`: 数据驱动与变量流转示例
-- `examples/suites/smoke/`: 轻量冒烟套件
-- `examples/suites/regression/`: 回归与批量执行套件
+每个 plan 包代表一个独立需求：
+
+```text
+plan-package/
+  plan.json
+  config.json
+  sub-plans/
+    *-plan.json
+  resources/
+  output/
+  docs/
+```
+
+- `plan.json`: 需求入口，也是最小可执行单元。
+- `config.json`: 本 plan 包局部配置，只对当前 plan 可见，优先级高于 `plans/config.json`。
+- `sub-plans/*-plan.json`: 同包内部子计划，只能被本包 `plan.json` 通过 `run_sub_plan` 引用。
+- `resources/`: 本需求独占资源。
+- `output/`: 本需求运行输出，由 Git 忽略。截图、录屏、下载、日志、报告和运行中间产物都必须写在这里。
+- `docs/`: 本需求说明文档。
+
+不同需求的 `plan.json` 之间不能互相引用。需要批量执行时，优先由外部脚本扫描多个 plan 包，而不是让 plan 互相依赖。
+
+`test-plans/` 下面直接放分类目录和 plan 包，不再使用 `suites/`、`workspaces/` 或额外 `plans/` 层级。根目录的 `plans/` 只放公开最小示例，项目内部验证都放到 `test-plans/`。
+
+## 配置优先级
+
+- `plans/config.json`: 全局共享配置。
+- `plan-package/config.json`: 当前 plan 包局部配置，只能当前 plan 访问。
+- 相同字段局部配置覆盖全局配置。
+- `config.variables` 会注入为变量，也可以通过 `{{config.xxx}}` 访问完整合并配置。
+- 变量优先级：内置变量 < 全局 `config.variables` < 局部 `config.variables` < `plan.json` 的 `variables`。
 
 ## 当前支持的动作组件
 
-- `open_browser`
-- `open_new_page`
-- `switch_page`
-- `close_page`
-- `close_browser`
-- `goto`
-- `refresh`
-- `go_back`
-- `go_forward`
-- `click`
-- `hover`
-- `fill`
-- `clear`
-- `type`
-- `focus`
-- `wait_for_selector`
-- `wait`
-- `wait_for_url`
-- `wait_for_text`
-- `wait_for_count`
-- `extract_text`
-- `extract_value`
-- `extract_attribute`
-- `extract_html`
-- `extract_count`
-- `extract_table`
-- `extract_nth_text`
-- `extract_all_texts`
-- `extract_all_values`
-- `press`
-- `keyboard_press`
-- `keyboard_type`
-- `keyboard_down`
-- `keyboard_up`
-- `scroll_into_view`
-- `scroll_by`
-- `mouse_move`
-- `mouse_click_at`
-- `mouse_down`
-- `mouse_up`
-- `mouse_wheel`
-- `check`
-- `uncheck`
-- `select_option`
-- `set_input_files`
-- `screenshot`
-- `save_page_html`
-- `save_storage_state`
-- `load_storage_state`
-- `wait_for_download`
-- `wait_for_popup`
-- `wait_for_request`
-- `wait_for_response`
-- `accept_dialog`
-- `dismiss_dialog`
-- `manual_confirm`
-- `print`
-- `dump_variables`
-- `write_json`
-- `write_csv`
-- `write_text`
-- `append_text`
-- `sleep`
-- `assert_selector`
-- `assert_text`
-- `assert_value`
-- `assert_url_contains`
-- `assert_count`
-- `set_variable`
-- `set_variables`
-- `load_json`
-- `load_csv`
-- `load_txt`
-- `if`
-- `foreach`
-- `retry`
-- `copy_variable`
-- `ocr_image`
-- `llm_chat`
-- `llm_extract_json`
+具体字段说明、适用场景和使用方式请直接看 `handbook` 目录。
 
-具体字段说明、适用场景和使用方式请直接看 `handbook` 目录，不建议靠阅读原始 JSON 文件学习框架。
+常见同族动作已按参数结构收敛：
 
-## 第三版新增能力
+- `navigate`: 通过 `type` 执行 `goto`、`refresh`、`back`、`forward`
+- `page`: 通过 `type` 执行 `open`、`switch`、`close`
+- `element`: 通过 `type` 执行 `click`、`fill`、`hover`、`select` 等元素操作
+- `wait` / `assert` / `extract`: 通过 `type` 区分等待、断言和提取类型
+- `capture`: 通过 `type` 保存截图、HTML、storage state
+- `read`: 通过 `type` 读取 `json`、`text`、`csv`
+- `write`: 通过 `type` 写出 `json`、`text`、`csv`、`variables`
 
-- 失败自动截图
-- `result.json` 计划结果文件
-- `suite-summary.json` 和 `suite-summary.md` 套件汇总报告
-- suite 标签筛选执行
-
-## 当前新增补强
-
-- 新窗口捕获：`wait_for_popup`
-- 接口请求/响应等待：`wait_for_request`、`wait_for_response`
-- 表格批量提取：`extract_table`
-- CSV 输出：`write_csv`
+`open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、AI 节点这类参数或生命周期明显不同的能力保持独立组件。

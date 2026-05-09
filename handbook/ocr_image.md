@@ -28,7 +28,7 @@
 
 - `browser`: 当使用 `selector` 时需要
 - `page`: 当使用 `selector` 时可指定页面
-- `capture_path`: 当使用 `selector` 时，截图临时保存路径
+- `capture_path`: 当使用 `selector` 时，截图临时保存路径，最终写入 `output/ocr-captures/`
 - `save_text_as`: 只把 `text` 字段单独保存到另一个变量
 
 ## 结果结构
@@ -46,7 +46,7 @@
 {
   "action": "ocr_image",
   "service": "local_ocr",
-  "path": "../data/sample-ocr.png",
+  "path": "resources/sample-ocr.png",
   "save_as": "ocr_result",
   "save_text_as": "ocr_text"
 }
@@ -56,8 +56,8 @@
 
 页面图片 OCR 后回填输入框的典型链路：
 
-1. `extract_attribute` 取出图片 `src`
+1. `extract` + `type: attribute` 取出图片 `src`
 2. `ocr_image` 识别 `data_url`
-3. `fill` 把 `{{ocr_text}}` 回填到输入框
+3. `element` + `type: fill` 把 `{{ocr_text}}` 回填到输入框
 
 如果图片不是 `src` 形式，而是页面中的可见元素，也可以直接对 `selector` 截图识别。

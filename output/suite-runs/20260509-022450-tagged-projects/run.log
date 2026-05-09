@@ -1,7 +1,0 @@
-[2026-05-09T02:24:50][INFO] suite started | {"suite": "tagged-projects", "mode": "sequential", "count": 3, "include_tags": ["smoke", "login"], "exclude_tags": [], "tag_mode": "all"}
-[2026-05-09T02:24:50][INFO] suite item skipped | {"name": "regression-login-b", "tags": ["regression", "login", "project-b"]}
-[2026-05-09T02:24:50][INFO] suite item skipped | {"name": "debug-failure", "tags": ["debug", "failure-demo"]}
-[2026-05-09T02:24:50][INFO] suite item start | {"index": 1, "name": "smoke-login-a"}
-[2026-05-09T02:24:50][INFO] plan dispatch | {"name": "smoke-login-a", "path": "F:\\python\\keygen-openai-account\\plans\\fill_system_account.example.json", "tags": ["smoke", "login", "project-a"]}
-[2026-05-09T02:25:00][INFO] suite item finished | {"index": 1, "name": "smoke-login-a"}
-[2026-05-09T02:25:00][INFO] suite finished | {"suite": "tagged-projects", "mode": "sequential", "count": 3}

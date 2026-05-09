@@ -1,8 +1,0 @@
-[2026-05-09T08:13:48][INFO] plan started | {"run_name": "if-branch", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\if_branch.example.json"}
-[2026-05-09T08:13:48][INFO] step 1 start | {"step": 1, "action": "if", "step_name": "if"}
-[2026-05-09T08:13:48][INFO] if evaluated | {"matched": true}
-[2026-05-09T08:13:48][INFO] step 2 start | {"step": 2, "action": "print", "step_name": "print"}
-[2026-05-09T08:13:48][INFO] 当前是调试模式
-[2026-05-09T08:13:48][INFO] step 2 finished | {"step": 2, "action": "print", "step_name": "print"}
-[2026-05-09T08:13:48][INFO] step 1 finished | {"step": 1, "action": "if", "step_name": "if"}
-[2026-05-09T08:13:48][INFO] plan finished | {"run_name": "if-branch"}

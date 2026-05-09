@@ -55,6 +55,7 @@ class RuntimeState:
     output_dir: Path
     logger: RunLogger
     plan_path: Path | None = None
+    package_dir: Path | None = None
     variables: dict[str, Any] = field(default_factory=dict)
     sessions: dict[str, BrowserSession] = field(default_factory=dict)
     step_counter: int = 0
@@ -63,6 +64,7 @@ class RuntimeState:
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
     ai_registry: AiRegistry | None = None
+    sub_plan_stack: list[Path] = field(default_factory=list)
 
     def require_session(self, name: str) -> BrowserSession:
         if name not in self.sessions:
@@ -83,7 +85,38 @@ class RuntimeState:
         path = Path(raw_path)
         if path.is_absolute():
             return path
+        if path.parts and path.parts[0] in {"resources", "output", "docs"} and self.package_dir is not None:
+            return (self.package_dir / path).resolve()
         return (self.plan_dir / path).resolve()
+
+    def resolve_output_path(self, raw_path: str, category: str | None = None) -> Path:
+        package_output_dir = self.package_output_dir
+        path = Path(raw_path)
+        if path.is_absolute():
+            raise ValueError(f"Runtime output paths must be relative to the current plan output directory: {raw_path}")
+        if not path.parts:
+            raise ValueError("Runtime output path cannot be empty.")
+        if path.parts[0] in {"output", "resources", "docs", "sub-plans"}:
+            raise ValueError(
+                "Runtime output paths are relative to the plan output directory; "
+                f"do not start with '{path.parts[0]}': {raw_path}"
+            )
+
+        category_root = (package_output_dir / category).resolve() if category else None
+        if category and path.parts[0] != category:
+            resolved_path = (category_root / path).resolve()
+        else:
+            resolved_path = (package_output_dir / path).resolve()
+
+        if not _is_relative_to(resolved_path, package_output_dir):
+            raise ValueError(f"Runtime output must stay under the current plan output directory: {raw_path}")
+        if category_root is not None and not _is_relative_to(resolved_path, category_root):
+            raise ValueError(f"Runtime output for this action must stay under output/{category}/: {raw_path}")
+        return resolved_path
+
+    @property
+    def package_output_dir(self) -> Path:
+        return ((self.package_dir or self.plan_dir) / "output").resolve()
 
     def close_all(self) -> None:
         for session in reversed(list(self.sessions.values())):
@@ -95,3 +128,11 @@ class RuntimeState:
             session.context.close()
             session.browser.close()
         self.sessions.clear()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False

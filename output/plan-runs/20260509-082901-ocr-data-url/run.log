@@ -1,4 +1,0 @@
-[2026-05-09T08:29:01][INFO] plan started | {"run_name": "ocr-data-url", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_data_url.example.json"}
-[2026-05-09T08:29:01][INFO] step 1 start | {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}
-[2026-05-09T08:29:01][ERROR] step 1 failed | {"step": 1, "action": "ocr_image", "step_name": "ocr_image", "error": "Invalid base64-encoded string: number of data characters (405) cannot be 1 more than a multiple of 4"}
-[2026-05-09T08:29:01][INFO] plan finished | {"run_name": "ocr-data-url"}

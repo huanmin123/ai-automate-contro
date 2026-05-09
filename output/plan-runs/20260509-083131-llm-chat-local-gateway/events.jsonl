@@ -1,4 +1,0 @@
-{"timestamp": "2026-05-09T08:31:31", "level": "INFO", "message": "plan started", "fields": {"run_name": "llm-chat-local-gateway", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\llm_chat_local_gateway.example.json"}}
-{"timestamp": "2026-05-09T08:31:31", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "llm_chat", "step_name": "llm_chat"}}
-{"timestamp": "2026-05-09T08:34:34", "level": "ERROR", "message": "step 1 failed", "fields": {"step": 1, "action": "llm_chat", "step_name": "llm_chat", "error": "Request timed out."}}
-{"timestamp": "2026-05-09T08:34:34", "level": "INFO", "message": "plan finished", "fields": {"run_name": "llm-chat-local-gateway"}}

@@ -1,4 +1,0 @@
-{"timestamp": "2026-05-09T08:29:01", "level": "INFO", "message": "plan started", "fields": {"run_name": "ocr-data-url", "plan_path": "F:\\python\\keygen-openai-account\\examples\\scenarios\\basic\\ocr_data_url.example.json"}}
-{"timestamp": "2026-05-09T08:29:01", "level": "INFO", "message": "step 1 start", "fields": {"step": 1, "action": "ocr_image", "step_name": "ocr_image"}}
-{"timestamp": "2026-05-09T08:29:01", "level": "ERROR", "message": "step 1 failed", "fields": {"step": 1, "action": "ocr_image", "step_name": "ocr_image", "error": "Invalid base64-encoded string: number of data characters (405) cannot be 1 more than a multiple of 4"}}
-{"timestamp": "2026-05-09T08:29:01", "level": "INFO", "message": "plan finished", "fields": {"run_name": "ocr-data-url"}}

@@ -27,7 +27,8 @@
   "browser": "demo",
   "popup_page": "help",
   "trigger": {
-    "action": "click",
+    "action": "element",
+    "type": "click",
     "browser": "demo",
     "selector": "#open-help"
   }

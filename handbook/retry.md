@@ -23,12 +23,14 @@
   "wait_seconds": 1,
   "steps": [
     {
-      "action": "wait_for_selector",
+      "action": "wait",
+      "type": "selector",
       "browser": "main",
       "selector": "input[autocomplete='username']"
     },
     {
-      "action": "fill",
+      "action": "element",
+      "type": "fill",
       "browser": "main",
       "selector": "input[autocomplete='username']",
       "value": "{{email}}"

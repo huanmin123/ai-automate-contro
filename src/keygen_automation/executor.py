@@ -8,6 +8,7 @@ from playwright.sync_api import sync_playwright
 
 from keygen_automation.actions import ActionExecutor
 from keygen_automation.ai_registry import AiRegistry
+from keygen_automation.config import load_plan_config
 from keygen_automation.logger import RunLogger
 from keygen_automation.results import PlanResult, write_result_json
 from keygen_automation.runtime import RuntimeState
@@ -23,13 +24,27 @@ def execute_plan(
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
     resolved_plan_path = Path(plan_path).resolve() if plan_path else None
+    if resolved_plan_path is not None and resolved_plan_path.name != "plan.json":
+        raise ValueError(
+            "Only a package entry plan named 'plan.json' can be executed directly. "
+            "Use run_sub_plan inside the package entry plan for child 'sub-plans/*-plan.json' files."
+        )
+    plan_dir = resolved_plan_path.parent if resolved_plan_path else root_path
     resolved_run_name = run_name or plan.get("name") or (resolved_plan_path.stem if resolved_plan_path else "plan-run")
     resolved_output_dir = (
         Path(output_dir).resolve()
         if output_dir
-        else ensure_directory(root_path / "output" / "plan-runs" / f"{make_timestamp()}-{sanitize_name(resolved_run_name)}")
+        else ensure_directory(plan_dir / "output" / f"{make_timestamp()}-{sanitize_name(resolved_run_name)}")
     )
     logger = RunLogger(resolved_output_dir)
+    plan_config = load_plan_config(root_path, plan_dir)
+    variables = _build_builtin_variables(
+        project_root=root_path,
+        plan_dir=plan_dir,
+        output_dir=resolved_output_dir,
+        plan_config=plan_config,
+        plan_variables=dict(plan.get("variables", {})),
+    )
 
     started_at = datetime.now().isoformat(timespec="seconds")
     error_message: str | None = None
@@ -45,7 +60,8 @@ def execute_plan(
             output_dir=resolved_output_dir,
             logger=logger,
             plan_path=resolved_plan_path,
-            variables=dict(plan.get("variables", {})),
+            package_dir=plan_dir,
+            variables=variables,
             ai_registry=AiRegistry(root_path, resolved_plan_path.parent if resolved_plan_path else root_path),
         )
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
@@ -80,3 +96,35 @@ def execute_plan(
     if result is None:
         raise RuntimeError("Plan result was not created.")
     return result
+
+
+def _build_builtin_variables(
+    project_root: Path,
+    plan_dir: Path,
+    output_dir: Path,
+    plan_config: dict[str, Any],
+    plan_variables: dict[str, Any],
+) -> dict[str, Any]:
+    variables = {
+        "project_root": str(project_root),
+        "plan_dir": str(plan_dir),
+        "plan_dir_file_url": _file_url(plan_dir),
+        "resources_dir": str(plan_dir / "resources"),
+        "resources_file_url": _file_url(plan_dir / "resources"),
+        "output_dir": str(plan_dir / "output"),
+        "output_dir_file_url": _file_url(plan_dir / "output"),
+        "run_output_dir": str(output_dir),
+        "run_output_dir_file_url": _file_url(output_dir),
+        "config": plan_config,
+    }
+    config_variables = plan_config.get("variables", {})
+    if config_variables:
+        if not isinstance(config_variables, dict):
+            raise ValueError("Plan config field 'variables' must be a JSON object.")
+        variables.update(config_variables)
+    variables.update(plan_variables)
+    return variables
+
+
+def _file_url(path: Path) -> str:
+    return path.resolve().as_uri()

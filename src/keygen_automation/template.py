@@ -10,7 +10,7 @@ FULL_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([a-zA-Z_][a-zA-Z0-9_\.]*)\s*\}\}$")
 
 def render_value(value: Any, variables: dict[str, Any]) -> Any:
     if isinstance(value, str):
-        return _render_string(value, variables)
+        return _render_string(value, variables, set())
     if isinstance(value, list):
         return [render_value(item, variables) for item in value]
     if isinstance(value, dict):
@@ -18,15 +18,38 @@ def render_value(value: Any, variables: dict[str, Any]) -> Any:
     return value
 
 
-def _render_string(template: str, variables: dict[str, Any]) -> str:
+def _render_string(template: str, variables: dict[str, Any], resolving: set[str]) -> str:
     full_match = FULL_PLACEHOLDER_RE.match(template)
     if full_match:
-        return _resolve_path(full_match.group(1), variables)
+        key = full_match.group(1)
+        resolved = _resolve_path(key, variables)
+        if isinstance(resolved, str) and PLACEHOLDER_RE.search(resolved):
+            return _render_nested_string(key, resolved, variables, resolving)
+        return resolved
 
     def replace(match: re.Match[str]) -> str:
-        return str(_resolve_path(match.group(1), variables))
+        key = match.group(1)
+        resolved = _resolve_path(key, variables)
+        if isinstance(resolved, str) and PLACEHOLDER_RE.search(resolved):
+            resolved = _render_nested_string(key, resolved, variables, resolving)
+        return str(resolved)
 
     return PLACEHOLDER_RE.sub(replace, template)
+
+
+def _render_nested_string(
+    key: str,
+    value: str,
+    variables: dict[str, Any],
+    resolving: set[str],
+) -> str:
+    if key in resolving:
+        raise ValueError(f"Circular variable reference detected for '{key}'.")
+    resolving.add(key)
+    try:
+        return _render_string(value, variables, resolving)
+    finally:
+        resolving.remove(key)
 
 
 def _resolve_path(path: str, variables: dict[str, Any]) -> Any:

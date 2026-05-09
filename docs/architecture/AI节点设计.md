@@ -37,12 +37,13 @@
 
 当前已规划/落地：
 
+- `detect_challenge`
 - `ocr_image`
 - `llm_chat`
+- `llm_extract_json`
 
 后续可扩展：
 
-- `llm_extract_json`
 - `vision_understand_page`
 - `ai_decide_next_step`
 - `ai_validate_form`
@@ -54,7 +55,7 @@ AI 节点只是普通 `step`，可以自然参与：
 - `if`
 - `foreach`
 - `retry`
-- `suite`
+- `run_sub_plan`
 
 ## 为什么现在不直接全量换成 LangGraph
 
@@ -110,3 +111,17 @@ LangGraph 更适合：
 - 真正执行点击、输入、等待的仍然是框架原子动作
 
 这能避免“全靠模型直接控制页面”带来的不稳定性。
+
+## 登录验证处理边界
+
+自动化经常卡在验证码、真人验证、九宫格选图、多因素认证等状态。
+
+框架当前建议把这个问题拆成三层：
+
+- `detect_challenge` 负责识别页面是否进入验证状态
+- `manual_confirm` 负责在真实站点上交给人处理
+- `capture` + `type: storage_state` 负责保存登录态，`read` + `type: storage_state` 负责读取可复用的状态文件路径
+
+在测试环境中，可以用本地 fixture 或后端测试开关模拟这些验证页面，用来测试自动化流程的分支、暂停、恢复和错误处理。
+
+不建议把真实站点的人机验证做成自动绕过流程。

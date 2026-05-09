@@ -8,7 +8,7 @@
 
 - `action`: 固定写成 `wait_for_download`
 - `browser`: 浏览器会话名
-- `path`: 下载文件保存路径
+- `path`: 相对于下载分区的保存路径，最终写入 `output/downloads/`
 - `trigger`: 触发下载的单个动作对象
 
 ## 可选字段

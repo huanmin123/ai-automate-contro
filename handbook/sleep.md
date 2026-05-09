@@ -17,4 +17,4 @@
 ## 注意事项
 
 - 当前版本要求已经至少打开了一个浏览器会话。
-- 更推荐优先使用 `wait_for_selector`、`wait_for_url`、`wait_for_text` 这类更稳定的显式等待。
+- 更推荐优先使用 `wait` + `type: selector/url/text` 这类更稳定的显式等待。

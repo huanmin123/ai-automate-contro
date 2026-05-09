@@ -2,34 +2,54 @@
 
 ## 用途
 
-固定等待一段时间。
+统一处理等待。
 
 ## 必填字段
 
 - `action`: 固定写成 `wait`
-- `browser`: 目标浏览器会话名称
+- `browser`: 浏览器会话名
+
+## 类型说明
+
+| type | 必填字段 | 说明 |
+| --- | --- | --- |
+| `time` | 无 | 固定等待，默认类型 |
+| `selector` | `selector` | 等待元素状态 |
+| `url` | `url` | 等待 URL 匹配 |
+| `text` | `selector`、`text` | 等待文本匹配 |
+| `count` | `selector`、`expected` | 等待元素数量匹配 |
 
 ## 可选字段
 
-- `seconds`: 等待秒数，默认 `1`
+- `seconds`: 仅 `type: time` 有效，默认 `1`
+- `state`: `selector` / `text` 使用，默认 `visible`
+- `mode`: `text` 支持 `contains`、`equals`；`count` 支持 `equals`、`gte`、`lte`
+- `timeout_ms`: 仅 `type: count` 有效，默认 `15000`
+- `index`: `selector` / `text` 使用，当选择器匹配多个元素时选择第几个
 
 ## 示例
 
 ```json
 {
   "action": "wait",
+  "type": "selector",
   "browser": "main",
-  "seconds": 3
+  "selector": "input[autocomplete='username']"
 }
 ```
 
-## 什么时候用
+```json
+{
+  "action": "wait",
+  "type": "text",
+  "browser": "main",
+  "selector": "#submit-btn",
+  "text": "进入控制台",
+  "mode": "equals"
+}
+```
 
-- 你要临时观察页面变化
-- 你在调试计划流程
-- 目标站点有短暂动画，不值得专门写更精细的等待
+## 建议
 
-## 注意事项
-
-- 生产化流程中，不要过度依赖它。
-- 如果能用 `wait_for_selector` 或 `wait_for_url`，优先用更明确的等待方式。
+- 优先使用 `selector`、`url`、`text`、`count` 这类显式等待。
+- `type: time` 只适合作为观察页面或兜底等待。
