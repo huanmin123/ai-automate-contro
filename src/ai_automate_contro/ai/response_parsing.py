@@ -62,12 +62,6 @@ def extract_responses_text(raw_response: dict[str, Any]) -> str:
 
 def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     raw_response = model_dump(response)
-    if isinstance(response, str):
-        raw_text = _extract_sse_chat_text(response)
-        if not raw_text:
-            raise ValueError("AI service returned a streaming response without text content.")
-        return raw_text, raw_response
-
     choices = _get_response_field(response, raw_response, "choices")
     if not isinstance(choices, list) or not choices:
         raise ValueError("AI service response missing choices.")
@@ -125,19 +119,6 @@ def self_check_chat_completion_stream_parser() -> dict[str, Any]:
         )
     )
 
-    sse_text, _ = extract_chat_completion_text(
-        'data: {"choices":[{"delta":{"content":"{\\"message\\":"}}]}\n'
-        'data: {"choices":[{"delta":{"content":"\\"ok\\"}"}}]}\n'
-        "data: [DONE]\n"
-    )
-    checks.append(
-        _self_check_result(
-            name="sse_text_response",
-            passed=sse_text == '{"message":"ok"}'
-            and parse_json_response(sse_text) == {"message": "ok"},
-        )
-    )
-
     empty_stream_rejected = False
     try:
         extract_chat_completion_stream_text([{"choices": [{"delta": {}}]}])
@@ -160,37 +141,7 @@ def model_dump(value: Any) -> dict[str, Any]:
         return value.model_dump(mode="json")
     if hasattr(value, "dict"):
         return value.dict()
-    return {"value": str(value)}
-
-
-def _extract_sse_chat_text(raw_text: str) -> str:
-    chunks: list[str] = []
-    for line in raw_text.splitlines():
-        line = line.strip()
-        if not line.startswith("data:"):
-            continue
-        payload = line.removeprefix("data:").strip()
-        if not payload or payload == "[DONE]":
-            continue
-        try:
-            event = json.loads(payload)
-        except json.JSONDecodeError:
-            continue
-        choices = event.get("choices", [])
-        if not isinstance(choices, list):
-            continue
-        for choice in choices:
-            if not isinstance(choice, dict):
-                continue
-            delta = choice.get("delta")
-            if isinstance(delta, dict) and delta.get("content"):
-                chunks.append(str(delta["content"]))
-            message = choice.get("message")
-            if isinstance(message, dict) and message.get("content"):
-                chunks.append(str(message["content"]))
-            if choice.get("text"):
-                chunks.append(str(choice["text"]))
-    return "".join(chunks)
+    raise TypeError(f"Unsupported AI SDK response object: {type(value).__name__}")
 
 
 def _get_choice_message(choice: Any) -> Any:

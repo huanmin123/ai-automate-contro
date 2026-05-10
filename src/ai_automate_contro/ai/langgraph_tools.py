@@ -184,6 +184,66 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         )
     )
 
+    read_plan_package_tool = tool_by_name.get("read_plan_package")
+    grep_project_text_tool = tool_by_name.get("grep_project_text")
+    read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
+    progressive_tools_ok = False
+    progressive_tools_error = ""
+    progressive_tools_detail: dict[str, Any] = {}
+    if read_plan_package_tool is not None and grep_project_text_tool is not None and read_project_file_slice_tool is not None:
+        try:
+            package_result = json.loads(
+                read_plan_package_tool.invoke({"plan_path": str(root / "plans" / "minimal-browser-plan" / "plan.json")})
+            )
+            plan = package_result.get("plan", {})
+            sub_plans = package_result.get("sub_plans", [])
+            grep_result = json.loads(
+                grep_project_text_tool.invoke(
+                    {
+                        "pattern": "open_browser",
+                        "root_path": str(root / "plans" / "minimal-browser-plan"),
+                        "literal": True,
+                        "file_glob": "*.json",
+                        "max_matches": 5,
+                    }
+                )
+            )
+            slice_result = json.loads(
+                read_project_file_slice_tool.invoke(
+                    {
+                        "path": str(root / "plans" / "minimal-browser-plan" / "plan.json"),
+                        "start_line": 1,
+                        "line_count": 3,
+                    }
+                )
+            )
+            package_is_metadata = (
+                isinstance(plan, dict)
+                and "steps_preview" in plan
+                and "steps" not in plan
+                and all(isinstance(sub_plan, dict) and "document" not in sub_plan for sub_plan in sub_plans)
+            )
+            progressive_tools_ok = (
+                bool(package_result.get("ok"))
+                and package_is_metadata
+                and int(grep_result.get("match_count", 0)) >= 1
+                and int(slice_result.get("line_count", 0)) <= 3
+            )
+            progressive_tools_detail = {
+                "package_is_metadata": package_is_metadata,
+                "grep_matches": grep_result.get("match_count", 0),
+                "slice_lines": slice_result.get("line_count", 0),
+            }
+        except Exception as error:
+            progressive_tools_error = str(error)
+    checks.append(
+        _self_check_result(
+            name="progressive_text_tools",
+            passed=progressive_tools_ok,
+            detail={**progressive_tools_detail, "error": progressive_tools_error},
+        )
+    )
+
     protected_tool = tool_by_name.get("apply_debug_patch_after_approval")
     protected_rejected = False
     protected_error = ""

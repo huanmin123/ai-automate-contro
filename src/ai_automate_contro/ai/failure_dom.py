@@ -18,18 +18,25 @@ def summarize_failure_html(run_output_dir: Path, raw_html_path: str) -> dict[str
         return {}
     if not html_path.exists() or not html_path.is_file():
         return {}
-    raw_text = html_path.read_text(encoding="utf-8", errors="replace")
-    if len(raw_text.encode("utf-8")) > MAX_FAILURE_HTML_SUMMARY_BYTES:
-        raw_text = raw_text.encode("utf-8")[:MAX_FAILURE_HTML_SUMMARY_BYTES].decode("utf-8", errors="ignore")
+    raw_text, truncated = read_failure_html_preview(html_path)
     parser = FailureDomSummaryParser()
     parser.feed(raw_text)
     return {
         "path": str(html_path),
         "relative_path": str(html_path.relative_to(run_output_dir.resolve())),
-        "truncated": len(raw_text.encode("utf-8")) >= MAX_FAILURE_HTML_SUMMARY_BYTES,
+        "truncated": truncated,
         "elements": parser.elements[:80],
         "text_snippets": parser.text_snippets[:40],
     }
+
+
+def read_failure_html_preview(path: Path) -> tuple[str, bool]:
+    with path.open("rb") as file:
+        data = file.read(MAX_FAILURE_HTML_SUMMARY_BYTES + 1)
+    truncated = len(data) > MAX_FAILURE_HTML_SUMMARY_BYTES
+    if truncated:
+        data = data[:MAX_FAILURE_HTML_SUMMARY_BYTES]
+    return data.decode("utf-8", errors="replace"), truncated
 
 
 class FailureDomSummaryParser(HTMLParser):

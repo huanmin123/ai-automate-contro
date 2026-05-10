@@ -53,6 +53,8 @@ def run_ai_task(
         "api_key": api_key,
         "timeout": timeout_seconds,
     }
+    if service_config.get("max_retries") is not None:
+        client_kwargs["max_retries"] = int(service_config["max_retries"])
     if service_config.get("base_url"):
         client_kwargs["base_url"] = str(service_config["base_url"])
     client = OpenAI(**client_kwargs)
@@ -67,50 +69,30 @@ def run_ai_task(
     response_api = str(service_config.get("api", "chat_completions"))
     strict = bool(service_config.get("strict_schema", True))
     stream = bool(service_config.get("stream", False))
-    response_formats = service_config.get("response_formats", ["json_schema", "json_object", "plain"])
-    if not isinstance(response_formats, list) or not response_formats:
-        response_formats = ["json_schema", "json_object", "plain"]
+    response_format = resolve_response_format(service_config)
 
-    attempts: list[dict[str, Any]] = []
-    last_error: Exception | None = None
-    for response_format in [str(item) for item in response_formats]:
-        try:
-            raw_text, raw_response = call_model(
-                client=client,
-                response_api=response_api,
-                model=model,
-                messages=messages,
-                schema=schema,
-                schema_name=f"{task_type}_result",
-                response_format=response_format,
-                strict=strict,
-                stream=stream,
-            )
-            parsed = parse_json_response(raw_text)
-            validate_with_schema(parsed, schema)
-            attempts.append({"response_format": response_format, "status": "passed"})
-            return AIResult(
-                parsed=parsed,
-                raw_text=raw_text,
-                raw_response=raw_response,
-                schema=schema,
-                response_format=response_format,
-                attempts=attempts,
-            )
-        except Exception as error:
-            last_error = error
-            attempts.append(
-                {
-                    "response_format": response_format,
-                    "status": "failed",
-                    "error": redact_text(str(error), api_key),
-                }
-            )
+    raw_text, raw_response = call_model(
+        client=client,
+        response_api=response_api,
+        model=model,
+        messages=messages,
+        schema=schema,
+        schema_name=f"{task_type}_result",
+        response_format=response_format,
+        strict=strict,
+        stream=stream,
+    )
+    parsed = parse_json_response(raw_text)
+    validate_with_schema(parsed, schema)
 
-    raise RuntimeError(
-        f"AI task failed for service '{service_name}'. Attempts: "
-        f"{json.dumps(attempts, ensure_ascii=False)}"
-    ) from last_error
+    return AIResult(
+        parsed=parsed,
+        raw_text=raw_text,
+        raw_response=raw_response,
+        schema=schema,
+        response_format=response_format,
+        attempts=[{"response_format": response_format, "status": "passed"}],
+    )
 
 
 def service_config_for_artifact(service_config: dict[str, Any]) -> dict[str, Any]:
@@ -133,10 +115,20 @@ def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
     raise ValueError(f"AI service '{service_name}' requires api_key or api_key_env.")
 
 
-def redact_text(text: str, secret: str) -> str:
-    if secret:
-        return text.replace(secret, "<redacted>")
-    return text
+def resolve_response_format(service_config: dict[str, Any]) -> str:
+    raw_response_format = service_config.get("response_format")
+    if raw_response_format is None:
+        legacy_response_formats = service_config.get("response_formats")
+        if isinstance(legacy_response_formats, list) and legacy_response_formats:
+            raw_response_format = legacy_response_formats[0]
+        else:
+            raw_response_format = "json_schema"
+    if not isinstance(raw_response_format, str) or not raw_response_format.strip():
+        raise ValueError("AI service response_format must be a non-empty string.")
+    response_format = raw_response_format.strip()
+    if response_format not in {"json_schema", "json_object", "plain"}:
+        raise ValueError(f"Unsupported AI response format: {response_format}")
+    return response_format
 
 
 def build_ai_task_messages(

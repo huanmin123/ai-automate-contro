@@ -6,6 +6,8 @@ from typing import Any
 def wait(executor: Any, step: dict[str, Any]) -> None:
     wait_type = step.get("type", "time")
     if wait_type == "time":
+        if any(field in step for field in ("selector", "url", "text", "expected")):
+            raise ValueError("wait with selector/url/text/expected must set an explicit non-time type.")
         executor._page(step).wait_for_timeout(int(float(step.get("seconds", 1)) * 1000))
         return
     if wait_type == "selector":

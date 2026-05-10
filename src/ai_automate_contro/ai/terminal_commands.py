@@ -6,6 +6,7 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 
 from ai_automate_contro.ai.service import service_config_for_artifact
+from ai_automate_contro.ai.session_compression import make_thread_id
 from ai_automate_contro.ai.terminal_message_utils import message_content_to_text
 from ai_automate_contro.ai.terminal_tool_registry import describe_ai_terminal_tool, list_ai_terminal_tools
 from ai_automate_contro.plans.packages import find_latest_run_output, resolve_plan_path
@@ -124,7 +125,27 @@ class AITerminalCommandsMixin:
             self.poutput(self.thread_id)
             return
         self.thread_id = next_thread_id
+        self._current_turn_text = None
+        self._approval_resume_active = False
         self.poutput(f"AI terminal thread: {self.thread_id}")
+
+    def do_new(self, arg: str) -> None:
+        """Start a new AI terminal thread: new [thread-id]"""
+        next_thread_id = arg.strip() or make_thread_id("thread")
+        self.thread_id = next_thread_id
+        self._current_turn_text = None
+        self._approval_resume_active = False
+        self.poutput(f"AI terminal thread: {self.thread_id}")
+
+    def do_compress(self, arg: str) -> None:
+        """Compress current AI terminal thread history: compress [reason]"""
+        reason = arg.strip() or "manual"
+        try:
+            result = self._compress_current_thread(reason=reason)
+        except Exception as error:
+            self.perror(str(error))
+            return
+        self.poutput(json.dumps(result, ensure_ascii=False, indent=2))
 
     def do_history(self, arg: str) -> None:
         """Show recent conversation messages: history [limit]"""

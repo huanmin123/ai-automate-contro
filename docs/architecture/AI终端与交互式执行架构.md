@@ -109,8 +109,13 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 - `current_plan_path`
 - `current_debug_workspace`
 - `latest_output_dir`
+- `latest_compression_summary_path`
+- `latest_compression_messages_path`
+- `latest_compression_archive_dir`
 
-终端命令 `use [plan]`、`workspace [debug-workspace]`、`run_context [output-dir]` 可以显式设置这些状态。结构化工具返回 plan、debug workspace 或 run output 时也会自动更新状态。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
+终端命令 `use [plan]`、`workspace [debug-workspace]`、`run_context [output-dir]` 可以显式设置这些状态；`/new [thread-id]` 开新线程，`/compress [reason]` 手动压缩当前线程。结构化工具返回 plan、debug workspace 或 run output 时也会自动更新状态。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
+
+长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
 补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 
@@ -283,6 +288,8 @@ python .\main.py tool call list_plan_packages --args-json '{"filter_text":"ai"}'
 
 `apply_debug_patch_after_approval` 有双重保护：AI 终端通过 `HumanInTheLoopMiddleware` 在工具执行前中断，只有用户在终端输入 `approve` 后才会通过 `Command(resume=...)` 恢复；工具自身仍要求参数包含 `approved: true`，避免绕过终端审批直接调用。
 
+AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必须先安装 `ripgrep`，或经用户确认后由助手执行 PowerShell 全局安装命令；工具层不提供 Windows 内置搜索兜底。
+
 `self-check ai-tools` 不调用真实模型，但会真实构建 LangChain `StructuredTool`、验证共享 Pydantic schema 绑定、通过工具 invoke 执行 `validate_plan`，并确认受保护工具在没有 HITL approve resume 时被拒绝。
 
 AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [AI调试修复工作流](./AI调试修复工作流.md)。
@@ -311,7 +318,7 @@ AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [
 
 第一版专项 AI 以统一 `ai` action 落地，通过 `type` 区分 `connectivity`、`extract_data`、`classify_text`、`transform_data` 和 `summarize_text`。它使用 OpenAI-compatible 服务配置，优先请求结构化 JSON 输出，再进行本地 schema 校验，并把请求摘要、原始响应、解析结果和校验信息写入 `output/ai/`。
 
-chat completions streaming 解析有独立本地回归入口 `python .\main.py self-check ai-stream`，用于在不访问模型服务的情况下验证 chunk、reasoning chunk 忽略、SDK 对象、SSE 文本和空流拒绝逻辑。
+chat completions streaming 解析有独立本地回归入口 `python .\main.py self-check ai-stream`，用于在不访问模型服务的情况下验证 chunk、reasoning chunk 忽略、SDK 对象和空流拒绝逻辑。
 
 `test-plans/config.json` 可以包含用户提供的临时测试模型服务，用于真实 AI 场景回归；公开示例配置不放真实密钥。
 

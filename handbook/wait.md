@@ -19,6 +19,8 @@
 | `text` | `selector`、`text` | 等待文本匹配 |
 | `count` | `selector`、`expected` | 等待元素数量匹配 |
 
+包含 `selector`、`url`、`text` 或 `expected` 的等待必须显式写非 `time` 的 `type`。这样可以避免把本来想写成条件等待的步骤静默执行成固定等待。
+
 ## 可选字段
 
 - `seconds`: 仅 `type: time` 有效，默认 `1`

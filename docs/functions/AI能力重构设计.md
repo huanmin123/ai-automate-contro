@@ -45,7 +45,9 @@ python .\main.py ai --thread login-debug
 
 工具注册表、Pydantic 参数模型和工具描述必须一一对应。新增或删除工具后运行 `python .\main.py tool check`，该检查也会在工具列表、工具 schema、工具调用和 LangChain tool 构建前执行，避免漏配后进入真实 AI 会话。
 
-`python .\main.py self-check ai-tools` 会进一步真实构建 LangChain `StructuredTool`，确认工具名、描述、`args_schema` 和 Pydantic 字段一致，调用 `validate_plan` 验证工具 invoke 回调链路，并确认 `apply_debug_patch_after_approval` 没有 HITL approve resume 时不能执行。
+`python .\main.py self-check ai-tools` 会进一步真实构建 LangChain `StructuredTool`，确认工具名、描述、`args_schema` 和 Pydantic 字段一致，调用 `validate_plan` 验证工具 invoke 回调链路，验证 `read_plan_package`、`grep_project_text` 和 `read_project_file_slice` 的渐进式读取约束，并确认 `apply_debug_patch_after_approval` 没有 HITL approve resume 时不能执行。
+
+AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 AI 终端启动都会检查 `rg` 是否可用；缺失时直接提示用 PowerShell 7 执行 `winget install --id BurntSushi.ripgrep.MSVC -e`，不使用 Windows 内置搜索替代。
 
 会话状态由 LangGraph `SqliteSaver` 持久化到 `.keygen/ai-terminal-checkpoints.sqlite`。同一个 `--thread` 可以跨终端进程恢复上下文；终端内可用 `context` 查看 checkpoint 信息、`history [limit]` 查看近期消息、`thread [id]` 切换线程、`reset` 删除当前线程。
 
@@ -139,6 +141,7 @@ test-plans/config.json
       "base_url": "http://127.0.0.1:18733/v1",
       "model": "model-name",
       "api_key_env": "TEXT_EXTRACTOR_API_KEY",
+      "response_format": "json_schema",
       "stream": false,
       "timeout_seconds": 60
     }
@@ -146,11 +149,13 @@ test-plans/config.json
 }
 ```
 
-`stream` 只影响 `chat_completions` 模式。部分 OpenAI-compatible 服务非 streaming 响应可能返回空 choices，此时可以在测试或局部配置中设置 `"stream": true`，专项 AI 会从 streaming chunks 中还原文本并继续做 schema 校验。
+`response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。专项 AI 不对用户提供的模型服务做自动降级、手动重试或兼容兜底；服务欠费、503、协议不兼容、返回内容为空或不符合 schema 时，执行会直接失败。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
 
-修改 streaming 解析逻辑后运行 `python .\main.py self-check ai-stream`，先用本地 chunk、reasoning chunk 忽略和 SSE 夹具验证解析器，再运行真实 `test-plans/ai/controlled-text/plan.json` 做模型级回归。
+`stream` 只影响 `chat_completions` 模式。需要 streaming 时必须在配置中显式设置 `"stream": true`，专项 AI 会从 streaming chunks 中还原文本，再执行 JSON 解析和 schema 校验。
 
-公开示例配置只能放服务别名、模型名、超时等非敏感字段。项目测试集合 `test-plans/config.json` 可以放用户提供的临时测试密钥和服务兼容参数，用于真实模型回归。
+修改 streaming 解析逻辑后运行 `python .\main.py self-check ai-stream`，先用本地 chunk、reasoning chunk 忽略、SDK 对象 chunk 和空流拒绝夹具验证解析器，再运行真实 `test-plans/ai/controlled-text/plan.json` 做模型级回归。
+
+公开示例配置只能放服务别名、模型名、超时等非敏感字段。项目测试集合 `test-plans/config.json` 可以放用户提供的临时测试密钥和显式调用参数，用于真实模型回归。
 
 ## 输出约束
 

@@ -5,14 +5,15 @@ import warnings
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.ai.session_compression import install_langgraph_warning_filter
+
+install_langgraph_warning_filter()
+
 import cmd2
 from langchain.agents import create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.sqlite import SqliteSaver
 
-warnings.filterwarnings("ignore", message=r"The default value of `allowed_objects`.*")
-warnings.filterwarnings("ignore", message=r".*allowed_objects.*")
 try:
     from langchain_core._api.deprecation import LangChainPendingDeprecationWarning
 
@@ -20,10 +21,14 @@ try:
 except Exception:
     pass
 
+from langgraph.checkpoint.sqlite import SqliteSaver
+
 from ai_automate_contro.ai.langgraph_tools import build_langchain_tools
+from ai_automate_contro.ai.file_search import assert_ripgrep_available
 from ai_automate_contro.ai.terminal_approval import AITerminalApprovalMixin
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
 from ai_automate_contro.ai.terminal_config import build_chat_model, load_ai_terminal_config
+from ai_automate_contro.ai.session_compression import build_summarization_middleware
 from ai_automate_contro.ai.terminal_context import (
     AITerminalState,
     inject_ai_terminal_context,
@@ -48,6 +53,7 @@ class AITerminal(
     def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
         super().__init__(allow_cli_args=False)
         self.project_root = project_root.resolve()
+        assert_ripgrep_available()
         self.config = load_ai_terminal_config(self.project_root, service_name=service)
         self.model_name = str(self.config.service_config["model"])
         self.thread_id = thread_id
@@ -63,6 +69,11 @@ class AITerminal(
             after_tool_call=self._after_tool_call,
         )
         self.model = build_chat_model(self.config.service_config)
+        self.summary_middleware = build_summarization_middleware(
+            self.model,
+            project_root=self.project_root,
+            thread_id_provider=lambda: self.thread_id,
+        )
         self.graph = create_agent(
             model=self.model,
             tools=self.tools,
@@ -70,6 +81,7 @@ class AITerminal(
             state_schema=AITerminalState,
             middleware=[
                 inject_ai_terminal_context,
+                self.summary_middleware,
                 HumanInTheLoopMiddleware(
                     interrupt_on={
                         "apply_debug_patch_after_approval": {
@@ -87,6 +99,8 @@ class AITerminal(
         text = line.strip()
         if not text:
             return
+        if self._handle_slash_command(text):
+            return
         if self._current_interrupts():
             if text_has_approval(text):
                 self.do_approve("")
@@ -97,6 +111,20 @@ class AITerminal(
             self.perror("pending approval; use approve or reject <reason> before sending a new request")
             return
         self._run_agent_turn(text)
+
+    def _handle_slash_command(self, text: str) -> bool:
+        if not text.startswith("/"):
+            return False
+        command, _, arg = text[1:].partition(" ")
+        normalized = command.strip().lower()
+        if normalized == "new":
+            self.do_new(arg)
+            return True
+        if normalized == "compress":
+            self.do_compress(arg)
+            return True
+        self.perror(f"unknown AI terminal command: /{command}")
+        return True
 
     def _run_agent_turn(self, text: str) -> None:
         self._current_turn_text = text

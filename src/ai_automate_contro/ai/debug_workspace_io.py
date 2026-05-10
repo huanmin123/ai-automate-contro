@@ -23,15 +23,16 @@ def read_debug_manifest(workspace_root: Path) -> dict[str, Any]:
 def read_debug_plan_tree(
     root: Path,
     *,
-    read_json_if_exists: Callable[[Path], Any | None],
+    read_json_file_overview: Callable[[Path, Path], dict[str, Any]],
+    read_plan_file_overview: Callable[[Path, Path], dict[str, Any]],
     read_package_docs: Callable[[Path], list[dict[str, Any]]],
     read_sub_plans: Callable[[Path], list[dict[str, Any]]],
     list_package_files: Callable[[Path, Path], list[dict[str, Any]]],
 ) -> dict[str, Any]:
     return {
         "root": str(root),
-        "plan": read_json_if_exists(root / "plan.json"),
-        "config": read_json_if_exists(root / "config.json"),
+        "plan": read_plan_file_overview(root / "plan.json", root),
+        "config": read_json_file_overview(root / "config.json", root),
         "docs": read_package_docs(root),
         "sub_plans": read_sub_plans(root),
         "resources": list_package_files(root / "resources", root),
@@ -84,12 +85,6 @@ def is_allowed_plan_package_write_path(path: Path) -> bool:
     if path.parts[0] in {"docs", "resources", "sub-plans"}:
         return True
     return False
-
-
-def read_text_if_exists(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")
 
 
 def read_text_preserve_newlines(path: Path) -> str:

@@ -16,6 +16,14 @@ def validate_type_field(
     if not allowed_types:
         return
     step_type = step.get("type")
+    if action == "wait" and (step_type is None or step_type == "time") and _has_non_time_wait_fields(step):
+        issues.append(
+            ValidationIssue(
+                location,
+                "wait with selector/url/text/expected must set an explicit non-time type: selector, url, text, or count",
+            )
+        )
+        return
     if action in {"wait", "scroll"} and step_type is None:
         return
     if not isinstance(step_type, str) or not step_type:
@@ -24,6 +32,10 @@ def validate_type_field(
     if step_type not in allowed_types:
         allowed = ", ".join(sorted(allowed_types))
         issues.append(ValidationIssue(location, f"unsupported {action}.type: {step_type}; expected one of: {allowed}"))
+
+
+def _has_non_time_wait_fields(step: dict[str, Any]) -> bool:
+    return any(field in step for field in ("selector", "url", "text", "expected"))
 
 
 def validate_type_specific_required_fields(

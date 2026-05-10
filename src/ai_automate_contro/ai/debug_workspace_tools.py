@@ -13,7 +13,6 @@ from ai_automate_contro.ai.debug_workspace_io import (
     debug_relative_path,
     read_debug_manifest,
     read_debug_plan_tree,
-    read_text_if_exists,
     read_text_preserve_newlines,
     resolve_debug_write_path,
     write_text_preserve_newlines,
@@ -25,8 +24,9 @@ from ai_automate_contro.ai.json_patch import (
 from ai_automate_contro.ai.json_text_patch import serialize_json_patch_result
 from ai_automate_contro.ai.plan_tools import (
     list_package_files,
-    read_json_if_exists,
+    read_json_file_overview,
     read_package_docs,
+    read_plan_file_overview,
     read_sub_plans,
     validate_plan_tool,
 )
@@ -34,13 +34,16 @@ from ai_automate_contro.ai.plan_tools import (
 
 def generate_debug_patch_tool(workspace: str | Path) -> dict[str, Any]:
     result = generate_debug_patch(workspace)
-    patch_text = ""
-    if result.patch_path.exists():
-        patch_text = result.patch_path.read_text(encoding="utf-8")
+    patch_size = result.patch_path.stat().st_size if result.patch_path.exists() else 0
     return {
         "ok": True,
         "result": result.to_dict(),
-        "patch": patch_text,
+        "patch_path": str(result.patch_path),
+        "patch_size": patch_size,
+        "next_actions": [
+            "Use grep_project_text to search patch.diff for targeted changes.",
+            "Use read_project_file_slice to inspect only the needed patch line range.",
+        ],
     }
 
 
@@ -69,21 +72,45 @@ def read_debug_workspace_tool(workspace: str | Path) -> dict[str, Any]:
         "manifest": manifest,
         "source": read_debug_plan_tree(
             source_copy_dir,
-            read_json_if_exists=read_json_if_exists,
+            read_json_file_overview=read_json_file_overview,
+            read_plan_file_overview=read_plan_file_overview,
             read_package_docs=read_package_docs,
             read_sub_plans=read_sub_plans,
             list_package_files=list_package_files,
         ),
         "injected": read_debug_plan_tree(
             injected_plan_dir,
-            read_json_if_exists=read_json_if_exists,
+            read_json_file_overview=read_json_file_overview,
+            read_plan_file_overview=read_plan_file_overview,
             read_package_docs=read_package_docs,
             read_sub_plans=read_sub_plans,
             list_package_files=list_package_files,
         ),
-        "notes": read_text_if_exists(Path(manifest["notes_path"]).resolve()),
-        "report": read_text_if_exists(Path(manifest["report_path"]).resolve()),
-        "patch": read_text_if_exists(Path(manifest["patch_path"]).resolve()),
+        "text_files": {
+            "notes": debug_text_metadata(Path(manifest["notes_path"]).resolve()),
+            "report": debug_text_metadata(Path(manifest["report_path"]).resolve()),
+            "patch": debug_text_metadata(Path(manifest["patch_path"]).resolve()),
+        },
+        "next_actions": [
+            "Use grep_project_text against the workspace to locate relevant notes, report, or patch lines.",
+            "Use read_project_file_slice for the specific line range you need.",
+        ],
+    }
+
+
+def debug_text_metadata(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "path": str(path),
+            "exists": False,
+            "size": 0,
+        }
+    stat = path.stat()
+    return {
+        "path": str(path),
+        "exists": True,
+        "size": stat.st_size,
+        "modified_at": stat.st_mtime,
     }
 
 

@@ -42,11 +42,14 @@ AI 服务注册在集合级或局部 `config.json`：
       "model": "model-name",
       "api_key": "temporary-test-key",
       "timeout_seconds": 90,
+      "response_format": "json_schema",
       "strict_schema": true
     }
   }
 }
 ```
+
+`response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。框架只按当前配置调用模型服务；如果用户提供的模型、余额、网关或 OpenAI-compatible 协议返回错误，会直接失败，不做自动降级、手动重试或格式兜底。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
 
 `test-plans/config.json` 当前包含用户主动提供的临时测试 AI 服务，用于真实 AI 场景回归。除非用户明确要求，不要删除或迁移这段测试配置；如果密钥过期或需要更换，由用户更新或明确要求移除。
 

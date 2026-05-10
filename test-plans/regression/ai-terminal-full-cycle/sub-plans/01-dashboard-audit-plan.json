@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "dashboard",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "dashboard",
+      "url": "{{resources_file_url}}/ops-dashboard.html"
+    },
+    {
+      "action": "wait",
+      "browser": "dashboard",
+      "selector": "#export-risk-report",
+      "type": "selector"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "dashboard",
+      "selector": "#export-risk-report"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "dashboard",
+      "selector": "#report-status",
+      "mode": "contains",
+      "expected": "Risk report ready"
+    },
+    {
+      "action": "extract",
+      "type": "text",
+      "browser": "dashboard",
+      "selector": "#report-status",
+      "save_as": "risk_report_text"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "reports/risk-report.json",
+      "value": {
+        "report_text": "{{risk_report_text}}"
+      }
+    },
+    {
+      "action": "close_browser",
+      "browser": "dashboard"
+    }
+  ]
+}

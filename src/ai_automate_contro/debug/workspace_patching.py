@@ -25,8 +25,8 @@ def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
         modified_path = injected_plan_dir / relative_path
         patch_text_parts.append(
             _git_no_index_diff(
-                original_path=original_path,
-                modified_path=modified_path,
+                original_path=original_path if original_path.exists() else None,
+                modified_path=modified_path if modified_path.exists() else None,
                 original_label=f"a/{relative_path}",
                 modified_label=f"b/{relative_path}",
                 cwd=package_dir,
@@ -112,12 +112,19 @@ def _is_ignored_debug_relative_path(relative_path: Path) -> bool:
 
 def _git_no_index_diff(
     *,
-    original_path: Path,
-    modified_path: Path,
+    original_path: Path | None,
+    modified_path: Path | None,
     original_label: str,
     modified_label: str,
     cwd: Path,
 ) -> str:
+    if original_path is None and modified_path is None:
+        return ""
+    if original_path is None:
+        return _new_file_diff(modified_path, modified_label=modified_label)
+    if modified_path is None:
+        return _deleted_file_diff(original_path, original_label=original_label, modified_label=modified_label)
+
     args = [
         "git",
         "diff",
@@ -133,6 +140,50 @@ def _git_no_index_diff(
     if not diff_text:
         return ""
     return _normalize_diff_headers(diff_text, original_label=original_label, modified_label=modified_label)
+
+
+def _new_file_diff(path: Path, *, modified_label: str) -> str:
+    content = path.read_text(encoding="utf-8", errors="surrogateescape")
+    content_lines = content.splitlines()
+    lines = [
+        f"diff --git a/{modified_label.removeprefix('b/')} {modified_label}",
+        "new file mode 100644",
+        "index 0000000..0000000",
+    ]
+    if content:
+        lines.extend(
+            [
+                "--- /dev/null",
+                f"+++ {modified_label}",
+                f"@@ -0,0 +1,{len(content_lines)} @@",
+            ]
+        )
+        lines.extend(f"+{line}" for line in content_lines)
+        if not content.endswith("\n"):
+            lines.append("\\ No newline at end of file")
+    return "\n".join(lines) + "\n"
+
+
+def _deleted_file_diff(path: Path, *, original_label: str, modified_label: str) -> str:
+    content = path.read_text(encoding="utf-8", errors="surrogateescape")
+    content_lines = content.splitlines()
+    lines = [
+        f"diff --git {original_label} {modified_label}",
+        "deleted file mode 100644",
+        "index 0000000..0000000",
+    ]
+    if content:
+        lines.extend(
+            [
+                f"--- {original_label}",
+                "+++ /dev/null",
+                f"@@ -1,{len(content_lines)} +0,0 @@",
+            ]
+        )
+        lines.extend(f"-{line}" for line in content_lines)
+        if not content.endswith("\n"):
+            lines.append("\\ No newline at end of file")
+    return "\n".join(lines) + "\n"
 
 
 def _normalize_diff_headers(diff_text: str, *, original_label: str, modified_label: str) -> str:

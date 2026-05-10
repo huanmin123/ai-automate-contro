@@ -16,6 +16,11 @@ class AITerminalState(AgentState):
     current_plan_path: NotRequired[str]
     current_debug_workspace: NotRequired[str]
     latest_output_dir: NotRequired[str]
+    latest_compression_archive_dir: NotRequired[str]
+    latest_compression_messages_path: NotRequired[str]
+    latest_compression_summary_path: NotRequired[str]
+    latest_compression_token_count: NotRequired[str]
+    latest_compression_message_count: NotRequired[str]
 
 
 @wrap_model_call(state_schema=AITerminalState, name="AITerminalContextMiddleware")
@@ -48,9 +53,21 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     if isinstance(latest_output_dir, str) and latest_output_dir:
         lines.append(f"- latest_output_dir: {latest_output_dir}")
         added = True
+    latest_compression_summary_path = state.get("latest_compression_summary_path")
+    latest_compression_messages_path = state.get("latest_compression_messages_path")
+    latest_compression_archive_dir = state.get("latest_compression_archive_dir")
+    if isinstance(latest_compression_summary_path, str) and latest_compression_summary_path:
+        lines.append(f"- latest_compression_summary_path: {latest_compression_summary_path}")
+        added = True
+    if isinstance(latest_compression_messages_path, str) and latest_compression_messages_path:
+        lines.append(f"- latest_compression_messages_path: {latest_compression_messages_path}")
+        added = True
+    if isinstance(latest_compression_archive_dir, str) and latest_compression_archive_dir:
+        lines.append(f"- latest_compression_archive_dir: {latest_compression_archive_dir}")
+        added = True
     if not added:
         return ""
-    lines.append("如果用户没有指定路径，优先使用这些上下文；如果上下文不足，再询问或调用工具确认。")
+    lines.append("如果用户没有指定路径，优先使用这些上下文；如果上下文不足，再询问或调用工具确认。需要历史细节时，先读取压缩摘要，再按需读取归档消息文件的相关行段。")
     return "\n".join(lines)
 
 

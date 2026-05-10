@@ -6,6 +6,11 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.types import Interrupt
 
+from ai_automate_contro.ai.session_compression import (
+    MANUAL_COMPRESS_KEEP_MESSAGES,
+    archive_messages,
+    count_ai_terminal_tokens,
+)
 from ai_automate_contro.ai.terminal_context import context_update_from_tool_result
 from ai_automate_contro.ai.terminal_message_utils import (
     extract_interrupts,
@@ -47,7 +52,16 @@ class AITerminalStateMixin:
     def _context_state(self) -> dict[str, str]:
         values = self.graph.get_state(self._graph_config()).values
         result: dict[str, str] = {}
-        for key in ("current_plan_path", "current_debug_workspace", "latest_output_dir"):
+        for key in (
+            "current_plan_path",
+            "current_debug_workspace",
+            "latest_output_dir",
+            "latest_compression_archive_dir",
+            "latest_compression_messages_path",
+            "latest_compression_summary_path",
+            "latest_compression_token_count",
+            "latest_compression_message_count",
+        ):
             value = values.get(key)
             if isinstance(value, str) and value:
                 result[key] = value
@@ -90,6 +104,57 @@ class AITerminalStateMixin:
 
     def _checkpoint_count(self) -> int:
         return sum(1 for _ in self.checkpointer.list({"configurable": {"thread_id": self.thread_id}}))
+
+    def _compress_current_thread(self, *, reason: str = "manual") -> dict[str, Any]:
+        messages = self._current_messages()
+        token_count = count_ai_terminal_tokens(messages)
+        if not messages:
+            return {
+                "ok": True,
+                "compressed": False,
+                "reason": "no messages in current thread",
+                "thread_id": self.thread_id,
+            }
+        result = self.summary_middleware.compress_messages(
+            messages,
+            reason=reason,
+            keep_messages=MANUAL_COMPRESS_KEEP_MESSAGES,
+        )
+        if result is None:
+            summary = "Manual archive created, but the thread is too small to replace with a compressed summary."
+            archive = archive_messages(
+                self.project_root,
+                self.thread_id,
+                messages,
+                summary=summary,
+                reason=reason,
+            )
+            self._update_context_state(archive.state_update())
+            return {
+                "ok": True,
+                "compressed": False,
+                "reason": "not enough messages to compress safely",
+                "thread_id": self.thread_id,
+                "message_count": len(messages),
+                "token_count": token_count,
+                "archive_dir": str(archive.archive_dir),
+                "messages_path": str(archive.messages_path),
+                "summary_path": str(archive.summary_path),
+            }
+
+        self.graph.update_state(self._graph_config(), result.state_update())
+        return {
+            "ok": True,
+            "compressed": True,
+            "thread_id": self.thread_id,
+            "message_count": len(messages),
+            "token_count": token_count,
+            "summarized_messages": len(result.messages_to_summarize),
+            "preserved_messages": len(result.preserved_messages),
+            "archive_dir": str(result.archive.archive_dir),
+            "messages_path": str(result.archive.messages_path),
+            "summary_path": str(result.archive.summary_path),
+        }
 
     def _close_checkpoint_connection(self) -> None:
         connection = getattr(self, "_checkpoint_connection", None)

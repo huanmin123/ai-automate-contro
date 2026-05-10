@@ -15,6 +15,12 @@ from ai_automate_contro.plans.packages import (
 from ai_automate_contro.plans.validator import ValidationIssue, validate_plan_file
 
 
+MAX_PACKAGE_DOCS = 20
+MAX_SUB_PLANS = 50
+MAX_PACKAGE_FILE_LIST = 200
+MAX_PLAN_STEP_OUTLINE = 80
+
+
 def list_plan_packages_tool(project_root: str | Path, *, filter_text: str = "") -> dict[str, Any]:
     root = Path(project_root).resolve()
     normalized_filter = filter_text.lower().strip()
@@ -35,19 +41,21 @@ def read_plan_package_tool(project_root: str | Path, plan_path: str | Path) -> d
     root = Path(project_root).resolve()
     resolved_plan_path = resolve_plan_path(plan_path)
     package_dir = resolved_plan_path.parent
-    document = read_json_if_exists(resolved_plan_path)
-    local_config = read_json_if_exists(package_dir / "config.json")
     docs = read_package_docs(package_dir)
     sub_plans = read_sub_plans(package_dir)
     resources = list_package_files(package_dir / "resources", package_dir)
     return {
         "ok": True,
         "summary": summarize_plan(resolved_plan_path, root),
-        "plan": document,
-        "config": local_config,
+        "plan": read_plan_file_overview(resolved_plan_path, package_dir),
+        "config": read_json_file_overview(package_dir / "config.json", package_dir),
         "docs": docs,
         "sub_plans": sub_plans,
         "resources": resources,
+        "next_actions": [
+            "Use grep_project_text to locate relevant plan, docs, resource, or config lines.",
+            "Use read_project_file_slice for the specific line range needed before editing.",
+        ],
     }
 
 
@@ -132,12 +140,14 @@ def read_package_docs(package_dir: Path) -> list[dict[str, Any]]:
     docs: list[dict[str, Any]] = []
     if not docs_dir.exists():
         return docs
-    for path in sorted(docs_dir.rglob("*.md"), key=lambda item: str(item).lower()):
+    for path in sorted(docs_dir.rglob("*.md"), key=lambda item: str(item).lower())[:MAX_PACKAGE_DOCS]:
+        stat = path.stat()
         docs.append(
             {
                 "path": str(path.resolve()),
                 "relative_path": str(path.relative_to(package_dir)),
-                "content": path.read_text(encoding="utf-8", errors="replace"),
+                "size": stat.st_size,
+                "modified_at": stat.st_mtime,
             }
         )
     return docs
@@ -148,14 +158,8 @@ def read_sub_plans(package_dir: Path) -> list[dict[str, Any]]:
     sub_plans: list[dict[str, Any]] = []
     if not sub_plans_dir.exists():
         return sub_plans
-    for path in sorted(sub_plans_dir.glob("*-plan.json"), key=lambda item: str(item).lower()):
-        sub_plans.append(
-            {
-                "path": str(path.resolve()),
-                "relative_path": str(path.relative_to(package_dir)),
-                "document": read_json_if_exists(path),
-            }
-        )
+    for path in sorted(sub_plans_dir.glob("*-plan.json"), key=lambda item: str(item).lower())[:MAX_SUB_PLANS]:
+        sub_plans.append(read_plan_file_overview(path, package_dir))
     return sub_plans
 
 
@@ -163,7 +167,7 @@ def list_package_files(root: Path, package_dir: Path) -> list[dict[str, Any]]:
     if not root.exists():
         return []
     files: list[dict[str, Any]] = []
-    for path in sorted(root.rglob("*"), key=lambda item: str(item).lower()):
+    for path in sorted(root.rglob("*"), key=lambda item: str(item).lower())[:MAX_PACKAGE_FILE_LIST]:
         if not path.is_file():
             continue
         stat = path.stat()
@@ -183,3 +187,85 @@ def read_json_if_exists(path: Path) -> Any | None:
         return None
     with path.open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+def read_plan_file_overview(path: Path, package_dir: Path) -> dict[str, Any]:
+    overview = read_json_file_overview(path, package_dir)
+    if not overview["exists"]:
+        return overview
+    document = read_json_if_exists(path)
+    if not isinstance(document, dict):
+        overview["document_type"] = "unknown"
+        return overview
+    try:
+        overview["document_type"] = detect_document_type(document)
+    except ValueError:
+        overview["document_type"] = "unknown"
+    steps = document.get("steps")
+    if not isinstance(steps, list):
+        steps = []
+    variables = document.get("variables")
+    if not isinstance(variables, dict):
+        variables = {}
+    tags = document.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    overview.update(
+        {
+            "name": document.get("name") or path.parent.name,
+            "tags": [str(tag) for tag in tags],
+            "variables": sorted(str(key) for key in variables.keys()),
+            "step_count": len(steps),
+            "steps_preview": summarize_plan_steps(steps),
+            "steps_truncated": len(steps) > MAX_PLAN_STEP_OUTLINE,
+        }
+    )
+    return overview
+
+
+def read_json_file_overview(path: Path, package_dir: Path) -> dict[str, Any]:
+    resolved_path = path.resolve()
+    payload: dict[str, Any] = {
+        "path": str(resolved_path),
+        "relative_path": str(path.relative_to(package_dir)) if is_relative_to(resolved_path, package_dir.resolve()) else str(path),
+        "exists": path.exists(),
+        "size": 0,
+        "modified_at": None,
+        "top_level_keys": [],
+    }
+    if not path.exists():
+        return payload
+    stat = path.stat()
+    payload["size"] = stat.st_size
+    payload["modified_at"] = stat.st_mtime
+    document = read_json_if_exists(path)
+    if isinstance(document, dict):
+        payload["top_level_keys"] = sorted(str(key) for key in document.keys())
+    return payload
+
+
+def summarize_plan_steps(steps: list[Any]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for index, step in enumerate(steps[:MAX_PLAN_STEP_OUTLINE], start=1):
+        if not isinstance(step, dict):
+            summaries.append({"step_number": index, "type": type(step).__name__})
+            continue
+        summary: dict[str, Any] = {
+            "step_number": index,
+            "action": step.get("action"),
+            "type": step.get("type"),
+            "name": step.get("name"),
+            "keys": sorted(str(key) for key in step.keys()),
+        }
+        if step.get("action") == "run_sub_plan":
+            summary["path"] = step.get("path")
+        summaries.append({key: value for key, value in summary.items() if value not in (None, "", [])})
+    return summaries
+
+
+def is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False

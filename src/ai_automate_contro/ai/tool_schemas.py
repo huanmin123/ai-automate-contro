@@ -13,6 +13,23 @@ class ListPlanPackagesArgs(ToolArgsModel):
     filter_text: str = Field(default="", description="Optional text filter.")
 
 
+class GrepProjectTextArgs(ToolArgsModel):
+    pattern: str = Field(..., description="Text or regex pattern to search for with ripgrep.")
+    root_path: str = Field(default=".", description="Project-relative directory or file to search.")
+    literal: bool = Field(default=True, description="Use fixed-string search instead of regex.")
+    include_output: bool = Field(default=False, description="Include plan output/ directories when explicitly needed.")
+    file_glob: str = Field(default="", description="Optional ripgrep glob, for example *.md or **/*.json.")
+    context_lines: int = Field(default=0, description="Context lines around matches; clamped to a small maximum.")
+    max_matches: int = Field(default=50, description="Maximum match lines to return; clamped to a small maximum.")
+
+
+class ReadProjectFileSliceArgs(ToolArgsModel):
+    path: str = Field(..., description="Project-relative or absolute path under the project root.")
+    start_line: int = Field(default=1, description="1-based first line to read.")
+    line_count: int = Field(default=80, description="Number of lines to read; clamped to a small maximum.")
+    max_bytes: int = Field(default=64_000, description="Maximum text bytes to return; clamped to a small maximum.")
+
+
 class ReadPlanPackageArgs(ToolArgsModel):
     plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
 
@@ -72,7 +89,7 @@ class ListOutputArtifactsArgs(ToolArgsModel):
 class ReadOutputArtifactArgs(ToolArgsModel):
     plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
     relative_path: str = Field(..., description="Path relative to the plan package output/ directory.")
-    max_bytes: int = Field(default=256_000, description="Maximum text bytes to return.")
+    max_bytes: int = Field(default=64_000, description="Maximum text bytes to return; tool clamps oversized requests.")
 
 
 class CreateDebugWorkspaceArgs(ToolArgsModel):

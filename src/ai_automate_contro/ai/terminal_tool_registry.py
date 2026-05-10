@@ -7,6 +7,7 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from ai_automate_contro.ai import terminal_tools
+from ai_automate_contro.ai.file_search import grep_project_text_tool, read_project_file_slice_tool
 from ai_automate_contro.ai.plan_tools import (
     create_plan_package_tool,
     list_plan_packages_tool,
@@ -20,6 +21,7 @@ from ai_automate_contro.ai.tool_schemas import (
     CreatePlanPackageArgs,
     FindDebugWorkspaceArgs,
     GenerateDebugPatchArgs,
+    GrepProjectTextArgs,
     InjectDebugStepsArgs,
     ListDebugWorkspacesArgs,
     ListOutputArtifactsArgs,
@@ -32,6 +34,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ReadLatestRunStateArgs,
     ReadOutputArtifactArgs,
     ReadPlanPackageArgs,
+    ReadProjectFileSliceArgs,
     ReadRunEventsArgs,
     ReadRunLogArgs,
     RunDebugPlanArgs,
@@ -83,7 +86,13 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "generate_debug_patch": ToolSpec(
         terminal_tools.generate_debug_patch_tool,
         GenerateDebugPatchArgs,
-        "Generate patch.diff by comparing source-copy/ and injected-plan/.",
+        "Generate patch.diff by comparing source-copy/ and injected-plan/; returns patch metadata, not full text.",
+    ),
+    "grep_project_text": ToolSpec(
+        grep_project_text_tool,
+        GrepProjectTextArgs,
+        "Progressively search project text with ripgrep before reading file slices.",
+        requires_project_root=True,
     ),
     "inject_debug_steps": ToolSpec(
         terminal_tools.inject_debug_steps_tool,
@@ -126,7 +135,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "read_debug_workspace": ToolSpec(
         terminal_tools.read_debug_workspace_tool,
         ReadDebugWorkspaceArgs,
-        "Read a debug workspace manifest, source-copy, injected-plan, notes, report, and patch.",
+        "Read debug workspace structure and text-file metadata without loading full notes, report, or patch text.",
     ),
     "read_latest_run_report": ToolSpec(
         terminal_tools.read_latest_run_report_tool,
@@ -141,12 +150,18 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "read_output_artifact": ToolSpec(
         terminal_tools.read_output_artifact_tool,
         ReadOutputArtifactArgs,
-        "Read one artifact under output/; text artifacts return content.",
+        "Read a bounded slice of one artifact under output/ after grep/listing identifies it.",
     ),
     "read_plan_package": ToolSpec(
         read_plan_package_tool,
         ReadPlanPackageArgs,
-        "Read a plan package, including plan.json, config, docs, sub-plans, and resources.",
+        "Read plan package structure and metadata without loading full text docs or resources.",
+        requires_project_root=True,
+    ),
+    "read_project_file_slice": ToolSpec(
+        read_project_file_slice_tool,
+        ReadProjectFileSliceArgs,
+        "Read a bounded line slice from one project file after grep/listing identifies it.",
         requires_project_root=True,
     ),
     "read_run_events": ToolSpec(

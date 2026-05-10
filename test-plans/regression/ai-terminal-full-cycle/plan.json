@@ -1,0 +1,10 @@
+{
+  "name": "ai-terminal-full-cycle",
+  "variables": {},
+  "steps": [
+    {
+      "action": "run_sub_plan",
+      "path": "sub-plans/01-dashboard-audit-plan.json"
+    }
+  ]
+}

@@ -5,7 +5,16 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.ai.failure_dom import summarize_failure_html
-from ai_automate_contro.ai.run_artifacts import read_json_if_exists, read_jsonl_tail, tail_lines
+from ai_automate_contro.ai.run_artifacts import (
+    MAX_RUN_EVENT_LINES,
+    MAX_RUN_LOG_LINES,
+    MAX_TEXT_ARTIFACT_BYTES,
+    clamp_count,
+    read_json_if_exists,
+    read_jsonl_tail,
+    read_text_preview,
+    tail_lines,
+)
 from ai_automate_contro.support.utils import dict_get, first_string
 
 
@@ -20,12 +29,14 @@ def analyze_latest_run_failure_tool(
 ) -> dict[str, Any]:
     resolved_plan_path = resolve_plan_path(plan_path)
     run_output_dir = resolve_run_output_dir(resolved_plan_path, output_dir)
+    resolved_log_lines = clamp_count(log_lines, max_count=MAX_RUN_LOG_LINES)
+    resolved_event_lines = clamp_count(event_lines, max_count=MAX_RUN_EVENT_LINES)
     state = read_json_if_exists(run_output_dir / "state.json")
     result = read_json_if_exists(run_output_dir / "result.json")
-    events = read_jsonl_tail(run_output_dir / "events.jsonl", event_lines)
-    commands = read_jsonl_tail(run_output_dir / "commands.jsonl", event_lines)
-    log_tail = tail_lines(run_output_dir / "run.log", log_lines) if (run_output_dir / "run.log").exists() else []
-    report = _read_text_if_exists(run_output_dir / "report.md")
+    events = read_jsonl_tail(run_output_dir / "events.jsonl", resolved_event_lines)
+    commands = read_jsonl_tail(run_output_dir / "commands.jsonl", resolved_event_lines)
+    log_tail = tail_lines(run_output_dir / "run.log", resolved_log_lines) if (run_output_dir / "run.log").exists() else []
+    report, report_truncated = read_text_preview(run_output_dir / "report.md", max_bytes=MAX_TEXT_ARTIFACT_BYTES)
 
     status = first_string(
         dict_get(result, "status"),
@@ -74,8 +85,13 @@ def analyze_latest_run_failure_tool(
         "recent_warnings": warnings[-10:],
         "commands": commands[-20:],
         "report": report,
+        "report_truncated": report_truncated,
         "log_tail": log_tail,
         "events_tail": events[-20:],
+        "requested_log_lines": log_lines,
+        "requested_event_lines": event_lines,
+        "max_log_lines": MAX_RUN_LOG_LINES,
+        "max_event_lines": MAX_RUN_EVENT_LINES,
         "next_actions": [
             "Read the failed step and nearby plan steps before changing anything.",
             "Create a debug workspace before injecting diagnostics or proposing a fix.",
@@ -201,9 +217,3 @@ def build_failure_hints(*, error: str, failed_step: dict[str, Any] | None, event
     if not hints:
         hints.append("No specific heuristic matched; inspect recent_errors, log_tail, and the failed step in plan.json.")
     return hints
-
-
-def _read_text_if_exists(path: Path) -> str:
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")
