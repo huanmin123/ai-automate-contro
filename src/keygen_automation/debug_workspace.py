@@ -238,7 +238,7 @@ def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
             )
         )
 
-    patch_path.write_text("".join(patch_text_parts), encoding="utf-8")
+    patch_path.write_text("".join(patch_text_parts), encoding="utf-8", newline="\n")
     _append_patch_note(workspace_root, changed_files)
     return DebugPatchResult(
         workspace_root=workspace_root,
