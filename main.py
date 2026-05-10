@@ -9,7 +9,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from keygen_automation.cli import run_cli
+from ai_automate_contro.app.cli import run_cli
 
 
 def main() -> None:

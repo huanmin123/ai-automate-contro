@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from langchain_openai import ChatOpenAI
+
+from ai_automate_contro.plans.config import load_plan_config
+
+
+@dataclass
+class AITerminalConfig:
+    service_name: str
+    service_config: dict[str, Any]
+
+
+def load_ai_terminal_config(project_root: Path, *, service_name: str = "default") -> AITerminalConfig:
+    plan_config = load_plan_config(project_root, project_root / "test-plans")
+    ai_services = plan_config.get("ai_services", {})
+    if not isinstance(ai_services, dict):
+        raise ValueError("config.ai_services must be a JSON object.")
+    service_config = ai_services.get(service_name)
+    if not isinstance(service_config, dict):
+        raise KeyError(f"AI terminal service is not configured: {service_name}")
+    if not service_config.get("model"):
+        raise ValueError(f"AI terminal service '{service_name}' requires model.")
+    resolve_ai_terminal_api_key(service_name, service_config)
+    return AITerminalConfig(service_name=service_name, service_config=service_config)
+
+
+def build_chat_model(service_config: dict[str, Any]) -> ChatOpenAI:
+    kwargs: dict[str, Any] = {
+        "model": str(service_config["model"]),
+        "api_key": resolve_ai_terminal_api_key("default", service_config),
+        "timeout": float(service_config.get("timeout_seconds", 90)),
+        "temperature": float(service_config.get("temperature", 0.2)),
+    }
+    if service_config.get("base_url"):
+        kwargs["base_url"] = str(service_config["base_url"])
+    if service_config.get("max_retries") is not None:
+        kwargs["max_retries"] = int(service_config["max_retries"])
+    return ChatOpenAI(**kwargs)
+
+
+def resolve_ai_terminal_api_key(service_name: str, service_config: dict[str, Any]) -> str:
+    if service_config.get("api_key"):
+        return str(service_config["api_key"])
+    api_key_env = service_config.get("api_key_env")
+    if isinstance(api_key_env, str) and api_key_env:
+        api_key = os.environ.get(api_key_env)
+        if api_key:
+            return api_key
+    raise ValueError(f"AI terminal service '{service_name}' requires api_key or api_key_env.")

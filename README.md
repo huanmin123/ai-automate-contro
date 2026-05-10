@@ -14,7 +14,7 @@ python -m playwright install chromium
 python .\main.py
 ```
 
-项目使用 `src/` 布局。开发环境建议执行 `python -m pip install -e .`，或者在 IDE 里把 `src` 标记为 Sources Root；否则 IDE 或裸 `python -c "import keygen_automation"` 可能找不到 `keygen_automation`，但通过 `python .\main.py ...` 运行时会由入口自动加入 `src` 路径。
+项目使用 `src/` 布局。开发环境建议执行 `python -m pip install -e .`，或者在 IDE 里把 `src` 标记为 Sources Root；否则 IDE 或裸 `python -c "import ai_automate_contro"` 可能找不到 `ai_automate_contro`，但通过 `python .\main.py ...` 运行时会由入口自动加入 `src` 路径。
 
 进入持续管理终端后：
 
@@ -48,8 +48,13 @@ python .\main.py ai --thread login-debug
 
 ## 当前目录
 
-- `main.py`: 命令行入口，负责读取 `plan.json` 并执行。
-- `src/keygen_automation/`: 自动化执行内核。
+- `main.py`: 极薄命令行启动入口，负责把项目 `src/` 加入导入路径并交给应用层分发。
+- `src/ai_automate_contro/app/`: CLI 参数解析、一次性命令分发和交互式管理终端。
+- `src/ai_automate_contro/engine/`: plan 执行器、动作运行时、浏览器会话、条件和模板。
+- `src/ai_automate_contro/plans/`: plan 加载、校验、包发现、配置、输出报告和产物读取。
+- `src/ai_automate_contro/ai/`: 受控专项 AI action、plan 级 AI 终端、LangChain 工具和工具 schema。
+- `src/ai_automate_contro/debug/`: debug workspace、patch 生成和补丁应用。
+- `src/ai_automate_contro/support/`: 日志和通用工具函数。
 - `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是公开示例 plan 的集合级配置。
 - `test-plans/`: 项目真实自动化需求 plan 包。
 - `handbook/`: 面向人的组件手册。

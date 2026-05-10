@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-这是一个基于 Python + Playwright 的 JSON 编排自动化内核。入口是 `main.py`，核心代码在 `src/keygen_automation/`，执行器读取 JSON plan 后按步骤驱动浏览器、变量、断言、文件读写、控制流组件和受控专项 AI 组件。
+这是一个基于 Python + Playwright 的 JSON 编排自动化内核。入口是 `main.py`，核心代码在 `src/ai_automate_contro/`，执行器读取 JSON plan 后按步骤驱动浏览器、变量、断言、文件读写、控制流组件和受控专项 AI 组件。
 
 ## Windows Shell 默认约定
 
@@ -13,8 +13,13 @@
 
 ## 目录职责
 
-- `main.py`: CLI 入口，负责加载 `plan.json` 并执行。
-- `src/keygen_automation/`: 自动化执行内核，修改功能逻辑优先从这里入手。
+- `main.py`: 极薄 CLI 启动入口，负责把项目 `src/` 加入导入路径并交给应用层分发。
+- `src/ai_automate_contro/app/`: CLI 参数解析、一次性命令分发和交互式管理终端。
+- `src/ai_automate_contro/engine/`: plan 执行器、动作运行时、浏览器会话、条件和模板。
+- `src/ai_automate_contro/plans/`: plan 加载、校验、包发现、配置、输出报告和产物读取。
+- `src/ai_automate_contro/ai/`: 受控专项 AI action、plan 级 AI 终端、LangChain 工具和工具 schema。
+- `src/ai_automate_contro/debug/`: debug workspace、patch 生成和补丁应用。
+- `src/ai_automate_contro/support/`: 日志和通用工具函数。
 - `handbook/`: 唯一教程来源；新增或变更动作组件时，必须同步补充对应手册。
 - `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是公开示例 plan 的集合级配置。
 - `test-plans/`: 项目真实自动化 plan 包。
@@ -61,7 +66,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - 修改专项 AI streaming 解析时，必须运行 `python .\main.py self-check ai-stream`；真实服务回归仍使用 `test-plans/ai/controlled-text/plan.json`。
 - 执行链路里只允许受控专项 `ai` action；开放式聊天能力只能存在于 plan 级 AI 终端。
 - `test-plans/config.json` 可以保存用户主动提供的临时 AI 测试服务和密钥，用于真实 AI 场景回归；除非用户明确要求，不要删除或迁移这段配置。
-- 新增动作组件时，同步更新 `src/keygen_automation/actions.py` 相关执行逻辑、`handbook/<action>.md`、`handbook/README.md` 和必要的 `test-plans/` 示例。
+- 新增动作组件时，同步更新 `src/ai_automate_contro/engine/actions/` 下对应行为模块和 action 注册出口、`handbook/<action>.md`、`handbook/README.md` 和必要的 `test-plans/` 示例。
 - 修改计划加载、变量渲染、条件、循环等共享逻辑时，检查已有示例是否仍能运行。
 - 不要把真实账号、令牌、Cookie、storage state、接口密钥、运行截图或执行日志写入仓库。
 - `plans/**/output/`、`test-plans/**/output/`、`.keygen/`、`__pycache__/`、IDE 配置和本地密钥配置属于本地产物，应由 `.gitignore` 过滤。
