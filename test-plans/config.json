@@ -7,6 +7,7 @@
       "base_url": "https://aijh.huanmin.top/v1",
       "model": "gpt-5.5",
       "api_key": "sk-184515b8b52d0498dabeae05c594aa39048b76c731151775cd72fb8dc5017633",
+      "stream": true,
       "timeout_seconds": 90,
       "strict_schema": true,
       "response_formats": [

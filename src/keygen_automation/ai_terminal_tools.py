@@ -23,6 +23,7 @@ from keygen_automation.plan_packages import (
     plan_matches_filter,
     summarize_plan,
 )
+from keygen_automation.ai_terminal_tool_schemas import TOOL_ARGS_SCHEMAS, TOOL_DESCRIPTIONS
 from keygen_automation.validator import ValidationIssue, validate_plan_file
 
 
@@ -48,28 +49,109 @@ def call_ai_terminal_tool(
     tool_name: str,
     project_root: str | Path,
     arguments: dict[str, Any] | None = None,
+    *,
+    allow_protected: bool = False,
 ) -> dict[str, Any]:
+    _ensure_ai_terminal_tool_registry_consistent()
     if tool_name not in AI_TERMINAL_TOOLS:
         supported = ", ".join(sorted(AI_TERMINAL_TOOLS))
         raise ValueError(f"Unsupported AI terminal tool: {tool_name}. Supported tools: {supported}")
+    if tool_name in PROTECTED_AI_TERMINAL_TOOLS and not allow_protected:
+        raise ValueError(
+            f"Tool '{tool_name}' is protected and can only run through the AI terminal human approval flow."
+        )
     tool = AI_TERMINAL_TOOLS[tool_name]
-    tool_arguments = dict(arguments or {})
+    tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, arguments or {})
     if tool_name in PROJECT_ROOT_TOOLS:
         return tool(project_root, **tool_arguments)
     return tool(**tool_arguments)
 
 
 def list_ai_terminal_tools() -> dict[str, Any]:
+    _ensure_ai_terminal_tool_registry_consistent()
     return {
         "ok": True,
         "tools": [
             {
                 "name": name,
+                "description": TOOL_DESCRIPTIONS.get(name, name),
                 "requires_project_root": name in PROJECT_ROOT_TOOLS,
+                "protected": name in PROTECTED_AI_TERMINAL_TOOLS,
+                "args": list(TOOL_ARGS_SCHEMAS[name].model_fields),
             }
             for name in sorted(AI_TERMINAL_TOOLS)
         ],
     }
+
+
+def describe_ai_terminal_tool(tool_name: str) -> dict[str, Any]:
+    _ensure_ai_terminal_tool_registry_consistent()
+    if tool_name not in AI_TERMINAL_TOOLS:
+        supported = ", ".join(sorted(AI_TERMINAL_TOOLS))
+        raise ValueError(f"Unsupported AI terminal tool: {tool_name}. Supported tools: {supported}")
+    return {
+        "ok": True,
+        "name": tool_name,
+        "description": TOOL_DESCRIPTIONS.get(tool_name, tool_name),
+        "requires_project_root": tool_name in PROJECT_ROOT_TOOLS,
+        "protected": tool_name in PROTECTED_AI_TERMINAL_TOOLS,
+        "args_schema": TOOL_ARGS_SCHEMAS[tool_name].model_json_schema(),
+    }
+
+
+def check_ai_terminal_tool_registry() -> dict[str, Any]:
+    tool_names = set(AI_TERMINAL_TOOLS)
+    schema_names = set(TOOL_ARGS_SCHEMAS)
+    description_names = set(TOOL_DESCRIPTIONS)
+    project_root_names = set(PROJECT_ROOT_TOOLS)
+    protected_names = set(PROTECTED_AI_TERMINAL_TOOLS)
+    missing_schemas = sorted(tool_names - schema_names)
+    extra_schemas = sorted(schema_names - tool_names)
+    missing_descriptions = sorted(tool_names - description_names)
+    extra_descriptions = sorted(description_names - tool_names)
+    invalid_project_root_tools = sorted(project_root_names - tool_names)
+    invalid_protected_tools = sorted(protected_names - tool_names)
+    errors = []
+    if missing_schemas:
+        errors.append(f"Missing Pydantic args schemas: {', '.join(missing_schemas)}")
+    if extra_schemas:
+        errors.append(f"Args schemas without registered tools: {', '.join(extra_schemas)}")
+    if missing_descriptions:
+        errors.append(f"Missing tool descriptions: {', '.join(missing_descriptions)}")
+    if extra_descriptions:
+        errors.append(f"Descriptions without registered tools: {', '.join(extra_descriptions)}")
+    if invalid_project_root_tools:
+        errors.append(f"PROJECT_ROOT_TOOLS contains unknown tools: {', '.join(invalid_project_root_tools)}")
+    if invalid_protected_tools:
+        errors.append(f"PROTECTED_AI_TERMINAL_TOOLS contains unknown tools: {', '.join(invalid_protected_tools)}")
+    return {
+        "ok": not errors,
+        "registered_tools": len(tool_names),
+        "schemas": len(schema_names),
+        "descriptions": len(description_names),
+        "project_root_tools": len(project_root_names),
+        "protected_tools": len(protected_names),
+        "missing_schemas": missing_schemas,
+        "extra_schemas": extra_schemas,
+        "missing_descriptions": missing_descriptions,
+        "extra_descriptions": extra_descriptions,
+        "invalid_project_root_tools": invalid_project_root_tools,
+        "invalid_protected_tools": invalid_protected_tools,
+        "errors": errors,
+    }
+
+
+def _ensure_ai_terminal_tool_registry_consistent() -> None:
+    result = check_ai_terminal_tool_registry()
+    if not result["ok"]:
+        raise RuntimeError("AI terminal tool registry is inconsistent: " + "; ".join(result["errors"]))
+
+
+def _validate_ai_terminal_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    args_schema = TOOL_ARGS_SCHEMAS.get(tool_name)
+    if args_schema is None:
+        raise ValueError(f"Missing argument schema for AI terminal tool: {tool_name}")
+    return args_schema.model_validate(arguments).model_dump()
 
 
 def list_plan_packages_tool(project_root: str | Path, *, filter_text: str = "") -> dict[str, Any]:
@@ -1870,4 +1952,8 @@ PROJECT_ROOT_TOOLS = {
     "run_plan",
     "validate_debug_plan",
     "validate_plan",
+}
+
+PROTECTED_AI_TERMINAL_TOOLS = {
+    "apply_debug_patch_after_approval",
 }

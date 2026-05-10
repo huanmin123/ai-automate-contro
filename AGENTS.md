@@ -28,6 +28,8 @@
 ```powershell
 python -m pip install -e .
 python -m playwright install chromium
+python .\main.py self-check ai-stream
+python .\main.py self-check ai-tools
 python .\main.py plan run --file .\plans\minimal-browser-plan\plan.json
 python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
 ```
@@ -49,11 +51,14 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
 - `read` 统一使用 `path`、`type`、`save_as`，资源输入优先放在当前 plan 包 `resources/`。
 - AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。
-- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、`HumanInTheLoopMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复。
+- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复。
+- AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型，避免 CLI 与 AI 终端出现两套参数规则。
+- 新增 AI 终端工具时，必须同步 `AI_TERMINAL_TOOLS`、`TOOL_ARGS_SCHEMAS` 和 `TOOL_DESCRIPTIONS`，并运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
 - AI 终端线程状态包含 `current_plan_path`、`current_debug_workspace` 和 `latest_output_dir`，由 `use`、`workspace`、`run_context` 命令和工具返回自动维护，并通过 middleware 注入模型上下文。
 - AI 调试修复必须先把原始 plan 包复制到当前 plan 的 `output/debug/<run>/source-copy/`，再在 `output/debug/<run>/injected-plan/` 注入日志、截图、变量落盘或人工确认；修复候选只能写入 `injected-plan/`、`notes.md` 或 `report.md`，确认问题后只把最小补丁应用回原始 plan。
 - selector 自动修复必须保守：没有明确用户提示或候选分数接近时，只能返回候选和歧义原因，不能自动写入 `injected-plan/`。
 - 专项 AI 统一使用 `ai` action，并通过 `type` 区分 `connectivity`、`extract_data`、`classify_text`、`transform_data`、`summarize_text`；必须有固定输入、固定输出 schema、固定系统提示词和 `output/ai/` 调试产物。
+- 修改专项 AI streaming 解析时，必须运行 `python .\main.py self-check ai-stream`；真实服务回归仍使用 `test-plans/ai/controlled-text/plan.json`。
 - 执行链路里只允许受控专项 `ai` action；开放式聊天能力只能存在于 plan 级 AI 终端。
 - `test-plans/config.json` 可以保存用户主动提供的临时 AI 测试服务和密钥，用于真实 AI 场景回归；除非用户明确要求，不要删除或迁移这段配置。
 - 新增动作组件时，同步更新 `src/keygen_automation/actions.py` 相关执行逻辑、`handbook/<action>.md`、`handbook/README.md` 和必要的 `test-plans/` 示例。

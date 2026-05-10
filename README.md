@@ -103,20 +103,29 @@ plan-package/
 - `python .\main.py ai`: 进入基于 LangChain Agent + LangGraph 的持续 AI 终端。
 - `python .\main.py ai --thread <id>`: 进入或恢复指定 AI 会话线程。
 - AI 终端读取 `test-plans/config.json` 的 `ai_services.default` 作为默认模型服务；当前测试服务和临时密钥是用户提供的真实回归配置，不要自动删除。
-- AI 终端使用 `langchain.agents.create_agent`、`langchain-openai` 和 LangChain `StructuredTool` 暴露工具，模型通过原生 `tool_calls` 调用工具，不再使用自定义 JSON 工具调用协议。
+- AI 终端使用 `langchain.agents.create_agent`、`langchain-openai` 和 LangChain `StructuredTool` 暴露工具；每个工具都有显式 Pydantic 参数模型，模型通过原生 `tool_calls` 调用工具，不再使用自定义 JSON 工具调用协议。
 - 会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，该目录由 Git 忽略。终端内可用 `context` 查看当前线程、`history [limit]` 查看消息、`thread [id]` 切换线程、`reset` 删除当前线程。
 - AI 终端有线程级上下文状态：`use [plan.json-or-package-dir]` 设置当前 plan，`workspace [output/debug/<run>]` 设置当前 debug workspace，`run_context [output-dir]` 设置最近输出目录。工具调用返回 plan、workspace 或 output 时也会自动更新这些状态；模型调用前会通过 LangChain middleware 注入当前上下文。
 - AI 终端只能通过结构化工具操作 plan，例如 `list_plan_packages`、`read_plan_package`、`validate_plan`、`run_plan`、`analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`read_latest_run_report`、`read_run_log`、`create_debug_workspace`、`read_debug_workspace`、`patch_debug_workspace_json`、`write_debug_workspace_file`、`run_debug_plan`、`generate_debug_patch`。
 - AI 只能把修复候选写入 debug workspace 的 `injected-plan/`、`notes.md` 或 `report.md`，不能直接写原始 plan。
 - 修改 JSON plan/config 时优先用 `patch_debug_workspace_json` 做路径级最小修改；`write_debug_workspace_file` 主要用于整文件写入、文档、资源、notes 和 report。
 - 应用补丁必须走 `apply_debug_patch_after_approval`。AI 请求该工具时会被 LangChain `HumanInTheLoopMiddleware` 暂停，终端显示 `[WAIT_APPROVAL]`；用户输入 `approve` 后才会恢复并注入 `approved: true` 执行，输入 `reject <reason>` 则拒绝这次工具调用。
-- `python .\main.py tool list`: 查看 AI 终端可调用的工具。
-- `python .\main.py tool call <name> --args-json '{...}'`: 以 JSON 形式调用单个工具，便于脚本、回归和后续 agent 框架复用。
+- `python .\main.py tool list`: 查看 AI 终端可调用的工具和参数名。
+- `python .\main.py tool check`: 检查工具注册表、Pydantic schema 和描述是否对齐。
+- `python .\main.py tool schema <name>`: 查看单个工具的完整 Pydantic JSON Schema。
+- `python .\main.py tool call <name> --args-json '{...}'`: 以 JSON 形式调用单个工具，参数会按同一套 Pydantic schema 校验，便于脚本、回归和后续 agent 框架复用。
+- `python .\main.py self-check ai-stream`: 本地检查 chat completions streaming chunk、reasoning chunk 忽略和 SSE 文本解析，不依赖真实 AI 服务。
+- `python .\main.py self-check ai-tools`: 本地检查 LangChain `StructuredTool` 构建、共享 Pydantic schema、工具 invoke 回调和受保护工具 HITL 守卫。
+- 受保护的补丁应用工具不能通过 `tool call` 直接调用；脚本需要应用补丁时使用 `python .\main.py plan debug-apply --workspace <output\debug\run> --yes`。
 
 示例：
 
 ```powershell
 python .\main.py tool call list_plan_packages --args-json '{"filter_text":"ai"}'
+python .\main.py tool check
+python .\main.py self-check ai-stream
+python .\main.py self-check ai-tools
+python .\main.py tool schema validate_plan
 python .\main.py tool call read_plan_package --args-json '{"plan_path":".\test-plans\ai\controlled-text\plan.json"}'
 python .\main.py tool call read_debug_workspace --args-json '{"workspace":"<output\debug\run>"}'
 ```

@@ -133,6 +133,7 @@ def run_ai_task(
     )
     response_api = str(service_config.get("api", "chat_completions"))
     strict = bool(service_config.get("strict_schema", True))
+    stream = bool(service_config.get("stream", False))
     response_formats = service_config.get("response_formats", ["json_schema", "json_object", "plain"])
     if not isinstance(response_formats, list) or not response_formats:
         response_formats = ["json_schema", "json_object", "plain"]
@@ -150,6 +151,7 @@ def run_ai_task(
                 schema_name=f"{task_type}_result",
                 response_format=response_format,
                 strict=strict,
+                stream=stream,
             )
             parsed = parse_json_response(raw_text)
             validate_with_schema(parsed, schema)
@@ -272,6 +274,7 @@ def _call_model(
     schema_name: str,
     response_format: str,
     strict: bool,
+    stream: bool,
 ) -> tuple[str, dict[str, Any]]:
     if response_api == "responses":
         return _call_responses_api(
@@ -282,6 +285,7 @@ def _call_model(
             schema_name=schema_name,
             response_format=response_format,
             strict=strict,
+            stream=stream,
         )
     if response_api != "chat_completions":
         raise ValueError(f"Unsupported AI API mode: {response_api}")
@@ -293,6 +297,7 @@ def _call_model(
         schema_name=schema_name,
         response_format=response_format,
         strict=strict,
+        stream=stream,
     )
 
 
@@ -305,6 +310,7 @@ def _call_chat_completions_api(
     schema_name: str,
     response_format: str,
     strict: bool,
+    stream: bool,
 ) -> tuple[str, dict[str, Any]]:
     kwargs: dict[str, Any] = {
         "model": model,
@@ -323,8 +329,12 @@ def _call_chat_completions_api(
         kwargs["response_format"] = {"type": "json_object"}
     elif response_format != "plain":
         raise ValueError(f"Unsupported AI response format: {response_format}")
+    if stream:
+        kwargs["stream"] = True
 
     response = client.chat.completions.create(**kwargs)
+    if stream:
+        return extract_chat_completion_stream_text(response)
     return extract_chat_completion_text(response)
 
 
@@ -337,6 +347,7 @@ def _call_responses_api(
     schema_name: str,
     response_format: str,
     strict: bool,
+    stream: bool,
 ) -> tuple[str, dict[str, Any]]:
     kwargs: dict[str, Any] = {
         "model": model,
@@ -360,6 +371,34 @@ def _call_responses_api(
     raw_response = _model_dump(response)
     raw_text = getattr(response, "output_text", "") or _extract_responses_text(raw_response)
     return raw_text, raw_response
+
+
+def extract_chat_completion_stream_text(response: Any) -> tuple[str, dict[str, Any]]:
+    chunks: list[str] = []
+    raw_chunks: list[Any] = []
+    for event in response:
+        raw_event = _model_dump(event)
+        raw_chunks.append(raw_event)
+        choices = raw_event.get("choices", [])
+        if not isinstance(choices, list):
+            continue
+        for choice in choices:
+            if not isinstance(choice, dict):
+                continue
+            delta = choice.get("delta")
+            if isinstance(delta, dict):
+                content = delta.get("content")
+                if content:
+                    chunks.append(str(content))
+            message = choice.get("message")
+            if isinstance(message, dict) and message.get("content"):
+                chunks.append(str(message["content"]))
+            if choice.get("text"):
+                chunks.append(str(choice["text"]))
+    raw_text = "".join(chunks)
+    if not raw_text:
+        raise ValueError("AI service returned a streaming response without text content.")
+    return raw_text, {"stream": True, "chunks": raw_chunks}
 
 
 def _extract_responses_text(raw_response: dict[str, Any]) -> str:
@@ -392,6 +431,76 @@ def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     if not raw_text:
         raise ValueError("AI service response message had no text content.")
     return str(raw_text), raw_response
+
+
+def self_check_chat_completion_stream_parser() -> dict[str, Any]:
+    checks: list[dict[str, Any]] = []
+
+    dict_stream_text, dict_stream_raw = extract_chat_completion_stream_text(
+        [
+            {"choices": [{"delta": {"reasoning_content": "internal"}}]},
+            {"choices": [{"delta": {"content": '{"ok":'}}]},
+            {"choices": [{"delta": {"content": "true}"}}]},
+            {"choices": [{"delta": {}}]},
+        ]
+    )
+    checks.append(
+        _self_check_result(
+            name="dict_stream_chunks",
+            passed=dict_stream_text == '{"ok":true}'
+            and parse_json_response(dict_stream_text) == {"ok": True}
+            and len(dict_stream_raw["chunks"]) == 4,
+        )
+    )
+
+    class FakeChunk:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return self.payload
+
+    object_stream_text, object_stream_raw = extract_chat_completion_stream_text(
+        [
+            FakeChunk({"choices": [{"message": {"content": '{"label":"valid"}'}}]}),
+            FakeChunk({"choices": [{"text": ""}]}),
+        ]
+    )
+    checks.append(
+        _self_check_result(
+            name="object_stream_chunks",
+            passed=object_stream_text == '{"label":"valid"}'
+            and parse_json_response(object_stream_text) == {"label": "valid"}
+            and len(object_stream_raw["chunks"]) == 2,
+        )
+    )
+
+    sse_text, _ = extract_chat_completion_text(
+        'data: {"choices":[{"delta":{"content":"{\\"message\\":"}}]}\n'
+        'data: {"choices":[{"delta":{"content":"\\"ok\\"}"}}]}\n'
+        "data: [DONE]\n"
+    )
+    checks.append(
+        _self_check_result(
+            name="sse_text_response",
+            passed=sse_text == '{"message":"ok"}'
+            and parse_json_response(sse_text) == {"message": "ok"},
+        )
+    )
+
+    empty_stream_rejected = False
+    try:
+        extract_chat_completion_stream_text([{"choices": [{"delta": {}}]}])
+    except ValueError:
+        empty_stream_rejected = True
+    checks.append(_self_check_result(name="empty_stream_rejected", passed=empty_stream_rejected))
+
+    failures = [check for check in checks if not check["passed"]]
+    return {
+        "ok": not failures,
+        "check": "chat_completion_stream_parser",
+        "checks": checks,
+    }
 
 
 def _extract_sse_chat_text(raw_text: str) -> str:
@@ -481,11 +590,17 @@ def _strip_code_fence(text: str) -> str:
 
 
 def _model_dump(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     if hasattr(value, "dict"):
         return value.dict()
     return {"value": str(value)}
+
+
+def _self_check_result(*, name: str, passed: bool) -> dict[str, Any]:
+    return {"name": name, "passed": passed}
 
 
 def _redact_text(text: str, secret: str) -> str:

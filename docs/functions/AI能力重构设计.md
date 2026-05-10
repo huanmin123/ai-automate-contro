@@ -41,13 +41,19 @@ python .\main.py ai
 python .\main.py ai --thread login-debug
 ```
 
-它使用 `langchain.agents.create_agent` 编排模型与工具循环，并通过 LangChain `StructuredTool` 访问项目。模型走原生 `tool_calls`，工具结果以 `ToolMessage` 回到图中；不再要求模型输出自定义 JSON 工具调用对象。
+它使用 `langchain.agents.create_agent` 编排模型与工具循环，并通过 LangChain `StructuredTool` 访问项目。每个工具入口都有显式 Pydantic 参数模型，schema 由框架读取并绑定到原生 `tool_calls`；CLI 的 `tool call` 入口也使用同一套 schema 校验参数。工具结果以 `ToolMessage` 回到图中；不再要求模型输出自定义 JSON 工具调用对象。
+
+工具注册表、Pydantic 参数模型和工具描述必须一一对应。新增或删除工具后运行 `python .\main.py tool check`，该检查也会在工具列表、工具 schema、工具调用和 LangChain tool 构建前执行，避免漏配后进入真实 AI 会话。
+
+`python .\main.py self-check ai-tools` 会进一步真实构建 LangChain `StructuredTool`，确认工具名、描述、`args_schema` 和 Pydantic 字段一致，调用 `validate_plan` 验证工具 invoke 回调链路，并确认 `apply_debug_patch_after_approval` 没有 HITL approve resume 时不能执行。
 
 会话状态由 LangGraph `SqliteSaver` 持久化到 `.keygen/ai-terminal-checkpoints.sqlite`。同一个 `--thread` 可以跨终端进程恢复上下文；终端内可用 `context` 查看 checkpoint 信息、`history [limit]` 查看近期消息、`thread [id]` 切换线程、`reset` 删除当前线程。
 
 线程状态包含当前 plan、当前 debug workspace 和最近输出目录。用户可以用 `use`、`workspace`、`run_context` 显式设置；工具返回相关路径时也会自动更新。模型调用前会通过 LangChain middleware 把这些状态注入 system message，减少重复路径输入和上下文误判。
 
 原始 plan 补丁应用使用 LangChain `HumanInTheLoopMiddleware` 做人机审批。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图先中断并等待用户；用户在 AI 终端输入 `approve` 才会通过 `Command(resume=...)` 恢复执行，终端会把 `approved: true` 注入工具参数。输入 `reject <reason>` 会拒绝工具调用，并把拒绝原因返回给模型继续处理。
+
+工具包装层还有二次确认：`apply_debug_patch_after_approval` 只接受 `approve` 恢复期间的人工批准状态。模型即使在普通对话轮次中传入 `approved: true`，也不能绕过中断审批。该受保护工具不开放给 `python .\main.py tool call` 直接调用；脚本应用补丁必须走 `plan debug-apply --yes` 这条显式管理入口。
 
 - `list_plan_packages`
 - `read_plan_package`
@@ -133,13 +139,18 @@ test-plans/config.json
       "base_url": "http://127.0.0.1:18733/v1",
       "model": "model-name",
       "api_key_env": "TEXT_EXTRACTOR_API_KEY",
+      "stream": false,
       "timeout_seconds": 60
     }
   }
 }
 ```
 
-公开示例配置只能放服务别名、模型名、超时等非敏感字段。项目测试集合 `test-plans/config.json` 可以放用户提供的临时测试密钥，用于真实模型回归。
+`stream` 只影响 `chat_completions` 模式。部分 OpenAI-compatible 服务非 streaming 响应可能返回空 choices，此时可以在测试或局部配置中设置 `"stream": true`，专项 AI 会从 streaming chunks 中还原文本并继续做 schema 校验。
+
+修改 streaming 解析逻辑后运行 `python .\main.py self-check ai-stream`，先用本地 chunk、reasoning chunk 忽略和 SSE 夹具验证解析器，再运行真实 `test-plans/ai/controlled-text/plan.json` 做模型级回归。
+
+公开示例配置只能放服务别名、模型名、超时等非敏感字段。项目测试集合 `test-plans/config.json` 可以放用户提供的临时测试密钥和服务兼容参数，用于真实模型回归。
 
 ## 输出约束
 

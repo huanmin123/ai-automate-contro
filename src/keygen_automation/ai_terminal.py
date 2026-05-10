@@ -32,7 +32,7 @@ from typing_extensions import NotRequired
 
 from keygen_automation.ai import service_config_for_artifact
 from keygen_automation.ai_terminal_langgraph import build_langchain_tools
-from keygen_automation.ai_terminal_tools import list_ai_terminal_tools
+from keygen_automation.ai_terminal_tools import describe_ai_terminal_tool, list_ai_terminal_tools
 from keygen_automation.config import load_plan_config
 from keygen_automation.plan_packages import find_latest_run_output, resolve_plan_path
 
@@ -96,11 +96,16 @@ class AITerminal(cmd2.Cmd):
         self.model_name = str(self.config.service_config["model"])
         self.thread_id = thread_id
         self._current_turn_text: str | None = None
+        self._approval_resume_active = False
         self.checkpoint_path = self.project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
         self.checkpointer = SqliteSaver(self._checkpoint_connection)
-        self.tools = build_langchain_tools(self.project_root, after_tool_call=self._after_tool_call)
+        self.tools = build_langchain_tools(
+            self.project_root,
+            latest_user_approved=self._latest_user_approved,
+            after_tool_call=self._after_tool_call,
+        )
         self.model = _build_chat_model(self.config.service_config)
         self.graph = create_agent(
             model=self.model,
@@ -162,14 +167,23 @@ class AITerminal(cmd2.Cmd):
             )
         )
 
-    def do_tools(self, _: str) -> None:
-        """List tools available to the AI terminal."""
+    def do_tools(self, arg: str) -> None:
+        """List tools available to the AI terminal, or show one schema: tools [name]"""
+        tool_name = arg.strip()
+        if tool_name:
+            try:
+                payload = describe_ai_terminal_tool(tool_name)
+            except Exception as error:
+                self.perror(str(error))
+                return
+            self.poutput(json.dumps(payload, ensure_ascii=False, indent=2))
+            return
         payload = list_ai_terminal_tools()
         payload["native_langchain_tools"] = [
             {
                 "name": tool.name,
                 "description": tool.description,
-                "args": tool.args,
+                "args": list(tool.args),
             }
             for tool in self.tools
         ]
@@ -297,9 +311,7 @@ class AITerminal(cmd2.Cmd):
         return ""
 
     def _latest_user_approved(self) -> bool:
-        if self._current_turn_text and _text_has_approval(self._current_turn_text):
-            return True
-        return _latest_human_message_approved(self._current_messages())
+        return self._approval_resume_active
 
     def do_pending(self, _: str) -> None:
         """Show pending human approval requests."""
@@ -316,7 +328,11 @@ class AITerminal(cmd2.Cmd):
             self.perror("no pending approval")
             return
         decisions = [_approval_decision_for_request(request) for request in _interrupt_action_requests(interrupts)]
-        self._resume_agent({"decisions": decisions})
+        self._approval_resume_active = True
+        try:
+            self._resume_agent({"decisions": decisions})
+        finally:
+            self._approval_resume_active = False
 
     def do_reject(self, arg: str) -> None:
         """Reject pending patch application and resume the AI terminal graph: reject [reason]"""

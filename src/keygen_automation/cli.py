@@ -7,7 +7,12 @@ from typing import Any
 
 import cmd2
 
-from keygen_automation.ai_terminal_tools import call_ai_terminal_tool, list_ai_terminal_tools
+from keygen_automation.ai_terminal_tools import (
+    call_ai_terminal_tool,
+    check_ai_terminal_tool_registry,
+    describe_ai_terminal_tool,
+    list_ai_terminal_tools,
+)
 from keygen_automation.artifacts import list_output_artifacts
 from keygen_automation.debug_workspace import (
     apply_debug_patch,
@@ -42,6 +47,9 @@ def build_parser() -> argparse.ArgumentParser:
     tool_parser = subparsers.add_parser("tool", help="Call structured AI terminal tools.")
     tool_subparsers = tool_parser.add_subparsers(dest="tool_command")
     tool_subparsers.add_parser("list", help="List available structured tools.")
+    tool_subparsers.add_parser("check", help="Validate structured tool registry wiring.")
+    tool_schema_parser = tool_subparsers.add_parser("schema", help="Print one structured tool JSON schema.")
+    tool_schema_parser.add_argument("name", help="Tool name.")
     tool_call_parser = tool_subparsers.add_parser("call", help="Call one structured tool and print JSON.")
     tool_call_parser.add_argument("name", help="Tool name.")
     tool_call_parser.add_argument("--args-json", default="{}", help="Tool arguments as a JSON object.")
@@ -51,6 +59,11 @@ def build_parser() -> argparse.ArgumentParser:
     ai_parser = subparsers.add_parser("ai", help="Start the persistent AI terminal.")
     ai_parser.add_argument("--service", default="default", help="AI service name from test-plans/config.json.")
     ai_parser.add_argument("--thread", default="default", help="Persistent AI terminal thread id.")
+
+    self_check_parser = subparsers.add_parser("self-check", help="Run deterministic local self-checks.")
+    self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
+    self_check_subparsers.add_parser("ai-stream", help="Check local chat completions streaming parsing.")
+    self_check_subparsers.add_parser("ai-tools", help="Check LangChain StructuredTool wiring.")
 
     list_parser = plan_subparsers.add_parser("list", help="List plan packages.")
     list_parser.add_argument("filter", nargs="?", help="Optional text filter.")
@@ -128,6 +141,20 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
         app = AITerminal(project_root, service=args.service, thread_id=args.thread)
         app.cmdloop()
         return 0
+
+    if args.command == "self-check":
+        if args.self_check_command == "ai-stream":
+            from keygen_automation.ai import self_check_chat_completion_stream_parser
+
+            result = self_check_chat_completion_stream_parser()
+            _print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-tools":
+            from keygen_automation.ai_terminal_langgraph import self_check_langchain_tools
+
+            result = self_check_langchain_tools(project_root)
+            _print_json(result)
+            return 0 if result.get("ok") else 1
 
     if args.command == "plan":
         if args.plan_command == "list":
@@ -218,6 +245,17 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
     if args.command == "tool":
         if args.tool_command == "list":
             _print_json(list_ai_terminal_tools())
+            return 0
+        if args.tool_command == "check":
+            result = check_ai_terminal_tool_registry()
+            _print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.tool_command == "schema":
+            try:
+                _print_json(describe_ai_terminal_tool(args.name))
+            except Exception as error:
+                _print_json({"ok": False, "error": str(error)})
+                return 1
             return 0
         if args.tool_command == "call":
             try:
