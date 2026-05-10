@@ -6,8 +6,8 @@ from typing import Any
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.types import Interrupt
 
-from ai_automate_contro.ai.terminal_context import (
-    context_update_from_tool_result,
+from ai_automate_contro.ai.terminal_context import context_update_from_tool_result
+from ai_automate_contro.ai.terminal_message_utils import (
     extract_interrupts,
     interrupt_action_requests,
     message_content_to_text,

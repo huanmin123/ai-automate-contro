@@ -7,11 +7,11 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
-from ai_automate_contro.ai.terminal_tools import (
+from ai_automate_contro.ai.terminal_tool_registry import (
+    AI_TERMINAL_TOOL_SPECS,
     call_ai_terminal_tool,
     check_ai_terminal_tool_registry,
 )
-from ai_automate_contro.ai.tool_schemas import TOOL_ARGS_SCHEMAS, TOOL_DESCRIPTIONS
 
 
 def build_langchain_tools(
@@ -28,7 +28,7 @@ def build_langchain_tools(
             latest_user_approved=latest_user_approved,
             after_tool_call=after_tool_call,
         )
-        for tool_name in TOOL_ARGS_SCHEMAS
+        for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
 
 
@@ -45,6 +45,7 @@ def _build_structured_tool(
     latest_user_approved: Callable[[], bool] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
 ) -> StructuredTool:
+    spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
         func=_make_tool_function(
             tool_name,
@@ -53,8 +54,8 @@ def _build_structured_tool(
             after_tool_call=after_tool_call,
         ),
         name=tool_name,
-        description=TOOL_DESCRIPTIONS.get(tool_name, tool_name),
-        args_schema=TOOL_ARGS_SCHEMAS[tool_name],
+        description=spec.description,
+        args_schema=spec.args_schema,
     )
 
 
@@ -106,17 +107,17 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
     checks.append(
         _self_check_result(
             name="structured_tool_count",
-            passed=len(tools) == len(TOOL_ARGS_SCHEMAS),
-            detail={"tools": len(tools), "schemas": len(TOOL_ARGS_SCHEMAS)},
+            passed=len(tools) == len(AI_TERMINAL_TOOL_SPECS),
+            detail={"tools": len(tools), "specs": len(AI_TERMINAL_TOOL_SPECS)},
         )
     )
     checks.append(
         _self_check_result(
             name="structured_tool_names",
-            passed=set(tool_by_name) == set(TOOL_ARGS_SCHEMAS),
+            passed=set(tool_by_name) == set(AI_TERMINAL_TOOL_SPECS),
             detail={
-                "missing": sorted(set(TOOL_ARGS_SCHEMAS) - set(tool_by_name)),
-                "extra": sorted(set(tool_by_name) - set(TOOL_ARGS_SCHEMAS)),
+                "missing": sorted(set(AI_TERMINAL_TOOL_SPECS) - set(tool_by_name)),
+                "extra": sorted(set(tool_by_name) - set(AI_TERMINAL_TOOL_SPECS)),
             },
         )
     )
@@ -124,16 +125,16 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
     schema_mismatches = []
     description_mismatches = []
     arg_mismatches = []
-    for tool_name, args_schema in TOOL_ARGS_SCHEMAS.items():
+    for tool_name, spec in AI_TERMINAL_TOOL_SPECS.items():
         tool = tool_by_name.get(tool_name)
         if tool is None:
             continue
-        if tool.args_schema is not args_schema:
+        if tool.args_schema is not spec.args_schema:
             schema_mismatches.append(tool_name)
-        if tool.description != TOOL_DESCRIPTIONS[tool_name]:
+        if tool.description != spec.description:
             description_mismatches.append(tool_name)
         tool_args = set(tool.args)
-        schema_args = set(args_schema.model_fields)
+        schema_args = set(spec.args_schema.model_fields)
         if tool_args != schema_args:
             arg_mismatches.append(
                 {
@@ -152,7 +153,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
     )
     checks.append(
         _self_check_result(
-            name="tool_descriptions",
+            name="tool_spec_descriptions",
             passed=not description_mismatches,
             detail={"mismatches": description_mismatches},
         )

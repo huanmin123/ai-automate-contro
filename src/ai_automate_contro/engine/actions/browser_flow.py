@@ -4,6 +4,8 @@ from typing import Any
 
 from ai_automate_contro.engine.browser import BrowserConfig
 from ai_automate_contro.engine.runtime import BrowserSession
+from ai_automate_contro.engine.actions.browser_challenge import detect_challenge
+from ai_automate_contro.engine.actions.browser_waits import wait
 
 
 def open_browser(executor: Any, step: dict[str, Any]) -> None:
@@ -135,80 +137,6 @@ def element(executor: Any, step: dict[str, Any]) -> None:
     raise ValueError(f"Unsupported element type: {element_type}")
 
 
-def wait(executor: Any, step: dict[str, Any]) -> None:
-    wait_type = step.get("type", "time")
-    if wait_type == "time":
-        executor._page(step).wait_for_timeout(int(float(step.get("seconds", 1)) * 1000))
-        return
-    if wait_type == "selector":
-        _wait_for_selector(executor, step)
-        return
-    if wait_type == "url":
-        executor._page(step).wait_for_url(step["url"])
-        return
-    if wait_type == "text":
-        _wait_for_text(executor, step)
-        return
-    if wait_type == "count":
-        _wait_for_count(executor, step)
-        return
-    raise ValueError(f"Unsupported wait type: {wait_type}")
-
-
-def detect_challenge(executor: Any, step: dict[str, Any]) -> None:
-    target_page = executor._page(step)
-    matches: list[dict[str, Any]] = []
-    for rule in step.get("rules", []):
-        rule_type = rule.get("type", "selector_visible")
-        label = rule.get("label", rule_type)
-        matched = False
-
-        if rule_type == "selector_visible":
-            locator = target_page.locator(rule["selector"])
-            if locator.count() > 0:
-                target = locator.nth(int(rule["index"])) if "index" in rule else locator.first
-                matched = target.is_visible()
-        elif rule_type == "selector_exists":
-            matched = target_page.locator(rule["selector"]).count() > 0
-        elif rule_type == "text_contains":
-            locator = target_page.locator(rule.get("selector", "body"))
-            if locator.count() > 0:
-                matched = str(rule["text"]) in locator.first.inner_text()
-        elif rule_type == "url_contains":
-            matched = str(rule["value"]) in target_page.url
-        else:
-            raise ValueError(f"Unsupported challenge rule type: {rule_type}")
-
-        if matched:
-            matches.append(
-                {
-                    "label": label,
-                    "type": rule_type,
-                    "selector": rule.get("selector"),
-                    "text": rule.get("text"),
-                    "value": rule.get("value"),
-                }
-            )
-
-    result = {
-        "matched": bool(matches),
-        "labels": [item["label"] for item in matches],
-        "matches": matches,
-    }
-    executor.state.variables[step["save_as"]] = result
-    if "save_detected_as" in step:
-        executor.state.variables[step["save_detected_as"]] = result["matched"]
-    if "save_label_as" in step:
-        executor.state.variables[step["save_label_as"]] = result["labels"][0] if result["labels"] else ""
-    executor.state.logger.log(
-        "info",
-        "challenge detected",
-        matched=result["matched"],
-        labels=result["labels"],
-        save_as=step["save_as"],
-    )
-
-
 ACTION_HANDLERS = {
     "close_browser": close_browser,
     "detect_challenge": detect_challenge,
@@ -231,51 +159,3 @@ def _select_option(locator: Any, step: dict[str, Any]) -> None:
         locator.select_option(index=int(step["index_value"]))
         return
     raise ValueError("element type 'select' requires one of: value, label, index_value")
-
-
-def _wait_for_selector(executor: Any, step: dict[str, Any]) -> None:
-    target_page = executor._page(step)
-    selector = step["selector"]
-    state = step.get("state", "visible")
-    if "index" in step:
-        target_page.locator(selector).nth(int(step["index"])).wait_for(state=state)
-        return
-    target_page.wait_for_selector(selector, state=state)
-
-
-def _wait_for_text(executor: Any, step: dict[str, Any]) -> None:
-    locator = executor._locator(step)
-    expected = str(step["text"])
-    mode = step.get("mode", "contains")
-    locator.wait_for(state=step.get("state", "visible"))
-    actual = locator.inner_text()
-    if mode == "contains" and expected in actual:
-        return
-    if mode == "equals" and actual.strip() == expected:
-        return
-    raise AssertionError(
-        f"wait_for_text failed. mode={mode}, expected={expected!r}, actual={actual!r}"
-    )
-
-
-def _wait_for_count(executor: Any, step: dict[str, Any]) -> None:
-    selector = step["selector"]
-    expected = int(step["expected"])
-    mode = step.get("mode", "equals")
-    target_page = executor._page(step)
-    timeout_ms = int(step.get("timeout_ms", 15_000))
-    start = target_page.evaluate("Date.now()")
-    while True:
-        actual = target_page.locator(selector).count()
-        if mode == "equals" and actual == expected:
-            return
-        if mode == "gte" and actual >= expected:
-            return
-        if mode == "lte" and actual <= expected:
-            return
-        now = target_page.evaluate("Date.now()")
-        if int(now) - int(start) >= timeout_ms:
-            raise AssertionError(
-                f"wait_for_count failed. mode={mode}, expected={expected}, actual={actual}"
-            )
-        target_page.wait_for_timeout(200)

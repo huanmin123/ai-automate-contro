@@ -26,12 +26,14 @@ from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
 from ai_automate_contro.ai.terminal_config import build_chat_model, load_ai_terminal_config
 from ai_automate_contro.ai.terminal_context import (
     AITerminalState,
-    build_system_prompt,
-    format_patch_approval_request,
     inject_ai_terminal_context,
+)
+from ai_automate_contro.ai.terminal_message_utils import (
+    format_patch_approval_request,
     text_has_approval,
     text_has_rejection,
 )
+from ai_automate_contro.ai.terminal_prompts import build_system_prompt
 from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
 
 

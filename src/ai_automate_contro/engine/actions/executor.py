@@ -9,14 +9,28 @@ from ai_automate_contro.engine.conditions import ConditionEvaluator
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.template import render_value
 
-from . import ai_task, basic, browser_flow, browser_io, control_flow, extraction, failure_capture
+from . import (
+    ai_task,
+    basic,
+    browser_capture,
+    browser_dialogs,
+    browser_events,
+    browser_flow,
+    browser_input,
+    control_flow,
+    extraction,
+    failure_capture,
+)
 
 
 EXTERNAL_ACTION_MODULES = (
     ai_task,
     basic,
+    browser_capture,
+    browser_dialogs,
+    browser_events,
     browser_flow,
-    browser_io,
+    browser_input,
     control_flow,
     extraction,
 )

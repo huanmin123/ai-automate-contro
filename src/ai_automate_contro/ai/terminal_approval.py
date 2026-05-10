@@ -4,7 +4,7 @@ from typing import Any
 
 from langgraph.types import Command
 
-from ai_automate_contro.ai.terminal_context import (
+from ai_automate_contro.ai.terminal_message_utils import (
     approval_decision_for_request,
     interrupt_action_requests,
 )

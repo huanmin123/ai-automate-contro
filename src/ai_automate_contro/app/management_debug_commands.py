@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ai_automate_contro.ai.terminal_tools import call_ai_terminal_tool
+from ai_automate_contro.ai.terminal_tool_registry import call_ai_terminal_tool
 from ai_automate_contro.debug.workspace import (
     apply_debug_patch,
     create_debug_workspace,

@@ -6,8 +6,8 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 
 from ai_automate_contro.ai.service import service_config_for_artifact
-from ai_automate_contro.ai.terminal_context import message_content_to_text
-from ai_automate_contro.ai.terminal_tools import describe_ai_terminal_tool, list_ai_terminal_tools
+from ai_automate_contro.ai.terminal_message_utils import message_content_to_text
+from ai_automate_contro.ai.terminal_tool_registry import describe_ai_terminal_tool, list_ai_terminal_tools
 from ai_automate_contro.plans.packages import find_latest_run_output, resolve_plan_path
 
 

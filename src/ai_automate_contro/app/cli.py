@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 
-from ai_automate_contro.ai.terminal_tools import (
+from ai_automate_contro.ai.terminal_tool_registry import (
     call_ai_terminal_tool,
     check_ai_terminal_tool_registry,
     describe_ai_terminal_tool,

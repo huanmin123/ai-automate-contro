@@ -46,7 +46,7 @@ def run_ai_task(
     model = service_config.get("model")
     if not isinstance(model, str) or not model.strip():
         raise ValueError(f"AI service '{service_name}' requires model.")
-    api_key = _resolve_api_key(service_name, service_config)
+    api_key = resolve_api_key(service_name, service_config)
     timeout_seconds = float(service_config.get("timeout_seconds", 60))
 
     client_kwargs: dict[str, Any] = {
@@ -57,7 +57,7 @@ def run_ai_task(
         client_kwargs["base_url"] = str(service_config["base_url"])
     client = OpenAI(**client_kwargs)
 
-    messages = _build_messages(
+    messages = build_ai_task_messages(
         task_type=task_type,
         input_value=input_value,
         instruction=instruction,
@@ -75,7 +75,7 @@ def run_ai_task(
     last_error: Exception | None = None
     for response_format in [str(item) for item in response_formats]:
         try:
-            raw_text, raw_response = _call_model(
+            raw_text, raw_response = call_model(
                 client=client,
                 response_api=response_api,
                 model=model,
@@ -103,7 +103,7 @@ def run_ai_task(
                 {
                     "response_format": response_format,
                     "status": "failed",
-                    "error": _redact_text(str(error), api_key),
+                    "error": redact_text(str(error), api_key),
                 }
             )
 
@@ -122,7 +122,7 @@ def service_config_for_artifact(service_config: dict[str, Any]) -> dict[str, Any
     return redacted
 
 
-def _resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
+def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
     if service_config.get("api_key"):
         return str(service_config["api_key"])
     api_key_env = service_config.get("api_key_env")
@@ -133,7 +133,13 @@ def _resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
     raise ValueError(f"AI service '{service_name}' requires api_key or api_key_env.")
 
 
-def _build_messages(
+def redact_text(text: str, secret: str) -> str:
+    if secret:
+        return text.replace(secret, "<redacted>")
+    return text
+
+
+def build_ai_task_messages(
     *,
     task_type: str,
     input_value: Any,
@@ -168,7 +174,7 @@ def _build_messages(
     ]
 
 
-def _call_model(
+def call_model(
     *,
     client: OpenAI,
     response_api: str,
@@ -275,9 +281,3 @@ def _call_responses_api(
     raw_response = model_dump(response)
     raw_text = getattr(response, "output_text", "") or extract_responses_text(raw_response)
     return raw_text, raw_response
-
-
-def _redact_text(text: str, secret: str) -> str:
-    if secret:
-        return text.replace(secret, "<redacted>")
-    return text

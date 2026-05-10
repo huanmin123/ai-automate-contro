@@ -4,24 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ai_automate_contro.ai.failure_dom import (
-    FailureDomSummaryParser,
-    interesting_attrs,
-    selector_hint,
-    summarize_failure_html,
-)
-from ai_automate_contro.ai.run_artifacts import (
-    MAX_TEXT_ARTIFACT_BYTES,
-    list_output_artifacts_tool,
-    read_json_if_exists,
-    read_jsonl_tail,
-    read_latest_run_report_tool,
-    read_latest_run_state_tool,
-    read_output_artifact_tool,
-    read_run_events_tool,
-    read_run_log_tool,
-    tail_lines,
-)
+from ai_automate_contro.ai.failure_dom import summarize_failure_html
+from ai_automate_contro.ai.run_artifacts import read_json_if_exists, read_jsonl_tail, tail_lines
+from ai_automate_contro.support.utils import dict_get, first_string
 
 
 def analyze_latest_run_failure_tool(
@@ -98,30 +83,6 @@ def analyze_latest_run_failure_tool(
             "Run and validate the injected debug plan before generating patch.diff.",
         ],
     }
-
-
-def dict_get(value: Any, key: str) -> Any:
-    if not isinstance(value, dict):
-        return None
-    return value.get(key)
-
-
-def first_string(*values: Any) -> str:
-    for value in values:
-        if value is None:
-            continue
-        text = str(value)
-        if text:
-            return text
-    return ""
-
-
-def safe_int(value: Any) -> int | None:
-    try:
-        number = int(value)
-    except (TypeError, ValueError):
-        return None
-    return number if number > 0 else None
 
 
 def last_event_error(events: list[dict[str, Any]]) -> str:
@@ -246,32 +207,3 @@ def _read_text_if_exists(path: Path) -> str:
     if not path.exists():
         return ""
     return path.read_text(encoding="utf-8", errors="replace")
-
-
-__all__ = [
-    "FailureDomSummaryParser",
-    "MAX_TEXT_ARTIFACT_BYTES",
-    "analyze_latest_run_failure_tool",
-    "build_failure_hints",
-    "collect_failure_files",
-    "collect_failure_screenshots",
-    "detect_failed_step",
-    "dict_get",
-    "filter_events",
-    "first_string",
-    "interesting_attrs",
-    "last_event_error",
-    "list_output_artifacts_tool",
-    "read_json_if_exists",
-    "read_jsonl_tail",
-    "read_latest_run_report_tool",
-    "read_latest_run_state_tool",
-    "read_output_artifact_tool",
-    "read_plan_step_context",
-    "read_run_events_tool",
-    "read_run_log_tool",
-    "safe_int",
-    "selector_hint",
-    "summarize_failure_html",
-    "tail_lines",
-]
