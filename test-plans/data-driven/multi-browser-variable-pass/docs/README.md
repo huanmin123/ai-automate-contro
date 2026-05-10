@@ -15,5 +15,5 @@
 ## 运行
 
 ```powershell
-python .\main.py --file .\test-plans\data-driven\multi-browser-variable-pass\plan.json
+python .\main.py plan run --file .\test-plans\data-driven\multi-browser-variable-pass\plan.json
 ```

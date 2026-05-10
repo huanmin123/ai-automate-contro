@@ -1,5 +1,22 @@
 {
   "description": "Shared configuration for project test plans. Plan-local config.json can override these values.",
+  "ai_services": {
+    "default": {
+      "provider": "openai-compatible",
+      "api": "chat_completions",
+      "base_url": "https://aijh.huanmin.top/v1",
+      "model": "gpt-5.5",
+      "api_key": "sk-184515b8b52d0498dabeae05c594aa39048b76c731151775cd72fb8dc5017633",
+      "timeout_seconds": 90,
+      "strict_schema": true,
+      "response_formats": [
+        "json_schema",
+        "json_object",
+        "plain"
+      ],
+      "note": "User-provided temporary AI test service. Keep this in test-plans/config.json for real AI scenario regression until the user removes or rotates it."
+    }
+  },
   "variables": {
     "default_timeout_ms": 15000
   }

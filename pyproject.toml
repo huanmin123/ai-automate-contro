@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keygen-openai-account"
+version = "0.1.0"
+description = "JSON plan automation kernel built with Python and Playwright."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "playwright==1.59.0",
+  "cmd2==3.5.1",
+  "openai>=2.36.0,<3.0.0",
+  "jsonschema==4.26.0",
+  "langchain==1.2.18",
+  "langgraph==1.1.10",
+  "langgraph-checkpoint-sqlite==3.0.3",
+  "langchain-openai==1.2.1",
+  "typing_extensions>=4.15.0",
+  "pydantic>=2.13.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

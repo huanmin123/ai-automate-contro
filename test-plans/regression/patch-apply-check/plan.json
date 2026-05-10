@@ -1,0 +1,10 @@
+{
+  "name": "patch-apply-check",
+  "variables": {},
+  "steps": [
+    {
+      "action": "print",
+      "message": "plan patch-apply-check patched"
+    }
+  ]
+}

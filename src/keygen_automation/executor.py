@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from datetime import datetime
 
 from playwright.sync_api import sync_playwright
@@ -9,8 +9,9 @@ from playwright.sync_api import sync_playwright
 from keygen_automation.actions import ActionExecutor
 from keygen_automation.config import load_plan_config
 from keygen_automation.logger import RunLogger
-from keygen_automation.results import PlanResult, write_result_json
+from keygen_automation.results import PlanResult, write_report_markdown, write_result_json
 from keygen_automation.runtime import RuntimeState
+from keygen_automation.state import RunStateWriter
 from keygen_automation.utils import ensure_directory, make_timestamp, sanitize_name
 
 
@@ -20,6 +21,9 @@ def execute_plan(
     plan_path: str | Path | None = None,
     run_name: str | None = None,
     output_dir: str | Path | None = None,
+    variable_overrides: dict[str, Any] | None = None,
+    manual_confirmation_handler: Callable[[str], bool] | None = None,
+    run_context_handler: Callable[[Path, RunLogger], None] | None = None,
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
     resolved_plan_path = Path(plan_path).resolve() if plan_path else None
@@ -35,7 +39,18 @@ def execute_plan(
         if output_dir
         else ensure_directory(plan_dir / "output" / f"{make_timestamp()}-{sanitize_name(resolved_run_name)}")
     )
+    package_output_dir = (plan_dir / "output").resolve()
+    if not _is_relative_to(resolved_output_dir, package_output_dir):
+        raise ValueError(f"Run output directory must stay inside the current plan package output directory: {package_output_dir}")
+    ensure_directory(resolved_output_dir)
     logger = RunLogger(resolved_output_dir)
+    if run_context_handler is not None:
+        run_context_handler(resolved_output_dir, logger)
+    state_writer = RunStateWriter(
+        resolved_output_dir,
+        run_name=resolved_run_name,
+        plan_path=str(resolved_plan_path) if resolved_plan_path else None,
+    )
     plan_config = load_plan_config(root_path, plan_dir)
     variables = _build_builtin_variables(
         project_root=root_path,
@@ -43,6 +58,7 @@ def execute_plan(
         output_dir=resolved_output_dir,
         plan_config=plan_config,
         plan_variables=dict(plan.get("variables", {})),
+        variable_overrides=variable_overrides or {},
     )
 
     started_at = datetime.now().isoformat(timespec="seconds")
@@ -50,6 +66,7 @@ def execute_plan(
     status = "passed"
 
     result: PlanResult | None = None
+    caught_error: Exception | None = None
 
     with sync_playwright() as playwright:
         state = RuntimeState(
@@ -58,10 +75,13 @@ def execute_plan(
             run_name=resolved_run_name,
             output_dir=resolved_output_dir,
             logger=logger,
+            state_writer=state_writer,
             plan_path=resolved_plan_path,
             package_dir=plan_dir,
             variables=variables,
+            manual_confirmation_handler=manual_confirmation_handler,
         )
+        state.state_writer.mark_started()
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
         executor = ActionExecutor(state)
         try:
@@ -69,7 +89,7 @@ def execute_plan(
         except Exception as error:
             status = "failed"
             error_message = str(error)
-            raise
+            caught_error = error
         finally:
             state.close_all()
             state.logger.log("info", "plan finished", run_name=resolved_run_name)
@@ -83,6 +103,8 @@ def execute_plan(
                 finished_at=finished_at,
                 error=error_message,
                 failure_screenshots=list(state.failure_screenshots),
+                failure_htmls=list(state.failure_htmls),
+                failure_page_states=list(state.failure_page_states),
                 tags=list(plan.get("tags", [])),
                 metadata={
                     "downloads": list(state.downloads),
@@ -90,6 +112,11 @@ def execute_plan(
                 },
             )
             write_result_json(result, resolved_output_dir)
+            write_report_markdown(result, resolved_output_dir)
+            state.state_writer.mark_finished(status=status, error=error_message)
+
+        if caught_error is not None:
+            raise caught_error
 
     if result is None:
         raise RuntimeError("Plan result was not created.")
@@ -102,6 +129,7 @@ def _build_builtin_variables(
     output_dir: Path,
     plan_config: dict[str, Any],
     plan_variables: dict[str, Any],
+    variable_overrides: dict[str, Any],
 ) -> dict[str, Any]:
     variables = {
         "project_root": str(project_root),
@@ -121,8 +149,17 @@ def _build_builtin_variables(
             raise ValueError("Plan config field 'variables' must be a JSON object.")
         variables.update(config_variables)
     variables.update(plan_variables)
+    variables.update(variable_overrides)
     return variables
 
 
 def _file_url(path: Path) -> str:
     return path.resolve().as_uri()
+
+
+def _is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+        return True
+    except ValueError:
+        return False

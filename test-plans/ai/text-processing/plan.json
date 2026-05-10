@@ -1,0 +1,37 @@
+{
+  "name": "ai-text-processing",
+  "tags": [
+    "ai",
+    "controlled-component",
+    "text-processing"
+  ],
+  "variables": {
+    "raw_items": "  Alice@example.COM ; bob@example.com; ALICE@example.com  ",
+    "incident_notes": "09:00 用户报告登录验证码过期。09:05 系统重新发送验证邮件。09:12 用户确认可以登录。"
+  },
+  "steps": [
+    {
+      "action": "ai",
+      "type": "transform_data",
+      "service": "default",
+      "instruction": "把输入中的邮箱清洗为小写，去重，并用逗号连接。只返回 result 字段。",
+      "input": "{{raw_items}}",
+      "save_as": "cleaned_emails",
+      "path": "transform-data/cleaned-emails.json"
+    },
+    {
+      "action": "ai",
+      "type": "summarize_text",
+      "service": "default",
+      "instruction": "用一句中文总结处理结果，保留关键时间点。",
+      "input": "{{incident_notes}}",
+      "save_as": "incident_summary",
+      "path": "summarize-text/incident-summary.json"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "ai-text-processing-results.json"
+    }
+  ]
+}

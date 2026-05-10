@@ -44,6 +44,10 @@
 
 - [detect_challenge](./detect_challenge.md)
 
+## 专项 AI 组件
+
+- [ai](./ai.md)
+
 ## 控制流组件
 
 - [run_sub_plan](./run_sub_plan.md)
@@ -70,6 +74,7 @@
 - 组件名就是 `action` 字段的值。
 - 参数结构一致的能力合并到同一个组件，用 `type` 控制具体操作，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`。
 - 参数生命周期不同的能力继续保留独立组件，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`。
+- 专项 AI 能力统一收敛在 `ai` 组件下，通过 `type` 区分连通性、抽取、分类、转换和摘要。
 - 组件文档里的字段名需要和 JSON 里保持一致。
 - 变量通过 `{{变量名}}` 进行替换。
 - 如果一个流程太长，先用 `print` 和 `manual_confirm` 把调试链路打通，再逐步加复杂动作。

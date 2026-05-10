@@ -2,11 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from playwright.sync_api import Browser, BrowserContext, Dialog, Download, Page, Playwright
 
 from keygen_automation.logger import RunLogger
+from keygen_automation.state import RunStateWriter
 
 
 @dataclass
@@ -53,15 +54,19 @@ class RuntimeState:
     run_name: str
     output_dir: Path
     logger: RunLogger
+    state_writer: RunStateWriter
     plan_path: Path | None = None
     package_dir: Path | None = None
     variables: dict[str, Any] = field(default_factory=dict)
     sessions: dict[str, BrowserSession] = field(default_factory=dict)
     step_counter: int = 0
     failure_screenshots: list[str] = field(default_factory=list)
+    failure_htmls: list[str] = field(default_factory=list)
+    failure_page_states: list[str] = field(default_factory=list)
     downloads: list[str] = field(default_factory=list)
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
+    manual_confirmation_handler: Callable[[str], bool] | None = None
     sub_plan_stack: list[Path] = field(default_factory=list)
 
     def require_session(self, name: str) -> BrowserSession:

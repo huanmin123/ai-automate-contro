@@ -1,0 +1,57 @@
+{
+  "name": "controlled-text-ai",
+  "tags": [
+    "ai",
+    "controlled-component"
+  ],
+  "variables": {
+    "support_ticket": "用户: 张三 <zhangsan@example.com>。问题: 登录时提示验证码过期。优先级: 高。期望: 帮忙重新触发验证邮件。",
+    "classify_text": "登录账号时遇到验证码过期，无法继续。"
+  },
+  "steps": [
+    {
+      "action": "ai",
+      "type": "connectivity",
+      "service": "default",
+      "input": "Return a JSON object confirming the model endpoint works.",
+      "save_as": "ai_connectivity",
+      "path": "connectivity/result.json"
+    },
+    {
+      "action": "ai",
+      "type": "extract_data",
+      "service": "default",
+      "instruction": "从客服工单中抽取联系人姓名、邮箱、问题、优先级和期望动作。",
+      "input": "{{support_ticket}}",
+      "schema": {
+        "contact_name": "string",
+        "email": "string",
+        "issue": "string",
+        "priority": "string",
+        "expected_action": "string"
+      },
+      "save_as": "ticket_fields",
+      "path": "extract-data/ticket-fields.json"
+    },
+    {
+      "action": "ai",
+      "type": "classify_text",
+      "service": "default",
+      "instruction": "判断文本最接近哪个自动化问题类型。",
+      "input": "{{classify_text}}",
+      "labels": [
+        "login",
+        "payment",
+        "profile",
+        "other"
+      ],
+      "save_as": "ticket_category",
+      "path": "classify-text/ticket-category.json"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "ai-results.json"
+    }
+  ]
+}

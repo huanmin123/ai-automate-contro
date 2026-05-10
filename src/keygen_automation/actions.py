@@ -7,6 +7,7 @@ from typing import Any
 
 from playwright.sync_api import Locator, Page, TimeoutError as PlaywrightTimeoutError
 
+from keygen_automation.ai import build_ai_schema, run_ai_task, service_config_for_artifact
 from keygen_automation.browser import BrowserConfig
 from keygen_automation.conditions import ConditionEvaluator
 from keygen_automation.plan_loader import load_plan
@@ -38,6 +39,7 @@ class ActionExecutor:
             action=action,
             step_name=step_name,
         )
+        self.state.state_writer.mark_step_started(step=step_number, action=action, step_name=step_name)
         handler = getattr(self, f"_action_{action}", None)
         if handler is None:
             raise ValueError(f"Unsupported action: {action}")
@@ -63,13 +65,19 @@ class ActionExecutor:
             action=action,
             step_name=step_name,
         )
+        self.state.state_writer.mark_step_finished(step=step_number, action=action, step_name=step_name)
 
     def _capture_failure_state(self, step_number: int, action: str, step_name: str) -> None:
         screenshot_dir = self.state.output_dir / "failure-screenshots"
+        html_dir = self.state.output_dir / "failure-html"
+        page_state_dir = self.state.output_dir / "failure-page-state"
         screenshot_dir.mkdir(parents=True, exist_ok=True)
+        html_dir.mkdir(parents=True, exist_ok=True)
+        page_state_dir.mkdir(parents=True, exist_ok=True)
         for browser_name, session in self.state.sessions.items():
             for page_name, page in session.pages.items():
-                screenshot_path = screenshot_dir / f"step-{step_number:03d}-{browser_name}-{page_name}-{action}.png"
+                file_stem = f"step-{step_number:03d}-{browser_name}-{page_name}-{action}"
+                screenshot_path = screenshot_dir / f"{file_stem}.png"
                 try:
                     page.screenshot(path=str(screenshot_path), full_page=True)
                     self.state.failure_screenshots.append(str(screenshot_path))
@@ -91,6 +99,64 @@ class ActionExecutor:
                         browser=browser_name,
                         page=page_name,
                         error=str(screenshot_error),
+                    )
+                html_path = html_dir / f"{file_stem}.html"
+                try:
+                    html_path.write_text(page.content(), encoding="utf-8")
+                    self.state.failure_htmls.append(str(html_path))
+                    self.state.logger.log(
+                        "warning",
+                        "failure html captured",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        path=str(html_path),
+                    )
+                except Exception as html_error:
+                    self.state.logger.log(
+                        "warning",
+                        "failure html capture failed",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        error=str(html_error),
+                    )
+                page_state_path = page_state_dir / f"{file_stem}.json"
+                try:
+                    page_state = {
+                        "step": step_number,
+                        "action": action,
+                        "step_name": step_name,
+                        "browser": browser_name,
+                        "page": page_name,
+                        "url": page.url,
+                        "title": page.title(),
+                        "screenshot": str(screenshot_path) if screenshot_path.exists() else "",
+                        "html": str(html_path) if html_path.exists() else "",
+                    }
+                    with page_state_path.open("w", encoding="utf-8") as file:
+                        json.dump(page_state, file, ensure_ascii=False, indent=2)
+                    self.state.failure_page_states.append(str(page_state_path))
+                    self.state.logger.log(
+                        "warning",
+                        "failure page state captured",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        path=str(page_state_path),
+                    )
+                except Exception as page_state_error:
+                    self.state.logger.log(
+                        "warning",
+                        "failure page state capture failed",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        error=str(page_state_error),
                     )
 
     def _action_variable(self, step: dict[str, Any]) -> None:
@@ -384,6 +450,56 @@ class ActionExecutor:
             labels=result["labels"],
         )
 
+    def _action_ai(self, step: dict[str, Any]) -> None:
+        ai_type = step["type"]
+        service_name = step.get("service", "default")
+        ai_services = self.state.variables.get("config", {}).get("ai_services", {})
+        if not isinstance(ai_services, dict):
+            raise ValueError("config.ai_services must be a JSON object.")
+        service_config = ai_services.get(service_name)
+        if not isinstance(service_config, dict):
+            raise KeyError(f"AI service is not configured: {service_name}")
+
+        schema = build_ai_schema(ai_type, step.get("schema"), labels=step.get("labels"))
+        instruction = str(step.get("instruction", ""))
+        input_value = step.get("input", "")
+        result = run_ai_task(
+            service_name=str(service_name),
+            service_config=service_config,
+            task_type=ai_type,
+            input_value=input_value,
+            instruction=instruction,
+            schema=schema,
+            labels=step.get("labels"),
+        )
+        self.state.variables[step["save_as"]] = result.parsed
+
+        artifact_path = self._resolve_output_path(step.get("path", f"{ai_type}/{step['save_as']}.json"), category="ai")
+        artifact_path.parent.mkdir(parents=True, exist_ok=True)
+        artifact = {
+            "type": ai_type,
+            "service": str(service_name),
+            "service_config": service_config_for_artifact(service_config),
+            "instruction": instruction,
+            "input": input_value,
+            "schema": result.schema,
+            "response_format": result.response_format,
+            "attempts": result.attempts,
+            "parsed": result.parsed,
+            "raw_text": result.raw_text,
+            "raw_response": result.raw_response,
+        }
+        with artifact_path.open("w", encoding="utf-8") as file:
+            json.dump(artifact, file, ensure_ascii=False, indent=2)
+        self.state.logger.log(
+            "info",
+            "ai task completed",
+            type=ai_type,
+            service=str(service_name),
+            save_as=step["save_as"],
+            path=str(artifact_path),
+        )
+
     def _action_extract(self, step: dict[str, Any]) -> None:
         extract_type = step["type"]
         value: Any
@@ -525,6 +641,15 @@ class ActionExecutor:
 
     def _action_manual_confirm(self, step: dict[str, Any]) -> None:
         prompt = step.get("prompt", "Continue? Input y to proceed: ")
+        if self.state.manual_confirmation_handler is not None:
+            self.state.logger.log("info", "waiting for manual confirmation", prompt=str(prompt))
+            self.state.state_writer.mark_waiting(prompt=str(prompt))
+            accepted = self.state.manual_confirmation_handler(str(prompt))
+            if not accepted:
+                raise RuntimeError("Manual confirmation was not accepted.")
+            self.state.state_writer.mark_resumed()
+            self.state.logger.log("info", "manual confirmation accepted", prompt=str(prompt))
+            return
         answer = input(prompt).strip().lower()
         if answer != "y":
             raise RuntimeError("Manual confirmation was not accepted.")

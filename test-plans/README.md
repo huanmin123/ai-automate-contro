@@ -32,6 +32,9 @@ test-plans/<category>/<requirement>/
 
 ```text
 test-plans/
+  ai/
+    <requirement>/
+      plan.json
   basic/
     <requirement>/
       plan.json
@@ -45,8 +48,12 @@ test-plans/
 
 运行产物必须落在当前 plan 包的 `output/` 下。组件会自动进入固定分区，例如 `output/screenshots/`、`output/downloads/`、`output/html/`、`output/json/`、`output/text/`、`output/csv/`、`output/storage-states/`、`output/variables/`。
 
+`test-plans/config.json` 当前包含用户提供的临时 AI 测试服务，用于 `test-plans/ai/` 下的真实模型回归。除非用户明确要求，不要删除或迁移；如果密钥过期或需要更换，由用户更新或明确要求移除。
+
 ## 运行示例
 
 ```powershell
-python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
+python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
+python .\main.py plan run --file .\test-plans\ai\controlled-text\plan.json --run-name ai-controlled-text
+python .\main.py plan run --file .\test-plans\ai\text-processing\plan.json --run-name ai-text-processing
 ```

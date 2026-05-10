@@ -1,0 +1,22 @@
+{
+  "name": "manual-command-audit",
+  "tags": [
+    "regression",
+    "interactive"
+  ],
+  "variables": {},
+  "steps": [
+    {
+      "action": "print",
+      "message": "before manual confirmation"
+    },
+    {
+      "action": "manual_confirm",
+      "prompt": "Continue the command audit regression."
+    },
+    {
+      "action": "print",
+      "message": "after manual confirmation"
+    }
+  ]
+}

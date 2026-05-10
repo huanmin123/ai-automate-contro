@@ -15,5 +15,5 @@
 ## 运行
 
 ```powershell
-python .\main.py --file .\test-plans\basic\fill-system-account\plan.json
+python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
 ```
