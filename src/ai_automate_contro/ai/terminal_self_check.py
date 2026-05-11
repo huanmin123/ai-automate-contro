@@ -33,6 +33,7 @@ from ai_automate_contro.ai.session_store import (
     update_ai_terminal_session_index,
 )
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
+from ai_automate_contro.app.errors import UserFacingError, format_error_for_terminal
 
 
 def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
@@ -77,6 +78,14 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
                     "expanded_chars": len(expanded_payload),
                     "expanded_additional_kwargs": expanded_kwargs,
                 },
+            )
+        )
+        text_content = str(human_message.content)
+        checks.append(
+            _self_check_result(
+                name="image_placeholder_text_stays_inline",
+                passed="[Image #1]" in text_content and str(attachment.stored_path) not in text_content,
+                detail={"content": text_content},
             )
         )
         openai_message = _convert_message_to_dict(expanded_message)
@@ -126,6 +135,8 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
 
         checks.extend(_check_session_listing(human_message))
         checks.extend(_check_terminal_command_flow(storage_root, human_message))
+        checks.append(_check_missing_ai_config_is_user_facing(temp_dir))
+        checks.append(_check_terminal_error_formatting(storage_root))
 
     return {
         "ok": all(check["passed"] for check in checks),
@@ -133,6 +144,88 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         "project_root": str(resolved_project_root),
         "checks": checks,
     }
+
+
+def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal_config import load_ai_terminal_config
+
+    project_root = temp_dir / "missing-config-project"
+    (project_root / "handbook").mkdir(parents=True, exist_ok=True)
+    plans_dir = project_root / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    (project_root / "plan.config").write_text(
+        json.dumps(
+            {
+                "handbook_path": "handbook",
+                "plan_roots": ["plans"],
+                "default_ai_config_dir": "plans",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (plans_dir / "config.json").write_text("{}", encoding="utf-8")
+    try:
+        load_ai_terminal_config(project_root)
+    except Exception as error:
+        return _self_check_result(
+            name="terminal_missing_ai_config_is_user_facing",
+            passed=isinstance(error, UserFacingError) and "AI 终端服务未配置" in str(error),
+            detail={
+                "error_type": type(error).__name__,
+                "message": str(error),
+            },
+        )
+    return _self_check_result(
+        name="terminal_missing_ai_config_is_user_facing",
+        passed=False,
+        detail={"error": "missing config unexpectedly passed"},
+    )
+
+
+def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
+    formatted_usage = format_error_for_terminal("usage: history [limit]", project_root=project_root)
+    formatted_unknown_command = format_error_for_terminal(
+        "unknown AI terminal command: /attach",
+        project_root=project_root,
+    )
+    formatted_no_run = format_error_for_terminal(ValueError("no active run"), project_root=project_root)
+    formatted_user_error = format_error_for_terminal(
+        UserFacingError(
+            "AI 终端服务未配置：default",
+            details=["配置文件：plans\\config.json"],
+            fix="添加 ai_services.default。",
+            verify=["python .\\main.py self-check env"],
+        ),
+        project_root=project_root,
+    )
+    external_ai_error_type = type("APIStatusError", (Exception,), {"__module__": "openai"})
+    formatted_external_ai_error = format_error_for_terminal(
+        external_ai_error_type("Error code: 503 - upstream unavailable"),
+        project_root=project_root,
+    )
+    outputs = {
+        "usage": formatted_usage,
+        "unknown_command": formatted_unknown_command,
+        "no_run": formatted_no_run,
+        "user_error": formatted_user_error,
+        "external_ai_error": formatted_external_ai_error,
+    }
+    passed = (
+        "命令用法不正确" in formatted_usage
+        and "未知 AI 终端命令：/attach" in formatted_unknown_command
+        and "当前没有正在运行或等待的 plan" in formatted_no_run
+        and "AI 终端服务未配置：default" in formatted_user_error
+        and formatted_external_ai_error == "错误：Error code: 503 - upstream unavailable"
+        and "Traceback" not in "\n".join(outputs.values())
+        and "self-check" not in formatted_external_ai_error
+    )
+    return _self_check_result(
+        name="terminal_errors_are_user_facing",
+        passed=passed,
+        detail=outputs,
+    )
 
 
 def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
@@ -281,6 +374,25 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         slash_status_payload = json.loads(terminal.outputs[-1])
         slash_ok = slash_ok and slash_status_payload["thread_id"] == "flow-thread"
 
+        terminal.do_help("")
+        help_text = terminal.outputs[-1]
+        slash_attach_unknown = AITerminal._handle_slash_command(terminal, "/attach list") is True
+        slash_attach_error = terminal.errors[-1] if terminal.errors else ""
+        slash_paste_unknown = AITerminal._handle_slash_command(terminal, "/paste-image") is True
+        slash_paste_error = terminal.errors[-1] if terminal.errors else ""
+        image_surface_ok = (
+            "attach list" not in help_text
+            and "attach remove" not in help_text
+            and "attach clear" not in help_text
+            and "/attach" not in help_text
+            and "/paste-image" not in help_text
+            and "paste_image" not in help_text
+            and slash_attach_unknown
+            and "未知 AI 终端命令：/attach" in slash_attach_error
+            and slash_paste_unknown
+            and "未知 AI 终端命令：/paste-image" in slash_paste_error
+        )
+
         busy_guard_ok, busy_guard_detail = _check_busy_command_guard()
 
         terminal.do_compress("flow-check")
@@ -337,6 +449,15 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 },
             ),
             _self_check_result(
+                name="terminal_image_command_surface_is_low_friction",
+                passed=image_surface_ok,
+                detail={
+                    "help_mentions_alt_v": "Alt+V" in help_text,
+                    "slash_attach_error": slash_attach_error,
+                    "slash_paste_error": slash_paste_error,
+                },
+            ),
+            _self_check_result(
                 name="terminal_busy_command_guard",
                 passed=busy_guard_ok,
                 detail=busy_guard_detail,
@@ -382,7 +503,7 @@ class _FakeTerminal(AITerminalCommandsMixin):
         self.outputs.append(str(value))
 
     def perror(self, value: Any) -> None:
-        self.errors.append(str(value))
+        self.errors.append(format_error_for_terminal(value, project_root=self.project_root))
 
     def status_payload(self) -> dict[str, Any]:
         self.do_status("")
@@ -427,7 +548,10 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
     terminal.forwarded_lines = []
     terminal._busy = True
     terminal._is_agent_busy = MethodType(lambda self: self._busy, terminal)
-    terminal.perror = MethodType(lambda self, value: self.errors.append(str(value)), terminal)
+    terminal.perror = MethodType(
+        lambda self, value: self.errors.append(format_error_for_terminal(value, project_root=Path.cwd())),
+        terminal,
+    )
 
     def fake_super_call(
         self: Any,
@@ -455,7 +579,7 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
     }
     passed = (
         blocked_stop is False
-        and "AI terminal is busy" in blocked_error
+        and "AI 终端正在处理上一轮请求" in blocked_error
         and not terminal.forwarded_lines
         and allowed["status"]
         and allowed["/status"]

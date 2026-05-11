@@ -16,7 +16,7 @@ def print_validation_result(raw_plan_path: str | Path, project_root: Path) -> in
         print(f"plan valid: {result.plan_path}")
         return 0
     for error in result.errors:
-        print(f"ERROR {error.format()}")
+        print(f"错误：{error.format()}")
     return 1
 
 
@@ -45,7 +45,7 @@ def run_plan(
     document = load_plan(raw_plan_path)
     document_type = detect_document_type(document)
     if document_type != "plan":
-        raise ValueError("Only plan documents can be executed.")
+        raise ValueError("只能运行 plan 文档。请确认文件是 plan 包入口 plan.json。")
     return execute_plan(
         document,
         project_root,
@@ -65,9 +65,9 @@ def load_tool_arguments(args_json: str, args_file: str | None) -> dict[str, Any]
     try:
         value = json.loads(raw_value)
     except json.JSONDecodeError as error:
-        raise ValueError(f"Tool arguments must be a JSON object: {error.msg}") from error
+        raise ValueError(f"工具参数必须是 JSON 对象：{error.msg}") from error
     if not isinstance(value, dict):
-        raise ValueError("Tool arguments must be a JSON object.")
+        raise ValueError("工具参数必须是 JSON 对象。")
     return value
 
 

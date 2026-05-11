@@ -1,13 +1,25 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / "src"
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(SRC_DIR))
+def resolve_project_root(source_root: Path) -> Path:
+    raw_project_root = os.environ.get("AI_AUTOMATE_PROJECT_ROOT")
+    if raw_project_root:
+        return Path(raw_project_root).resolve()
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return source_root
+
+
+SOURCE_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = resolve_project_root(SOURCE_ROOT)
+if not getattr(sys, "frozen", False):
+    SRC_DIR = SOURCE_ROOT / "src"
+    if str(SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(SRC_DIR))
 
 from ai_automate_contro.app.cli import run_cli
 

@@ -47,7 +47,7 @@ CLI
 
 管理终端是确定性入口，不依赖 AI。
 
-第一版使用 `cmd2` 作为交互式 CLI 底座。它负责持续会话、命令帮助、历史、脚本化执行和基础解析；项目只实现和 plan 相关的业务命令。
+第一版使用 `cmd2` 作为命令执行底座。AI 终端的主输入行使用 `prompt_toolkit` 承载图片粘贴热键和输入体验，命令帮助、脚本化执行和基础解析仍复用 `cmd2`；项目只实现和 plan 相关的业务命令。
 
 第一批命令：
 
@@ -98,7 +98,7 @@ python .\main.py ai
 python .\main.py ai --thread login-debug
 ```
 
-当前版本使用 `cmd2` 提供持续交互，用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
+当前版本使用 `prompt_toolkit` 提供 AI 终端输入体验、使用 `cmd2` 复用命令分发，并用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
@@ -121,7 +121,7 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
-图片输入是终端侧能力，不进入普通 plan action。用户通过 `attach <image-path>`、`/attach <image-path>`、`paste_image` 或 `/paste-image` 把图片加入下一条消息；图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow；按键层可以把 `Alt+V` 映射到 `paste_image`。
+图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[Image #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
 
 补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 

@@ -6,9 +6,8 @@ from pathlib import Path
 from langchain_core.messages import AIMessage
 
 from ai_automate_contro.ai.image_attachments import (
-    attach_clipboard_images,
     attach_image_file,
-    format_pending_attachments,
+    image_attachment_placeholder,
 )
 from ai_automate_contro.ai.service import service_config_for_artifact
 from ai_automate_contro.ai.session_compression import (
@@ -44,7 +43,7 @@ class AITerminalCommandsMixin:
             "\n".join(
                 [
                     "AI terminal commands:",
-                    "  status                         Show current thread, context, checkpoints, and pending attachments.",
+                    "  status                         Show current thread, context, checkpoints, and pending images.",
                     "  sessions [limit|all] [--json]  List saved AI conversations without printing full history.",
                     "  resume <thread-id-or-index>     Resume a saved conversation from sessions.",
                     "  new [thread-id]                 Start a new conversation thread.",
@@ -52,13 +51,12 @@ class AITerminalCommandsMixin:
                     "  cancel                          Stop waiting for the current AI turn result.",
                     "  compress [reason]               Archive and summarize current conversation.",
                     "  history [limit]                 Show recent messages only.",
-                    "  attach <image-path>             Attach an image to the next AI message.",
-                    "  attach list|clear|remove <n>    Manage pending image attachments.",
-                    "  paste_image                     Attach image content from the clipboard.",
+                    "  Alt+V / Ctrl+V                  Paste a screenshot into this input as [Image #n].",
+                    "  image <image-path>              Add an image file if it is not already on the clipboard.",
                     "  use|workspace|run_context        Set current plan/debug/run context.",
                     "  tools [name]                    List AI terminal tools or one schema.",
                     "  pending|approve|reject <reason>  Manage protected patch approval.",
-                    "Slash forms are also supported, for example /status, /sessions, /resume 1, /attach <path>, /paste-image.",
+                    "Slash forms are also supported, for example /status, /sessions, /resume 1.",
                 ]
             )
         )
@@ -125,7 +123,7 @@ class AITerminalCommandsMixin:
         try:
             sessions = list_ai_terminal_sessions(self.checkpointer, project_root=self.project_root, limit=limit)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         if as_json:
             self.poutput(json.dumps([session.to_dict() for session in sessions], ensure_ascii=False, indent=2))
@@ -137,7 +135,7 @@ class AITerminalCommandsMixin:
         try:
             next_thread_id = resolve_ai_terminal_session(self.checkpointer, arg, project_root=self.project_root)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.thread_id = next_thread_id
         self._current_turn_text = None
@@ -185,7 +183,7 @@ class AITerminalCommandsMixin:
             try:
                 payload = describe_ai_terminal_tool(tool_name)
             except Exception as error:
-                self.perror(str(error))
+                self.perror(error)
                 return
             self.poutput(json.dumps(payload, ensure_ascii=False, indent=2))
             return
@@ -218,7 +216,7 @@ class AITerminalCommandsMixin:
             plan_path = resolve_plan_path(raw_path)
             latest_output = find_latest_run_output(plan_path.parent)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         update: dict[str, str] = {"current_plan_path": str(plan_path)}
         if latest_output is not None:
@@ -292,7 +290,7 @@ class AITerminalCommandsMixin:
         try:
             result = self._compress_current_thread(reason=reason)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self._sync_current_session_index()
         self.poutput(json.dumps(result, ensure_ascii=False, indent=2))
@@ -322,28 +320,10 @@ class AITerminalCommandsMixin:
             self.poutput(f"{index:02d}. {role}: {content}")
 
     def do_attach(self, arg: str) -> None:
-        """Attach an image to the next AI message: attach <image-path>|list|clear|remove <index>"""
+        """Add an image file to the next AI message: image <image-path>"""
         command = arg.strip()
-        normalized = command.lower()
-        if not command or normalized == "list":
-            self.poutput(format_pending_attachments(self._pending_attachments))
-            return
-        if normalized == "clear":
-            self._pending_attachments.clear()
-            self.poutput("attachments cleared")
-            return
-        if normalized.startswith("remove "):
-            raw_index = command.split(None, 1)[1].strip()
-            try:
-                index = int(raw_index)
-            except ValueError:
-                self.perror("usage: attach remove <index>")
-                return
-            if index < 1 or index > len(self._pending_attachments):
-                self.perror(f"attachment index out of range: {index}")
-                return
-            removed = self._pending_attachments.pop(index - 1)
-            self.poutput(f"removed attachment: {removed.file_name}")
+        if not command:
+            self.perror("usage: image <image-path>")
             return
         try:
             attachment = attach_image_file(
@@ -353,32 +333,15 @@ class AITerminalCommandsMixin:
                 pending_count=len(self._pending_attachments),
             )
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self._pending_attachments.append(attachment)
-        self.poutput(format_pending_attachments(self._pending_attachments))
-
-    def do_attachments(self, arg: str) -> None:
-        """Manage pending image attachments: attachments [list|clear|remove <index>]"""
-        self.do_attach(arg)
+        placeholder = image_attachment_placeholder(len(self._pending_attachments))
+        self.poutput(f"image added: {placeholder}. Continue typing your message.")
 
     def do_image(self, arg: str) -> None:
-        """Attach an image to the next AI message: image <image-path>"""
+        """Add an image file to the next AI message: image <image-path>"""
         self.do_attach(arg)
-
-    def do_paste_image(self, _: str) -> None:
-        """Attach image content from the clipboard to the next AI message."""
-        try:
-            attachments = attach_clipboard_images(
-                self.project_root,
-                self.thread_id,
-                pending_count=len(self._pending_attachments),
-            )
-        except Exception as error:
-            self.perror(str(error))
-            return
-        self._pending_attachments.extend(attachments)
-        self.poutput(format_pending_attachments(self._pending_attachments))
 
     def do_exit(self, arg: str) -> bool:
         """Exit the AI terminal."""

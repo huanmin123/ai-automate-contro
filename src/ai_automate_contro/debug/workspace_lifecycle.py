@@ -126,7 +126,7 @@ def list_debug_workspaces(plan_path: str | Path) -> list[dict[str, Any]]:
 def find_debug_workspace(plan_path: str | Path, name: str | None = None) -> dict[str, Any]:
     workspaces = list_debug_workspaces(plan_path)
     if not workspaces:
-        raise FileNotFoundError("No debug workspace found for current plan.")
+        raise FileNotFoundError("当前 plan 没有 debug workspace。")
     if not name:
         return workspaces[0]
     for workspace in workspaces:
@@ -134,7 +134,7 @@ def find_debug_workspace(plan_path: str | Path, name: str | None = None) -> dict
         workspace_root = str(workspace.get("root", ""))
         if workspace_name == name or workspace_root == name or workspace_name.endswith(name):
             return workspace
-    raise FileNotFoundError(f"Debug workspace not found: {name}")
+    raise FileNotFoundError(f"debug workspace 不存在：{name}")
 
 
 def _copy_plan_package(source: Path, target: Path) -> None:

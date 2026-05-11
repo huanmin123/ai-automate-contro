@@ -239,7 +239,7 @@ def call_ai_terminal_tool(
     _ensure_ai_terminal_tool_registry_consistent()
     if tool_name not in AI_TERMINAL_TOOL_SPECS:
         supported = ", ".join(sorted(AI_TERMINAL_TOOL_SPECS))
-        raise ValueError(f"Unsupported AI terminal tool: {tool_name}. Supported tools: {supported}")
+        raise ValueError(f"不支持的 AI 终端工具：{tool_name}。支持的工具：{supported}")
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     if spec.protected and not allow_protected:
         raise ValueError(
@@ -272,7 +272,7 @@ def describe_ai_terminal_tool(tool_name: str) -> dict[str, Any]:
     _ensure_ai_terminal_tool_registry_consistent()
     if tool_name not in AI_TERMINAL_TOOL_SPECS:
         supported = ", ".join(sorted(AI_TERMINAL_TOOL_SPECS))
-        raise ValueError(f"Unsupported AI terminal tool: {tool_name}. Supported tools: {supported}")
+        raise ValueError(f"不支持的 AI 终端工具：{tool_name}。支持的工具：{supported}")
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return {
         "ok": True,

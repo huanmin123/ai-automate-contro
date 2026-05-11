@@ -6,6 +6,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.errors import UserFacingError
+
 
 MAX_GREP_MATCHES = 100
 MAX_GREP_CONTEXT_LINES = 5
@@ -123,7 +125,15 @@ def grep_project_text_tool(
 
 def assert_ripgrep_available() -> None:
     if shutil.which("rg") is None:
-        raise RuntimeError(RIPGREP_INSTALL_MESSAGE)
+        raise UserFacingError(
+            "缺少 ripgrep：AI 终端文本搜索需要 rg。",
+            fix=(
+                "本项目不使用 Windows 内置搜索兜底。\n"
+                "请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e\n"
+                "安装后重新打开 PowerShell 7，再执行：rg --version"
+            ),
+            verify=["rg --version"],
+        )
 
 
 def read_project_file_slice_tool(

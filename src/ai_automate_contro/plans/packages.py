@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.runtime_config import has_runtime_config, plan_roots_for_project
 from ai_automate_contro.plans.loader import load_plan
 
 
@@ -57,10 +59,25 @@ def create_plan_package(
     return package_dir
 
 
+def default_plan_package_dir(project_root: Path, *, name: str) -> Path:
+    slug = slugify_plan_name(name)
+    roots = plan_roots_for_project(project_root)
+    if has_runtime_config(project_root):
+        if not roots:
+            raise ValueError("plan.config must define at least one plan root.")
+        return roots[0] / slug
+    return project_root / "test-plans" / "ai-generated" / slug
+
+
+def slugify_plan_name(name: str) -> str:
+    normalized = re.sub(r"[^A-Za-z0-9_-]+", "-", name.strip().lower())
+    normalized = re.sub(r"-+", "-", normalized).strip("-_")
+    return normalized or "new-plan"
+
+
 def discover_plan_packages(project_root: Path) -> list[Path]:
-    roots = [project_root / "plans", project_root / "test-plans"]
     plan_paths: list[Path] = []
-    for root in roots:
+    for root in plan_roots_for_project(project_root):
         if not root.exists():
             continue
         for plan_path in root.rglob("plan.json"):

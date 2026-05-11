@@ -1,17 +1,20 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from ai_automate_contro.app.runtime_config import plan_roots_for_project
 from ai_automate_contro.ai.terminal_tool_registry import (
     AI_TERMINAL_TOOL_SPECS,
     call_ai_terminal_tool,
     check_ai_terminal_tool_registry,
 )
+from ai_automate_contro.plans.packages import create_plan_package
 
 
 def build_langchain_tools(
@@ -69,9 +72,9 @@ def _make_tool_function(
     def _tool(**kwargs: Any) -> str:
         if tool_name == "apply_debug_patch_after_approval":
             if not bool(kwargs.get("approved")):
-                raise ValueError("Applying a debug patch requires approved=true from a human approval flow.")
+                raise ValueError("应用 debug patch 需要人工审批流程传入 approved=true。")
             if latest_user_approved is not None and not latest_user_approved():
-                raise ValueError("Applying a debug patch requires an active human approve resume.")
+                raise ValueError("应用 debug patch 需要当前会话存在有效的人工 approve 恢复状态。")
         result = call_ai_terminal_tool(
             tool_name,
             project_root,
@@ -166,76 +169,80 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         )
     )
 
-    validate_plan_tool = tool_by_name.get("validate_plan")
-    validate_plan_ok = False
-    validate_plan_error = ""
-    if validate_plan_tool is not None:
-        try:
-            raw_result = validate_plan_tool.invoke({"plan_path": str(root / "plans" / "minimal-browser-plan" / "plan.json")})
-            parsed_result = json.loads(raw_result)
-            validate_plan_ok = bool(parsed_result.get("ok")) and captured_calls[-1]["name"] == "validate_plan"
-        except Exception as error:
-            validate_plan_error = str(error)
-    checks.append(
-        _self_check_result(
-            name="structured_tool_invoke",
-            passed=validate_plan_ok,
-            detail={"error": validate_plan_error},
-        )
-    )
+    plan_root = _self_check_plan_root(root)
+    with tempfile.TemporaryDirectory(prefix="_ai-tools-self-check-", dir=str(plan_root)) as package_dir_text:
+        package_dir = Path(package_dir_text)
+        create_plan_package(package_dir, project_root=root, name="AI Tools Self Check")
+        plan_path = package_dir / "plan.json"
 
-    read_plan_package_tool = tool_by_name.get("read_plan_package")
-    grep_project_text_tool = tool_by_name.get("grep_project_text")
-    read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
-    progressive_tools_ok = False
-    progressive_tools_error = ""
-    progressive_tools_detail: dict[str, Any] = {}
-    if read_plan_package_tool is not None and grep_project_text_tool is not None and read_project_file_slice_tool is not None:
-        try:
-            package_result = json.loads(
-                read_plan_package_tool.invoke({"plan_path": str(root / "plans" / "minimal-browser-plan" / "plan.json")})
+        validate_plan_tool = tool_by_name.get("validate_plan")
+        validate_plan_ok = False
+        validate_plan_error = ""
+        if validate_plan_tool is not None:
+            try:
+                raw_result = validate_plan_tool.invoke({"plan_path": str(plan_path)})
+                parsed_result = json.loads(raw_result)
+                validate_plan_ok = bool(parsed_result.get("ok")) and captured_calls[-1]["name"] == "validate_plan"
+            except Exception as error:
+                validate_plan_error = str(error)
+        checks.append(
+            _self_check_result(
+                name="structured_tool_invoke",
+                passed=validate_plan_ok,
+                detail={"error": validate_plan_error},
             )
-            plan = package_result.get("plan", {})
-            sub_plans = package_result.get("sub_plans", [])
-            grep_result = json.loads(
-                grep_project_text_tool.invoke(
-                    {
-                        "pattern": "open_browser",
-                        "root_path": str(root / "plans" / "minimal-browser-plan"),
-                        "literal": True,
-                        "file_glob": "*.json",
-                        "max_matches": 5,
-                    }
+        )
+
+        read_plan_package_tool = tool_by_name.get("read_plan_package")
+        grep_project_text_tool = tool_by_name.get("grep_project_text")
+        read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
+        progressive_tools_ok = False
+        progressive_tools_error = ""
+        progressive_tools_detail: dict[str, Any] = {}
+        if read_plan_package_tool is not None and grep_project_text_tool is not None and read_project_file_slice_tool is not None:
+            try:
+                package_result = json.loads(read_plan_package_tool.invoke({"plan_path": str(plan_path)}))
+                plan = package_result.get("plan", {})
+                sub_plans = package_result.get("sub_plans", [])
+                grep_result = json.loads(
+                    grep_project_text_tool.invoke(
+                        {
+                            "pattern": "AI Tools Self Check",
+                            "root_path": str(package_dir),
+                            "literal": True,
+                            "file_glob": "*.json",
+                            "max_matches": 5,
+                        }
+                    )
                 )
-            )
-            slice_result = json.loads(
-                read_project_file_slice_tool.invoke(
-                    {
-                        "path": str(root / "plans" / "minimal-browser-plan" / "plan.json"),
-                        "start_line": 1,
-                        "line_count": 3,
-                    }
+                slice_result = json.loads(
+                    read_project_file_slice_tool.invoke(
+                        {
+                            "path": str(plan_path),
+                            "start_line": 1,
+                            "line_count": 3,
+                        }
+                    )
                 )
-            )
-            package_is_metadata = (
-                isinstance(plan, dict)
-                and "steps_preview" in plan
-                and "steps" not in plan
-                and all(isinstance(sub_plan, dict) and "document" not in sub_plan for sub_plan in sub_plans)
-            )
-            progressive_tools_ok = (
-                bool(package_result.get("ok"))
-                and package_is_metadata
-                and int(grep_result.get("match_count", 0)) >= 1
-                and int(slice_result.get("line_count", 0)) <= 3
-            )
-            progressive_tools_detail = {
-                "package_is_metadata": package_is_metadata,
-                "grep_matches": grep_result.get("match_count", 0),
-                "slice_lines": slice_result.get("line_count", 0),
-            }
-        except Exception as error:
-            progressive_tools_error = str(error)
+                package_is_metadata = (
+                    isinstance(plan, dict)
+                    and "steps_preview" in plan
+                    and "steps" not in plan
+                    and all(isinstance(sub_plan, dict) and "document" not in sub_plan for sub_plan in sub_plans)
+                )
+                progressive_tools_ok = (
+                    bool(package_result.get("ok"))
+                    and package_is_metadata
+                    and int(grep_result.get("match_count", 0)) >= 1
+                    and int(slice_result.get("line_count", 0)) <= 3
+                )
+                progressive_tools_detail = {
+                    "package_is_metadata": package_is_metadata,
+                    "grep_matches": grep_result.get("match_count", 0),
+                    "slice_lines": slice_result.get("line_count", 0),
+                }
+            except Exception as error:
+                progressive_tools_error = str(error)
     checks.append(
         _self_check_result(
             name="progressive_text_tools",
@@ -251,7 +258,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         try:
             protected_tool.invoke({"workspace": "not-used", "approved": True})
         except Exception as error:
-            protected_rejected = "active human approve resume" in str(error)
+            protected_rejected = "人工 approve 恢复状态" in str(error)
             protected_error = str(error)
     checks.append(
         _self_check_result(
@@ -269,6 +276,15 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         "captured_calls": captured_calls,
         "checks": checks,
     }
+
+
+def _self_check_plan_root(project_root: Path) -> Path:
+    for plan_root in plan_roots_for_project(project_root):
+        if plan_root.exists():
+            return plan_root
+    fallback = project_root / "plans"
+    fallback.mkdir(parents=True, exist_ok=True)
+    return fallback
 
 
 def _self_check_result(

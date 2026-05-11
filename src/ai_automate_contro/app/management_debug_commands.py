@@ -30,7 +30,7 @@ class DebugCommandsMixin:
         try:
             plan_path = self._require_current_plan()
         except ValueError as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         if command == "prepare":
             self._debug_prepare(plan_path, name)
@@ -66,7 +66,7 @@ class DebugCommandsMixin:
                 },
             )
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         summary = {
             "ok": result.get("ok"),
@@ -91,7 +91,7 @@ class DebugCommandsMixin:
                 },
             )
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(json.dumps(result, ensure_ascii=False, indent=2))
 
@@ -99,7 +99,7 @@ class DebugCommandsMixin:
         try:
             workspace = create_debug_workspace(plan_path, self.project_root, name=name)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(json.dumps(workspace.to_dict(), ensure_ascii=False, indent=2))
 
@@ -123,7 +123,7 @@ class DebugCommandsMixin:
                 presets=[preset.strip() for preset in name.split(",") if preset.strip()],
             )
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
 
@@ -132,7 +132,7 @@ class DebugCommandsMixin:
             workspace = find_debug_workspace(plan_path, workspace_name)
             result = generate_debug_patch(workspace["root"])
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         patch_text = Path(result.patch_path).read_text(encoding="utf-8")
@@ -148,6 +148,6 @@ class DebugCommandsMixin:
             workspace = find_debug_workspace(plan_path, workspace_name)
             result = apply_debug_patch(workspace["root"], yes=True)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))

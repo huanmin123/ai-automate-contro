@@ -35,8 +35,8 @@ class ReadPlanPackageArgs(ToolArgsModel):
 
 
 class CreatePlanPackageArgs(ToolArgsModel):
-    package_path: str = Field(..., description="Target plan package directory.")
-    name: str | None = Field(default=None, description="Optional plan name.")
+    package_path: str | None = Field(default=None, description="Target plan package directory. If omitted, the tool uses the configured default plan root and the plan name.")
+    name: str | None = Field(default=None, description="Plan name. Required when package_path is omitted.")
     force: bool = Field(default=False, description="Allow using an existing non-empty package directory.")
 
 

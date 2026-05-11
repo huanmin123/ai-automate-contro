@@ -8,15 +8,15 @@ from typing import Any, Callable
 def read_debug_manifest(workspace_root: Path) -> dict[str, Any]:
     manifest_path = workspace_root / "manifest.json"
     if not manifest_path.exists():
-        raise FileNotFoundError(f"Debug workspace manifest not found: {manifest_path}")
+        raise FileNotFoundError(f"debug workspace 缺少 manifest.json：{manifest_path}")
     with manifest_path.open("r", encoding="utf-8") as file:
         manifest = json.load(file)
     if not isinstance(manifest, dict):
-        raise ValueError(f"Debug workspace manifest must be a JSON object: {manifest_path}")
+        raise ValueError(f"debug workspace manifest.json 必须是 JSON 对象：{manifest_path}")
     required = ("source_copy_dir", "injected_plan_dir", "notes_path", "report_path", "patch_path")
     for key in required:
         if key not in manifest:
-            raise ValueError(f"Debug workspace manifest missing {key}: {manifest_path}")
+            raise ValueError(f"debug workspace manifest.json 缺少 {key}：{manifest_path}")
     return manifest
 
 

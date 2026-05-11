@@ -18,7 +18,7 @@ class RunCommandsMixin:
         try:
             plan_path = self._require_current_plan()
         except ValueError as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         run_name = arg.strip() or None
 
@@ -44,7 +44,7 @@ class RunCommandsMixin:
         try:
             self.active_run.continue_run()
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self._wait_for_interactive_checkpoint()
         self._print_active_run_state()
@@ -58,7 +58,7 @@ class RunCommandsMixin:
         try:
             self.active_run.stop()
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         while self.active_run is not None and self.active_run.is_alive():
             self.active_run.join(timeout=0.1)
@@ -204,7 +204,7 @@ class RunCommandsMixin:
             return
         if self.active_run.error is not None:
             self.last_run_error = self.active_run.error
-            self.perror(str(self.active_run.error))
+            self.perror(self.active_run.error)
             if not self.active_run.is_alive():
                 self.active_run = None
             return

@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project, plan_roots_for_project
+
 
 def load_plan_config(project_root: Path, plan_dir: Path) -> dict[str, Any]:
     collection_config = _load_json_object(_collection_config_path(project_root, plan_dir))
@@ -14,14 +16,10 @@ def load_plan_config(project_root: Path, plan_dir: Path) -> dict[str, Any]:
 def _collection_config_path(project_root: Path, plan_dir: Path) -> Path:
     resolved_project_root = project_root.resolve()
     resolved_plan_dir = plan_dir.resolve()
-    candidates = [
-        resolved_project_root / "test-plans",
-        resolved_project_root / "plans",
-    ]
-    for candidate in candidates:
+    for candidate in plan_roots_for_project(resolved_project_root):
         if _is_relative_to(resolved_plan_dir, candidate):
             return candidate / "config.json"
-    return resolved_project_root / "plans" / "config.json"
+    return default_ai_config_dir_for_project(resolved_project_root) / "config.json"
 
 
 def _load_json_object(path: Path) -> dict[str, Any]:

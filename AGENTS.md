@@ -69,7 +69,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - 用户提供的 AI 模型服务报错、欠费、503、协议不兼容或返回不符合 schema 时，直接报告错误，不做自动降级、自动换格式、手动重试或服务兼容兜底；SDK/LangChain 自身的传输重试可以保留或通过配置显式控制。
 - AI 终端和专项 AI 请求必须遵循 OpenAI-compatible 协议。不要把自定义上下文、事件、thread metadata、附件 metadata 或项目内部字段塞进模型请求体；AI 终端上下文只能作为普通 system message 文本注入，图片只能在模型调用前转换成标准 `content: [{type: "text"}, {type: "image_url"}]`，工具调用使用 LangChain/OpenAI 原生 `tool_calls`。
 - AI 终端上下文只保存当前 plan、当前 debug workspace、最近输出目录、最近压缩摘要路径和归档路径等摘要状态；自动压缩按 128k token 标准在约 64k tokens 触发，并把完整消息归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`。不要把完整 `run.log`、`events.jsonl`、`commands.jsonl` 或大型产物一股脑塞进模型上下文。文本读取必须渐进式：先看结构/路径，再用 `grep_project_text` 通过 `rg` 定位关键词，最后用 `read_project_file_slice` 或小范围 artifact 读取拿必要行段。
-- AI 终端图片输入使用 `attach <image-path>`、`/attach <image-path>`、`paste_image` 或 `/paste-image` 加入下一条消息；图片附件落盘到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，发送给模型时转换为 data URL，发送成功后清空，模型服务报错时保留以便用户重试。不要把 base64 图片内容写入源码、plan、日志或文档。
+- AI 终端图片输入主路径是在交互式输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端插入 `[Image #n]` 占位后用户继续输入文字；如果图片已经保存成文件，只保留 `image <image-path>` 作为兜底入口。图片附件落盘到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，发送给模型时转换为 data URL，发送成功后清空，模型服务报错时保留以便用户重试。不要把 base64 图片内容写入源码、plan、日志或文档。
 - AI 终端文本搜索只支持 `ripgrep` 的 `rg` 命令；缺失时必须提示用户安装，或在用户确认后帮助执行 `winget install --id BurntSushi.ripgrep.MSVC -e`，不能使用 Windows 内置搜索兜底。
 - 修改 AI 终端会话、压缩、图片附件或上下文注入时，必须运行 `python .\main.py self-check ai-terminal`。
 - 修改专项 AI streaming 解析时，必须运行 `python .\main.py self-check ai-stream`；真实服务回归仍使用 `test-plans/ai/controlled-text/plan.json`。

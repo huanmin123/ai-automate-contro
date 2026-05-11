@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+import sys
 import threading
 import warnings
 from pathlib import Path
@@ -27,9 +28,11 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 from ai_automate_contro.ai.image_attachments import (
     ImageAttachment,
+    attach_clipboard_images,
     build_human_message_additional_kwargs,
     build_human_message_content,
     expand_messages_image_attachments_for_model,
+    image_attachment_placeholder,
 )
 from ai_automate_contro.ai.langgraph_tools import build_langchain_tools
 from ai_automate_contro.ai.file_search import assert_ripgrep_available
@@ -48,6 +51,7 @@ from ai_automate_contro.ai.terminal_message_utils import (
 )
 from ai_automate_contro.ai.terminal_prompts import build_system_prompt
 from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
+from ai_automate_contro.app.errors import format_error_for_terminal
 
 
 BUSY_ALLOWED_COMMANDS = {"?", "cancel", "help", "status"}
@@ -75,6 +79,7 @@ class AITerminal(
         self._approval_resume_active = False
         self._last_error: str = ""
         self._pending_attachments: list[ImageAttachment] = []
+        self._ai_prompt_session: Any | None = None
         self.checkpoint_path = self.project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
@@ -84,7 +89,7 @@ class AITerminal(
             latest_user_approved=self._latest_user_approved,
             after_tool_call=self._after_tool_call,
         )
-        self.model = build_chat_model(self.config.service_config)
+        self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(
             self.model,
             project_root=self.project_root,
@@ -111,6 +116,9 @@ class AITerminal(
             checkpointer=self.checkpointer,
         )
         self.prompt = "ai> "
+
+    def perror(self, msg: object, *args: Any, **kwargs: Any) -> None:
+        super().perror(format_error_for_terminal(msg, project_root=self.project_root), *args, **kwargs)
 
     def onecmd_plus_hooks(
         self,
@@ -157,8 +165,6 @@ class AITerminal(
         method_name = {
             "approve": "do_approve",
             "ask": "do_ask",
-            "attach": "do_attach",
-            "attachments": "do_attachments",
             "cancel": "do_cancel",
             "compress": "do_compress",
             "context": "do_context",
@@ -166,8 +172,6 @@ class AITerminal(
             "history": "do_history",
             "image": "do_image",
             "new": "do_new",
-            "paste-image": "do_paste_image",
-            "paste_image": "do_paste_image",
             "pending": "do_pending",
             "reject": "do_reject",
             "resume": "do_resume",
@@ -219,7 +223,7 @@ class AITerminal(
             )
         except Exception as error:
             if self._finish_agent_turn(turn_id, error=str(error)):
-                self.perror(str(error))
+                self.perror(error)
             return
 
         if not self._finish_agent_turn(turn_id):
@@ -276,6 +280,54 @@ class AITerminal(
         except RuntimeError:
             self.poutput(message)
 
+    def _read_command_line(self, prompt: str) -> str:
+        if prompt != self.prompt or not self.use_rawinput or not sys.stdin.isatty():
+            return super()._read_command_line(prompt)
+        try:
+            return self._read_ai_input_with_images(prompt)
+        except ImportError:
+            return super()._read_command_line(prompt)
+        except EOFError:
+            return "eof"
+
+    def _read_ai_input_with_images(self, prompt: str) -> str:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.history import InMemoryHistory
+        from prompt_toolkit.key_binding import KeyBindings
+
+        bindings = KeyBindings()
+
+        @bindings.add("escape", "v")
+        @bindings.add("c-v")
+        def _(event: Any) -> None:
+            try:
+                attachments = attach_clipboard_images(
+                    self.project_root,
+                    self.thread_id,
+                    pending_count=len(self._pending_attachments),
+                )
+            except Exception as error:
+                if _insert_clipboard_text(event.current_buffer):
+                    return
+                event.app.output.write(f"\r\n{format_error_for_terminal(error, project_root=self.project_root)}\r\n")
+                return
+            self._pending_attachments.extend(attachments)
+            placeholders = [
+                image_attachment_placeholder(index)
+                for index in range(
+                    len(self._pending_attachments) - len(attachments) + 1,
+                    len(self._pending_attachments) + 1,
+                )
+            ]
+            buffer = event.current_buffer
+            prefix = "" if not buffer.text or buffer.text.endswith((" ", "\n")) else " "
+            suffix = " " if buffer.text[buffer.cursor_position:] and not buffer.text[buffer.cursor_position:].startswith(" ") else ""
+            buffer.insert_text(prefix + " ".join(placeholders) + suffix)
+
+        if self._ai_prompt_session is None:
+            self._ai_prompt_session = PromptSession(history=InMemoryHistory())
+        return self._ai_prompt_session.prompt(prompt, key_bindings=bindings)
+
 
 @wrap_model_call(state_schema=AITerminalState, name="AITerminalImageAttachmentMiddleware")
 def inject_image_attachments_for_model(
@@ -284,3 +336,16 @@ def inject_image_attachments_for_model(
 ) -> ModelResponse[Any]:
     messages = expand_messages_image_attachments_for_model(list(request.messages))
     return handler(request.override(messages=messages))
+
+
+def _insert_clipboard_text(buffer: Any) -> bool:
+    try:
+        import pyperclip
+
+        text = pyperclip.paste()
+    except Exception:
+        return False
+    if not isinstance(text, str) or not text:
+        return False
+    buffer.insert_text(text)
+    return True

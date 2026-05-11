@@ -45,7 +45,7 @@ def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
 
 def apply_debug_patch(workspace: str | Path, *, yes: bool = False) -> DebugPatchResult:
     if not yes:
-        raise ValueError("Applying a debug patch requires explicit confirmation.")
+        raise ValueError("应用 debug patch 需要显式确认：请加 --yes。")
     workspace_root = Path(workspace).resolve()
     manifest = load_workspace_manifest(workspace_root)
     package_dir = Path(manifest["package_dir"]).resolve()

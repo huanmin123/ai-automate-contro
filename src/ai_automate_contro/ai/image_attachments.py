@@ -120,13 +120,16 @@ def attach_clipboard_images(
 def build_human_message_content(text: str, attachments: list[ImageAttachment]) -> str:
     if not attachments:
         return text
-    lines = [text, "", "Attached images:"]
-    for index, attachment in enumerate(attachments, start=1):
-        lines.append(
-            f"[Image #{index}] {attachment.file_name} "
-            f"({attachment.mime_type}, {attachment.size_bytes} bytes) -> {attachment.stored_path}"
-        )
-    return "\n".join(lines)
+    placeholders = image_attachment_placeholders(attachments)
+    if all(placeholder in text for placeholder in placeholders):
+        return text
+    missing_placeholders = [placeholder for placeholder in placeholders if placeholder not in text]
+    placeholder_text = " ".join(missing_placeholders)
+    if any(placeholder in text for placeholder in placeholders):
+        return f"{text} {placeholder_text}".strip()
+    if not text.strip():
+        return placeholder_text
+    return f"{placeholder_text} {text}".strip()
 
 
 def build_human_message_additional_kwargs(attachments: list[ImageAttachment]) -> dict[str, Any]:
@@ -205,14 +208,25 @@ def _message_content_text(content: Any) -> str:
 
 def format_pending_attachments(attachments: list[ImageAttachment]) -> str:
     if not attachments:
-        return "attachments: <empty>"
-    lines = [f"attachments: {len(attachments)}/{MAX_IMAGE_ATTACHMENTS}"]
+        return "images: none"
+    lines = [
+        f"images: {' '.join(image_attachment_placeholders(attachments))} "
+        f"({len(attachments)}/{MAX_IMAGE_ATTACHMENTS}, sent with your next message)"
+    ]
     for index, attachment in enumerate(attachments, start=1):
         lines.append(
-            f"{index}. {attachment.file_name} "
-            f"({attachment.mime_type}, {attachment.size_bytes} bytes) -> {attachment.stored_path}"
+            f"{image_attachment_placeholder(index)} {attachment.file_name} "
+            f"({attachment.mime_type}, {_format_bytes(attachment.size_bytes)})"
         )
     return "\n".join(lines)
+
+
+def image_attachment_placeholder(index: int) -> str:
+    return f"[Image #{index}]"
+
+
+def image_attachment_placeholders(attachments: list[ImageAttachment]) -> list[str]:
+    return [image_attachment_placeholder(index) for index, _ in enumerate(attachments, start=1)]
 
 
 def resolve_image_path(project_root: Path, image_path: str | Path) -> Path:
@@ -279,3 +293,11 @@ def _ensure_capacity(pending_count: int, *, adding: int) -> None:
 
 def _looks_like_supported_image(path: Path) -> bool:
     return path.suffix.lower() in SUPPORTED_IMAGE_MIME_BY_SUFFIX and path.exists() and path.is_file()
+
+
+def _format_bytes(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    if size_bytes < 1024 * 1024:
+        return f"{size_bytes / 1024:.1f} KB"
+    return f"{size_bytes / (1024 * 1024):.1f} MB"

@@ -7,6 +7,7 @@ from typing import Any
 
 from openai import OpenAI
 
+from ai_automate_contro.app.errors import UserFacingError
 from ai_automate_contro.ai.response_parsing import (
     extract_chat_completion_stream_text,
     extract_chat_completion_text,
@@ -38,14 +39,20 @@ def run_ai_task(
     labels: list[Any] | None = None,
 ) -> AIResult:
     if not isinstance(service_config, dict):
-        raise ValueError(f"AI service config must be an object: {service_name}")
+        raise UserFacingError(f"AI 服务配置必须是对象：{service_name}")
     provider = str(service_config.get("provider", "openai-compatible"))
     if provider not in {"openai", "openai-compatible"}:
-        raise ValueError(f"Unsupported AI provider for service '{service_name}': {provider}")
+        raise UserFacingError(
+            f"不支持的 AI provider：{provider}",
+            fix=f"把 ai_services.{service_name}.provider 改成 openai 或 openai-compatible。",
+        )
 
     model = service_config.get("model")
     if not isinstance(model, str) or not model.strip():
-        raise ValueError(f"AI service '{service_name}' requires model.")
+        raise UserFacingError(
+            f"AI 服务缺少 model：{service_name}",
+            fix=f"在 ai_services.{service_name}.model 填入模型名。",
+        )
     api_key = resolve_api_key(service_name, service_config)
     timeout_seconds = float(service_config.get("timeout_seconds", 60))
 
@@ -112,7 +119,13 @@ def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
         api_key = os.environ.get(api_key_env)
         if api_key:
             return api_key
-    raise ValueError(f"AI service '{service_name}' requires api_key or api_key_env.")
+    raise UserFacingError(
+        f"AI 服务缺少 api_key 或有效的 api_key_env：{service_name}",
+        fix=(
+            f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在 PowerShell 7 中设置对应环境变量。\n"
+            "示例：$env:OPENAI_API_KEY='sk-your-key'"
+        ),
+    )
 
 
 def resolve_response_format(service_config: dict[str, Any]) -> str:

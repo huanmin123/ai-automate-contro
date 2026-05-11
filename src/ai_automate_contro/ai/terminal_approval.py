@@ -49,7 +49,7 @@ class AITerminalApprovalMixin:
                 config=self._graph_config(),
             )
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         if self._print_pending_interrupt(final_state):
             return

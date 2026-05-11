@@ -2,9 +2,20 @@ from __future__ import annotations
 
 import argparse
 
+from ai_automate_contro.app.errors import UserFacingError
+
+
+class UserFacingArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise UserFacingError(
+            "命令参数不正确。",
+            details=[_friendly_argparse_message(message)],
+            fix=_friendly_usage(self.format_usage()),
+        )
+
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = UserFacingArgumentParser(
         description="Manage and run JSON automation plan packages.",
     )
 
@@ -25,12 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
     tool_call_parser.add_argument("--compact", action="store_true", help="Print compact JSON.")
 
     ai_parser = subparsers.add_parser("ai", help="Start the persistent AI terminal.")
-    ai_parser.add_argument("--service", default="default", help="AI service name from test-plans/config.json.")
+    ai_parser.add_argument("--service", default="default", help="AI service name from the configured AI config directory.")
     ai_parser.add_argument("--thread", default="default", help="Persistent AI terminal thread id.")
 
     self_check_parser = subparsers.add_parser("self-check", help="Run deterministic local self-checks.")
     self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
     self_check_subparsers.add_parser("env", help="Check local client environment dependencies.")
+    self_check_subparsers.add_parser("runtime", help="Check runtime plan.config, handbook, and plan roots.")
     self_check_subparsers.add_parser("ai-stream", help="Check local chat completions streaming parsing.")
     self_check_subparsers.add_parser("ai-terminal", help="Check AI terminal session, compression, and image state.")
     self_check_subparsers.add_parser("ai-tools", help="Check LangChain StructuredTool wiring.")
@@ -94,3 +106,29 @@ def build_parser() -> argparse.ArgumentParser:
     apply_parser.add_argument("--yes", action="store_true", help="Required confirmation to modify the original plan package.")
 
     return parser
+
+
+def _friendly_argparse_message(message: str) -> str:
+    if message.startswith("the following arguments are required:"):
+        required = message.split(":", 1)[1].strip()
+        return f"缺少必填参数：{required}"
+    if message.startswith("unrecognized arguments:"):
+        arguments = message.split(":", 1)[1].strip()
+        return f"不支持的参数：{arguments}"
+    if "invalid choice:" in message:
+        invalid_part = message.split("invalid choice:", 1)[1].strip()
+        if "(choose from" in invalid_part:
+            raw_value, raw_choices = invalid_part.split("(choose from", 1)
+            choices = raw_choices.rstrip(")").strip()
+            return f"参数值不支持：{raw_value.strip()}；可选值：{choices}"
+        return f"参数值不支持：{invalid_part}"
+    if "invalid int value:" in message:
+        return f"整数参数格式不正确：{message}"
+    return message
+
+
+def _friendly_usage(usage: str) -> str:
+    text = usage.strip()
+    if text.startswith("usage:"):
+        return "命令格式：" + text[len("usage:") :]
+    return text

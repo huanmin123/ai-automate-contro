@@ -17,6 +17,7 @@ from ai_automate_contro.app.command_helpers import (
     print_validation_result,
     run_plan,
 )
+from ai_automate_contro.app.errors import print_cli_error
 from ai_automate_contro.app.parser import build_parser
 from ai_automate_contro.app.management_terminal import ManagementTerminal
 from ai_automate_contro.debug.workspace import (
@@ -31,6 +32,15 @@ from ai_automate_contro.plans.packages import (
 
 
 def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
+    try:
+        return _run_cli(project_root, argv)
+    except KeyboardInterrupt as error:
+        return print_cli_error(error, project_root=project_root)
+    except Exception as error:
+        return print_cli_error(error, project_root=project_root)
+
+
+def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -51,6 +61,12 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.environment_check import self_check_environment
 
             result = self_check_environment(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "runtime":
+            from ai_automate_contro.app.environment_check import self_check_runtime_config
+
+            result = self_check_runtime_config(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-stream":
@@ -150,11 +166,7 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 print(result.patch_path.read_text(encoding="utf-8"))
             return 0
         if args.plan_command == "debug-apply":
-            try:
-                result = apply_debug_patch(args.workspace, yes=args.yes)
-            except Exception as error:
-                print(f"ERROR {error}")
-                return 1
+            result = apply_debug_patch(args.workspace, yes=args.yes)
             print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
             return 0
 

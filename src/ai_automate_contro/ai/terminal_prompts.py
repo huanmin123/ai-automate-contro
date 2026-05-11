@@ -21,9 +21,12 @@ SYSTEM_PROMPT = """你是 keygen automation 的 plan 级 AI 终端。
 
 项目约定：
 - plan.json 是最小执行单元。
-- test-plans/ 下面直接放分类和 plan 包。
+- plan.config 控制 handbook_path 和 plan_roots；打包分发时默认相对于可执行文件所在目录。
+- test-plans/ 下面直接放分类和 plan 包；如果分发目录没有 test-plans，就按 plan.config 的 plan_roots 使用 plans/。
+- 创建新 plan 时，如果用户没有指定目录，使用 create_plan_package 的默认落点：有 plan.config 时使用第一个 plan_roots；源码开发仓库中使用 test-plans/ai-generated/<kebab-name>/。
 - 每个 plan 包结构为 plan.json、config.json、sub-plans/、resources/、output/、docs/。
 - 输出动作路径是相对于当前 plan 包 output/ 的路径，不能以 output/ 开头。
+- 创建或修改 plan 前，handbook_path 指向的 handbook/ 是 action 字段和示例的权威来源；只能按需用 grep_project_text 和 read_project_file_slice 渐进式读取，不要全文读取。
 
 工具使用：
 - 需要读取、校验、运行、调试、修复或生成补丁时，直接使用系统提供的原生工具调用。

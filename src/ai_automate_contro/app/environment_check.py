@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project, load_runtime_config
 from ai_automate_contro.plans.config import load_plan_config
 
 
@@ -19,6 +20,7 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
         _check_imports(),
         _check_ripgrep(),
         _check_playwright_chromium(),
+        _check_runtime_config(project_root),
         _check_ai_config(project_root),
     ]
     return {
@@ -30,6 +32,14 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
             "playwright_chromium": "python -m playwright install chromium",
             "verify": "python .\\main.py self-check env",
         },
+    }
+
+
+def self_check_runtime_config(project_root: Path) -> dict[str, Any]:
+    check = _check_runtime_config(project_root)
+    return {
+        "ok": check["ok"],
+        "checks": [check],
     }
 
 
@@ -86,6 +96,7 @@ def _check_imports() -> dict[str, Any]:
         "langchain_openai": "langchain-openai",
         "pydantic": "pydantic",
         "PIL": "Pillow",
+        "prompt_toolkit": "prompt_toolkit",
     }
     missing = [module for module in modules if importlib.util.find_spec(module) is None]
     versions = {
@@ -153,15 +164,40 @@ def _check_playwright_chromium() -> dict[str, Any]:
     )
 
 
+def _check_runtime_config(project_root: Path) -> dict[str, Any]:
+    try:
+        runtime_config = load_runtime_config(project_root)
+    except Exception as error:
+        return _check_result(
+            "runtime_config",
+            False,
+            detail=str(error),
+            fix="Fix plan.config so handbook_path and plan_roots are valid.",
+        )
+    missing_plan_roots = [str(path) for path in runtime_config.plan_roots if not path.exists()]
+    return _check_result(
+        "runtime_config",
+        runtime_config.handbook_path.exists() and not missing_plan_roots,
+        project_root=str(runtime_config.project_root),
+        handbook_path=str(runtime_config.handbook_path),
+        plan_roots=[str(path) for path in runtime_config.plan_roots],
+        default_ai_config_dir=str(runtime_config.default_ai_config_dir),
+        missing_plan_roots=missing_plan_roots,
+        detail="Runtime plan.config controls handbook and plan root locations.",
+        fix="Create handbook/ and configured plan_roots, or edit plan.config.",
+    )
+
+
 def _check_ai_config(project_root: Path) -> dict[str, Any]:
     try:
-        plan_config = load_plan_config(project_root, project_root / "test-plans")
+        ai_config_dir = default_ai_config_dir_for_project(project_root)
+        plan_config = load_plan_config(project_root, ai_config_dir)
     except Exception as error:
         return _check_result(
             "ai_config",
             False,
             detail=str(error),
-            fix="Fix test-plans\\config.json so it is a JSON object.",
+            fix="Fix the config.json under the plan.config default_ai_config_dir.",
         )
 
     ai_services = plan_config.get("ai_services")
@@ -169,8 +205,10 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
         return _check_result(
             "ai_config",
             False,
+            config_dir=str(ai_config_dir),
+            config_path=str(ai_config_dir / "config.json"),
             detail="config.ai_services must be a JSON object.",
-            fix="Add ai_services.default to test-plans\\config.json.",
+            fix="Add ai_services.default to the config.json under the plan.config default_ai_config_dir.",
         )
 
     default_service = ai_services.get("default")
@@ -178,6 +216,8 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
         return _check_result(
             "ai_config",
             False,
+            config_dir=str(ai_config_dir),
+            config_path=str(ai_config_dir / "config.json"),
             detail="ai_services.default is not configured.",
             fix="Add ai_services.default with model and api_key or api_key_env.",
         )
@@ -190,12 +230,13 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
         "ai_config",
         bool(model) and (has_api_key or env_ready),
         service="default",
+        config_dir=str(ai_config_dir),
         model=str(model) if model else "",
         has_inline_api_key=has_api_key,
         api_key_env=str(api_key_env) if api_key_env else "",
         api_key_env_ready=env_ready,
         detail="AI config is checked locally only; no real model request is sent.",
-        fix="Set model and either api_key or api_key_env in test-plans\\config.json.",
+        fix="Set model and either api_key or api_key_env in the configured AI config directory.",
     )
 
 

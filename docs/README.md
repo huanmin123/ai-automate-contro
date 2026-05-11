@@ -4,20 +4,24 @@
 
 如果你是第一次进入项目，建议按下面顺序阅读：
 
-1. [文档架构示例](./文档架构示例.md)
-2. [architecture/架构总览](./architecture/架构总览.md)
-3. [architecture/AI终端与交互式执行架构](./architecture/AI终端与交互式执行架构.md)
-4. [architecture/AI调试修复工作流](./architecture/AI调试修复工作流.md)
-5. [functions/核心功能设计](./functions/核心功能设计.md)
-6. [functions/AI能力重构设计](./functions/AI能力重构设计.md)
-7. [develop/运行说明](./develop/运行说明.md)
-8. [plans/计划-0003-AI终端与交互式执行器重构](./plans/计划-0003-AI终端与交互式执行器重构.md)
+1. [study/快速使用指南](./study/快速使用指南.md)
+2. [study/分发包使用指南](./study/分发包使用指南.md)
+3. [study/打包发布指南](./study/打包发布指南.md)
+4. [文档架构示例](./文档架构示例.md)
+5. [architecture/架构总览](./architecture/架构总览.md)
+6. [architecture/AI终端与交互式执行架构](./architecture/AI终端与交互式执行架构.md)
+7. [architecture/AI调试修复工作流](./architecture/AI调试修复工作流.md)
+8. [functions/核心功能设计](./functions/核心功能设计.md)
+9. [functions/AI能力重构设计](./functions/AI能力重构设计.md)
+10. [develop/运行说明](./develop/运行说明.md)
+11. [plans/计划-0003-AI终端与交互式执行器重构](./plans/计划-0003-AI终端与交互式执行器重构.md)
 
 教学入口只有 `handbook/`，这里不承担组件教学职责。
 
 ## 目录索引
 
 - [architecture](./architecture/README.md): 稳定架构、模块边界、开发与修复原则
+- [study](./study/快速使用指南.md): 对外使用、安装、自检、分发包使用、AI 终端、打包发布和上线前检查
 - [functions](./functions/README.md): 功能能力、执行模型、配置契约
 - [plans](./plans/README.md): 迭代计划、排期、阶段性目标
 - [develop](./develop/README.md): 本地开发、运行、验证方式

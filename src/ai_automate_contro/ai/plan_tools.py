@@ -8,6 +8,7 @@ from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.loader import detect_document_type, load_plan
 from ai_automate_contro.plans.packages import (
     create_plan_package,
+    default_plan_package_dir,
     discover_plan_packages,
     plan_matches_filter,
     summarize_plan,
@@ -61,13 +62,16 @@ def read_plan_package_tool(project_root: str | Path, plan_path: str | Path) -> d
 
 def create_plan_package_tool(
     project_root: str | Path,
-    package_path: str | Path,
+    package_path: str | Path | None = None,
     *,
     name: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
-    package_dir = create_plan_package(package_path, project_root=root, name=name, force=force)
+    if not package_path and not name:
+        raise ValueError("create_plan_package requires package_path or name.")
+    resolved_package_path = package_path or default_plan_package_dir(root, name=name or "")
+    package_dir = create_plan_package(resolved_package_path, project_root=root, name=name, force=force)
     return {
         "ok": True,
         "package_dir": str(package_dir),
@@ -97,7 +101,7 @@ def run_plan_tool(
     document = load_plan(plan_path)
     document_type = detect_document_type(document)
     if document_type != "plan":
-        raise ValueError("Only plan documents can be executed.")
+        raise ValueError("只能运行 plan 文档。请确认文件是 plan 包入口 plan.json。")
     try:
         result = execute_plan(
             document,

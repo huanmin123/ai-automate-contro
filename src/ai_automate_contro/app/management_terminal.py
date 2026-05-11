@@ -5,6 +5,7 @@ from typing import Any
 
 import cmd2
 
+from ai_automate_contro.app.errors import format_error_for_terminal
 from ai_automate_contro.app.management_debug_commands import DebugCommandsMixin
 from ai_automate_contro.app.management_output_commands import OutputCommandsMixin
 from ai_automate_contro.app.management_plan_commands import PlanCommandsMixin
@@ -30,3 +31,6 @@ class ManagementTerminal(
         self.last_run_error: BaseException | None = None
         self.active_run: InteractiveRun | None = None
         self.prompt = "plan> "
+
+    def perror(self, msg: object, *args: Any, **kwargs: Any) -> None:
+        super().perror(format_error_for_terminal(msg, project_root=self.project_root), *args, **kwargs)

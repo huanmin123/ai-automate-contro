@@ -5,6 +5,7 @@ from typing import Any
 
 from ai_automate_contro.ai.schemas import build_ai_schema
 from ai_automate_contro.ai.service import run_ai_task, service_config_for_artifact
+from ai_automate_contro.app.errors import UserFacingError
 
 
 def action_ai(executor: Any, step: dict[str, Any]) -> None:
@@ -12,10 +13,27 @@ def action_ai(executor: Any, step: dict[str, Any]) -> None:
     service_name = step.get("service", "default")
     ai_services = executor.state.variables.get("config", {}).get("ai_services", {})
     if not isinstance(ai_services, dict):
-        raise ValueError("config.ai_services must be a JSON object.")
+        raise UserFacingError(
+            "专项 AI 配置格式不正确：config.ai_services 必须是 JSON object。",
+            fix="检查当前 plan 包 config.json 或集合级 config.json，把 ai_services 改成对象。",
+        )
     service_config = ai_services.get(service_name)
     if not isinstance(service_config, dict):
-        raise KeyError(f"AI service is not configured: {service_name}")
+        raise UserFacingError(
+            f"专项 AI 服务未配置：{service_name}",
+            fix=(
+                "在当前 plan 包 config.json 或集合级 config.json 中添加 ai_services 配置，例如：\n"
+                "{\n"
+                '  "ai_services": {\n'
+                f'    "{service_name}": {{\n'
+                '      "base_url": "https://your-openai-compatible-endpoint/v1",\n'
+                '      "model": "your-model",\n'
+                '      "api_key": "sk-your-key"\n'
+                "    }\n"
+                "  }\n"
+                "}"
+            ),
+        )
 
     schema = build_ai_schema(ai_type, step.get("schema"), labels=step.get("labels"))
     instruction = str(step.get("instruction", ""))

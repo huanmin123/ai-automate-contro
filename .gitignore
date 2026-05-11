@@ -17,6 +17,7 @@ pip-wheel-metadata/
 *.egg-info/
 build/
 dist/
+out/
 
 # Local environment and secrets
 .env

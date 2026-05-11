@@ -96,7 +96,7 @@ class OutputCommandsMixin:
         try:
             plan_path = self._require_current_plan()
         except ValueError as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         artifacts = list_output_artifacts(plan_path, filter_text=filter_text, limit=limit)
         if not artifacts:

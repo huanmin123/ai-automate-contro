@@ -40,7 +40,7 @@ class PlanCommandsMixin:
         try:
             plan_path = self._resolve_plan_arg(arg)
         except ValueError as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self._print_validation(plan_path)
 
@@ -54,7 +54,7 @@ class PlanCommandsMixin:
         try:
             package_dir = create_plan_package(parts[0], project_root=self.project_root, name=name)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
         self.poutput(f"created plan package: {package_dir}")
 
@@ -81,7 +81,7 @@ class PlanCommandsMixin:
             plan_path = self._resolve_plan_arg(arg)
             summary = summarize_plan(plan_path, self.project_root)
         except Exception as error:
-            self.perror(str(error))
+            self.perror(error)
             return
 
         self.poutput(f"path: {summary['path']}")
