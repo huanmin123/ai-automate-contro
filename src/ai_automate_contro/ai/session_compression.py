@@ -182,10 +182,7 @@ class AITerminalSummarizationMiddleware(SummarizationMiddleware):
             return "Previous conversation was too long to summarize."
 
         formatted_messages = get_buffer_string(trimmed_messages)
-        response = self.model.invoke(
-            self.summary_prompt.format(messages=formatted_messages).rstrip(),
-            config={"metadata": {"lc_source": "summarization"}},
-        )
+        response = self.model.invoke(self.summary_prompt.format(messages=formatted_messages).rstrip())
         return response.text.strip()
 
 
@@ -232,7 +229,8 @@ def archive_messages(
 
     with messages_path.open("w", encoding="utf-8") as file:
         for message in messages:
-            file.write(json.dumps(message_to_dict(message), ensure_ascii=False, default=str))
+            payload = redact_image_data_urls(message_to_dict(message))
+            file.write(json.dumps(payload, ensure_ascii=False, default=str))
             file.write("\n")
 
     summary_path.write_text(summary, encoding="utf-8")
@@ -268,7 +266,6 @@ def compression_summary_message(archive: CompressionArchive) -> HumanMessage:
             f"- summary: {archive.summary_path}\n"
             f"- archive_dir: {archive.archive_dir}\n"
         ),
-        additional_kwargs={"lc_source": "manual_compression"},
     )
 
 
@@ -280,3 +277,13 @@ def sanitize_thread_id(value: str) -> str:
     sanitized = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())
     sanitized = sanitized.strip(".-")
     return sanitized or "default"
+
+
+def redact_image_data_urls(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: redact_image_data_urls(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [redact_image_data_urls(item) for item in value]
+    if isinstance(value, str) and value.lower().startswith("data:image/") and ";base64," in value[:80].lower():
+        return f"<redacted image data URL, {len(value)} chars>"
+    return value

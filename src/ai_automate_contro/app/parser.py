@@ -30,7 +30,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     self_check_parser = subparsers.add_parser("self-check", help="Run deterministic local self-checks.")
     self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
+    self_check_subparsers.add_parser("env", help="Check local client environment dependencies.")
     self_check_subparsers.add_parser("ai-stream", help="Check local chat completions streaming parsing.")
+    self_check_subparsers.add_parser("ai-terminal", help="Check AI terminal session, compression, and image state.")
     self_check_subparsers.add_parser("ai-tools", help="Check LangChain StructuredTool wiring.")
 
     list_parser = plan_subparsers.add_parser("list", help="List plan packages.")

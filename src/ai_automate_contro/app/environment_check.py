@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import importlib.metadata
+import importlib.util
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+from typing import Any
+
+from ai_automate_contro.plans.config import load_plan_config
+
+
+def self_check_environment(project_root: Path) -> dict[str, Any]:
+    checks = [
+        _check_python_version(),
+        _check_pwsh(),
+        _check_imports(),
+        _check_ripgrep(),
+        _check_playwright_chromium(),
+        _check_ai_config(project_root),
+    ]
+    return {
+        "ok": all(check["ok"] for check in checks),
+        "checks": checks,
+        "install": {
+            "project": "python -m pip install -e .",
+            "ripgrep": "winget install --id BurntSushi.ripgrep.MSVC -e",
+            "playwright_chromium": "python -m playwright install chromium",
+            "verify": "python .\\main.py self-check env",
+        },
+    }
+
+
+def _check_python_version() -> dict[str, Any]:
+    minimum = (3, 11)
+    current = sys.version_info
+    return _check_result(
+        "python",
+        current >= minimum,
+        version=f"{current.major}.{current.minor}.{current.micro}",
+        detail="Python 3.11+ is required.",
+        fix="Install Python 3.11+ and rerun from PowerShell 7.",
+    )
+
+
+def _check_pwsh() -> dict[str, Any]:
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        return _check_result(
+            "powershell_7",
+            False,
+            detail="PowerShell 7 (pwsh) was not found on PATH.",
+            fix="Install PowerShell 7 and run commands from pwsh.",
+        )
+
+    completed = subprocess.run(
+        [pwsh, "-NoProfile", "-Command", "$PSVersionTable.PSVersion.ToString()"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    version = completed.stdout.strip()
+    return _check_result(
+        "powershell_7",
+        completed.returncode == 0 and version.startswith("7."),
+        version=version,
+        detail="PowerShell 7 is the supported interactive shell.",
+        fix="Run this project from PowerShell 7.",
+    )
+
+
+def _check_imports() -> dict[str, Any]:
+    modules = {
+        "ai_automate_contro": "keygen-openai-account",
+        "playwright": "playwright",
+        "cmd2": "cmd2",
+        "openai": "openai",
+        "jsonschema": "jsonschema",
+        "langchain": "langchain",
+        "langgraph": "langgraph",
+        "langgraph.checkpoint.sqlite": "langgraph-checkpoint-sqlite",
+        "langchain_openai": "langchain-openai",
+        "pydantic": "pydantic",
+        "PIL": "Pillow",
+    }
+    missing = [module for module in modules if importlib.util.find_spec(module) is None]
+    versions = {
+        package: _distribution_version(package)
+        for package in sorted(set(modules.values()))
+    }
+    return _check_result(
+        "python_dependencies",
+        not missing,
+        missing=missing,
+        versions=versions,
+        detail="Python package dependencies must be importable.",
+        fix="python -m pip install -e .",
+    )
+
+
+def _check_ripgrep() -> dict[str, Any]:
+    rg = shutil.which("rg")
+    if rg is None:
+        return _check_result(
+            "ripgrep",
+            False,
+            detail="ripgrep (rg) is required. The project does not use Windows built-in search as a fallback.",
+            fix="winget install --id BurntSushi.ripgrep.MSVC -e",
+        )
+
+    completed = subprocess.run(
+        ["rg", "--version"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=10,
+    )
+    version = completed.stdout.splitlines()[0] if completed.stdout.splitlines() else ""
+    return _check_result(
+        "ripgrep",
+        completed.returncode == 0,
+        path=rg,
+        version=version,
+        detail="AI terminal text search uses rg only.",
+        fix="winget install --id BurntSushi.ripgrep.MSVC -e",
+    )
+
+
+def _check_playwright_chromium() -> dict[str, Any]:
+    try:
+        from playwright.sync_api import sync_playwright
+
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            browser.close()
+    except Exception as error:
+        return _check_result(
+            "playwright_chromium",
+            False,
+            detail=str(error),
+            fix="python -m playwright install chromium",
+        )
+    return _check_result(
+        "playwright_chromium",
+        True,
+        detail="Chromium can be launched by Playwright.",
+        fix="python -m playwright install chromium",
+    )
+
+
+def _check_ai_config(project_root: Path) -> dict[str, Any]:
+    try:
+        plan_config = load_plan_config(project_root, project_root / "test-plans")
+    except Exception as error:
+        return _check_result(
+            "ai_config",
+            False,
+            detail=str(error),
+            fix="Fix test-plans\\config.json so it is a JSON object.",
+        )
+
+    ai_services = plan_config.get("ai_services")
+    if not isinstance(ai_services, dict):
+        return _check_result(
+            "ai_config",
+            False,
+            detail="config.ai_services must be a JSON object.",
+            fix="Add ai_services.default to test-plans\\config.json.",
+        )
+
+    default_service = ai_services.get("default")
+    if not isinstance(default_service, dict):
+        return _check_result(
+            "ai_config",
+            False,
+            detail="ai_services.default is not configured.",
+            fix="Add ai_services.default with model and api_key or api_key_env.",
+        )
+
+    model = default_service.get("model")
+    api_key_env = default_service.get("api_key_env")
+    has_api_key = bool(default_service.get("api_key"))
+    env_ready = isinstance(api_key_env, str) and bool(os.environ.get(api_key_env))
+    return _check_result(
+        "ai_config",
+        bool(model) and (has_api_key or env_ready),
+        service="default",
+        model=str(model) if model else "",
+        has_inline_api_key=has_api_key,
+        api_key_env=str(api_key_env) if api_key_env else "",
+        api_key_env_ready=env_ready,
+        detail="AI config is checked locally only; no real model request is sent.",
+        fix="Set model and either api_key or api_key_env in test-plans\\config.json.",
+    )
+
+
+def _distribution_version(package: str) -> str:
+    try:
+        return importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return ""
+
+
+def _check_result(name: str, ok: bool, **details: Any) -> dict[str, Any]:
+    return {"name": name, "ok": ok, **details}

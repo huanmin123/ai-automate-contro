@@ -11,6 +11,7 @@ from ai_automate_contro.ai.session_compression import (
     archive_messages,
     count_ai_terminal_tokens,
 )
+from ai_automate_contro.ai.session_store import update_ai_terminal_session_index
 from ai_automate_contro.ai.terminal_context import context_update_from_tool_result
 from ai_automate_contro.ai.terminal_message_utils import (
     extract_interrupts,
@@ -74,6 +75,10 @@ class AITerminalStateMixin:
         update = context_update_from_tool_result(tool_name, arguments, result)
         if update:
             self._update_context_state(update)
+            self._sync_current_session_index()
+
+    def _sync_current_session_index(self) -> None:
+        update_ai_terminal_session_index(self.project_root, self.checkpointer, self.thread_id)
 
     def _current_interrupts(self) -> tuple[Interrupt, ...]:
         return self.graph.get_state(self._graph_config()).interrupts
@@ -130,6 +135,7 @@ class AITerminalStateMixin:
                 reason=reason,
             )
             self._update_context_state(archive.state_update())
+            self._sync_current_session_index()
             return {
                 "ok": True,
                 "compressed": False,
@@ -143,6 +149,7 @@ class AITerminalStateMixin:
             }
 
         self.graph.update_state(self._graph_config(), result.state_update())
+        self._sync_current_session_index()
         return {
             "ok": True,
             "compressed": True,

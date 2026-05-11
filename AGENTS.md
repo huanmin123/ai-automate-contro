@@ -25,7 +25,7 @@
 - `test-plans/`: 项目真实自动化 plan 包。
 - `docs/`: 架构、功能设计、计划、缺陷和重构记录。
 - `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量。
-- `.keygen/`: 本地 AI 终端 checkpoint 和运行状态，不应提交。
+- `.keygen/`: 本地 AI 终端 checkpoint、会话归档、图片附件和运行状态，不应提交。
 - `plans/**/output/` 和 `test-plans/**/output/`: plan 的运行输出，不应提交。
 
 ## 常用命令
@@ -36,6 +36,7 @@ winget install --id BurntSushi.ripgrep.MSVC -e
 rg --version
 python -m playwright install chromium
 python .\main.py self-check ai-stream
+python .\main.py self-check ai-terminal
 python .\main.py self-check ai-tools
 python .\main.py plan run --file .\plans\minimal-browser-plan\plan.json
 python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
@@ -58,7 +59,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
 - `read` 统一使用 `path`、`type`、`save_as`，资源输入优先放在当前 plan 包 `resources/`。
 - AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。
-- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后可用 `/new` 开新会话、`/compress` 手动压缩会话。
+- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后可用 `/sessions` 查询会话、`/resume <id-or-index>` 恢复会话、`/new` 开新会话、`/status` 查看状态、`/compress` 手动压缩会话。
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型，避免 CLI 与 AI 终端出现两套参数规则。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护，然后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
 - AI 终端线程状态包含 `current_plan_path`、`current_debug_workspace` 和 `latest_output_dir`，由 `use`、`workspace`、`run_context` 命令和工具返回自动维护，并通过 middleware 注入模型上下文。
@@ -66,8 +67,11 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - selector 自动修复必须保守：没有明确用户提示或候选分数接近时，只能返回候选和歧义原因，不能自动写入 `injected-plan/`。
 - 专项 AI 统一使用 `ai` action，并通过 `type` 区分 `connectivity`、`extract_data`、`classify_text`、`transform_data`、`summarize_text`；必须有固定输入、固定输出 schema、固定系统提示词和 `output/ai/` 调试产物。
 - 用户提供的 AI 模型服务报错、欠费、503、协议不兼容或返回不符合 schema 时，直接报告错误，不做自动降级、自动换格式、手动重试或服务兼容兜底；SDK/LangChain 自身的传输重试可以保留或通过配置显式控制。
+- AI 终端和专项 AI 请求必须遵循 OpenAI-compatible 协议。不要把自定义上下文、事件、thread metadata、附件 metadata 或项目内部字段塞进模型请求体；AI 终端上下文只能作为普通 system message 文本注入，图片只能在模型调用前转换成标准 `content: [{type: "text"}, {type: "image_url"}]`，工具调用使用 LangChain/OpenAI 原生 `tool_calls`。
 - AI 终端上下文只保存当前 plan、当前 debug workspace、最近输出目录、最近压缩摘要路径和归档路径等摘要状态；自动压缩按 128k token 标准在约 64k tokens 触发，并把完整消息归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`。不要把完整 `run.log`、`events.jsonl`、`commands.jsonl` 或大型产物一股脑塞进模型上下文。文本读取必须渐进式：先看结构/路径，再用 `grep_project_text` 通过 `rg` 定位关键词，最后用 `read_project_file_slice` 或小范围 artifact 读取拿必要行段。
+- AI 终端图片输入使用 `attach <image-path>`、`/attach <image-path>`、`paste_image` 或 `/paste-image` 加入下一条消息；图片附件落盘到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，发送给模型时转换为 data URL，发送成功后清空，模型服务报错时保留以便用户重试。不要把 base64 图片内容写入源码、plan、日志或文档。
 - AI 终端文本搜索只支持 `ripgrep` 的 `rg` 命令；缺失时必须提示用户安装，或在用户确认后帮助执行 `winget install --id BurntSushi.ripgrep.MSVC -e`，不能使用 Windows 内置搜索兜底。
+- 修改 AI 终端会话、压缩、图片附件或上下文注入时，必须运行 `python .\main.py self-check ai-terminal`。
 - 修改专项 AI streaming 解析时，必须运行 `python .\main.py self-check ai-stream`；真实服务回归仍使用 `test-plans/ai/controlled-text/plan.json`。
 - 执行链路里只允许受控专项 `ai` action；开放式聊天能力只能存在于 plan 级 AI 终端。
 - `test-plans/config.json` 可以保存用户主动提供的临时 AI 测试服务和密钥，用于真实 AI 场景回归；除非用户明确要求，不要删除或迁移这段配置。

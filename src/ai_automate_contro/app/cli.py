@@ -47,10 +47,22 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "self-check":
+        if args.self_check_command == "env":
+            from ai_automate_contro.app.environment_check import self_check_environment
+
+            result = self_check_environment(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-stream":
             from ai_automate_contro.ai.response_parsing import self_check_chat_completion_stream_parser
 
             result = self_check_chat_completion_stream_parser()
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-terminal":
+            from ai_automate_contro.ai.terminal_self_check import self_check_ai_terminal_state
+
+            result = self_check_ai_terminal_state(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-tools":
