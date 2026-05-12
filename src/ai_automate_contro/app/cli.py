@@ -53,8 +53,29 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
         from ai_automate_contro.ai.terminal import AITerminal
 
         app = AITerminal(project_root, service=args.service, thread_id=args.thread)
-        app.cmdloop()
-        return 0
+        try:
+            if args.ai_command == "ask":
+                result = app.ask_once(args.message)
+                if args.json:
+                    print_json(result, compact=args.compact)
+                else:
+                    assistant_message = result.get("assistant_message") or ""
+                    if assistant_message:
+                        print(assistant_message)
+                    if result.get("pending_approval"):
+                        print("[等待审批] 当前需要人工审批。请进入交互终端后输入 approve，或输入 reject <原因>。")
+                return 0 if result.get("ok") else 1
+            terminal = ManagementTerminal(project_root)
+            terminal._ai_terminal = app
+            terminal.mode = "ai"
+            terminal.prompt = "ai> "
+            terminal.intro = "AI 自动化控制终端。当前已进入 AI 模式；输入 /help 查看 AI 命令，输入 exit/back 返回 plan 模式，输入 quit 退出。"
+            terminal.cmdloop()
+            app = None
+            return 0
+        finally:
+            if app is not None:
+                app.close()
 
     if args.command == "self-check":
         if args.self_check_command == "env":
@@ -99,7 +120,7 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 name=args.name,
                 force=args.force,
             )
-            print(f"created plan package: {package_dir}")
+            print(f"已创建 plan 包：{package_dir}")
             return 0
         if args.plan_command == "validate":
             return print_validation_result(args.file, project_root)
@@ -114,7 +135,7 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 output_dir=args.output_dir,
                 variable_overrides={},
             )
-            print(f"plan {plan_result.status}: {plan_result.output_dir}")
+            print(f"plan 运行结果 {plan_result.status}：{plan_result.output_dir}")
             return 0
         if args.plan_command == "debug-create":
             workspace = create_debug_workspace(args.file, project_root, name=args.name)

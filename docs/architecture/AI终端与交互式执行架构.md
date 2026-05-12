@@ -11,7 +11,7 @@
 - 生成修复补丁。
 - 产出报告。
 
-因此 CLI 分为管理终端和 AI 终端。管理终端提供确定性命令，AI 终端通过这些命令完成 plan 级协作。
+因此 CLI 是一个统一终端，里面分为 `plan>` 管理模式和 `ai>` AI 模式。默认进入 `plan>`，不加载 AI 服务；用户输入 `ai`、`ai <message>` 或直接运行 `python .\main.py ai` 时，才懒加载 AI 终端。
 
 ## 总体分层
 
@@ -43,27 +43,28 @@ CLI
 └── Output
 ```
 
-## 管理终端
+## 统一终端与管理模式
 
-管理终端是确定性入口，不依赖 AI。
+`plan>` 管理模式是确定性入口，不依赖 AI，也不会读取或初始化模型服务。
 
-第一版使用 `cmd2` 作为命令执行底座。AI 终端的主输入行使用 `prompt_toolkit` 承载图片粘贴热键和输入体验，命令帮助、脚本化执行和基础解析仍复用 `cmd2`；项目只实现和 plan 相关的业务命令。
+当前交互 CLI 使用 `prompt_toolkit` 实现统一输入、命令提示、模式切换和 AI 图片输入。非交互命令仍保留在 `python .\main.py plan ...`、`python .\main.py tool ...` 和 `python .\main.py ai ask ...`，用于脚本、回归和打包 smoke test。
 
 第一批命令：
 
-- `plan create`: 创建 plan 包模板，第一版已可用。
-- `plan validate`: 校验 plan 结构、路径、组件字段和输出约束，第一版已可用。
-- `plan run`: 先校验再运行 plan，第一版已可用。
-- `plan status`: 查看当前运行状态。
-- `plan pause`: 暂停正在运行的 plan。
-- `plan continue`: 继续运行。
-- `plan stop`: 停止运行。
-- `plan set-variable`: 修改运行变量。
-- `plan logs`: 查看运行日志。
-- `plan output`: 打开或列出输出目录。
-- `plan report`: 生成运行报告。
+- `create`: 创建 plan 包模板。
+- `validate`: 校验 plan 结构、路径、组件字段和输出约束。
+- `run`: 先校验再运行 plan。
+- `status`: 查看当前运行状态。
+- `continue`: 继续等待中的 plan。
+- `stop`: 停止等待中的 plan。
+- `var`: 修改运行变量。
+- `logs`: 查看运行日志。
+- `events`: 查看结构化事件。
+- `output`: 查看输出目录。
+- `report`: 查看运行报告。
+- `ai`: 切换到 `ai>`，或用 `ai <message>` 发送一条 AI 消息。
 
-管理终端不猜需求，只执行明确命令。
+`plan>` 中命令支持普通形式和斜杠形式，例如 `status` 与 `/status` 等价。管理模式不猜需求，只执行明确命令。
 
 ## AI 终端
 
@@ -98,13 +99,13 @@ python .\main.py ai
 python .\main.py ai --thread login-debug
 ```
 
-当前版本使用 `prompt_toolkit` 提供 AI 终端输入体验、使用 `cmd2` 复用命令分发，并用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
+当前版本使用 `prompt_toolkit` 提供统一终端输入体验和 AI 图片输入体验，并用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
-会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`context`、`history [limit]`、`thread [id]`、`cancel` 和 `reset` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
+会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`context`、`history [limit]`、`thread [id]`、`new` 和 `compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
-AI 终端回合在后台线程执行，避免模型调用期间阻塞命令输入。`status` 可查看 `busy` 和当前回合文本；`cancel` 是协作式取消，语义是停止等待并忽略该回合结果，不强制终止底层模型网络请求。
+AI 终端回合在前台执行，用户发送一条消息后会等待当前模型回复完成，并通过 LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端。回复完成后才回到 `ai>` 输入下一句；服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
 真实回归中，线程 `real-tool-regression-validate-plan` 已确认模型生成 `tool_calls=validate_plan`，工具结果以 `ToolMessage` 返回 `ok=true`，并由 `SqliteSaver` 保存同一线程的消息与工具调用历史。
 
@@ -254,8 +255,10 @@ AI 终端只能通过工具操作项目。
 第一批工具：
 
 - `list_plan_packages`
+- `inspect_web_page`：使用 Playwright 真实打开 URL 或本地 HTML，返回受限 DOM 摘要、正文预览、表单、输入框、按钮、链接、表格以及登录/验证信号。AI 为真实网站创建 plan 前必须优先调用它，不能只根据用户文字猜 selector；如果页面需要登录、验证码、二次验证或权限确认，工具只报告证据和需要用户处理的状态。
 - `read_plan_package`
 - `create_plan_package`
+- `write_plan_package_file`：已完成新建 plan 包阶段的受控写入，只能写 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`，拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
 - `validate_plan`
 - `run_plan`
 - `analyze_latest_run_failure`
@@ -279,8 +282,8 @@ AI 终端只能通过工具操作项目。
 - `generate_debug_patch`：已完成底层工具和管理终端命令。
 - `apply_debug_patch_after_approval`：已完成底层工具和 `--yes` 显式确认命令。
 
-文件修改必须形成可读补丁，并经过用户确认。
-AI 终端不得直接写原始 plan 包；所有修复候选必须先落到当前 debug workspace 的 `injected-plan/`，再由 `generate_debug_patch` 生成补丁。
+新建 plan 包可以通过受控工具直接写入白名单文件。已有原始 plan 的修复必须形成可读补丁，并经过用户确认。
+所有修复候选必须先落到当前 debug workspace 的 `injected-plan/`，再由 `generate_debug_patch` 生成补丁。
 
 结构化工具也可以直接从 CLI 调用，便于脚本、CI 和回归验证：
 

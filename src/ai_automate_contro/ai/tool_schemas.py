@@ -13,6 +13,16 @@ class ListPlanPackagesArgs(ToolArgsModel):
     filter_text: str = Field(default="", description="Optional text filter.")
 
 
+class InspectWebPageArgs(ToolArgsModel):
+    url: str = Field(..., description="HTTP(S) URL, file URL, or local project file to inspect before creating browser steps.")
+    wait_until: str = Field(default="domcontentloaded", description="Playwright navigation wait state: commit, domcontentloaded, load, or networkidle.")
+    timeout_ms: int = Field(default=15_000, description="Navigation timeout in milliseconds; clamped to a safe maximum.")
+    wait_ms: int = Field(default=1_000, description="Extra wait after navigation in milliseconds for client-rendered content; clamped.")
+    max_elements: int = Field(default=80, description="Maximum visible headings, fields, buttons, links, forms, and tables to return; clamped.")
+    text_limit: int = Field(default=6_000, description="Maximum body text preview characters to return; clamped.")
+    headed: bool = Field(default=False, description="Show a browser window for manual observation. Use false unless the user needs to watch.")
+
+
 class GrepProjectTextArgs(ToolArgsModel):
     pattern: str = Field(..., description="Text or regex pattern to search for with ripgrep.")
     root_path: str = Field(default=".", description="Project-relative directory or file to search.")
@@ -38,6 +48,14 @@ class CreatePlanPackageArgs(ToolArgsModel):
     package_path: str | None = Field(default=None, description="Target plan package directory. If omitted, the tool uses the configured default plan root and the plan name.")
     name: str | None = Field(default=None, description="Plan name. Required when package_path is omitted.")
     force: bool = Field(default=False, description="Allow using an existing non-empty package directory.")
+
+
+class WritePlanPackageFileArgs(ToolArgsModel):
+    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    relative_path: str = Field(..., description="Allowed path inside the plan package: plan.json, config.json, docs/**, resources/**, or sub-plans/*-plan.json.")
+    content: str | None = Field(default=None, description="Text content to write.")
+    json_value: Any = Field(default=None, description="JSON value alternative to content for plan/config/sub-plan JSON files.")
+    mode: str = Field(default="overwrite", description="Write mode: overwrite or append.")
 
 
 class ValidatePlanArgs(ToolArgsModel):

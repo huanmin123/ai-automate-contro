@@ -13,6 +13,7 @@ from ai_automate_contro.ai.plan_tools import (
     list_plan_packages_tool,
     read_plan_package_tool,
     validate_plan_tool,
+    write_plan_package_file_tool,
 )
 from ai_automate_contro.ai.tool_schemas import (
     AnalyzeLatestRunFailureArgs,
@@ -23,6 +24,7 @@ from ai_automate_contro.ai.tool_schemas import (
     GenerateDebugPatchArgs,
     GrepProjectTextArgs,
     InjectDebugStepsArgs,
+    InspectWebPageArgs,
     ListDebugWorkspacesArgs,
     ListOutputArtifactsArgs,
     ListPlanPackagesArgs,
@@ -42,6 +44,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ValidateDebugPlanArgs,
     ValidatePlanArgs,
     WriteDebugWorkspaceFileArgs,
+    WritePlanPackageFileArgs,
 )
 
 
@@ -58,150 +61,162 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "analyze_latest_run_failure": ToolSpec(
         terminal_tools.analyze_latest_run_failure_tool,
         AnalyzeLatestRunFailureArgs,
-        "Analyze latest failed run evidence, including logs, events, screenshots, HTML, page state, and DOM summary.",
+        "分析最近一次失败运行的证据，包括日志、事件、截图、HTML、页面状态和 DOM 摘要。",
     ),
     "apply_debug_patch_after_approval": ToolSpec(
         terminal_tools.apply_debug_patch_after_approval_tool,
         ApplyDebugPatchAfterApprovalArgs,
-        "Apply patch.diff to the original plan package after explicit user approval.",
+        "在用户明确批准后，把 patch.diff 应用回原始 plan 包。",
         protected=True,
     ),
     "create_debug_workspace": ToolSpec(
         terminal_tools.create_debug_workspace_tool,
         CreateDebugWorkspaceArgs,
-        "Create an isolated output/debug workspace for a plan package.",
+        "为 plan 包创建隔离的 output/debug 调试工作区。",
         requires_project_root=True,
     ),
     "create_plan_package": ToolSpec(
         create_plan_package_tool,
         CreatePlanPackageArgs,
-        "Create a new plan package template.",
+        "创建新的 plan 包模板。",
+        requires_project_root=True,
+    ),
+    "write_plan_package_file": ToolSpec(
+        write_plan_package_file_tool,
+        WritePlanPackageFileArgs,
+        "创建 plan 时写入受控文件：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。",
         requires_project_root=True,
     ),
     "find_debug_workspace": ToolSpec(
         terminal_tools.find_debug_workspace_tool,
         FindDebugWorkspaceArgs,
-        "Find a debug workspace by name, suffix, or latest.",
+        "按名称、后缀或最近一次查找 debug workspace。",
     ),
     "generate_debug_patch": ToolSpec(
         terminal_tools.generate_debug_patch_tool,
         GenerateDebugPatchArgs,
-        "Generate patch.diff by comparing source-copy/ and injected-plan/; returns patch metadata, not full text.",
+        "比较 source-copy/ 和 injected-plan/ 生成 patch.diff；返回补丁元数据，不返回完整正文。",
     ),
     "grep_project_text": ToolSpec(
         grep_project_text_tool,
         GrepProjectTextArgs,
-        "Progressively search project text with ripgrep before reading file slices.",
+        "用 ripgrep 渐进式搜索项目文本，再按需读取文件片段。",
         requires_project_root=True,
     ),
     "inject_debug_steps": ToolSpec(
         terminal_tools.inject_debug_steps_tool,
         InjectDebugStepsArgs,
-        "Inject diagnostic steps into injected-plan/.",
+        "向 injected-plan/ 注入诊断步骤。",
+    ),
+    "inspect_web_page": ToolSpec(
+        terminal_tools.inspect_web_page_tool,
+        InspectWebPageArgs,
+        "用 Playwright 打开 URL 或本地 HTML，在创建浏览器 plan 步骤前返回受限 DOM、表单、按钮、链接、表格、登录和验证证据。",
+        requires_project_root=True,
     ),
     "list_debug_workspaces": ToolSpec(
         terminal_tools.list_debug_workspaces_tool,
         ListDebugWorkspacesArgs,
-        "List debug workspaces for a plan package.",
+        "列出某个 plan 包的 debug workspace。",
     ),
     "list_output_artifacts": ToolSpec(
         terminal_tools.list_output_artifacts_tool,
         ListOutputArtifactsArgs,
-        "List files under the current plan package output/ directory.",
+        "列出当前 plan 包 output/ 目录下的文件。",
     ),
     "list_plan_packages": ToolSpec(
         list_plan_packages_tool,
         ListPlanPackagesArgs,
-        "List available plan packages in plans/ and test-plans/.",
+        "列出 plans/ 和 test-plans/ 中可用的 plan 包。",
         requires_project_root=True,
     ),
     "patch_debug_workspace_json": ToolSpec(
         terminal_tools.patch_debug_workspace_json_tool,
         PatchDebugWorkspaceJsonArgs,
-        "Apply minimal JSON path edits to a JSON file under injected-plan/.",
+        "对 injected-plan/ 下的 JSON 文件执行最小 JSON 路径修改。",
     ),
     "prepare_failure_debug_workspace": ToolSpec(
         terminal_tools.prepare_failure_debug_workspace_tool,
         PrepareFailureDebugWorkspaceArgs,
-        "Create a debug workspace from failed run evidence and inject diagnostics before the failed step.",
+        "基于失败运行证据创建 debug workspace，并在失败步骤前注入诊断。",
         requires_project_root=True,
     ),
     "propose_debug_fix": ToolSpec(
         terminal_tools.propose_debug_fix_tool,
         ProposeDebugFixArgs,
-        "Generate a conservative clean fix candidate inside a debug workspace.",
+        "在 debug workspace 内生成保守的干净修复候选。",
         requires_project_root=True,
     ),
     "read_debug_workspace": ToolSpec(
         terminal_tools.read_debug_workspace_tool,
         ReadDebugWorkspaceArgs,
-        "Read debug workspace structure and text-file metadata without loading full notes, report, or patch text.",
+        "读取 debug workspace 结构和文本文件元数据，不加载完整 notes、report 或 patch 正文。",
     ),
     "read_latest_run_report": ToolSpec(
         terminal_tools.read_latest_run_report_tool,
         ReadLatestRunReportArgs,
-        "Read report.md from the latest run output.",
+        "读取最近运行输出中的 report.md。",
     ),
     "read_latest_run_state": ToolSpec(
         terminal_tools.read_latest_run_state_tool,
         ReadLatestRunStateArgs,
-        "Read state.json from the latest run output.",
+        "读取最近运行输出中的 state.json。",
     ),
     "read_output_artifact": ToolSpec(
         terminal_tools.read_output_artifact_tool,
         ReadOutputArtifactArgs,
-        "Read a bounded slice of one artifact under output/ after grep/listing identifies it.",
+        "在 grep 或列表定位后，读取 output/ 下某个产物的受限片段。",
     ),
     "read_plan_package": ToolSpec(
         read_plan_package_tool,
         ReadPlanPackageArgs,
-        "Read plan package structure and metadata without loading full text docs or resources.",
+        "读取 plan 包结构和元数据，不加载完整文档或资源正文。",
         requires_project_root=True,
     ),
     "read_project_file_slice": ToolSpec(
         read_project_file_slice_tool,
         ReadProjectFileSliceArgs,
-        "Read a bounded line slice from one project file after grep/listing identifies it.",
+        "在 grep 或列表定位后，读取某个项目文件的受限行片段。",
         requires_project_root=True,
     ),
     "read_run_events": ToolSpec(
         terminal_tools.read_run_events_tool,
         ReadRunEventsArgs,
-        "Read events.jsonl from a run output.",
+        "读取运行输出中的 events.jsonl。",
     ),
     "read_run_log": ToolSpec(
         terminal_tools.read_run_log_tool,
         ReadRunLogArgs,
-        "Read run.log from a run output.",
+        "读取运行输出中的 run.log。",
     ),
     "run_debug_plan": ToolSpec(
         terminal_tools.run_debug_plan_tool,
         RunDebugPlanArgs,
-        "Run injected-plan/plan.json inside a debug workspace.",
+        "运行 debug workspace 内的 injected-plan/plan.json。",
         requires_project_root=True,
     ),
     "run_plan": ToolSpec(
         terminal_tools.run_plan_tool,
         RunPlanArgs,
-        "Run a plan package.",
+        "运行 plan 包。",
         requires_project_root=True,
     ),
     "validate_debug_plan": ToolSpec(
         terminal_tools.validate_debug_plan_tool,
         ValidateDebugPlanArgs,
-        "Validate injected-plan/plan.json inside a debug workspace.",
+        "校验 debug workspace 内的 injected-plan/plan.json。",
         requires_project_root=True,
     ),
     "validate_plan": ToolSpec(
         validate_plan_tool,
         ValidatePlanArgs,
-        "Validate a plan package without running it.",
+        "只校验 plan 包，不运行。",
         requires_project_root=True,
     ),
     "write_debug_workspace_file": ToolSpec(
         terminal_tools.write_debug_workspace_file_tool,
         WriteDebugWorkspaceFileArgs,
-        "Write only allowed files inside injected-plan/, notes.md, or report.md.",
+        "只写入 injected-plan/、notes.md 或 report.md 中允许的文件。",
     ),
 }
 
@@ -243,7 +258,7 @@ def call_ai_terminal_tool(
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     if spec.protected and not allow_protected:
         raise ValueError(
-            f"Tool '{tool_name}' is protected and can only run through the AI terminal human approval flow."
+            f"工具 {tool_name} 是受保护工具，只能通过 AI 终端人工审批流程执行。"
         )
     tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, arguments or {})
     if spec.requires_project_root:
@@ -303,19 +318,19 @@ def check_ai_terminal_tool_registry() -> dict[str, Any]:
     )
     errors = []
     if missing_schemas:
-        errors.append(f"Missing Pydantic args schemas: {', '.join(missing_schemas)}")
+        errors.append(f"缺少 Pydantic 参数 schema：{', '.join(missing_schemas)}")
     if extra_schemas:
-        errors.append(f"Args schemas without registered tools: {', '.join(extra_schemas)}")
+        errors.append(f"存在未注册工具对应的参数 schema：{', '.join(extra_schemas)}")
     if missing_descriptions:
-        errors.append(f"Missing tool descriptions: {', '.join(missing_descriptions)}")
+        errors.append(f"缺少工具描述：{', '.join(missing_descriptions)}")
     if extra_descriptions:
-        errors.append(f"Descriptions without registered tools: {', '.join(extra_descriptions)}")
+        errors.append(f"存在未注册工具对应的描述：{', '.join(extra_descriptions)}")
     if invalid_project_root_tools:
-        errors.append(f"PROJECT_ROOT_TOOLS contains unknown tools: {', '.join(invalid_project_root_tools)}")
+        errors.append(f"PROJECT_ROOT_TOOLS 包含未知工具：{', '.join(invalid_project_root_tools)}")
     if invalid_protected_tools:
-        errors.append(f"PROTECTED_AI_TERMINAL_TOOLS contains unknown tools: {', '.join(invalid_protected_tools)}")
+        errors.append(f"PROTECTED_AI_TERMINAL_TOOLS 包含未知工具：{', '.join(invalid_protected_tools)}")
     if invalid_specs:
-        errors.append(f"Invalid tool specs: {', '.join(invalid_specs)}")
+        errors.append(f"工具定义不正确：{', '.join(invalid_specs)}")
     return {
         "ok": not errors,
         "registered_tools": len(tool_names),
@@ -337,11 +352,11 @@ def check_ai_terminal_tool_registry() -> dict[str, Any]:
 def _ensure_ai_terminal_tool_registry_consistent() -> None:
     result = check_ai_terminal_tool_registry()
     if not result["ok"]:
-        raise RuntimeError("AI terminal tool registry is inconsistent: " + "; ".join(result["errors"]))
+        raise RuntimeError("AI 终端工具注册表不一致：" + "；".join(result["errors"]))
 
 
 def _validate_ai_terminal_tool_arguments(tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     spec = AI_TERMINAL_TOOL_SPECS.get(tool_name)
     if spec is None:
-        raise ValueError(f"Missing argument schema for AI terminal tool: {tool_name}")
+        raise ValueError(f"AI 终端工具缺少参数 schema：{tool_name}")
     return spec.args_schema.model_validate(arguments).model_dump()

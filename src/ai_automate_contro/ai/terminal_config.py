@@ -72,6 +72,7 @@ def build_chat_model(service_config: dict[str, Any], *, service_name: str = "def
         "api_key": resolve_ai_terminal_api_key(service_name, service_config),
         "timeout": float(service_config.get("timeout_seconds", 90)),
         "temperature": float(service_config.get("temperature", 0.2)),
+        "streaming": True,
     }
     if service_config.get("base_url"):
         kwargs["base_url"] = str(service_config["base_url"])

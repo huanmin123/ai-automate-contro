@@ -5,27 +5,27 @@ from ai_automate_contro.plans.artifacts import list_output_artifacts
 
 class OutputCommandsMixin:
     def do_output(self, _: str) -> None:
-        """Show the last run output directory."""
+        """查看最近运行输出目录。"""
         output_dir = self._resolve_latest_output_dir()
         if output_dir is None:
-            self.poutput("output: <none>")
+            self.poutput("输出目录：<无>")
             return
         self.poutput(str(output_dir))
 
     def do_report(self, _: str) -> None:
-        """Show the latest run report.md."""
+        """查看最近运行的 report.md。"""
         output_dir = self._resolve_latest_output_dir()
         if output_dir is None:
-            self.poutput("report: <none>")
+            self.poutput("报告：<无>")
             return
         report_path = output_dir / "report.md"
         if not report_path.exists():
-            self.poutput(f"report not found: {report_path}")
+            self.poutput(f"未找到报告：{report_path}")
             return
         self.poutput(report_path.read_text(encoding="utf-8", errors="replace"))
 
     def do_logs(self, arg: str) -> None:
-        """Show recent run log lines: logs [lines]"""
+        """查看最近运行日志：logs [lines]"""
         try:
             line_count = int(arg.strip()) if arg.strip() else 80
         except ValueError:
@@ -37,18 +37,18 @@ class OutputCommandsMixin:
 
         output_dir = self._resolve_latest_output_dir()
         if output_dir is None:
-            self.poutput("log: <none>")
+            self.poutput("日志：<无>")
             return
         log_path = output_dir / "run.log"
         if not log_path.exists():
-            self.poutput(f"log not found: {log_path}")
+            self.poutput(f"未找到日志：{log_path}")
             return
         lines = log_path.read_text(encoding="utf-8").splitlines()
         for line in lines[-line_count:]:
             self.poutput(line)
 
     def do_events(self, arg: str) -> None:
-        """Show recent structured event lines: events [lines]"""
+        """查看最近结构化事件：events [lines]"""
         try:
             line_count = int(arg.strip()) if arg.strip() else 40
         except ValueError:
@@ -60,18 +60,18 @@ class OutputCommandsMixin:
 
         output_dir = self._resolve_latest_output_dir()
         if output_dir is None:
-            self.poutput("events: <none>")
+            self.poutput("事件：<无>")
             return
         events_path = output_dir / "events.jsonl"
         if not events_path.exists():
-            self.poutput(f"events not found: {events_path}")
+            self.poutput(f"未找到事件文件：{events_path}")
             return
         lines = events_path.read_text(encoding="utf-8").splitlines()
         for line in lines[-line_count:]:
             self.poutput(line)
 
     def do_artifacts(self, arg: str) -> None:
-        """List output artifacts: artifacts [filter] [limit]"""
+        """列出输出产物：artifacts [filter] [limit]"""
         parts = arg.split()
         filter_text = ""
         limit = 80
@@ -100,7 +100,7 @@ class OutputCommandsMixin:
             return
         artifacts = list_output_artifacts(plan_path, filter_text=filter_text, limit=limit)
         if not artifacts:
-            self.poutput("artifacts: <none>")
+            self.poutput("输出产物：<无>")
             return
         for artifact in artifacts:
-            self.poutput(f"{artifact.relative_path} | {artifact.size} bytes")
+            self.poutput(f"{artifact.relative_path} | {artifact.size} 字节")

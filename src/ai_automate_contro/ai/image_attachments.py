@@ -208,10 +208,10 @@ def _message_content_text(content: Any) -> str:
 
 def format_pending_attachments(attachments: list[ImageAttachment]) -> str:
     if not attachments:
-        return "images: none"
+        return "图片：无"
     lines = [
-        f"images: {' '.join(image_attachment_placeholders(attachments))} "
-        f"({len(attachments)}/{MAX_IMAGE_ATTACHMENTS}, sent with your next message)"
+        f"图片：{' '.join(image_attachment_placeholders(attachments))} "
+        f"({len(attachments)}/{MAX_IMAGE_ATTACHMENTS}，会随下一条消息发送)"
     ]
     for index, attachment in enumerate(attachments, start=1):
         lines.append(
@@ -222,7 +222,7 @@ def format_pending_attachments(attachments: list[ImageAttachment]) -> str:
 
 
 def image_attachment_placeholder(index: int) -> str:
-    return f"[Image #{index}]"
+    return f"[图片 #{index}]"
 
 
 def image_attachment_placeholders(attachments: list[ImageAttachment]) -> list[str]:
@@ -288,7 +288,7 @@ def _stored_file_name(stem: str, suffix: str) -> str:
 
 def _ensure_capacity(pending_count: int, *, adding: int) -> None:
     if pending_count + adding > MAX_IMAGE_ATTACHMENTS:
-        raise ValueError(f"cannot attach more than {MAX_IMAGE_ATTACHMENTS} images")
+        raise ValueError(f"最多只能附加 {MAX_IMAGE_ATTACHMENTS} 张图片")
 
 
 def _looks_like_supported_image(path: Path) -> bool:

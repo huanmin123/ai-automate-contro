@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "playwright==1.59.0",
-  "cmd2==3.5.1",
   "openai>=2.36.0,<3.0.0",
   "jsonschema==4.26.0",
   "langchain==1.2.18",
@@ -21,6 +20,7 @@ dependencies = [
   "pydantic>=2.13.4",
   "Pillow>=11.0.0",
   "prompt_toolkit>=3.0.52,<4.0.0",
+  "rich>=13.9.4,<16.0.0",
 ]
 
 [project.optional-dependencies]

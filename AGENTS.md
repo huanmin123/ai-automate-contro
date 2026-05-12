@@ -59,9 +59,11 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
 - `read` 统一使用 `path`、`type`、`save_as`，资源输入优先放在当前 plan 包 `resources/`。
 - AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。
-- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后可用 `/sessions` 查询会话、`/resume <id-or-index>` 恢复会话、`/new` 开新会话、`/status` 查看状态、`/compress` 手动压缩会话。
+- AI 终端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后可用 `/sessions` 查询会话、`/resume <id-or-index>` 恢复会话、`/new` 开新会话、`/status` 查看状态、`/compress` 手动压缩会话。脚本化真实 AI 回归使用 `python .\main.py ai --thread <id> ask --message "<text>" --json`，不要用自定义请求协议绕过 AI 终端。
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型，避免 CLI 与 AI 终端出现两套参数规则。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护，然后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
+- AI 新建 plan 包可使用 `create_plan_package` 和 `write_plan_package_file` 写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。该工具必须拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径；已有原始 plan 的修复仍走 debug workspace、patch 和 HITL approval。
+- AI 为真实网站、URL、后台页面或网页流程创建 plan 前，必须先拿页面证据，优先用 `inspect_web_page` 真实访问并读取受限 DOM 摘要、表单、输入框、按钮、链接、表格以及登录/验证信号；不能只按用户文字猜 selector。若页面需要登录、验证码、二次验证或权限确认，AI 必须通知用户完成验证或提供页面状态，再继续写 plan。
 - AI 终端线程状态包含 `current_plan_path`、`current_debug_workspace` 和 `latest_output_dir`，由 `use`、`workspace`、`run_context` 命令和工具返回自动维护，并通过 middleware 注入模型上下文。
 - AI 调试修复必须先把原始 plan 包复制到当前 plan 的 `output/debug/<run>/source-copy/`，再在 `output/debug/<run>/injected-plan/` 注入日志、截图、变量落盘或人工确认；修复候选只能写入 `injected-plan/`、`notes.md` 或 `report.md`，确认问题后只把最小补丁应用回原始 plan。
 - selector 自动修复必须保守：没有明确用户提示或候选分数接近时，只能返回候选和歧义原因，不能自动写入 `injected-plan/`。

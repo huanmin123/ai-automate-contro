@@ -154,7 +154,8 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：AI 终端正在处理上一轮请求。",
             "处理办法：",
-            "  用 /status 查看状态，或用 /cancel 忽略本轮结果。",
+            "  等待当前回复完成后再输入下一句。",
+            "  如果当前等待不想继续，按 Ctrl+C 中断。",
         ]
     if lowered.startswith("pending approval"):
         return [

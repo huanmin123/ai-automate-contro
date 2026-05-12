@@ -20,6 +20,16 @@ MAX_PACKAGE_DOCS = 20
 MAX_SUB_PLANS = 50
 MAX_PACKAGE_FILE_LIST = 200
 MAX_PLAN_STEP_OUTLINE = 80
+ALLOWED_PLAN_PACKAGE_WRITE_ROOTS = {"docs", "resources"}
+FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS = {
+    ".git",
+    ".keygen",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "output",
+}
 
 
 def list_plan_packages_tool(project_root: str | Path, *, filter_text: str = "") -> dict[str, Any]:
@@ -80,6 +90,71 @@ def create_plan_package_tool(
     }
 
 
+def write_plan_package_file_tool(
+    project_root: str | Path,
+    plan_path: str | Path,
+    *,
+    relative_path: str | Path,
+    content: str | None = None,
+    json_value: Any = None,
+    mode: str = "overwrite",
+) -> dict[str, Any]:
+    root = Path(project_root).resolve()
+    resolved_plan_path = resolve_plan_path(plan_path)
+    package_dir = resolved_plan_path.parent.resolve()
+    if not is_relative_to(package_dir, root):
+        raise ValueError("Plan package must stay inside the project root.")
+    if not resolved_plan_path.exists():
+        raise FileNotFoundError(f"Plan package entry does not exist: {resolved_plan_path}")
+
+    raw_relative_path = Path(relative_path)
+    if raw_relative_path.is_absolute():
+        raise ValueError("relative_path must be relative to the plan package.")
+    normalized_relative_path = Path(*raw_relative_path.parts)
+    _validate_plan_package_write_path(normalized_relative_path)
+
+    write_mode = mode.strip().lower()
+    if write_mode not in {"overwrite", "append"}:
+        raise ValueError("mode must be overwrite or append.")
+    if content is not None and json_value is not None:
+        raise ValueError("Provide either content or json_value, not both.")
+    if content is None and json_value is None:
+        raise ValueError("write_plan_package_file requires content or json_value.")
+    if json_value is not None and write_mode == "append":
+        raise ValueError("json_value only supports overwrite mode.")
+
+    target_path = (package_dir / normalized_relative_path).resolve()
+    if not is_relative_to(target_path, package_dir):
+        raise ValueError("Target path must stay inside the plan package.")
+
+    if json_value is not None:
+        if target_path.suffix.lower() != ".json":
+            raise ValueError("json_value can only be written to JSON files.")
+        serialized = json.dumps(json_value, ensure_ascii=False, indent=2) + "\n"
+    else:
+        serialized = str(content)
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    if write_mode == "append":
+        target_path.write_text(
+            (target_path.read_text(encoding="utf-8") if target_path.exists() else "") + serialized,
+            encoding="utf-8",
+        )
+    else:
+        target_path.write_text(serialized, encoding="utf-8")
+
+    stat = target_path.stat()
+    return {
+        "ok": True,
+        "plan_path": str(resolved_plan_path),
+        "package_dir": str(package_dir),
+        "path": str(target_path),
+        "relative_path": str(normalized_relative_path),
+        "mode": write_mode,
+        "bytes": stat.st_size,
+    }
+
+
 def validate_plan_tool(project_root: str | Path, plan_path: str | Path) -> dict[str, Any]:
     result = validate_plan_file(plan_path, project_root)
     return {
@@ -129,6 +204,23 @@ def resolve_plan_path(raw_plan_path: str | Path) -> Path:
     if plan_path.is_dir():
         plan_path = plan_path / "plan.json"
     return plan_path
+
+
+def _validate_plan_package_write_path(relative_path: Path) -> None:
+    parts = relative_path.parts
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("relative_path must be a clean path inside the plan package.")
+    if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in parts):
+        raise ValueError("Refusing to write output, cache, checkpoint, git, or pycache paths.")
+    if relative_path.name.endswith((".pyc", ".pyo")) or ".egg-info" in parts:
+        raise ValueError("Refusing to write pyc, pyo, or egg-info paths.")
+    if parts == ("plan.json",) or parts == ("config.json",):
+        return
+    if parts[0] == "sub-plans" and len(parts) == 2 and relative_path.name.endswith("-plan.json"):
+        return
+    if parts[0] in ALLOWED_PLAN_PACKAGE_WRITE_ROOTS and len(parts) >= 2:
+        return
+    raise ValueError("Allowed write targets are plan.json, config.json, docs/**, resources/**, or sub-plans/*-plan.json.")
 
 
 def issue_to_dict(issue: ValidationIssue) -> dict[str, str]:

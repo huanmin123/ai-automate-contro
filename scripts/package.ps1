@@ -167,6 +167,7 @@ try {
         "--collect-submodules", "langchain_openai",
         "--collect-submodules", "langgraph",
         "--collect-submodules", "langgraph.checkpoint.sqlite",
+        "--collect-submodules", "rich",
         $EntryPoint
     )
     Invoke-Checked "python" $pyinstallerArgs
@@ -220,6 +221,7 @@ if ($SmokeTest) {
     Push-Location $PackageDir
     try {
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExecutablePath @("tool", "check")
     }
@@ -245,6 +247,7 @@ if ($SmokeTest) {
     Push-Location $ExtractedPackageDir
     try {
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExtractedExecutablePath @("tool", "check")
     }

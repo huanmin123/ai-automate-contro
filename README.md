@@ -88,7 +88,8 @@ plan-package/
 
 ## 管理终端
 
-- 默认运行 `python .\main.py` 会进入基于 `cmd2` 的持续管理终端。
+- 默认运行 `python .\main.py` 会进入统一交互终端的 `plan>` 管理模式；此时不会启动 AI 服务，输入 `ai` 才切换到 `ai>` 并懒加载 AI。
+- `python .\main.py ai` 会直接进入同一个统一终端的 `ai>` 模式；`python .\main.py ai ask --message "<text>" --json` 用于脚本化真实 AI 回归。
 - `list`: 扫描 `plans/` 和 `test-plans/` 下的 plan 包。
 - `use`: 选择当前 plan 包入口。
 - `inspect`: 查看当前 plan 的名称、变量、步骤数量、子计划和最近输出。
@@ -100,6 +101,7 @@ plan-package/
 - `artifacts [filter] [limit]`: 列出当前 plan 包 `output/` 下的产物。
 - `debug prepare [name]` / `debug create [name]` / `debug list` / `debug fix [--apply] [workspace]` / `debug inject <preset[,preset...]> [workspace]`: 基于最近失败准备调试副本、创建/查看工作区、生成干净修复候选或注入诊断步骤。
 - `debug patch [workspace]` / `debug apply --yes [workspace]`: 生成补丁并在显式确认后应用回原始 plan 包。
+- 命令提示支持普通形式和斜杠形式，例如 `status` 与 `/status` 等价。
 
 一次性命令 `python .\main.py plan validate --file <plan.json>` 和 `python .\main.py plan run --file <plan.json>` 用于脚本、回归和后续 AI 工具调用。运行 plan 只保留这一套显式子命令入口，避免形成两套运行路径。
 
@@ -111,7 +113,8 @@ plan-package/
 - AI 终端使用 `langchain.agents.create_agent`、`langchain-openai` 和 LangChain `StructuredTool` 暴露工具；每个工具都有显式 Pydantic 参数模型，模型通过原生 `tool_calls` 调用工具，不再使用自定义 JSON 工具调用协议。
 - 会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，该目录由 Git 忽略。终端内可用 `context` 查看当前线程、`history [limit]` 查看消息、`thread [id]` 切换线程、`reset` 删除当前线程。
 - AI 终端有线程级上下文状态：`use [plan.json-or-package-dir]` 设置当前 plan，`workspace [output/debug/<run>]` 设置当前 debug workspace，`run_context [output-dir]` 设置最近输出目录。工具调用返回 plan、workspace 或 output 时也会自动更新这些状态；模型调用前会通过 LangChain middleware 注入当前上下文。
-- AI 终端只能通过结构化工具操作 plan，例如 `list_plan_packages`、`read_plan_package`、`validate_plan`、`run_plan`、`analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`read_latest_run_report`、`read_run_log`、`create_debug_workspace`、`read_debug_workspace`、`patch_debug_workspace_json`、`write_debug_workspace_file`、`run_debug_plan`、`generate_debug_patch`。
+- AI 终端只能通过结构化工具操作 plan，例如 `list_plan_packages`、`inspect_web_page`、`read_plan_package`、`validate_plan`、`run_plan`、`analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`read_latest_run_report`、`read_run_log`、`create_debug_workspace`、`read_debug_workspace`、`patch_debug_workspace_json`、`write_debug_workspace_file`、`run_debug_plan`、`generate_debug_patch`。
+- AI 为真实网站创建 plan 前会先用 `inspect_web_page` 真实访问页面并读取受限 DOM 摘要；遇到登录、验证码、二次验证或权限页面时，会要求用户完成验证或走 `manual_confirm`，不会只按文字描述猜 selector。
 - AI 只能把修复候选写入 debug workspace 的 `injected-plan/`、`notes.md` 或 `report.md`，不能直接写原始 plan。
 - 修改 JSON plan/config 时优先用 `patch_debug_workspace_json` 做路径级最小修改；`write_debug_workspace_file` 主要用于整文件写入、文档、资源、notes 和 report。
 - 应用补丁必须走 `apply_debug_patch_after_approval`。AI 请求该工具时会被 LangChain `HumanInTheLoopMiddleware` 暂停，终端显示 `[WAIT_APPROVAL]`；用户输入 `approve` 后才会恢复并注入 `approved: true` 执行，输入 `reject <reason>` 则拒绝这次工具调用。

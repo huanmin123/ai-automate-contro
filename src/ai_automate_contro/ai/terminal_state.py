@@ -37,7 +37,7 @@ class AITerminalStateMixin:
 
     def _graph_config(self) -> dict[str, Any]:
         return {
-            "recursion_limit": 32,
+            "recursion_limit": self.graph_recursion_limit,
             "configurable": {
                 "thread_id": self.thread_id,
             },
@@ -93,19 +93,19 @@ class AITerminalStateMixin:
     def _print_interrupts(self, interrupts: tuple[Interrupt, ...] | list[Interrupt]) -> None:
         requests = interrupt_action_requests(interrupts)
         if not requests:
-            self.poutput("[WAIT_APPROVAL] pending human input.")
-            self.poutput("Use 'approve' to continue or 'reject <reason>' to stop the tool call.")
+            self.poutput("[等待审批] AI 正在等待人工输入。")
+            self.poutput("输入 approve 继续，或输入 reject <原因> 停止本次工具调用。")
             return
-        self.poutput("[WAIT_APPROVAL] The AI requested a protected tool call.")
+        self.poutput("[等待审批] AI 请求执行受保护工具。")
         for index, request in enumerate(requests, start=1):
-            name = request.get("name", "<unknown>")
+            name = request.get("name", "<未知>")
             args = request.get("args", {})
             description = request.get("description", "")
-            self.poutput(f"{index}. tool: {name}")
+            self.poutput(f"{index}. 工具：{name}")
             if description:
                 self.poutput(str(description))
             self.poutput(json.dumps(args, ensure_ascii=False, indent=2))
-        self.poutput("Use 'approve' to apply, or 'reject <reason>' to deny and resume.")
+        self.poutput("输入 approve 批准执行，或输入 reject <原因> 拒绝并继续会话。")
 
     def _checkpoint_count(self) -> int:
         return sum(1 for _ in self.checkpointer.list({"configurable": {"thread_id": self.thread_id}}))

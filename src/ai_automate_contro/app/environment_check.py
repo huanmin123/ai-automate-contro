@@ -50,8 +50,8 @@ def _check_python_version() -> dict[str, Any]:
         "python",
         current >= minimum,
         version=f"{current.major}.{current.minor}.{current.micro}",
-        detail="Python 3.11+ is required.",
-        fix="Install Python 3.11+ and rerun from PowerShell 7.",
+        detail="需要 Python 3.11 或更高版本。",
+        fix="安装 Python 3.11+ 后，在 PowerShell 7 中重新运行。",
     )
 
 
@@ -61,8 +61,8 @@ def _check_pwsh() -> dict[str, Any]:
         return _check_result(
             "powershell_7",
             False,
-            detail="PowerShell 7 (pwsh) was not found on PATH.",
-            fix="Install PowerShell 7 and run commands from pwsh.",
+            detail="PATH 中没有找到 PowerShell 7 (pwsh)。",
+            fix="安装 PowerShell 7，并从 pwsh 中运行命令。",
         )
 
     completed = subprocess.run(
@@ -78,8 +78,8 @@ def _check_pwsh() -> dict[str, Any]:
         "powershell_7",
         completed.returncode == 0 and version.startswith("7."),
         version=version,
-        detail="PowerShell 7 is the supported interactive shell.",
-        fix="Run this project from PowerShell 7.",
+        detail="本项目支持的交互式 shell 是 PowerShell 7。",
+        fix="请从 PowerShell 7 中运行本项目。",
     )
 
 
@@ -87,7 +87,6 @@ def _check_imports() -> dict[str, Any]:
     modules = {
         "ai_automate_contro": "keygen-openai-account",
         "playwright": "playwright",
-        "cmd2": "cmd2",
         "openai": "openai",
         "jsonschema": "jsonschema",
         "langchain": "langchain",
@@ -97,6 +96,7 @@ def _check_imports() -> dict[str, Any]:
         "pydantic": "pydantic",
         "PIL": "Pillow",
         "prompt_toolkit": "prompt_toolkit",
+        "rich": "rich",
     }
     missing = [module for module in modules if importlib.util.find_spec(module) is None]
     versions = {
@@ -108,7 +108,7 @@ def _check_imports() -> dict[str, Any]:
         not missing,
         missing=missing,
         versions=versions,
-        detail="Python package dependencies must be importable.",
+        detail="Python 包依赖必须能够正常导入。",
         fix="python -m pip install -e .",
     )
 
@@ -119,7 +119,7 @@ def _check_ripgrep() -> dict[str, Any]:
         return _check_result(
             "ripgrep",
             False,
-            detail="ripgrep (rg) is required. The project does not use Windows built-in search as a fallback.",
+            detail="必须安装 ripgrep (rg)。本项目不使用 Windows 内置搜索作为兜底。",
             fix="winget install --id BurntSushi.ripgrep.MSVC -e",
         )
 
@@ -137,7 +137,7 @@ def _check_ripgrep() -> dict[str, Any]:
         completed.returncode == 0,
         path=rg,
         version=version,
-        detail="AI terminal text search uses rg only.",
+        detail="AI 终端文本搜索只使用 rg。",
         fix="winget install --id BurntSushi.ripgrep.MSVC -e",
     )
 
@@ -159,7 +159,7 @@ def _check_playwright_chromium() -> dict[str, Any]:
     return _check_result(
         "playwright_chromium",
         True,
-        detail="Chromium can be launched by Playwright.",
+        detail="Playwright 可以正常启动 Chromium。",
         fix="python -m playwright install chromium",
     )
 
@@ -172,7 +172,7 @@ def _check_runtime_config(project_root: Path) -> dict[str, Any]:
             "runtime_config",
             False,
             detail=str(error),
-            fix="Fix plan.config so handbook_path and plan_roots are valid.",
+            fix="修复 plan.config，确保 handbook_path 和 plan_roots 有效。",
         )
     missing_plan_roots = [str(path) for path in runtime_config.plan_roots if not path.exists()]
     return _check_result(
@@ -183,8 +183,8 @@ def _check_runtime_config(project_root: Path) -> dict[str, Any]:
         plan_roots=[str(path) for path in runtime_config.plan_roots],
         default_ai_config_dir=str(runtime_config.default_ai_config_dir),
         missing_plan_roots=missing_plan_roots,
-        detail="Runtime plan.config controls handbook and plan root locations.",
-        fix="Create handbook/ and configured plan_roots, or edit plan.config.",
+        detail="运行时 plan.config 控制 handbook 和 plan 根目录位置。",
+        fix="创建 handbook/ 和配置的 plan_roots，或编辑 plan.config。",
     )
 
 
@@ -197,7 +197,19 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
             "ai_config",
             False,
             detail=str(error),
-            fix="Fix the config.json under the plan.config default_ai_config_dir.",
+            fix="修复 plan.config default_ai_config_dir 指向目录下的 config.json。",
+        )
+
+    if "ai_services" not in plan_config:
+        return _check_result(
+            "ai_config",
+            True,
+            configured=False,
+            ready=False,
+            config_dir=str(ai_config_dir),
+            config_path=str(ai_config_dir / "config.json"),
+            detail="AI 服务未配置。plan 模式仍可使用；进入 AI 模式需要 ai_services.default。",
+            fix="添加 ai_services.default 后再使用 AI 终端或 ai action。",
         )
 
     ai_services = plan_config.get("ai_services")
@@ -207,19 +219,21 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
             False,
             config_dir=str(ai_config_dir),
             config_path=str(ai_config_dir / "config.json"),
-            detail="config.ai_services must be a JSON object.",
-            fix="Add ai_services.default to the config.json under the plan.config default_ai_config_dir.",
+            detail="config.ai_services 必须是 JSON 对象。",
+            fix="在 plan.config default_ai_config_dir 指向目录下的 config.json 中添加 ai_services.default。",
         )
 
     default_service = ai_services.get("default")
     if not isinstance(default_service, dict):
         return _check_result(
             "ai_config",
-            False,
+            True,
+            configured=False,
+            ready=False,
             config_dir=str(ai_config_dir),
             config_path=str(ai_config_dir / "config.json"),
-            detail="ai_services.default is not configured.",
-            fix="Add ai_services.default with model and api_key or api_key_env.",
+            detail="ai_services.default 未配置。",
+            fix="添加带 model 和 api_key 或 api_key_env 的 ai_services.default。",
         )
 
     model = default_service.get("model")
@@ -229,14 +243,16 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
     return _check_result(
         "ai_config",
         bool(model) and (has_api_key or env_ready),
+        configured=True,
+        ready=bool(model) and (has_api_key or env_ready),
         service="default",
         config_dir=str(ai_config_dir),
         model=str(model) if model else "",
         has_inline_api_key=has_api_key,
         api_key_env=str(api_key_env) if api_key_env else "",
         api_key_env_ready=env_ready,
-        detail="AI config is checked locally only; no real model request is sent.",
-        fix="Set model and either api_key or api_key_env in the configured AI config directory.",
+        detail="AI 配置只做本地检查，不会发送真实模型请求。",
+        fix="在配置目录中设置 model，并设置 api_key 或 api_key_env。",
     )
 
 

@@ -44,16 +44,15 @@ class AITerminalApprovalMixin:
 
     def _resume_agent(self, resume_payload: dict[str, Any]) -> None:
         try:
-            final_state = self.graph.invoke(
-                Command(resume=resume_payload),
-                config=self._graph_config(),
-            )
+            final_state, streamed = self._invoke_graph_streaming(Command(resume=resume_payload))
         except Exception as error:
             self.perror(error)
             return
         if self._print_pending_interrupt(final_state):
             return
+        if streamed:
+            return
         messages = list(final_state["messages"])
         last_message = self._last_assistant_message(messages)
         if last_message:
-            self.poutput(last_message)
+            self.poutput(f"AI> {last_message}")

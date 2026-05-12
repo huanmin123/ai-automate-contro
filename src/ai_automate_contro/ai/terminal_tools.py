@@ -21,6 +21,7 @@ from ai_automate_contro.ai.run_artifacts import (
 from ai_automate_contro.ai.run_failure_analysis import (
     analyze_latest_run_failure_tool as _analyze_latest_run_failure_tool,
 )
+from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
 
 
 def run_plan_tool(
@@ -112,6 +113,29 @@ def read_output_artifact_tool(
         plan_path,
         relative_path,
         max_bytes=max_bytes,
+    )
+
+
+def inspect_web_page_tool(
+    project_root: str | Path,
+    *,
+    url: str,
+    wait_until: str = "domcontentloaded",
+    timeout_ms: int = 15_000,
+    wait_ms: int = 1_000,
+    max_elements: int = 80,
+    text_limit: int = 6_000,
+    headed: bool = False,
+) -> dict[str, Any]:
+    return _inspect_web_page_tool(
+        project_root,
+        url=url,
+        wait_until=wait_until,
+        timeout_ms=timeout_ms,
+        wait_ms=wait_ms,
+        max_elements=max_elements,
+        text_limit=text_limit,
+        headed=headed,
     )
 
 

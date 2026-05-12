@@ -13,7 +13,7 @@ from ai_automate_contro.plans.validator import validate_plan_file
 
 class PlanCommandsMixin:
     def do_use(self, arg: str) -> None:
-        """Select a plan package entry: use <plan.json-or-package-dir>"""
+        """选择 plan 包入口：use <plan.json-or-package-dir>"""
         raw_path = arg.strip()
         if not raw_path:
             self.perror("usage: use <plan.json-or-package-dir>")
@@ -23,20 +23,20 @@ class PlanCommandsMixin:
             plan_path = plan_path / "plan.json"
         self.current_plan_path = plan_path
         self._refresh_prompt()
-        self.poutput(f"current plan: {plan_path}")
+        self.poutput(f"当前 plan：{plan_path}")
 
     def do_current(self, _: str) -> None:
-        """Show selected plan and session context."""
+        """查看当前选择的 plan 和本次终端上下文。"""
         if self.current_plan_path is None:
-            self.poutput("current plan: <none>")
+            self.poutput("当前 plan：<无>")
         else:
-            self.poutput(f"current plan: {self.current_plan_path}")
-        self.poutput(f"session variables: {len(self.variables)}")
+            self.poutput(f"当前 plan：{self.current_plan_path}")
+        self.poutput(f"本次终端变量数：{len(self.variables)}")
         if self.last_plan_result is not None:
-            self.poutput(f"last run: {self.last_plan_result.status} {self.last_plan_result.output_dir}")
+            self.poutput(f"最近运行：{self.last_plan_result.status} {self.last_plan_result.output_dir}")
 
     def do_validate(self, arg: str) -> None:
-        """Validate selected or given plan: validate [plan.json-or-package-dir]"""
+        """校验当前或指定 plan：validate [plan.json-or-package-dir]"""
         try:
             plan_path = self._resolve_plan_arg(arg)
         except ValueError as error:
@@ -45,7 +45,7 @@ class PlanCommandsMixin:
         self._print_validation(plan_path)
 
     def do_create(self, arg: str) -> None:
-        """Create a plan package template: create <dir> [name]"""
+        """创建 plan 包模板：create <dir> [name]"""
         parts = arg.split(maxsplit=1)
         if not parts or not parts[0]:
             self.perror("usage: create <dir> [name]")
@@ -56,16 +56,16 @@ class PlanCommandsMixin:
         except Exception as error:
             self.perror(error)
             return
-        self.poutput(f"created plan package: {package_dir}")
+        self.poutput(f"已创建 plan 包：{package_dir}")
 
     def do_list(self, arg: str) -> None:
-        """List plan packages: list [filter]"""
+        """列出 plan 包：list [filter]"""
         filter_text = arg.strip().lower()
         plans = discover_plan_packages(self.project_root)
         if filter_text:
             plans = [plan_path for plan_path in plans if plan_matches_filter(plan_path, self.project_root, filter_text)]
         if not plans:
-            self.poutput("no plan packages found")
+            self.poutput("没有找到 plan 包")
             return
 
         for index, plan_path in enumerate(plans, start=1):
@@ -76,7 +76,7 @@ class PlanCommandsMixin:
             )
 
     def do_inspect(self, arg: str) -> None:
-        """Inspect selected or given plan package: inspect [plan.json-or-package-dir]"""
+        """检查当前或指定 plan 包摘要：inspect [plan.json-or-package-dir]"""
         try:
             plan_path = self._resolve_plan_arg(arg)
             summary = summarize_plan(plan_path, self.project_root)
@@ -84,15 +84,15 @@ class PlanCommandsMixin:
             self.perror(error)
             return
 
-        self.poutput(f"path: {summary['path']}")
-        self.poutput(f"name: {summary['name']}")
-        self.poutput(f"tags: {', '.join(summary['tags']) if summary['tags'] else '<none>'}")
-        self.poutput(f"variables: {', '.join(summary['variables']) if summary['variables'] else '<none>'}")
-        self.poutput(f"steps: {summary['steps']}")
-        self.poutput(f"sub-plans: {', '.join(summary['sub_plans']) if summary['sub_plans'] else '<none>'}")
-        self.poutput(f"latest output: {summary['latest_output'] or '<none>'}")
+        self.poutput(f"路径：{summary['path']}")
+        self.poutput(f"名称：{summary['name']}")
+        self.poutput(f"标签：{', '.join(summary['tags']) if summary['tags'] else '<无>'}")
+        self.poutput(f"变量：{', '.join(summary['variables']) if summary['variables'] else '<无>'}")
+        self.poutput(f"步骤数：{summary['steps']}")
+        self.poutput(f"子计划：{', '.join(summary['sub_plans']) if summary['sub_plans'] else '<无>'}")
+        self.poutput(f"最近输出：{summary['latest_output'] or '<无>'}")
         result = validate_plan_file(plan_path, self.project_root)
-        self.poutput("validation: passed" if result.ok else f"validation: {len(result.errors)} error(s)")
+        self.poutput("校验：通过" if result.ok else f"校验：{len(result.errors)} 个错误")
 
     def _resolve_plan_arg(self, arg: str) -> Path:
         raw_path = arg.strip()
@@ -111,7 +111,7 @@ class PlanCommandsMixin:
     def _print_validation(self, plan_path: Path) -> bool:
         result = validate_plan_file(plan_path, self.project_root)
         if result.ok:
-            self.poutput(f"plan valid: {result.plan_path}")
+            self.poutput(f"plan 校验通过：{result.plan_path}")
             return True
         for error in result.errors:
             self.perror(error.format())

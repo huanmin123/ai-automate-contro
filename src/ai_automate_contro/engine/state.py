@@ -54,8 +54,8 @@ class RunStateWriter:
             waiting=None,
         )
 
-    def mark_waiting(self, *, prompt: str) -> None:
-        self.update(status="waiting", waiting={"type": "manual_confirm", "prompt": prompt})
+    def mark_waiting(self, *, prompt: str, wait_type: str = "manual_confirm") -> None:
+        self.update(status="waiting", waiting={"type": wait_type, "prompt": prompt})
 
     def mark_resumed(self) -> None:
         self.update(status="running", waiting=None)

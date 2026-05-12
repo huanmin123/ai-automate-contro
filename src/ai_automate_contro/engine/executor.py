@@ -23,6 +23,7 @@ def execute_plan(
     output_dir: str | Path | None = None,
     variable_overrides: dict[str, Any] | None = None,
     manual_confirmation_handler: Callable[[str], bool] | None = None,
+    inspection_confirmation_handler: Callable[[str], bool] | None = None,
     run_context_handler: Callable[[Path, RunLogger], None] | None = None,
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
@@ -91,6 +92,22 @@ def execute_plan(
             error_message = str(error)
             caught_error = error
         finally:
+            if status == "passed" and _should_wait_for_inspection(plan_config):
+                if inspection_confirmation_handler is not None:
+                    prompt = _inspection_prompt(plan_config)
+                    state.logger.log("info", "waiting for post-run inspection confirmation", prompt=prompt)
+                    state.state_writer.mark_waiting(prompt=prompt, wait_type="post_run_inspection")
+                    accepted = inspection_confirmation_handler(prompt)
+                    state.state_writer.mark_resumed()
+                    if not accepted:
+                        status = "failed"
+                        error_message = "Post-run inspection was not accepted."
+                        caught_error = RuntimeError(error_message)
+                else:
+                    state.logger.log(
+                        "warning",
+                        "post-run inspection wait requested but no confirmation handler is available",
+                    )
             state.close_all()
             state.logger.log("info", "plan finished", run_name=resolved_run_name)
             finished_at = datetime.now().isoformat(timespec="seconds")
@@ -163,3 +180,21 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _should_wait_for_inspection(plan_config: dict[str, Any]) -> bool:
+    runtime_config = plan_config.get("runtime", {})
+    if not isinstance(runtime_config, dict):
+        return False
+    return bool(runtime_config.get("wait_for_inspection_on_success", False))
+
+
+def _inspection_prompt(plan_config: dict[str, Any]) -> str:
+    runtime_config = plan_config.get("runtime", {})
+    default_prompt = "Plan steps passed. Inspect the browser, then confirm to close browsers and finish: "
+    if not isinstance(runtime_config, dict):
+        return default_prompt
+    prompt = runtime_config.get("inspection_prompt")
+    if isinstance(prompt, str) and prompt.strip():
+        return prompt
+    return default_prompt

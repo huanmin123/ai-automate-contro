@@ -122,15 +122,48 @@ class RuntimeState:
         return ((self.package_dir or self.plan_dir) / "output").resolve()
 
     def close_all(self) -> None:
-        for session in reversed(list(self.sessions.values())):
-            for page_name in reversed(list(session.pages.keys())):
-                try:
-                    session.pages[page_name].close()
-                except Exception:
-                    pass
-            session.context.close()
-            session.browser.close()
-        self.sessions.clear()
+        try:
+            for session in reversed(list(self.sessions.values())):
+                for page_name in reversed(list(session.pages.keys())):
+                    self._close_runtime_resource(
+                        lambda page=session.pages[page_name]: page.close(),
+                        browser=session.name,
+                        resource="page",
+                        name=page_name,
+                    )
+                self._close_runtime_resource(
+                    session.context.close,
+                    browser=session.name,
+                    resource="context",
+                )
+                self._close_runtime_resource(
+                    session.browser.close,
+                    browser=session.name,
+                    resource="browser",
+                )
+        finally:
+            self.sessions.clear()
+
+    def _close_runtime_resource(
+        self,
+        close: Callable[[], Any],
+        *,
+        browser: str,
+        resource: str,
+        name: str | None = None,
+    ) -> None:
+        try:
+            close()
+        except Exception as error:
+            self.logger.log(
+                "warning",
+                "runtime resource close failed",
+                browser=browser,
+                resource=resource,
+                name=name,
+                error=str(error),
+                error_type=type(error).__name__,
+            )
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:

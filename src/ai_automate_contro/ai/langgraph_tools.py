@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -170,8 +172,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
     )
 
     plan_root = _self_check_plan_root(root)
-    with tempfile.TemporaryDirectory(prefix="_ai-tools-self-check-", dir=str(plan_root)) as package_dir_text:
-        package_dir = Path(package_dir_text)
+    with _self_check_temp_plan_package(plan_root) as package_dir:
         create_plan_package(package_dir, project_root=root, name="AI Tools Self Check")
         plan_path = package_dir / "plan.json"
 
@@ -195,7 +196,9 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
 
         read_plan_package_tool = tool_by_name.get("read_plan_package")
         grep_project_text_tool = tool_by_name.get("grep_project_text")
+        inspect_web_page_tool = tool_by_name.get("inspect_web_page")
         read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
+        write_plan_package_file_tool = tool_by_name.get("write_plan_package_file")
         progressive_tools_ok = False
         progressive_tools_error = ""
         progressive_tools_detail: dict[str, Any] = {}
@@ -243,11 +246,125 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 }
             except Exception as error:
                 progressive_tools_error = str(error)
+
+        write_plan_package_file_ok = False
+        write_plan_package_file_error = ""
+        write_plan_package_file_detail: dict[str, Any] = {}
+        if write_plan_package_file_tool is not None:
+            try:
+                write_result = json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "docs/AI_TOOLS_SELF_CHECK.md",
+                            "content": "# AI Tools Self Check\n",
+                        }
+                    )
+                )
+                forbidden_rejected = False
+                forbidden_error = ""
+                try:
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "output/forbidden.txt",
+                            "content": "no",
+                        }
+                    )
+                except Exception as error:
+                    forbidden_error = str(error)
+                    forbidden_rejected = "Allowed write targets" in forbidden_error or "Refusing to write" in forbidden_error
+                write_plan_package_file_ok = (
+                    bool(write_result.get("ok"))
+                    and (package_dir / "docs" / "AI_TOOLS_SELF_CHECK.md").exists()
+                    and forbidden_rejected
+                )
+                write_plan_package_file_detail = {
+                    "relative_path": write_result.get("relative_path"),
+                    "forbidden_error": forbidden_error,
+                }
+            except Exception as error:
+                write_plan_package_file_error = str(error)
+
+        web_inspection_ok = False
+        web_inspection_error = ""
+        web_inspection_detail: dict[str, Any] = {}
+        if inspect_web_page_tool is not None:
+            try:
+                fixture_path = package_dir / "resources" / "web-inspection-self-check.html"
+                fixture_path.write_text(
+                    """<!doctype html>
+<html>
+  <head><title>Inspection Fixture</title></head>
+  <body>
+    <h1>Inspection Fixture Login</h1>
+    <form id="login-form">
+      <label for="email">Email</label>
+      <input id="email" name="email" autocomplete="username">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password">
+      <button id="submit-btn" type="submit">Sign in</button>
+    </form>
+    <p>Captcha required after too many attempts.</p>
+  </body>
+</html>
+""",
+                    encoding="utf-8",
+                )
+                inspection_result = json.loads(
+                    inspect_web_page_tool.invoke(
+                        {
+                            "url": str(fixture_path),
+                            "wait_until": "domcontentloaded",
+                            "wait_ms": 0,
+                            "max_elements": 20,
+                            "text_limit": 1000,
+                        }
+                    )
+                )
+                page = inspection_result.get("page", {})
+                auth = page.get("auth", {}) if isinstance(page, dict) else {}
+                counts = page.get("counts", {}) if isinstance(page, dict) else {}
+                inputs = page.get("inputs", []) if isinstance(page, dict) else []
+                buttons = page.get("buttons", []) if isinstance(page, dict) else []
+                selectors = {item.get("selector") for item in inputs + buttons if isinstance(item, dict)}
+                web_inspection_ok = (
+                    bool(inspection_result.get("ok"))
+                    and inspection_result.get("tool") == "inspect_web_page"
+                    and bool(auth.get("login_fields_detected"))
+                    and bool(auth.get("challenge_detected"))
+                    and int(counts.get("inputs", 0)) >= 2
+                    and "#email" in selectors
+                    and "#submit-btn" in selectors
+                )
+                web_inspection_detail = {
+                    "login_fields_detected": auth.get("login_fields_detected"),
+                    "challenge_detected": auth.get("challenge_detected"),
+                    "input_count": counts.get("inputs"),
+                    "button_count": counts.get("buttons"),
+                    "selectors": sorted(str(selector) for selector in selectors if selector),
+                }
+            except Exception as error:
+                web_inspection_error = str(error)
     checks.append(
         _self_check_result(
             name="progressive_text_tools",
             passed=progressive_tools_ok,
             detail={**progressive_tools_detail, "error": progressive_tools_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="write_plan_package_file_tool",
+            passed=write_plan_package_file_ok,
+            detail={**write_plan_package_file_detail, "error": write_plan_package_file_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="inspect_web_page_tool",
+            passed=web_inspection_ok,
+            detail={**web_inspection_detail, "error": web_inspection_error},
         )
     )
 
@@ -285,6 +402,36 @@ def _self_check_plan_root(project_root: Path) -> Path:
     fallback = project_root / "plans"
     fallback.mkdir(parents=True, exist_ok=True)
     return fallback
+
+
+class _self_check_temp_plan_package:
+    def __init__(self, plan_root: Path) -> None:
+        self.plan_root = plan_root
+        self.path: Path | None = None
+
+    def __enter__(self) -> Path:
+        self.path = Path(tempfile.mkdtemp(prefix="_ai-tools-self-check-", dir=str(self.plan_root)))
+        return self.path
+
+    def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+        if self.path is None:
+            return
+        _remove_self_check_tree_with_retry(self.path)
+
+
+def _remove_self_check_tree_with_retry(path: Path) -> None:
+    last_error: Exception | None = None
+    for attempt in range(8):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            last_error = error
+            time.sleep(0.15 * (attempt + 1))
+    if last_error is not None:
+        raise last_error
 
 
 def _self_check_result(
