@@ -15,21 +15,21 @@ def validate_output_path(
     issues: list[ValidationIssue],
 ) -> None:
     if not isinstance(raw_path, str) or not raw_path:
-        issues.append(ValidationIssue(location, "output path must be a non-empty string"))
+        issues.append(ValidationIssue(location, "output path 必须是非空字符串"))
         return
 
     path = Path(raw_path)
     if path.is_absolute():
-        issues.append(ValidationIssue(location, f"output path must be relative to output/{category}/"))
+        issues.append(ValidationIssue(location, f"output path 必须相对于 output/{category}/"))
         return
     if not path.parts:
-        issues.append(ValidationIssue(location, "output path cannot be empty"))
+        issues.append(ValidationIssue(location, "output path 不能为空"))
         return
     if path.parts[0] in FORBIDDEN_OUTPUT_ROOTS:
         issues.append(
             ValidationIssue(
                 location,
-                f"output path is already relative to output/{category}/; do not start with {path.parts[0]}/",
+                f"output path 已经相对于 output/{category}/；不要以 {path.parts[0]}/ 开头",
             )
         )
         return
@@ -40,9 +40,9 @@ def validate_output_path(
     category_root = (output_root / category).resolve()
     resolved_path = (category_root / path).resolve() if path.parts[0] != category else (output_root / path).resolve()
     if not is_relative_to(resolved_path, output_root):
-        issues.append(ValidationIssue(location, "output path must stay inside the current plan output directory"))
+        issues.append(ValidationIssue(location, "output path 必须位于当前 plan output 目录内"))
     if not is_relative_to(resolved_path, category_root):
-        issues.append(ValidationIssue(location, f"output path for this action must stay inside output/{category}/"))
+        issues.append(ValidationIssue(location, f"当前 action 的 output path 必须位于 output/{category}/ 内"))
 
 
 def is_relative_to(path: Path, parent: Path) -> bool:

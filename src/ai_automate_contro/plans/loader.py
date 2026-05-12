@@ -14,4 +14,4 @@ def load_plan(plan_path: str | Path) -> dict[str, Any]:
 def detect_document_type(document: dict[str, Any]) -> str:
     if "steps" in document:
         return "plan"
-    raise ValueError("Unsupported document. Expected a plan document with a 'steps' array.")
+    raise ValueError("不支持的文档类型。请使用包含 steps 数组的 plan 文档。")

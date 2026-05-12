@@ -66,7 +66,7 @@ from ai_automate_contro.ai.terminal_markdown import (
     terminal_supports_rich_markdown,
     terminal_supports_live_markdown,
 )
-from ai_automate_contro.ai.terminal_prompts import build_system_prompt
+from ai_automate_contro.ai.prompts.terminal import build_system_prompt
 from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
 from ai_automate_contro.app.errors import format_error_for_terminal
 
@@ -92,20 +92,20 @@ SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "thread": {"method": "do_thread", "description": "查看或切换线程 id"},
     "tools": {"method": "do_tools", "description": "列出 AI 终端工具或查看某个工具 schema"},
     "use": {"method": "do_use", "description": "设置当前 plan 上下文"},
-    "workspace": {"method": "do_workspace", "description": "设置当前 debug workspace 上下文"},
+    "workspace": {"method": "do_workspace", "description": "设置当前调试工作区上下文"},
 }
 IMAGE_PLACEHOLDER_STYLE = "class:image-placeholder"
 IMAGE_PLACEHOLDER_PATTERN = "[图片 #"
 IMAGE_PLACEHOLDER_RE = re.compile(r"\[(?:图片|Image) #(\d+)\]")
 AI_INPUT_STYLE = Style.from_dict(
     {
-        "image-placeholder": "fg:#0087ff bold underline",
-        "completion-menu.completion": "fg:#d7d7d7",
-        "completion-menu.completion.current": "fg:#0087ff bold underline",
-        "completion-menu.meta.completion": "fg:#808080",
-        "completion-menu.meta.completion.current": "fg:#0087ff",
+        "image-placeholder": "fg:#0087ff bold underline noreverse",
+        "completion-menu.completion": "fg:#d7d7d7 noreverse",
+        "completion-menu.completion.current": "fg:#0087ff bold underline noreverse",
+        "completion-menu.meta.completion": "fg:#808080 noreverse",
+        "completion-menu.meta.completion.current": "fg:#0087ff noreverse",
         "scrollbar.background": "",
-        "scrollbar.button": "fg:#808080",
+        "scrollbar.button": "fg:#808080 noreverse",
     }
 )
 
@@ -182,7 +182,7 @@ class AITerminal(
 
     def onecmd(self, line: str) -> bool:
         if self._is_agent_busy() and not self._command_allowed_while_busy(line):
-            self.perror("AI terminal is busy; wait for the current response to finish")
+            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
             return False
         text = str(line).strip()
         if not text:
@@ -216,7 +216,7 @@ class AITerminal(
             if text_has_rejection(text):
                 self.do_reject(text)
                 return
-            self.perror("pending approval; use approve or reject <reason> before sending a new request")
+            self.perror("当前有补丁审批等待处理；请先输入 approve 或 reject <原因>。")
             return
         self._run_agent_turn(text)
 
@@ -229,16 +229,16 @@ class AITerminal(
         method_name = command_spec["method"] if command_spec else None
         if method_name:
             if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
-                self.perror("AI terminal is busy; wait for the current response to finish")
+                self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
                 return True
             getattr(self, method_name)(arg)
             return True
-        self.perror(f"unknown AI terminal command: /{command}")
+        self.perror(f"未知 AI 终端命令：/{command}")
         return True
 
     def _run_agent_turn(self, text: str) -> None:
         if self._is_agent_busy():
-            self.perror("AI terminal is busy; wait for the current response to finish")
+            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
             return
         text, attachments = self._prepare_input_attachments(text)
         with self._turn_lock:
@@ -249,8 +249,8 @@ class AITerminal(
         try:
             final_state, streamed = self._invoke_agent_text_streaming(text, attachments)
         except KeyboardInterrupt:
-            self._finish_agent_turn(turn_id, error="AI response interrupted by user.")
-            self.perror("AI response interrupted by user.")
+            self._finish_agent_turn(turn_id, error="AI 回复已被用户中断。")
+            self.perror("AI 回复已被用户中断。")
             return
         except Exception as error:
             self._finish_agent_turn(turn_id, error=str(error))
@@ -274,14 +274,14 @@ class AITerminal(
             self._print_assistant_message(last_message)
 
     def ask_once(self, text: str) -> dict[str, Any]:
-        """Send one message and wait for the LangGraph agent to finish."""
+        """发送一条消息并等待 LangGraph agent 完成。"""
         normalized = text.strip()
         if not normalized:
-            raise ValueError("ai ask requires a non-empty message.")
+            raise ValueError("ai ask 需要一条非空消息。")
         if self._is_agent_busy():
-            raise RuntimeError("AI terminal is busy; wait for the current turn before using ai ask.")
+            raise RuntimeError("AI 终端正在处理上一轮请求；请等待当前轮次结束后再使用 ai ask。")
         if self._current_interrupts():
-            raise RuntimeError("AI terminal has pending approval; resume the thread interactively and approve or reject it.")
+            raise RuntimeError("AI 终端有等待审批的操作；请进入交互式线程后 approve 或 reject。")
 
         normalized, attachments = self._prepare_input_attachments(normalized)
         try:

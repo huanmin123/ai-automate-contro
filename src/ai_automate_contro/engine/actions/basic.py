@@ -23,11 +23,11 @@ def action_variable(executor: Any, step: dict[str, Any]) -> None:
         source = step["source"]
         target = step["target"]
         if source not in executor.state.variables:
-            raise KeyError(f"Variable '{source}' is not defined.")
+            raise KeyError(f"变量未定义：{source}")
         executor.state.variables[target] = executor.state.variables[source]
         executor.state.logger.log("info", "variable copied", source=source, target=target)
         return
-    raise ValueError(f"Unsupported variable type: {variable_type}")
+    raise ValueError(f"不支持的 variable type：{variable_type}")
 
 
 def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
@@ -37,13 +37,13 @@ def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
         executor.state.state_writer.mark_waiting(prompt=str(prompt))
         accepted = executor.state.manual_confirmation_handler(str(prompt))
         if not accepted:
-            raise RuntimeError("Manual confirmation was not accepted.")
+            raise RuntimeError("人工确认未通过。")
         executor.state.state_writer.mark_resumed()
         executor.state.logger.log("info", "manual confirmation accepted", prompt=str(prompt))
         return
     answer = input(prompt).strip().lower()
     if answer != "y":
-        raise RuntimeError("Manual confirmation was not accepted.")
+        raise RuntimeError("人工确认未通过。")
 
 
 def action_print(executor: Any, step: dict[str, Any]) -> None:
@@ -70,7 +70,7 @@ def action_write(executor: Any, step: dict[str, Any]) -> None:
             indent=int(step.get("indent", 2)),
         )
         return
-    raise ValueError(f"Unsupported write type: {file_type}")
+    raise ValueError(f"不支持的 write type：{file_type}")
 
 
 def action_read(executor: Any, step: dict[str, Any]) -> None:
@@ -98,7 +98,7 @@ def action_assert(executor: Any, step: dict[str, Any]) -> None:
     if assert_type == "count":
         assertions.assert_count(executor, step)
         return
-    raise ValueError(f"Unsupported assert type: {assert_type}")
+    raise ValueError(f"不支持的 assert type：{assert_type}")
 
 
 def action_sleep(executor: Any, step: dict[str, Any]) -> None:
@@ -106,7 +106,7 @@ def action_sleep(executor: Any, step: dict[str, Any]) -> None:
         first_session = next(iter(executor.state.sessions.values()))
         first_session.require_page().wait_for_timeout(int(float(step.get("seconds", 1)) * 1000))
         return
-    raise RuntimeError("sleep requires at least one opened browser session in current version.")
+    raise RuntimeError("sleep 需要至少一个已打开的浏览器会话。")
 
 
 ACTION_HANDLERS = {

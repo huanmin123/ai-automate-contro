@@ -93,10 +93,10 @@ def analyze_latest_run_failure_tool(
         "max_log_lines": MAX_RUN_LOG_LINES,
         "max_event_lines": MAX_RUN_EVENT_LINES,
         "next_actions": [
-            "Read the failed step and nearby plan steps before changing anything.",
-            "Create a debug workspace before injecting diagnostics or proposing a fix.",
-            "Use patch_debug_workspace_json for minimal plan/config edits.",
-            "Run and validate the injected debug plan before generating patch.diff.",
+            "修改前先读取失败步骤和相邻 plan 步骤。",
+            "注入诊断或提出修复前，先创建调试工作区。",
+            "使用 patch_debug_workspace_json 对 plan/config 做最小修改。",
+            "生成 patch.diff 前，先运行并校验 injected-plan。",
         ],
     }
 

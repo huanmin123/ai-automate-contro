@@ -17,7 +17,7 @@ function Assert-UnderRepo {
     $resolved = [System.IO.Path]::GetFullPath($Path)
     $repo = [System.IO.Path]::GetFullPath($RepoRoot)
     if (-not $resolved.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to operate outside repository: $resolved"
+        throw "拒绝操作仓库外路径：$resolved"
     }
 }
 
@@ -26,7 +26,7 @@ function Assert-UnderBuildTemp {
     $resolved = [System.IO.Path]::GetFullPath($Path)
     $tempRoot = [System.IO.Path]::GetFullPath($BuildTempRoot)
     if (-not $resolved.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to operate outside PyInstaller temp directory: $resolved"
+        throw "拒绝操作 PyInstaller 临时目录外路径：$resolved"
     }
 }
 
@@ -49,7 +49,7 @@ function Invoke-Checked {
     )
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Command failed: $FilePath $($Arguments -join ' ')"
+        throw "命令执行失败：$FilePath $($Arguments -join ' ')"
     }
 }
 
@@ -57,15 +57,15 @@ $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location $RepoRoot
 
 if ($IsLinux) {
-    throw "Linux packaging is intentionally unsupported. Build on Windows for .exe or on Apple Silicon macOS for macOS."
+    throw "当前不支持 Linux 打包。Windows 可打包 .exe，Apple Silicon macOS 可打包 macOS 可执行文件。"
 }
 if (-not $IsWindows -and -not $IsMacOS) {
-    throw "Unsupported operating system. Only Windows and Apple Silicon macOS are supported."
+    throw "不支持当前操作系统。只支持 Windows 和 Apple Silicon macOS。"
 }
 
 $osArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 if ($IsMacOS -and $osArchitecture -ne "arm64") {
-    throw "macOS packaging currently supports Apple Silicon only. Current architecture: $osArchitecture"
+    throw "macOS 打包目前只支持 Apple Silicon。当前架构：$osArchitecture"
 }
 
 $PlatformName = if ($IsWindows) { "windows-$osArchitecture" } else { "macos-arm64" }
@@ -85,6 +85,8 @@ $LegacyExecutablePath = Join-Path $OutDir $ExecutableFileName
 $HandbookSourceDir = Resolve-RepoPath "handbook"
 $PlanConfigPath = Join-Path $PackageDir "plan.config"
 $PackageZipPath = Join-Path $OutDir "ai-automate-contro-$PlatformName.zip"
+$ExistingPackagePlansConfigPath = Join-Path $PackageDir "plans\config.json"
+$LocalPlansConfigBackupPath = $null
 
 Assert-UnderRepo $OutDir
 Assert-UnderRepo $PackageDir
@@ -94,6 +96,14 @@ Assert-UnderRepo $HandbookSourceDir
 Assert-UnderRepo $PlanConfigPath
 Assert-UnderRepo $PackageZipPath
 Assert-UnderRepo $LegacyExecutablePath
+
+if (Test-Path -LiteralPath $ExistingPackagePlansConfigPath) {
+    Assert-UnderRepo $ExistingPackagePlansConfigPath
+    $LocalPlansConfigBackupPath = [System.IO.Path]::GetFullPath(
+        (Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-out-config-{0}.json" -f [System.Guid]::NewGuid().ToString("N")))
+    )
+    Copy-Item -LiteralPath $ExistingPackagePlansConfigPath -Destination $LocalPlansConfigBackupPath -Force
+}
 
 if ($Clean) {
     if (Test-Path -LiteralPath $BuildDir) {
@@ -106,7 +116,7 @@ if ($Clean) {
             Remove-Item -LiteralPath $PackageDir -Recurse -Force
         }
         catch {
-            Write-Warning "Package directory is in use; cleaning its contents instead: $PackageDir"
+            Write-Warning "分发目录正在被占用，将改为清空目录内容：$PackageDir"
             Clear-DirectoryContents $PackageDir
         }
     }
@@ -129,10 +139,10 @@ if (Test-Path -LiteralPath $BuildDir) {
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "python was not found on PATH."
+    throw "PATH 中没有找到 python。"
 }
 if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
-    throw "ripgrep (rg) is required for the packaged AI terminal. Install from PowerShell 7 with: winget install --id BurntSushi.ripgrep.MSVC -e"
+    throw "分发版 AI 终端必须安装 ripgrep (rg)。请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e"
 }
 
 if ($InstallDependencies) {
@@ -141,7 +151,7 @@ if ($InstallDependencies) {
 
 python -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) {
-    throw "PyInstaller is not installed. Run: python -m pip install -e `".[package]`" or rerun this script with -InstallDependencies."
+    throw "未安装 PyInstaller。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
 }
 
 $previousBrowsersPath = [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "Process")
@@ -182,7 +192,7 @@ finally {
 }
 
 if (-not (Test-Path -LiteralPath $PyInstallerExecutablePath)) {
-    throw "Package completed but executable was not found: $PyInstallerExecutablePath"
+    throw "打包已完成，但没有找到可执行文件：$PyInstallerExecutablePath"
 }
 
 Clear-DirectoryContents $PackageDir
@@ -191,7 +201,7 @@ Get-ChildItem -LiteralPath $PyInstallerPackageDir -Force | ForEach-Object {
 }
 
 if (-not (Test-Path -LiteralPath $ExecutablePath)) {
-    throw "Package copy completed but executable was not found: $ExecutablePath"
+    throw "打包复制已完成，但没有找到可执行文件：$ExecutablePath"
 }
 
 if (-not $IsWindows) {
@@ -205,7 +215,10 @@ if (Test-Path -LiteralPath $PackageHandbookDir) {
 Copy-Item -LiteralPath $HandbookSourceDir -Destination $PackageHandbookDir -Recurse -Force
 $PackagePlansDir = Join-Path $PackageDir "plans"
 $PackagePlansConfigPath = Join-Path $PackagePlansDir "config.json"
+$PackageDemoPlanDir = Join-Path $PackagePlansDir "demo"
+$PackageDemoDocsDir = Join-Path $PackageDemoPlanDir "docs"
 New-Item -ItemType Directory -Force -Path $PackagePlansDir | Out-Null
+New-Item -ItemType Directory -Force -Path $PackageDemoDocsDir | Out-Null
 $planConfig = [ordered]@{
     handbook_path = "handbook"
     plan_roots = @("plans")
@@ -213,9 +226,30 @@ $planConfig = [ordered]@{
 }
 $planConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PlanConfigPath -Encoding UTF8
 [ordered]@{
-    description = "Shared configuration for packaged plans. Add ai_services.default here if AI terminal or ai action is needed."
+    description = "分发包 plans 的共享配置。需要使用 AI 终端或 ai action 时，请在这里添加 ai_services.default。"
     variables = [ordered]@{}
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PackagePlansConfigPath -Encoding UTF8
+[ordered]@{
+    name = "packaged-demo"
+    variables = [ordered]@{}
+    steps = @(
+        [ordered]@{
+            action = "print"
+            message = "分发包 demo plan 可用。"
+        }
+    )
+} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $PackageDemoPlanDir "plan.json") -Encoding UTF8
+$demoReadme = @'
+# 分发包 demo
+
+这个 plan 用于验证分发包是否可以正常校验和运行。
+
+```powershell
+.\ai-automate-contro-windows-x64.exe plan validate --file .\plans\demo\plan.json
+.\ai-automate-contro-windows-x64.exe plan run --file .\plans\demo\plan.json --run-name demo-smoke
+```
+'@
+$demoReadme | Set-Content -LiteralPath (Join-Path $PackageDemoDocsDir "README.md") -Encoding UTF8
 
 if ($SmokeTest) {
     Push-Location $PackageDir
@@ -224,6 +258,8 @@ if ($SmokeTest) {
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExecutablePath @("tool", "check")
+        Invoke-Checked $ExecutablePath @("plan", "validate", "--file", ".\plans\demo\plan.json")
+        Invoke-Checked $ExecutablePath @("plan", "run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
     }
     finally {
         Pop-Location
@@ -250,11 +286,19 @@ if ($SmokeTest) {
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExtractedExecutablePath @("tool", "check")
+        Invoke-Checked $ExtractedExecutablePath @("plan", "validate", "--file", ".\plans\demo\plan.json")
+        Invoke-Checked $ExtractedExecutablePath @("plan", "run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
     }
     finally {
         Pop-Location
         Remove-Item -LiteralPath $ZipSmokeDir -Recurse -Force
     }
+}
+
+if ($null -ne $LocalPlansConfigBackupPath -and (Test-Path -LiteralPath $LocalPlansConfigBackupPath)) {
+    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackagePlansConfigPath) | Out-Null
+    Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
+    Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
 }
 
 if (Test-Path -LiteralPath $BuildDir) {
@@ -267,8 +311,8 @@ if ((Test-Path -LiteralPath $BuildRoot) -and -not (Get-ChildItem -LiteralPath $B
     Remove-Item -LiteralPath $BuildRoot -Force
 }
 
-Write-Host "Packaged executable:"
+Write-Host "分发包可执行文件："
 Write-Host $ExecutablePath
-Write-Host "Packaged zip:"
+Write-Host "分发包 zip："
 Write-Host $PackageZipPath
-Write-Host "Run it from out\ai-automate-contro, or edit plan.config to point at another handbook/plans location."
+Write-Host "请从 out\ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。"

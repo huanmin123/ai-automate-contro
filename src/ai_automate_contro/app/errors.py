@@ -128,6 +128,12 @@ def _friendly_text_error(text: str) -> list[str] | None:
             "处理办法：",
             f"  命令格式：{text[len('usage:'):]}",
         ]
+    if lowered.startswith("用法："):
+        return [
+            "错误：命令用法不正确。",
+            "处理办法：",
+            f"  命令格式：{text.split('：', 1)[1].strip()}",
+        ]
     if lowered == "no active run":
         return [
             "错误：当前没有正在运行或等待的 plan。",
@@ -150,12 +156,24 @@ def _friendly_text_error(text: str) -> list[str] | None:
             "处理办法：",
             "  输入 /help 查看支持的命令。",
         ]
+    if lowered.startswith("unknown command:"):
+        return [
+            f"错误：未知命令：{text.split(':', 1)[1].strip()}",
+            "处理办法：",
+            "  输入 help 查看支持的命令。",
+        ]
     if lowered.startswith("ai terminal is busy"):
         return [
             "错误：AI 终端正在处理上一轮请求。",
             "处理办法：",
             "  等待当前回复完成后再输入下一句。",
             "  如果当前等待不想继续，按 Ctrl+C 中断。",
+        ]
+    if lowered.startswith("run is waiting for browser inspection"):
+        return [
+            "错误：当前运行正在等待浏览器检查结束。",
+            "处理办法：",
+            "  输入 close 关闭浏览器并结束运行。",
         ]
     if lowered.startswith("pending approval"):
         return [
@@ -165,7 +183,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         ]
     if lowered.startswith("debug workspace does not exist:"):
         return [
-            f"错误：debug workspace 不存在：{text.split(':', 1)[1].strip()}",
+            f"错误：调试工作区不存在：{text.split(':', 1)[1].strip()}",
             "处理办法：",
             "  检查路径是否存在；必要时先运行 debug prepare 或 debug create。",
         ]

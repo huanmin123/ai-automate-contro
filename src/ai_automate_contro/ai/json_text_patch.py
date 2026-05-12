@@ -53,7 +53,7 @@ def _detect_json_trailing_newline(original_text: str) -> str:
 def _find_json_value_span(text: str, path: list[Any]) -> tuple[int, int]:
     start = _skip_json_whitespace(text, 0)
     if start >= len(text):
-        raise ValueError("JSON text is empty.")
+        raise ValueError("JSON 文本为空。")
     return _find_json_value_span_from(text, start, path)
 
 
@@ -62,25 +62,25 @@ def _find_json_value_span_from(text: str, index: int, path: list[Any]) -> tuple[
     if not path:
         return start, _scan_json_value_end(text, start)
     if start >= len(text):
-        raise ValueError("Unexpected end of JSON text.")
+        raise ValueError("JSON 文本意外结束。")
     marker = text[start]
     if marker == "{":
         return _find_json_object_member_span(text, start, path)
     if marker == "[":
         return _find_json_array_item_span(text, start, path)
-    raise TypeError(f"JSON path cannot continue through scalar at {format_json_path(path)}")
+    raise TypeError(f"JSON path 不能穿过标量值：{format_json_path(path)}")
 
 
 def _find_json_object_member_span(text: str, object_start: int, path: list[Any]) -> tuple[int, int]:
     target_key = str(path[0])
     index = _skip_json_whitespace(text, object_start + 1)
     if index < len(text) and text[index] == "}":
-        raise KeyError(f"JSON object key does not exist: {target_key}")
+        raise KeyError(f"JSON 对象 key 不存在：{target_key}")
     while index < len(text):
         key, index = _parse_json_string(text, index)
         index = _skip_json_whitespace(text, index)
         if index >= len(text) or text[index] != ":":
-            raise ValueError("Invalid JSON object: expected colon after key.")
+            raise ValueError("JSON 对象格式无效：key 后应为冒号。")
         value_start = _skip_json_whitespace(text, index + 1)
         value_end = _scan_json_value_end(text, value_start)
         if key == target_key:
@@ -92,9 +92,9 @@ def _find_json_object_member_span(text: str, object_start: int, path: list[Any])
             index = _skip_json_whitespace(text, index + 1)
             continue
         if index < len(text) and text[index] == "}":
-            raise KeyError(f"JSON object key does not exist: {target_key}")
-        raise ValueError("Invalid JSON object: expected comma or closing brace.")
-    raise ValueError("Invalid JSON object: missing closing brace.")
+            raise KeyError(f"JSON 对象 key 不存在：{target_key}")
+        raise ValueError("JSON 对象格式无效：应为逗号或右花括号。")
+    raise ValueError("JSON 对象格式无效：缺少右花括号。")
 
 
 def _find_json_array_item_span(text: str, array_start: int, path: list[Any]) -> tuple[int, int]:
@@ -102,7 +102,7 @@ def _find_json_array_item_span(text: str, array_start: int, path: list[Any]) -> 
     index = _skip_json_whitespace(text, array_start + 1)
     current_index = 0
     if index < len(text) and text[index] == "]":
-        raise IndexError(f"JSON array index out of range: {target_index}")
+        raise IndexError(f"JSON 数组索引越界：{target_index}")
     while index < len(text):
         value_start = _skip_json_whitespace(text, index)
         value_end = _scan_json_value_end(text, value_start)
@@ -116,9 +116,9 @@ def _find_json_array_item_span(text: str, array_start: int, path: list[Any]) -> 
             index = _skip_json_whitespace(text, index + 1)
             continue
         if index < len(text) and text[index] == "]":
-            raise IndexError(f"JSON array index out of range: {target_index}")
-        raise ValueError("Invalid JSON array: expected comma or closing bracket.")
-    raise ValueError("Invalid JSON array: missing closing bracket.")
+            raise IndexError(f"JSON 数组索引越界：{target_index}")
+        raise ValueError("JSON 数组格式无效：应为逗号或右中括号。")
+    raise ValueError("JSON 数组格式无效：缺少右中括号。")
 
 
 def _json_array_length(text: str, array_start: int) -> int:
@@ -136,17 +136,17 @@ def _json_array_length(text: str, array_start: int) -> int:
             continue
         if index < len(text) and text[index] == "]":
             return length
-        raise ValueError("Invalid JSON array: expected comma or closing bracket.")
-    raise ValueError("Invalid JSON array: missing closing bracket.")
+        raise ValueError("JSON 数组格式无效：应为逗号或右中括号。")
+    raise ValueError("JSON 数组格式无效：缺少右中括号。")
 
 
 def _parse_json_string(text: str, index: int) -> tuple[str, int]:
     index = _skip_json_whitespace(text, index)
     if index >= len(text) or text[index] != '"':
-        raise ValueError("Invalid JSON: expected string.")
+        raise ValueError("JSON 格式无效：应为字符串。")
     value, end = json.JSONDecoder().raw_decode(text, index)
     if not isinstance(value, str):
-        raise ValueError("Invalid JSON: expected string.")
+        raise ValueError("JSON 格式无效：应为字符串。")
     return value, end
 
 

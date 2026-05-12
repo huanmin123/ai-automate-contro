@@ -126,9 +126,9 @@ def read_output_artifact_tool(
     output_root = (resolved_plan_path.parent / "output").resolve()
     artifact_path = (output_root / relative_path).resolve()
     if not is_relative_to(artifact_path, output_root):
-        raise ValueError("Artifact path must stay inside the current plan output directory.")
+        raise ValueError("产物路径必须位于当前 plan output 目录内。")
     if not artifact_path.exists() or not artifact_path.is_file():
-        raise FileNotFoundError(f"Artifact does not exist: {artifact_path}")
+        raise FileNotFoundError(f"产物不存在：{artifact_path}")
     stat = artifact_path.stat()
     payload: dict[str, Any] = {
         "ok": True,

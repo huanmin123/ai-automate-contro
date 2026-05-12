@@ -11,7 +11,7 @@ def dialog(executor: Any, step: dict[str, Any]) -> None:
     if dialog_type == "dismiss":
         _handle_dialog_action(executor, step, accept=False)
         return
-    raise ValueError(f"Unsupported dialog type: {dialog_type}")
+    raise ValueError(f"不支持的 dialog type：{dialog_type}")
 
 
 def _handle_dialog_action(executor: Any, step: dict[str, Any], *, accept: bool) -> None:
@@ -39,7 +39,7 @@ def _handle_dialog_action(executor: Any, step: dict[str, Any], *, accept: bool) 
         return
 
     if executor.state.pending_dialog is None:
-        raise RuntimeError("No pending dialog to handle.")
+        raise RuntimeError("当前没有等待处理的浏览器弹窗。")
     if accept:
         prompt_text = step.get("prompt_text")
         executor.state.pending_dialog.accept(prompt_text)

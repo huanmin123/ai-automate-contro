@@ -22,6 +22,7 @@ from ai_automate_contro.ai.image_attachments import (
     build_human_message_additional_kwargs,
     build_human_message_content,
     expand_message_image_attachments_for_model,
+    image_attachment_placeholder,
 )
 from ai_automate_contro.ai.session_compression import archive_messages, redact_image_data_urls
 from ai_automate_contro.ai.session_store import (
@@ -84,7 +85,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(
             _self_check_result(
                 name="image_placeholder_text_stays_inline",
-                passed="[Image #1]" in text_content and str(attachment.stored_path) not in text_content,
+                passed=image_attachment_placeholder(1) in text_content and str(attachment.stored_path) not in text_content,
                 detail={"content": text_content},
             )
         )
@@ -191,7 +192,7 @@ def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
 
 
 def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
-    formatted_usage = format_error_for_terminal("usage: history [limit]", project_root=project_root)
+    formatted_usage = format_error_for_terminal("用法：history [limit]", project_root=project_root)
     formatted_unknown_command = format_error_for_terminal(
         "unknown AI terminal command: /attach",
         project_root=project_root,
@@ -359,7 +360,7 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         busy_status_payload = terminal.status_payload()
         terminal.do_cancel("")
         cancel_output = terminal.outputs[-1]
-        cancel_ok = cancel_output == "cancel: cleared stale AI turn state" and terminal._current_turn_text is None
+        cancel_ok = cancel_output == "取消：已清理残留的 AI 等待状态。" and terminal._current_turn_text is None
 
         terminal.do_sessions("--json")
         sessions_payload = json.loads(terminal.outputs[-1])
@@ -371,11 +372,11 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         resume_ok = (
             terminal.thread_id == "image-thread"
             and terminal._last_error == ""
-            and terminal.outputs[-2] == "AI terminal thread: image-thread"
+            and terminal.outputs[-2] == "AI 终端线程：image-thread"
         )
 
         terminal.do_new("flow-thread")
-        new_ok = terminal.thread_id == "flow-thread" and terminal.outputs[-1] == "AI terminal thread: flow-thread"
+        new_ok = terminal.thread_id == "flow-thread" and terminal.outputs[-1] == "AI 终端线程：flow-thread"
 
         slash_ok = AITerminal._handle_slash_command(terminal, "/status") is True
         slash_status_payload = json.loads(terminal.outputs[-1])
@@ -384,18 +385,18 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         terminal.do_help("")
         help_text = terminal.outputs[-1]
         terminal.do_render("")
-        render_status_ok = terminal.outputs[-1] == "AI response rendering: plain"
+        render_status_ok = terminal.outputs[-1] == "AI 回复显示方式：plain"
         terminal.do_render("markdown")
         render_markdown_ok = (
             terminal.response_render_mode == "markdown"
-            and terminal.outputs[-1] == "AI response rendering: markdown"
+            and terminal.outputs[-1] == "AI 回复显示方式：markdown"
         )
         terminal.do_render("plain")
         render_plain_ok = (
             terminal.response_render_mode == "plain"
-            and terminal.outputs[-1] == "AI response rendering: plain"
+            and terminal.outputs[-1] == "AI 回复显示方式：plain"
         )
-        plain_question_help = AITerminal.onecmd(terminal, "?") is False and terminal.outputs[-1].startswith("AI terminal commands:")
+        plain_question_help = AITerminal.onecmd(terminal, "?") is False and terminal.outputs[-1].startswith("AI 终端命令：")
         slash_attach_unknown = AITerminal._handle_slash_command(terminal, "/attach list") is True
         slash_attach_error = terminal.errors[-1] if terminal.errors else ""
         slash_paste_unknown = AITerminal._handle_slash_command(terminal, "/paste-image") is True
@@ -431,7 +432,7 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             AITerminal.ask_once(terminal, "continue")
         except Exception as error:
             ask_once_error = str(error)
-            ask_once_guard_ok = "pending approval" in ask_once_error
+            ask_once_guard_ok = "pending approval" in ask_once_error or "等待审批" in ask_once_error
         finally:
             terminal._has_interrupts = False
 
@@ -546,21 +547,23 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
         and not _is_slash_completion_context("/status now", 11)
     )
 
-    styled = style_image_placeholders("look [Image #1] here")
-    lexer_line = ImagePlaceholderLexer().lex_document(Document("look [Image #1] here"))(0)
+    placeholder_1 = image_attachment_placeholder(1)
+    placeholder_2 = image_attachment_placeholder(2)
+    styled = style_image_placeholders(f"看 {placeholder_1} 这里")
+    lexer_line = ImagePlaceholderLexer().lex_document(Document(f"看 {placeholder_1} 这里"))(0)
     style_ok = (
-        (IMAGE_PLACEHOLDER_STYLE, "[Image #1]") in styled
-        and (IMAGE_PLACEHOLDER_STYLE, "[Image #1]") in lexer_line
+        (IMAGE_PLACEHOLDER_STYLE, placeholder_1) in styled
+        and (IMAGE_PLACEHOLDER_STYLE, placeholder_1) in lexer_line
     )
 
     first = attachment
     second = attachment
-    buffer = SimpleNamespace(text="[Image #1] then [Image #2]", cursor_position=len("[Image #1]"))
+    buffer = SimpleNamespace(text=f"{placeholder_1} 然后 {placeholder_2}", cursor_position=len(placeholder_1))
     attachments = [first, second]
     deleted = remove_image_placeholder_near_cursor(buffer, attachments, prefer_before=True)
     delete_ok = (
         deleted
-        and buffer.text == " then [Image #1]"
+        and buffer.text == f" 然后 {placeholder_1}"
         and buffer.cursor_position == 0
         and attachments == [second]
     )
@@ -578,9 +581,9 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
         preserve_when_absent=False,
     )
     submit_filter_ok = submit_text == "plain request" and submit_attachments == [second] and submit_required == [False]
-    snap_text = "before [Image #1] after"
-    snap_start = snap_text.index("[Image #1]")
-    snap_end = snap_start + len("[Image #1]")
+    snap_text = f"前面 {placeholder_1} 后面"
+    snap_start = snap_text.index(placeholder_1)
+    snap_end = snap_start + len(placeholder_1)
     snap_ok = (
         snap_cursor_out_of_image_placeholder(snap_text, snap_start + 2, previous_cursor=snap_start) == snap_end
         and snap_cursor_out_of_image_placeholder(snap_text, snap_end - 2, previous_cursor=snap_end) == snap_start
@@ -687,6 +690,13 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         and "标题" in rendered
         and "重点" in rendered
         and "print" in rendered
+        and "\x1b[48;" not in rendered
+        and "\x1b[40m" not in rendered
+        and "\x1b[47m" not in rendered
+        and "\x1b[100m" not in rendered
+        and "\x1b[107m" not in rendered
+        and "\x1b[7m" not in rendered
+        and "\x1b[27m" not in rendered
         and captured_text.startswith("AI>\n")
         and markdown_text not in captured_text
         and plain_should_not_render
@@ -770,14 +780,15 @@ def _check_terminal_user_message_echo() -> dict[str, Any]:
     terminal = object.__new__(AITerminal)
     terminal.outputs: list[str] = []
     terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    AITerminal._print_user_message(terminal, "第一行\n[Image #1] 第二行")
-    expected = "You> 第一行\n... [Image #1] 第二行"
+    placeholder = image_attachment_placeholder(1)
+    AITerminal._print_user_message(terminal, f"第一行\n{placeholder} 第二行")
+    expected = f"你> 第一行\n... {placeholder} 第二行"
     return _self_check_result(
         name="terminal_user_message_echo",
         passed=terminal.outputs == [expected],
         detail={
             "outputs": terminal.outputs,
-            "formatted": format_user_terminal_message("第一行\n[Image #1] 第二行"),
+            "formatted": format_user_terminal_message(f"第一行\n{placeholder} 第二行"),
         },
     )
 
@@ -823,7 +834,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     returned_ok = terminal.mode == "plan" and terminal.prompt == "plan> "
     terminal.outputs = []
     terminal.onecmd("/help")
-    slash_help_ok = terminal.outputs and "Commands:" in terminal.outputs[-1]
+    slash_help_ok = terminal.outputs and "命令：" in terminal.outputs[-1]
     plan_completions = list(PlanCommandCompleter().get_completions(Document("/"), None))
     plan_prefix_completions = list(PlanCommandCompleter().get_completions(Document("/s"), None))
     plan_slash_completion_ok = (

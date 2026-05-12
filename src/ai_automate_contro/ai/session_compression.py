@@ -37,36 +37,13 @@ from langchain_core.messages.modifier import RemoveMessage
 from langchain_core.messages.utils import count_tokens_approximately
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 
+from ai_automate_contro.ai.prompts.session_compression import SUMMARY_PROMPT
+
 
 MODEL_CONTEXT_TOKEN_LIMIT = 128_000
 AUTO_COMPRESS_TRIGGER_TOKENS = MODEL_CONTEXT_TOKEN_LIMIT // 2
 POST_COMPRESS_KEEP_TOKENS = MODEL_CONTEXT_TOKEN_LIMIT // 4
 MANUAL_COMPRESS_KEEP_MESSAGES = 20
-
-SUMMARY_PROMPT = """<role>
-AI terminal context compressor
-</role>
-
-<primary_objective>
-Compress the conversation into durable working context for a plan-building and debugging agent.
-</primary_objective>
-
-<instructions>
-Do not keep a diary of every action. Keep only durable context needed to continue:
-- user constraints and decisions
-- current plan/debug/run paths
-- files changed or created
-- errors that still matter
-- validation commands and outcomes
-- next steps
-
-Prefer concise bullets with exact paths and concrete dates when available.
-</instructions>
-
-<messages>
-{messages}
-</messages>
-"""
 
 
 @dataclass(frozen=True)

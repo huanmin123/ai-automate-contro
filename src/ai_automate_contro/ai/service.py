@@ -8,6 +8,10 @@ from typing import Any
 from openai import OpenAI
 
 from ai_automate_contro.app.errors import UserFacingError
+from ai_automate_contro.ai.prompts.controlled_ai import (
+    CONTROLLED_AI_SYSTEM_PROMPT,
+    build_controlled_ai_payload,
+)
 from ai_automate_contro.ai.response_parsing import (
     extract_chat_completion_stream_text,
     extract_chat_completion_text,
@@ -137,10 +141,10 @@ def resolve_response_format(service_config: dict[str, Any]) -> str:
         else:
             raw_response_format = "json_schema"
     if not isinstance(raw_response_format, str) or not raw_response_format.strip():
-        raise ValueError("AI service response_format must be a non-empty string.")
+        raise ValueError("AI 服务 response_format 必须是非空字符串。")
     response_format = raw_response_format.strip()
     if response_format not in {"json_schema", "json_object", "plain"}:
-        raise ValueError(f"Unsupported AI response format: {response_format}")
+        raise ValueError(f"不支持的 AI response_format：{response_format}")
     return response_format
 
 
@@ -152,29 +156,15 @@ def build_ai_task_messages(
     schema: dict[str, Any],
     labels: list[Any],
 ) -> list[dict[str, str]]:
-    system_prompt = (
-        "You are a controlled automation data-processing component. "
-        "Only process the provided input. Do not control a browser, execute commands, "
-        "modify files, or ask follow-up questions. Return JSON only and make it match "
-        "the provided JSON Schema."
+    payload = build_controlled_ai_payload(
+        task_type=task_type,
+        input_value=input_value,
+        instruction=instruction,
+        schema=schema,
+        labels=labels,
     )
-    task_prompts = {
-        "connectivity": "Confirm the model endpoint is reachable. Return ok=true with a short message.",
-        "extract_data": "Extract the requested structured fields from the input.",
-        "classify_text": "Classify the input into exactly one allowed label.",
-        "transform_data": "Transform the input according to the instruction.",
-        "summarize_text": "Summarize the input according to the instruction.",
-    }
-    payload = {
-        "task_type": task_type,
-        "task": task_prompts[task_type],
-        "instruction": instruction,
-        "labels": labels,
-        "json_schema": schema,
-        "input": input_value,
-    }
     return [
-        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": CONTROLLED_AI_SYSTEM_PROMPT},
         {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
     ]
 

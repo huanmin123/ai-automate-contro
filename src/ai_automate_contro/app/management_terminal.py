@@ -24,10 +24,11 @@ from ai_automate_contro.engine.interactive import InteractiveRun
 PLAN_COMMANDS: dict[str, str] = {
     "ai": "进入 AI 模式，或发送一条 AI 消息",
     "artifacts": "列出输出产物",
+    "close": "关闭正在等待检查的浏览器并结束运行",
     "continue": "继续正在等待人工确认的运行",
     "create": "创建 plan 包",
     "current": "查看当前选择的 plan 上下文",
-    "debug": "管理 debug workspace",
+    "debug": "管理调试工作区",
     "events": "查看最近事件行",
     "exit": "退出终端",
     "help": "查看命令",
@@ -46,13 +47,13 @@ PLAN_COMMANDS: dict[str, str] = {
 }
 PLAN_INPUT_STYLE = Style.from_dict(
     {
-        "bottom-toolbar": "fg:#808080",
-        "completion-menu.completion": "fg:#d7d7d7",
-        "completion-menu.completion.current": "fg:#0087ff bold underline",
-        "completion-menu.meta.completion": "fg:#808080",
-        "completion-menu.meta.completion.current": "fg:#0087ff",
+        "bottom-toolbar": "fg:#808080 noreverse",
+        "completion-menu.completion": "fg:#d7d7d7 noreverse",
+        "completion-menu.completion.current": "fg:#0087ff bold underline noreverse",
+        "completion-menu.meta.completion": "fg:#808080 noreverse",
+        "completion-menu.meta.completion.current": "fg:#0087ff noreverse",
         "scrollbar.background": "",
-        "scrollbar.button": "fg:#808080",
+        "scrollbar.button": "fg:#808080 noreverse",
     }
 )
 

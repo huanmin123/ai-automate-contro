@@ -26,12 +26,12 @@ def inject_debug_steps(
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
     plan_path = injected_plan_dir / "plan.json"
     if not plan_path.exists():
-        raise FileNotFoundError(f"Injected plan does not exist: {plan_path}")
+        raise FileNotFoundError(f"注入后的 plan 不存在：{plan_path}")
 
     document = _load_plan_document(plan_path)
     steps = document.setdefault("steps", [])
     if not isinstance(steps, list):
-        raise ValueError(f"Injected plan steps must be an array: {plan_path}")
+        raise ValueError(f"注入后的 plan steps 必须是数组：{plan_path}")
 
     normalized_presets = [_normalize_preset(preset) for preset in presets]
     injected_steps = [
@@ -45,13 +45,13 @@ def inject_debug_steps(
         steps.extend(injected_steps)
     elif position in {"before_step", "after_step"}:
         if step is None or step < 1:
-            raise ValueError("step must be a 1-based positive integer when position is before_step or after_step.")
+            raise ValueError("position 为 before_step 或 after_step 时，step 必须是从 1 开始的正整数。")
         if step > len(steps):
-            raise ValueError(f"step {step} is outside the injected plan step range 1..{len(steps)}.")
+            raise ValueError(f"step {step} 超出注入后 plan 的步骤范围 1..{len(steps)}。")
         insertion_index = step - 1 if position == "before_step" else step
         steps[insertion_index:insertion_index] = injected_steps
     else:
-        raise ValueError("position must be 'start', 'end', 'before_step', or 'after_step'.")
+        raise ValueError("position 必须是 start、end、before_step 或 after_step。")
     _write_plan_document(plan_path, document)
     _append_injection_note(workspace_root, injected_steps, position=position, step=step)
     return DebugInjectionResult(
@@ -66,7 +66,7 @@ def _load_plan_document(plan_path: Path) -> dict[str, Any]:
     with plan_path.open("r", encoding="utf-8") as file:
         document = json.load(file)
     if not isinstance(document, dict):
-        raise ValueError(f"Plan document must be a JSON object: {plan_path}")
+        raise ValueError(f"plan 文档必须是 JSON 对象：{plan_path}")
     return document
 
 

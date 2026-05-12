@@ -20,7 +20,7 @@ class BrowserSession:
 
     def register_page(self, page_name: str, page: Page, switch: bool = True) -> None:
         if page_name in self.pages:
-            raise ValueError(f"Page '{page_name}' already exists in browser session '{self.name}'.")
+            raise ValueError(f"浏览器会话 {self.name} 中已存在页面：{page_name}")
         self.pages[page_name] = page
         if switch:
             self.current_page_name = page_name
@@ -28,7 +28,7 @@ class BrowserSession:
     def require_page(self, page_name: str | None = None) -> Page:
         target_name = page_name or self.current_page_name
         if target_name not in self.pages:
-            raise KeyError(f"Page '{target_name}' does not exist in browser session '{self.name}'.")
+            raise KeyError(f"浏览器会话 {self.name} 中不存在页面：{target_name}")
         return self.pages[target_name]
 
     def switch_page(self, page_name: str) -> None:
@@ -71,7 +71,7 @@ class RuntimeState:
 
     def require_session(self, name: str) -> BrowserSession:
         if name not in self.sessions:
-            raise KeyError(f"Browser session '{name}' does not exist.")
+            raise KeyError(f"浏览器会话不存在：{name}")
         return self.sessions[name]
 
     @property
@@ -96,13 +96,13 @@ class RuntimeState:
         package_output_dir = self.package_output_dir
         path = Path(raw_path)
         if path.is_absolute():
-            raise ValueError(f"Runtime output paths must be relative to the current plan output directory: {raw_path}")
+            raise ValueError(f"运行输出路径必须相对于当前 plan output 目录：{raw_path}")
         if not path.parts:
-            raise ValueError("Runtime output path cannot be empty.")
+            raise ValueError("运行输出路径不能为空。")
         if path.parts[0] in {"output", "resources", "docs", "sub-plans"}:
             raise ValueError(
-                "Runtime output paths are relative to the plan output directory; "
-                f"do not start with '{path.parts[0]}': {raw_path}"
+                "运行输出路径已经相对于 plan output 目录，"
+                f"不要以 {path.parts[0]!r} 开头：{raw_path}"
             )
 
         category_root = (package_output_dir / category).resolve() if category else None
@@ -112,9 +112,9 @@ class RuntimeState:
             resolved_path = (package_output_dir / path).resolve()
 
         if not _is_relative_to(resolved_path, package_output_dir):
-            raise ValueError(f"Runtime output must stay under the current plan output directory: {raw_path}")
+            raise ValueError(f"运行输出必须位于当前 plan output 目录下：{raw_path}")
         if category_root is not None and not _is_relative_to(resolved_path, category_root):
-            raise ValueError(f"Runtime output for this action must stay under output/{category}/: {raw_path}")
+            raise ValueError(f"当前 action 的运行输出必须位于 output/{category}/ 下：{raw_path}")
         return resolved_path
 
     @property

@@ -30,8 +30,8 @@ def execute_plan(
     resolved_plan_path = Path(plan_path).resolve() if plan_path else None
     if resolved_plan_path is not None and resolved_plan_path.name != "plan.json":
         raise ValueError(
-            "Only a package entry plan named 'plan.json' can be executed directly. "
-            "Use run_sub_plan inside the package entry plan for child 'sub-plans/*-plan.json' files."
+            "只能直接执行名为 plan.json 的包入口计划。"
+            "子计划 sub-plans/*-plan.json 请通过包入口 plan 内的 run_sub_plan 调用。"
         )
     plan_dir = resolved_plan_path.parent if resolved_plan_path else root_path
     resolved_run_name = run_name or plan.get("name") or (resolved_plan_path.stem if resolved_plan_path else "plan-run")
@@ -42,7 +42,7 @@ def execute_plan(
     )
     package_output_dir = (plan_dir / "output").resolve()
     if not _is_relative_to(resolved_output_dir, package_output_dir):
-        raise ValueError(f"Run output directory must stay inside the current plan package output directory: {package_output_dir}")
+        raise ValueError(f"运行输出目录必须位于当前 plan 包 output 目录内：{package_output_dir}")
     ensure_directory(resolved_output_dir)
     logger = RunLogger(resolved_output_dir)
     if run_context_handler is not None:
@@ -67,7 +67,7 @@ def execute_plan(
     status = "passed"
 
     result: PlanResult | None = None
-    caught_error: Exception | None = None
+    caught_error: BaseException | None = None
 
     with sync_playwright() as playwright:
         state = RuntimeState(
@@ -87,28 +87,37 @@ def execute_plan(
         executor = ActionExecutor(state)
         try:
             executor.run(plan.get("steps", []))
-        except Exception as error:
+        except BaseException as error:
             status = "failed"
             error_message = str(error)
             caught_error = error
         finally:
-            if status == "passed" and _should_wait_for_inspection(plan_config):
-                if inspection_confirmation_handler is not None:
-                    prompt = _inspection_prompt(plan_config)
-                    state.logger.log("info", "waiting for post-run inspection confirmation", prompt=prompt)
-                    state.state_writer.mark_waiting(prompt=prompt, wait_type="post_run_inspection")
-                    accepted = inspection_confirmation_handler(prompt)
-                    state.state_writer.mark_resumed()
-                    if not accepted:
-                        status = "failed"
-                        error_message = "Post-run inspection was not accepted."
-                        caught_error = RuntimeError(error_message)
-                else:
-                    state.logger.log(
-                        "warning",
-                        "post-run inspection wait requested but no confirmation handler is available",
-                    )
-            state.close_all()
+            try:
+                if status == "passed" and state.sessions and _should_wait_for_inspection(plan_config):
+                    if inspection_confirmation_handler is not None:
+                        prompt = _inspection_prompt(plan_config)
+                        state.logger.log("info", "waiting for post-run inspection confirmation", prompt=prompt)
+                        state.state_writer.mark_waiting(prompt=prompt, wait_type="post_run_inspection")
+                        try:
+                            accepted = inspection_confirmation_handler(prompt)
+                        except BaseException as error:
+                            status = "failed"
+                            error_message = str(error) or type(error).__name__
+                            caught_error = error
+                        else:
+                            if not accepted:
+                                status = "failed"
+                                error_message = "运行后检查未确认通过。"
+                                caught_error = RuntimeError(error_message)
+                        finally:
+                            state.state_writer.mark_resumed()
+                    else:
+                        state.logger.log(
+                            "warning",
+                            "post-run inspection wait requested but no confirmation handler is available",
+                        )
+            finally:
+                state.close_all()
             state.logger.log("info", "plan finished", run_name=resolved_run_name)
             finished_at = datetime.now().isoformat(timespec="seconds")
             result = PlanResult(
@@ -136,7 +145,7 @@ def execute_plan(
             raise caught_error
 
     if result is None:
-        raise RuntimeError("Plan result was not created.")
+        raise RuntimeError("未创建 plan 运行结果。")
     return result
 
 
@@ -160,11 +169,6 @@ def _build_builtin_variables(
         "run_output_dir_file_url": _file_url(output_dir),
         "config": plan_config,
     }
-    config_variables = plan_config.get("variables", {})
-    if config_variables:
-        if not isinstance(config_variables, dict):
-            raise ValueError("Plan config field 'variables' must be a JSON object.")
-        variables.update(config_variables)
     variables.update(plan_variables)
     variables.update(variable_overrides)
     return variables
@@ -183,18 +187,18 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def _should_wait_for_inspection(plan_config: dict[str, Any]) -> bool:
-    runtime_config = plan_config.get("runtime", {})
-    if not isinstance(runtime_config, dict):
+    config = plan_config.get("post_run_inspection", {})
+    if not isinstance(config, dict):
         return False
-    return bool(runtime_config.get("wait_for_inspection_on_success", False))
+    return bool(config.get("enabled", False))
 
 
 def _inspection_prompt(plan_config: dict[str, Any]) -> str:
-    runtime_config = plan_config.get("runtime", {})
-    default_prompt = "Plan steps passed. Inspect the browser, then confirm to close browsers and finish: "
-    if not isinstance(runtime_config, dict):
+    default_prompt = "plan 步骤已通过。请检查浏览器，然后确认关闭浏览器并结束："
+    config = plan_config.get("post_run_inspection", {})
+    if not isinstance(config, dict):
         return default_prompt
-    prompt = runtime_config.get("inspection_prompt")
+    prompt = config.get("prompt")
     if isinstance(prompt, str) and prompt.strip():
         return prompt
     return default_prompt

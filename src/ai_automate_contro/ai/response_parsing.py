@@ -47,7 +47,7 @@ def extract_chat_completion_stream_text(response: Any) -> tuple[str, dict[str, A
                 chunks.append(str(choice["text"]))
     raw_text = "".join(chunks)
     if not raw_text:
-        raise ValueError("AI service returned a streaming response without text content.")
+        raise ValueError("AI 服务返回了流式响应，但没有文本内容。")
     return raw_text, {"stream": True, "chunks": raw_chunks}
 
 
@@ -64,7 +64,7 @@ def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     raw_response = model_dump(response)
     choices = _get_response_field(response, raw_response, "choices")
     if not isinstance(choices, list) or not choices:
-        raise ValueError("AI service response missing choices.")
+        raise ValueError("AI 服务响应缺少 choices。")
     first_choice = choices[0]
     message = _get_choice_message(first_choice)
     content = _get_response_field(message, message if isinstance(message, dict) else {}, "content")
@@ -73,7 +73,7 @@ def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     else:
         raw_text = content or ""
     if not raw_text:
-        raise ValueError("AI service response message had no text content.")
+        raise ValueError("AI 服务响应消息没有文本内容。")
     return str(raw_text), raw_response
 
 

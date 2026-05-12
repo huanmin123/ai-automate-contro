@@ -12,7 +12,7 @@ def action_run_sub_plan(executor: Any, step: dict[str, Any]) -> None:
     sub_plan_path = resolve_sub_plan_path(executor, raw_path)
     sub_plan = load_plan(sub_plan_path)
     if "steps" not in sub_plan:
-        raise ValueError(f"Sub plan must be a plan document with steps: {sub_plan_path}")
+        raise ValueError(f"子计划必须是带 steps 的 plan 文档：{sub_plan_path}")
 
     previous_plan_path = executor.state.plan_path
     executor.state.plan_path = sub_plan_path
@@ -72,22 +72,22 @@ def action_retry(executor: Any, step: dict[str, Any]) -> None:
 def resolve_sub_plan_path(executor: Any, raw_path: str) -> Path:
     path = Path(raw_path)
     if path.is_absolute():
-        raise ValueError("run_sub_plan path must be relative to the current plan package.")
+        raise ValueError("run_sub_plan path 必须是相对于当前 plan 包的路径。")
     package_root = executor._package_root().resolve()
     resolved_path = (package_root / path).resolve()
     sub_plans_dir = (package_root / "sub-plans").resolve()
     if not _is_relative_to(resolved_path, package_root):
-        raise ValueError(f"Sub plan must stay inside the current plan package: {raw_path}")
+        raise ValueError(f"子计划必须位于当前 plan 包内：{raw_path}")
     if not path.parts or path.parts[0] != "sub-plans":
-        raise ValueError("Sub plan paths must be placed under 'sub-plans/'.")
+        raise ValueError("子计划路径必须放在 sub-plans/ 下。")
     if not _is_relative_to(resolved_path, sub_plans_dir):
-        raise ValueError("Sub plan paths must resolve under 'sub-plans/'.")
+        raise ValueError("子计划路径解析后必须仍位于 sub-plans/ 下。")
     if resolved_path.name == "plan.json":
-        raise ValueError("run_sub_plan cannot reference another entry plan named 'plan.json'.")
+        raise ValueError("run_sub_plan 不能引用另一个名为 plan.json 的入口计划。")
     if not resolved_path.name.endswith("-plan.json"):
-        raise ValueError("Sub plan filenames must use the '*-plan.json' pattern.")
+        raise ValueError("子计划文件名必须使用 *-plan.json 格式。")
     if not resolved_path.exists():
-        raise FileNotFoundError(f"Sub plan not found: {resolved_path}")
+        raise FileNotFoundError(f"子计划不存在：{resolved_path}")
     return resolved_path
 
 

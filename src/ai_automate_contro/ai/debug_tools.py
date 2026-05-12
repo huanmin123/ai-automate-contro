@@ -120,10 +120,10 @@ def prepare_failure_debug_workspace_tool(
         "injection": injection.to_dict(),
         "validation": validation,
         "recommended_next_actions": [
-            "Read the debug workspace notes and injected plan before running.",
-            "Run run_debug_plan against the workspace to reproduce with diagnostics.",
-            "Inspect output/debug artifacts from the injected plan run.",
-            "Use patch_debug_workspace_json for the smallest fix, then validate and run again.",
+            "先读取调试工作区 notes 和 injected-plan，再运行。",
+            "使用 run_debug_plan 运行调试工作区，带诊断信息复现问题。",
+            "检查 injected-plan 运行后产生的 output/debug 产物。",
+            "使用 patch_debug_workspace_json 做最小修改，然后重新校验和运行。",
         ],
     }
 
@@ -167,20 +167,20 @@ def propose_debug_fix_tool(
         "selected": selected,
         "applied": False,
         "notes": [
-            "This tool only writes to debug workspace injected-plan/.",
-            "The original plan is unchanged until a generated patch is explicitly applied after approval.",
+            "此工具只会写入调试工作区的 injected-plan/。",
+            "生成的 patch 经过明确审批并应用前，原始 plan 不会改变。",
         ],
     }
     if not proposals:
-        result["reason"] = "No supported automatic fix proposal could be inferred from the failure evidence."
+        result["reason"] = "无法从失败证据中推断出受支持的自动修复候选。"
         return result
     auto_apply_gate = debug_fix.selector_auto_apply_gate(proposals, user_hint=user_hint)
     result["auto_apply_gate"] = auto_apply_gate
     if not apply:
         result["next_actions"] = [
-            "Review selected.operation and selected.reason.",
-            "Call propose_debug_fix with apply=true to write the clean fix candidate to injected-plan/.",
-            "Validate and run the debug plan before applying patch.diff to the original plan.",
+            "检查 selected.operation 和 selected.reason。",
+            "用 propose_debug_fix 且 apply=true，把干净修复候选写入 injected-plan/。",
+            "把 patch.diff 应用回原始 plan 前，先校验并运行调试 plan。",
         ]
         return result
     if not auto_apply_gate["ok"]:
@@ -190,9 +190,9 @@ def propose_debug_fix_tool(
                 "applied": False,
                 "reason": auto_apply_gate["reason"],
                 "next_actions": [
-                    "Provide a clearer user_hint that names the target field, button, text, or expected selector.",
-                    "Review proposals and use patch_debug_workspace_json for a deliberate minimal edit.",
-                    "Run and validate the debug plan before generating or applying a patch.",
+                    "提供更明确的 user_hint，说明目标字段、按钮、文本或期望 selector。",
+                    "检查 proposals，并用 patch_debug_workspace_json 做明确的最小修改。",
+                    "生成或应用 patch 前，先运行并校验调试 plan。",
                 ],
             }
         )

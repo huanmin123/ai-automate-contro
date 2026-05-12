@@ -153,11 +153,11 @@ python .\main.py plan debug-apply --workspace .\test-plans\basic\file-io\output\
 ## 配置优先级
 
 - `plans/config.json`: 公开示例 plan 的集合级共享配置。
-- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量。
+- `test-plans/config.json`: 项目测试 plan 的集合级共享配置。
 - `plan-package/config.json`: 当前 plan 包局部配置，只能当前 plan 访问。
 - 相同字段局部配置覆盖全局配置。
-- `config.variables` 会注入为变量，也可以通过 `{{config.xxx}}` 访问完整合并配置。
-- 变量优先级：内置变量 < 集合级 `config.variables` < 局部 `config.variables` < `plan.json` 的 `variables`。
+- `config.json` 只保存运行配置，不保存 plan 变量；变量请写在 `plan.json` 的 `variables`。
+- 配置字段详见 `handbook/config.md`。
 
 ## 当前支持的动作组件
 

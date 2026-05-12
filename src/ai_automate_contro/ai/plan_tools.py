@@ -64,8 +64,8 @@ def read_plan_package_tool(project_root: str | Path, plan_path: str | Path) -> d
         "sub_plans": sub_plans,
         "resources": resources,
         "next_actions": [
-            "Use grep_project_text to locate relevant plan, docs, resource, or config lines.",
-            "Use read_project_file_slice for the specific line range needed before editing.",
+            "先用 grep_project_text 定位相关 plan、docs、resource 或 config 行。",
+            "编辑前再用 read_project_file_slice 读取必要的小范围行段。",
         ],
     }
 
@@ -79,7 +79,7 @@ def create_plan_package_tool(
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     if not package_path and not name:
-        raise ValueError("create_plan_package requires package_path or name.")
+        raise ValueError("create_plan_package 需要 package_path 或 name。")
     resolved_package_path = package_path or default_plan_package_dir(root, name=name or "")
     package_dir = create_plan_package(resolved_package_path, project_root=root, name=name, force=force)
     return {
@@ -103,33 +103,33 @@ def write_plan_package_file_tool(
     resolved_plan_path = resolve_plan_path(plan_path)
     package_dir = resolved_plan_path.parent.resolve()
     if not is_relative_to(package_dir, root):
-        raise ValueError("Plan package must stay inside the project root.")
+        raise ValueError("plan 包必须位于项目根目录内。")
     if not resolved_plan_path.exists():
-        raise FileNotFoundError(f"Plan package entry does not exist: {resolved_plan_path}")
+        raise FileNotFoundError(f"plan 包入口不存在：{resolved_plan_path}")
 
     raw_relative_path = Path(relative_path)
     if raw_relative_path.is_absolute():
-        raise ValueError("relative_path must be relative to the plan package.")
+        raise ValueError("relative_path 必须是相对于 plan 包的路径。")
     normalized_relative_path = Path(*raw_relative_path.parts)
     _validate_plan_package_write_path(normalized_relative_path)
 
     write_mode = mode.strip().lower()
     if write_mode not in {"overwrite", "append"}:
-        raise ValueError("mode must be overwrite or append.")
+        raise ValueError("mode 必须是 overwrite 或 append。")
     if content is not None and json_value is not None:
-        raise ValueError("Provide either content or json_value, not both.")
+        raise ValueError("content 和 json_value 只能提供一个。")
     if content is None and json_value is None:
-        raise ValueError("write_plan_package_file requires content or json_value.")
+        raise ValueError("write_plan_package_file 需要 content 或 json_value。")
     if json_value is not None and write_mode == "append":
-        raise ValueError("json_value only supports overwrite mode.")
+        raise ValueError("json_value 只支持 overwrite 模式。")
 
     target_path = (package_dir / normalized_relative_path).resolve()
     if not is_relative_to(target_path, package_dir):
-        raise ValueError("Target path must stay inside the plan package.")
+        raise ValueError("目标路径必须位于 plan 包内。")
 
     if json_value is not None:
         if target_path.suffix.lower() != ".json":
-            raise ValueError("json_value can only be written to JSON files.")
+            raise ValueError("json_value 只能写入 JSON 文件。")
         serialized = json.dumps(json_value, ensure_ascii=False, indent=2) + "\n"
     else:
         serialized = str(content)
@@ -209,18 +209,18 @@ def resolve_plan_path(raw_plan_path: str | Path) -> Path:
 def _validate_plan_package_write_path(relative_path: Path) -> None:
     parts = relative_path.parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
-        raise ValueError("relative_path must be a clean path inside the plan package.")
+        raise ValueError("relative_path 必须是 plan 包内的干净路径。")
     if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in parts):
-        raise ValueError("Refusing to write output, cache, checkpoint, git, or pycache paths.")
+        raise ValueError("拒绝写入 output、缓存、checkpoint、git 或 pycache 路径。")
     if relative_path.name.endswith((".pyc", ".pyo")) or ".egg-info" in parts:
-        raise ValueError("Refusing to write pyc, pyo, or egg-info paths.")
+        raise ValueError("拒绝写入 pyc、pyo 或 egg-info 路径。")
     if parts == ("plan.json",) or parts == ("config.json",):
         return
     if parts[0] == "sub-plans" and len(parts) == 2 and relative_path.name.endswith("-plan.json"):
         return
     if parts[0] in ALLOWED_PLAN_PACKAGE_WRITE_ROOTS and len(parts) >= 2:
         return
-    raise ValueError("Allowed write targets are plan.json, config.json, docs/**, resources/**, or sub-plans/*-plan.json.")
+    raise ValueError("允许写入的目标只有 plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。")
 
 
 def issue_to_dict(issue: ValidationIssue) -> dict[str, str]:

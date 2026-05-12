@@ -7,7 +7,7 @@ def wait_for_download(executor: Any, step: dict[str, Any]) -> None:
     target_page = executor._page(step)
     trigger = step.get("trigger")
     if not trigger:
-        raise ValueError("wait_for_download requires a trigger step.")
+        raise ValueError("wait_for_download 需要 trigger 步骤。")
     with target_page.expect_download() as download_info:
         executor.run([trigger])
     download = download_info.value
@@ -26,7 +26,7 @@ def wait_for_popup(executor: Any, step: dict[str, Any]) -> None:
     trigger = step.get("trigger")
     popup_name = step["popup_page"]
     if not trigger:
-        raise ValueError("wait_for_popup requires a trigger step.")
+        raise ValueError("wait_for_popup 需要 trigger 步骤。")
     with target_page.expect_popup() as popup_info:
         executor.run([trigger])
     popup_page = popup_info.value
@@ -50,14 +50,14 @@ def wait_for_network(executor: Any, step: dict[str, Any]) -> None:
     if network_type == "response":
         _wait_for_response(executor, step)
         return
-    raise ValueError(f"Unsupported wait_for_network type: {network_type}")
+    raise ValueError(f"不支持的 wait_for_network type：{network_type}")
 
 
 def _wait_for_request(executor: Any, step: dict[str, Any]) -> None:
     target_page = executor._page(step)
     trigger = step.get("trigger")
     if not trigger:
-        raise ValueError("wait_for_network type 'request' requires a trigger step.")
+        raise ValueError("wait_for_network type=request 需要 trigger 步骤。")
     with target_page.expect_request(step["url"]) as request_info:
         executor.run([trigger])
     request = request_info.value
@@ -81,7 +81,7 @@ def _wait_for_response(executor: Any, step: dict[str, Any]) -> None:
     target_page = executor._page(step)
     trigger = step.get("trigger")
     if not trigger:
-        raise ValueError("wait_for_network type 'response' requires a trigger step.")
+        raise ValueError("wait_for_network type=response 需要 trigger 步骤。")
     with target_page.expect_response(step["url"]) as response_info:
         executor.run([trigger])
     response = response_info.value

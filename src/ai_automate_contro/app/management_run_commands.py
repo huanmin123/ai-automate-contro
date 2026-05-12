@@ -13,7 +13,7 @@ class RunCommandsMixin:
         """校验并运行当前 plan：run [run-name]"""
         self._sync_active_run()
         if self.active_run is not None and self.active_run.status in {"running", "waiting", "stopping"}:
-            self.perror(f"a run is already active: {self.active_run.status}")
+            self.perror(f"已有 plan 正在运行或等待：{self.active_run.status}")
             return
         try:
             plan_path = self._require_current_plan()
@@ -39,10 +39,24 @@ class RunCommandsMixin:
         """继续正在 manual_confirm 等待的运行。"""
         self._sync_active_run()
         if self.active_run is None:
-            self.perror("no active run")
+            self.perror("当前没有正在运行或等待的 plan。")
             return
         try:
-            self.active_run.continue_run()
+            self.active_run.continue_run(expected_waiting_type="manual_confirm")
+        except Exception as error:
+            self.perror(error)
+            return
+        self._wait_for_interactive_checkpoint()
+        self._print_active_run_state()
+
+    def do_close(self, _: str) -> None:
+        """关闭正在等待检查的浏览器并结束运行。"""
+        self._sync_active_run()
+        if self.active_run is None:
+            self.perror("当前没有正在运行或等待的 plan。")
+            return
+        try:
+            self.active_run.continue_run(expected_waiting_type="post_run_inspection", command="close")
         except Exception as error:
             self.perror(error)
             return
@@ -53,7 +67,10 @@ class RunCommandsMixin:
         """停止正在 manual_confirm 等待的运行。"""
         self._sync_active_run()
         if self.active_run is None:
-            self.perror("no active run")
+            self.perror("当前没有正在运行或等待的 plan。")
+            return
+        if getattr(self.active_run, "waiting_type", None) == "post_run_inspection":
+            self.perror("当前运行正在等待浏览器检查结束；请用 close 关闭浏览器并结束。")
             return
         try:
             self.active_run.stop()
@@ -77,7 +94,7 @@ class RunCommandsMixin:
             return
         if command == "set":
             if len(parts) != 3:
-                self.perror("usage: var set <name> <json-or-text>")
+                self.perror("用法：var set <name> <json-or-text>")
                 return
             name, raw_value = parts[1], parts[2]
             try:
@@ -89,7 +106,7 @@ class RunCommandsMixin:
             return
         if command == "unset":
             if len(parts) != 2:
-                self.perror("usage: var unset <name>")
+                self.perror("用法：var unset <name>")
                 return
             name = parts[1]
             if name in self.variables:
@@ -102,14 +119,14 @@ class RunCommandsMixin:
             self.variables.clear()
             self.poutput("已清空本次终端变量")
             return
-        self.perror("usage: var list | var set <name> <json-or-text> | var unset <name> | var clear")
+        self.perror("用法：var list | var set <name> <json-or-text> | var unset <name> | var clear")
 
     def do_status(self, arg: str) -> None:
         """查看最近运行结果：status [--short|--json]"""
         self._sync_active_run()
         mode = arg.strip()
         if mode and mode not in {"--short", "--json"}:
-            self.perror("usage: status [--short|--json]")
+            self.perror("用法：status [--short|--json]")
             return
         latest_state = self._read_latest_state()
         if latest_state is not None:
@@ -196,11 +213,14 @@ class RunCommandsMixin:
     def _print_active_run_state(self) -> None:
         if self.active_run is None:
             if self.last_plan_result is not None:
-                self.poutput(f"plan 运行结果 {self.last_plan_result.status}：{self.last_plan_result.output_dir}")
+                self.poutput(f"计划运行结果 {self.last_plan_result.status}：{self.last_plan_result.output_dir}")
             return
         if self.active_run.status == "waiting":
             self.poutput(f"[等待用户] {self.active_run.waiting_prompt}")
-            self.poutput("输入 continue 继续，或输入 stop 停止。")
+            if getattr(self.active_run, "waiting_type", None) == "post_run_inspection":
+                self.poutput("输入 close 关闭浏览器并结束。")
+            else:
+                self.poutput("输入 continue 继续，或输入 stop 停止。")
             return
         if self.active_run.error is not None:
             self.last_run_error = self.active_run.error
@@ -210,7 +230,7 @@ class RunCommandsMixin:
             return
         if self.active_run.result is not None:
             self.last_plan_result = self.active_run.result
-            self.poutput(f"plan 运行结果 {self.active_run.result.status}：{self.active_run.result.output_dir}")
+            self.poutput(f"计划运行结果 {self.active_run.result.status}：{self.active_run.result.output_dir}")
             self.active_run = None
             return
         self.poutput(f"运行状态：{self.active_run.status}")

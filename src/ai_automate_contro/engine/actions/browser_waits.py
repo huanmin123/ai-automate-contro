@@ -7,7 +7,7 @@ def wait(executor: Any, step: dict[str, Any]) -> None:
     wait_type = step.get("type", "time")
     if wait_type == "time":
         if any(field in step for field in ("selector", "url", "text", "expected")):
-            raise ValueError("wait with selector/url/text/expected must set an explicit non-time type.")
+            raise ValueError("wait 带 selector/url/text/expected 时必须显式设置非 time 的 type。")
         executor._page(step).wait_for_timeout(int(float(step.get("seconds", 1)) * 1000))
         return
     if wait_type == "selector":
@@ -22,7 +22,7 @@ def wait(executor: Any, step: dict[str, Any]) -> None:
     if wait_type == "count":
         _wait_for_count(executor, step)
         return
-    raise ValueError(f"Unsupported wait type: {wait_type}")
+    raise ValueError(f"不支持的 wait type：{wait_type}")
 
 
 def _wait_for_selector(executor: Any, step: dict[str, Any]) -> None:
@@ -45,9 +45,7 @@ def _wait_for_text(executor: Any, step: dict[str, Any]) -> None:
         return
     if mode == "equals" and actual.strip() == expected:
         return
-    raise AssertionError(
-        f"wait_for_text failed. mode={mode}, expected={expected!r}, actual={actual!r}"
-    )
+    raise AssertionError(f"wait_for_text 失败。mode={mode}，expected={expected!r}，actual={actual!r}")
 
 
 def _wait_for_count(executor: Any, step: dict[str, Any]) -> None:
@@ -67,7 +65,5 @@ def _wait_for_count(executor: Any, step: dict[str, Any]) -> None:
             return
         now = target_page.evaluate("Date.now()")
         if int(now) - int(start) >= timeout_ms:
-            raise AssertionError(
-                f"wait_for_count failed. mode={mode}, expected={expected}, actual={actual}"
-            )
+            raise AssertionError(f"wait_for_count 失败。mode={mode}，expected={expected}，actual={actual}")
         target_page.wait_for_timeout(200)

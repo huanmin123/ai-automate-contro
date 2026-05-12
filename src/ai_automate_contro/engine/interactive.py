@@ -30,6 +30,7 @@ class InteractiveRun:
         self.output_dir: Path | None = None
         self.logger: RunLogger | None = None
         self.waiting_prompt: str | None = None
+        self.waiting_type: str | None = None
         self.status = "created"
         self._condition = threading.Condition()
         self._continue_requested = False
@@ -40,14 +41,17 @@ class InteractiveRun:
         self.status = "running"
         self._thread.start()
 
-    def continue_run(self) -> None:
+    def continue_run(self, *, expected_waiting_type: str | None = None, command: str = "continue") -> None:
         with self._condition:
             if self.status != "waiting":
                 raise RuntimeError(f"Run is not waiting. Current status: {self.status}")
+            if expected_waiting_type is not None and self.waiting_type != expected_waiting_type:
+                raise RuntimeError(f"Run is waiting for {self.waiting_type}; expected {expected_waiting_type}.")
             self._continue_requested = True
             self.waiting_prompt = None
+            self.waiting_type = None
             self.status = "running"
-            self._record_command("continue", status="accepted")
+            self._record_command(command, status="accepted")
             self._condition.notify_all()
 
     def stop(self) -> None:
@@ -75,6 +79,7 @@ class InteractiveRun:
                 run_name=self.run_name,
                 variable_overrides=self.variable_overrides,
                 manual_confirmation_handler=self._handle_manual_confirmation,
+                inspection_confirmation_handler=self._handle_post_run_inspection,
                 run_context_handler=self._capture_run_context,
             )
             self.status = self.result.status
@@ -83,12 +88,20 @@ class InteractiveRun:
             self.status = "failed"
 
     def _handle_manual_confirmation(self, prompt: str) -> bool:
+        return self._handle_wait(prompt, wait_type="manual_confirm")
+
+    def _handle_post_run_inspection(self, prompt: str) -> bool:
+        return self._handle_wait(prompt, wait_type="post_run_inspection")
+
+    def _handle_wait(self, prompt: str, *, wait_type: str) -> bool:
         with self._condition:
             self.waiting_prompt = prompt
+            self.waiting_type = wait_type
             self.status = "waiting"
             while not self._continue_requested and not self._stop_requested:
                 self._condition.wait(timeout=0.25)
             if self._stop_requested:
+                self.waiting_type = None
                 return False
             self._continue_requested = False
             return True

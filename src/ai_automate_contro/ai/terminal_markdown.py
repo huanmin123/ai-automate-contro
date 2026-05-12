@@ -100,4 +100,4 @@ def _assistant_renderable(markdown_text: str) -> Any:
 
 
 def _markdown_renderable(markdown_text: str) -> Markdown:
-    return Markdown(markdown_text or "", code_theme="ansi_light", hyperlinks=False)
+    return Markdown(markdown_text or "", code_theme="ansi_light", style="none", hyperlinks=False)

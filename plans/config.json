@@ -1,6 +1,3 @@
 {
-  "description": "Shared configuration for public example plans. Plan-local config.json can override these values.",
-  "variables": {
-    "default_timeout_ms": 15000
-  }
+  "description": "Shared configuration for public example plans. Plan-local config.json can override these values."
 }

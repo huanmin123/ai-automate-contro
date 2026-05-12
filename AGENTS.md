@@ -24,7 +24,7 @@
 - `plans/`: 对外参考的最小 plan 包示例；`plans/config.json` 是公开示例 plan 的集合级配置。
 - `test-plans/`: 项目真实自动化 plan 包。
 - `docs/`: 架构、功能设计、计划、缺陷和重构记录。
-- `test-plans/config.json`: 项目测试 plan 的集合级共享配置，可放测试计划共用变量。
+- `test-plans/config.json`: 项目测试 plan 的集合级共享配置。
 - `.keygen/`: 本地 AI 终端 checkpoint、会话归档、图片附件和运行状态，不应提交。
 - `plans/**/output/` 和 `test-plans/**/output/`: plan 的运行输出，不应提交。
 
@@ -51,7 +51,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - `plan.json` 是最小可执行单元，可以通过 `run_sub_plan` 调用同包内的 `sub-plans/*-plan.json` 子计划。
 - 子计划只能放在当前 plan 包的 `sub-plans/` 目录下，文件名使用 kebab-case 并以 `-plan.json` 结尾；顺序敏感时可使用 `01-xxx-plan.json`。
 - `test-plans/` 下面直接按类别放 plan 包，不要再增加 `plans/`、`suites/`、`workspaces/` 中间层。
-- 集合级 plan 配置固定放在 `plans/config.json` 或 `test-plans/config.json`；局部 plan 配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。
+- 集合级 plan 配置固定放在 `plans/config.json` 或 `test-plans/config.json`；局部 plan 配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。`config.json` 只保存运行配置，不保存 plan 变量；plan 变量写在 `plan.json.variables`。
 - 禁止让一个主 `plan.json` 引用另一个主 `plan.json`，不同需求包之间保持独立。
 - 运行产物必须写入当前 plan 包的 `output/` 目录；输出动作的配置路径是相对于 `output/` 的路径，不能以 `output/` 开头。截图、录屏、下载、HTML、JSON、CSV、TXT、storage state、失败截图、失败 HTML 和失败页面状态都不能写到源码、`resources/` 或仓库其他位置。
 - 参数级别一致的组件必须收敛为单个 action，并通过 `type` 区分具体操作，例如 `navigate`、`page`、`element`、`wait`、`extract`、`assert`、`capture`、`read`、`write`。

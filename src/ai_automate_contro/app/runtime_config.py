@@ -59,7 +59,7 @@ def _read_config(config_path: Path) -> dict[str, Any]:
     with config_path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, dict):
-        raise ValueError(f"{CONFIG_FILE_NAME} must be a JSON object: {config_path}")
+        raise ValueError(f"{CONFIG_FILE_NAME} 必须是 JSON 对象：{config_path}")
     return data
 
 
@@ -68,11 +68,11 @@ def _resolve_plan_roots(root: Path, raw_config: dict[str, Any]) -> list[Path]:
     if raw_plan_roots is None:
         return [root / "plans", root / "test-plans"]
     if not isinstance(raw_plan_roots, list):
-        raise ValueError("plan.config field 'plan_roots' must be a list.")
+        raise ValueError("plan.config 字段 plan_roots 必须是数组。")
     plan_roots: list[Path] = []
     for raw_path in raw_plan_roots:
         if not isinstance(raw_path, str) or not raw_path:
-            raise ValueError("plan.config field 'plan_roots' entries must be non-empty strings.")
+            raise ValueError("plan.config 字段 plan_roots 的每一项都必须是非空字符串。")
         plan_roots.append(_resolve_config_path(root, raw_path))
     return plan_roots
 

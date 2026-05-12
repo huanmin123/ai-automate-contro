@@ -1,0 +1,6 @@
+{
+  "post_run_inspection": {
+    "enabled": true,
+    "prompt": "Plan passed. Press Enter to close browsers and finish: "
+  }
+}

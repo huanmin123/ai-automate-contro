@@ -1,0 +1,26 @@
+{
+  "name": "post-run-inspection",
+  "variables": {
+    "login_url": "{{resources_file_url}}/basic_login.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "inspection",
+      "headed": false,
+      "timeout_ms": 15000
+    },
+    {
+      "action": "navigate",
+      "browser": "inspection",
+      "type": "goto",
+      "url": "{{login_url}}"
+    },
+    {
+      "action": "assert",
+      "browser": "inspection",
+      "type": "selector",
+      "selector": "input[autocomplete='username']"
+    }
+  ]
+}

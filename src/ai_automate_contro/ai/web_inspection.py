@@ -101,7 +101,7 @@ def inspect_web_page_tool(
 def _resolve_inspection_url(project_root: Path, raw_url: str) -> str:
     text = str(raw_url).strip()
     if not text:
-        raise ValueError("inspect_web_page requires a non-empty url.")
+        raise ValueError("inspect_web_page 需要非空 url。")
 
     local_candidate = Path(text)
     if local_candidate.is_absolute() or "://" not in text:
@@ -109,21 +109,21 @@ def _resolve_inspection_url(project_root: Path, raw_url: str) -> str:
             return text
         resolved = local_candidate.resolve() if local_candidate.is_absolute() else (project_root / local_candidate).resolve()
         if not _is_relative_to(resolved, project_root):
-            raise ValueError("Local inspection paths must stay inside the project root.")
+            raise ValueError("本地检查路径必须位于项目根目录内。")
         if not resolved.exists() or not resolved.is_file():
-            raise FileNotFoundError(f"Local inspection file does not exist: {resolved}")
+            raise FileNotFoundError(f"本地检查文件不存在：{resolved}")
         return resolved.as_uri()
 
     scheme = text.split("://", 1)[0].lower()
     if scheme not in {"http", "https", "file"}:
-        raise ValueError("inspect_web_page supports http, https, file URLs, or local project files.")
+        raise ValueError("inspect_web_page 支持 http、https、file URL 或本地项目文件。")
     if scheme == "file":
         parsed = urlparse(text)
         local_path = Path(url2pathname(parsed.path)).resolve()
         if not _is_relative_to(local_path, project_root):
-            raise ValueError("Local inspection file URLs must stay inside the project root.")
+            raise ValueError("本地检查 file URL 必须位于项目根目录内。")
         if not local_path.exists() or not local_path.is_file():
-            raise FileNotFoundError(f"Local inspection file does not exist: {local_path}")
+            raise FileNotFoundError(f"本地检查文件不存在：{local_path}")
     return text
 
 
@@ -131,7 +131,7 @@ def _normalize_wait_until(value: str) -> str:
     normalized = str(value or "domcontentloaded").strip().lower()
     if normalized not in SUPPORTED_WAIT_UNTIL:
         supported = ", ".join(sorted(SUPPORTED_WAIT_UNTIL))
-        raise ValueError(f"Unsupported wait_until: {value}. Supported values: {supported}.")
+        raise ValueError(f"不支持的 wait_until：{value}。支持值：{supported}。")
     return normalized
 
 

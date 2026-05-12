@@ -40,7 +40,7 @@ def build_langchain_tools(
 def _ensure_langchain_tool_registry_consistent() -> None:
     result = check_ai_terminal_tool_registry()
     if not result["ok"]:
-        raise RuntimeError("AI terminal tool registry is inconsistent: " + "; ".join(result["errors"]))
+        raise RuntimeError("AI 终端工具注册表不一致：" + "；".join(result["errors"]))
 
 
 def _build_structured_tool(
@@ -273,7 +273,12 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     )
                 except Exception as error:
                     forbidden_error = str(error)
-                    forbidden_rejected = "Allowed write targets" in forbidden_error or "Refusing to write" in forbidden_error
+                    forbidden_rejected = (
+                        "允许写入的目标" in forbidden_error
+                        or "拒绝写入" in forbidden_error
+                        or "Allowed write targets" in forbidden_error
+                        or "Refusing to write" in forbidden_error
+                    )
                 write_plan_package_file_ok = (
                     bool(write_result.get("ok"))
                     and (package_dir / "docs" / "AI_TOOLS_SELF_CHECK.md").exists()

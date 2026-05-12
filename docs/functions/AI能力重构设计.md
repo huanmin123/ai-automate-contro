@@ -125,11 +125,7 @@ test-plans/config.json
 <plan-package>/config.json
 ```
 
-优先级：
-
-```text
-集合级 config < plan 局部 config < plan.json variables
-```
+配置优先级：集合级 config < plan 局部 config。`config.json` 只保存运行配置，不保存 plan 变量；plan 变量写在 `plan.json.variables`。
 
 建议字段：
 

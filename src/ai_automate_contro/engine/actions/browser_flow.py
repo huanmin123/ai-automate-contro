@@ -11,7 +11,7 @@ from ai_automate_contro.engine.actions.browser_waits import wait
 def open_browser(executor: Any, step: dict[str, Any]) -> None:
     name = step["name"]
     if name in executor.state.sessions:
-        raise ValueError(f"Browser session '{name}' already exists.")
+        raise ValueError(f"浏览器会话已存在：{name}")
 
     config = BrowserConfig(
         headed=bool(step.get("headed", False)),
@@ -63,7 +63,7 @@ def page(executor: Any, step: dict[str, Any]) -> None:
         closed_page = session.close_page(step.get("page"))
         executor.state.logger.log("info", "page closed", browser=step["browser"], page=closed_page)
         return
-    raise ValueError(f"Unsupported page type: {page_type}")
+    raise ValueError(f"不支持的 page type：{page_type}")
 
 
 def close_browser(executor: Any, step: dict[str, Any]) -> None:
@@ -91,7 +91,7 @@ def navigate(executor: Any, step: dict[str, Any]) -> None:
     if navigate_type == "forward":
         target_page.go_forward(wait_until=wait_until)
         return
-    raise ValueError(f"Unsupported navigate type: {navigate_type}")
+    raise ValueError(f"不支持的 navigate type：{navigate_type}")
 
 
 def element(executor: Any, step: dict[str, Any]) -> None:
@@ -134,7 +134,7 @@ def element(executor: Any, step: dict[str, Any]) -> None:
         resolved_files = [str(executor._resolve_path(file_path)) for file_path in files]
         locator.set_input_files(resolved_files)
         return
-    raise ValueError(f"Unsupported element type: {element_type}")
+    raise ValueError(f"不支持的 element type：{element_type}")
 
 
 ACTION_HANDLERS = {
@@ -158,4 +158,4 @@ def _select_option(locator: Any, step: dict[str, Any]) -> None:
     if "index_value" in step:
         locator.select_option(index=int(step["index_value"]))
         return
-    raise ValueError("element type 'select' requires one of: value, label, index_value")
+    raise ValueError("element type=select 需要 value、label 或 index_value 之一。")

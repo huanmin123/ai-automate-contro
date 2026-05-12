@@ -16,9 +16,9 @@ from ai_automate_contro.debug.workspace import (
 
 class DebugCommandsMixin:
     def do_debug(self, arg: str) -> None:
-        """Manage debug workspaces: debug prepare [name] | debug create [name] | debug list | debug fix [--apply] [workspace] | debug inject <preset[,preset...]> [workspace] | debug patch [workspace] | debug apply --yes [workspace]"""
+        """管理调试工作区：debug prepare [name] | debug create [name] | debug list | debug fix [--apply] [workspace] | debug inject <preset[,preset...]> [workspace] | debug patch [workspace] | debug apply --yes [workspace]"""
         usage = (
-            "usage: debug prepare [name] | debug create [name] | debug list | debug fix [--apply] [workspace] | "
+            "用法：debug prepare [name] | debug create [name] | debug list | debug fix [--apply] [workspace] | "
             "debug inject <preset[,preset...]> [workspace] | debug patch [workspace] | debug apply --yes [workspace]"
         )
         parts = arg.split(maxsplit=2)
@@ -106,14 +106,14 @@ class DebugCommandsMixin:
     def _debug_list(self, plan_path: Path) -> None:
         workspaces = list_debug_workspaces(plan_path)
         if not workspaces:
-            self.poutput("debug workspaces: <none>")
+            self.poutput("调试工作区：<无>")
             return
         for workspace in workspaces:
             self.poutput(f"{workspace.get('name')} | {workspace.get('root')}")
 
     def _debug_inject(self, plan_path: Path, name: str | None, parts: list[str]) -> None:
         if not name:
-            self.perror("usage: debug inject <preset[,preset...]> [workspace]")
+            self.perror("用法：debug inject <preset[,preset...]> [workspace]")
             return
         workspace_name = parts[2].strip() if len(parts) > 2 else None
         try:
@@ -141,7 +141,7 @@ class DebugCommandsMixin:
 
     def _debug_apply(self, plan_path: Path, name: str | None, parts: list[str]) -> None:
         if name != "--yes":
-            self.perror("usage: debug apply --yes [workspace]")
+            self.perror("用法：debug apply --yes [workspace]")
             return
         workspace_name = parts[2].strip() if len(parts) > 2 else None
         try:

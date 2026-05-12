@@ -1,5 +1,8 @@
 {
   "name": "minimal-browser-plan",
+  "variables": {
+    "demo_expected_title": "Minimal Plan"
+  },
   "steps": [
     {
       "action": "run_sub_plan",

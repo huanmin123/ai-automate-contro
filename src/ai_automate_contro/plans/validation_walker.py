@@ -24,12 +24,12 @@ def validate_plan_document(
 ) -> None:
     resolved_document_path = document_path.resolve()
     if resolved_document_path in stack:
-        issues.append(ValidationIssue(str(document_path), "sub-plan cycle detected"))
+        issues.append(ValidationIssue(str(document_path), "检测到子计划循环引用"))
         return
 
     steps = document.get("steps")
     if not isinstance(steps, list):
-        issues.append(ValidationIssue(str(document_path), "plan document must contain a steps array"))
+        issues.append(ValidationIssue(str(document_path), "plan 文档必须包含 steps 数组"))
         return
 
     next_stack = [*stack, resolved_document_path]
@@ -52,20 +52,20 @@ def validate_step(
     stack: list[Path],
 ) -> None:
     if not isinstance(step, dict):
-        issues.append(ValidationIssue(location, "step must be a JSON object"))
+        issues.append(ValidationIssue(location, "step 必须是 JSON 对象"))
         return
 
     action = step.get("action")
     if not isinstance(action, str) or not action:
-        issues.append(ValidationIssue(location, "step.action must be a non-empty string"))
+        issues.append(ValidationIssue(location, "step.action 必须是非空字符串"))
         return
     if action not in SUPPORTED_ACTIONS:
-        issues.append(ValidationIssue(location, f"unsupported action: {action}"))
+        issues.append(ValidationIssue(location, f"不支持的 action：{action}"))
         return
 
     for field in REQUIRED_FIELDS.get(action, ()):
         if field not in step:
-            issues.append(ValidationIssue(location, f"missing required field: {field}"))
+            issues.append(ValidationIssue(location, f"缺少必填字段：{field}"))
 
     validate_type_field(step, action, location, issues)
     validate_action_specific_fields(step, action, location, package_root, issues, stack)
@@ -97,7 +97,7 @@ def validate_action_specific_fields(
         )
 
     if action == "write" and step.get("type") != "variables" and "value" not in step:
-        issues.append(ValidationIssue(location, "write requires value except when type is variables"))
+        issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 
     if action == "capture" or action == "write" or action == "wait_for_download" or action == "ai":
         output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
@@ -120,7 +120,7 @@ def validate_control_flow(
         for branch in ("then", "else"):
             value = step.get(branch, [])
             if not isinstance(value, list):
-                issues.append(ValidationIssue(location, f"{branch} must be an array"))
+                issues.append(ValidationIssue(location, f"{branch} 必须是数组"))
                 continue
             for index, child_step in enumerate(value):
                 validate_step(
@@ -134,7 +134,7 @@ def validate_control_flow(
 
     child_steps = step.get("steps")
     if not isinstance(child_steps, list):
-        issues.append(ValidationIssue(location, "steps must be an array"))
+        issues.append(ValidationIssue(location, "steps 必须是数组"))
         return
     for index, child_step in enumerate(child_steps):
         validate_step(
@@ -154,33 +154,33 @@ def validate_sub_plan(
     stack: list[Path],
 ) -> None:
     if not isinstance(raw_path, str) or not raw_path:
-        issues.append(ValidationIssue(location, "run_sub_plan.path must be a non-empty string"))
+        issues.append(ValidationIssue(location, "run_sub_plan.path 必须是非空字符串"))
         return
     if "{{" in raw_path or "}}" in raw_path:
-        issues.append(ValidationIssue(location, "run_sub_plan.path must be static so it can be validated"))
+        issues.append(ValidationIssue(location, "run_sub_plan.path 必须是静态路径，便于校验"))
         return
 
     path = Path(raw_path)
     if path.is_absolute():
-        issues.append(ValidationIssue(location, "run_sub_plan.path must be relative to the current plan package"))
+        issues.append(ValidationIssue(location, "run_sub_plan.path 必须相对于当前 plan 包"))
         return
     if not path.parts or path.parts[0] != "sub-plans":
-        issues.append(ValidationIssue(location, "run_sub_plan.path must start with sub-plans/"))
+        issues.append(ValidationIssue(location, "run_sub_plan.path 必须以 sub-plans/ 开头"))
         return
     if path.name == "plan.json":
-        issues.append(ValidationIssue(location, "run_sub_plan cannot reference a main plan.json"))
+        issues.append(ValidationIssue(location, "run_sub_plan 不能引用主入口 plan.json"))
         return
     if not path.name.endswith("-plan.json"):
-        issues.append(ValidationIssue(location, "sub-plan filenames must end with -plan.json"))
+        issues.append(ValidationIssue(location, "子计划文件名必须以 -plan.json 结尾"))
         return
 
     sub_plans_dir = (package_root / "sub-plans").resolve()
     resolved_path = (package_root / path).resolve()
     if not is_relative_to(resolved_path, sub_plans_dir):
-        issues.append(ValidationIssue(location, "run_sub_plan.path must resolve inside sub-plans/"))
+        issues.append(ValidationIssue(location, "run_sub_plan.path 解析后必须位于 sub-plans/ 内"))
         return
     if not resolved_path.exists():
-        issues.append(ValidationIssue(location, f"sub-plan not found: {raw_path}"))
+        issues.append(ValidationIssue(location, f"子计划不存在：{raw_path}"))
         return
 
     document = load_json_document(resolved_path, issues)

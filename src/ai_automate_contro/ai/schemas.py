@@ -16,7 +16,7 @@ AI_TASK_TYPES = {
 
 def build_ai_schema(task_type: str, schema: Any | None, labels: Any | None = None) -> dict[str, Any]:
     if task_type not in AI_TASK_TYPES:
-        raise ValueError(f"Unsupported ai type: {task_type}")
+        raise ValueError(f"不支持的 ai type：{task_type}")
     if schema is not None:
         return normalize_json_schema(schema)
     if task_type == "connectivity":
@@ -31,7 +31,7 @@ def build_ai_schema(task_type: str, schema: Any | None, labels: Any | None = Non
         }
     if task_type == "classify_text":
         if not isinstance(labels, list) or not labels:
-            raise ValueError("ai type 'classify_text' requires labels when schema is not provided.")
+            raise ValueError("ai type=classify_text 在未提供 schema 时必须提供 labels。")
         normalized_labels = [str(label) for label in labels]
         return {
             "type": "object",
@@ -61,12 +61,12 @@ def build_ai_schema(task_type: str, schema: Any | None, labels: Any | None = Non
             "required": ["result"],
             "additionalProperties": False,
         }
-    raise ValueError("ai type 'extract_data' requires schema.")
+    raise ValueError("ai type=extract_data 必须提供 schema。")
 
 
 def normalize_json_schema(schema: Any) -> dict[str, Any]:
     if not isinstance(schema, dict):
-        raise ValueError("ai.schema must be a JSON object.")
+        raise ValueError("ai.schema 必须是 JSON 对象。")
     if "type" in schema:
         return schema
     properties: dict[str, Any] = {}
@@ -87,7 +87,7 @@ def validate_with_schema(value: Any, schema: dict[str, Any]) -> None:
     if errors:
         first_error = errors[0]
         path = ".".join(str(part) for part in first_error.path) or "<root>"
-        raise ValueError(f"AI response schema validation failed at {path}: {first_error.message}")
+        raise ValueError(f"AI 响应 schema 校验失败，位置 {path}：{first_error.message}")
 
 
 def _normalize_schema_field(field_schema: Any) -> dict[str, Any]:
@@ -95,10 +95,10 @@ def _normalize_schema_field(field_schema: Any) -> dict[str, Any]:
         return {"type": field_schema}
     if isinstance(field_schema, list):
         if len(field_schema) != 1:
-            raise ValueError("ai.schema array shorthand must contain exactly one item schema.")
+            raise ValueError("ai.schema 数组简写必须且只能包含一个 item schema。")
         return {"type": "array", "items": _normalize_schema_field(field_schema[0])}
     if isinstance(field_schema, dict):
         if "type" in field_schema:
             return field_schema
         return normalize_json_schema(field_schema)
-    raise ValueError(f"Unsupported ai.schema field shorthand: {field_schema!r}")
+    raise ValueError(f"不支持的 ai.schema 字段简写：{field_schema!r}")

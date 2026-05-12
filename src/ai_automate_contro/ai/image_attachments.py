@@ -74,18 +74,18 @@ def attach_clipboard_images(
         from PIL import ImageGrab
     except Exception as error:
         raise RuntimeError(
-            "Clipboard image paste requires Pillow. Install project dependencies from PowerShell 7 with: "
+            "剪贴板图片粘贴需要 Pillow。请在 PowerShell 7 中安装项目依赖："
             "python -m pip install -e ."
         ) from error
 
     clipboard = ImageGrab.grabclipboard()
     if clipboard is None:
-        raise ValueError("clipboard does not contain an image or image file path")
+        raise ValueError("剪贴板中没有图片或图片文件路径。")
 
     if isinstance(clipboard, list):
         image_paths = [Path(item) for item in clipboard if _looks_like_supported_image(Path(item))]
         if not image_paths:
-            raise ValueError("clipboard file list does not contain a supported image")
+            raise ValueError("剪贴板文件列表中没有支持的图片。")
         _ensure_capacity(pending_count, adding=len(image_paths))
         attachments: list[ImageAttachment] = []
         for image_path in image_paths:
@@ -100,7 +100,7 @@ def attach_clipboard_images(
 
     save = getattr(clipboard, "save", None)
     if not callable(save):
-        raise ValueError("clipboard content is not a supported image")
+        raise ValueError("剪贴板内容不是支持的图片。")
 
     _ensure_capacity(pending_count, adding=1)
     stored_path = _session_attachments_dir(project_root, thread_id) / _stored_file_name("clipboard", ".png")
@@ -167,14 +167,14 @@ def expand_messages_image_attachments_for_model(messages: list[Any]) -> list[Any
 
 def image_attachment_from_metadata(value: Any) -> ImageAttachment:
     if not isinstance(value, dict):
-        raise ValueError("image attachment metadata must be an object")
+        raise ValueError("图片附件 metadata 必须是对象。")
     stored_path = Path(str(value.get("stored_path") or "")).resolve()
     file_name = str(value.get("file_name") or stored_path.name)
     mime_type = str(value.get("mime_type") or image_mime_type(stored_path))
     size_bytes = int(value.get("size_bytes") or validate_image_file(stored_path))
     original_path = str(value.get("original_path") or stored_path)
     if not stored_path.exists() or not stored_path.is_file():
-        raise FileNotFoundError(f"image attachment file does not exist: {stored_path}")
+        raise FileNotFoundError(f"图片附件文件不存在：{stored_path}")
     return ImageAttachment(
         original_path=original_path,
         stored_path=stored_path,
@@ -236,7 +236,7 @@ def resolve_image_path(project_root: Path, image_path: str | Path) -> Path:
     else:
         resolved = (project_root / raw_path).resolve()
     if not resolved.exists() or not resolved.is_file():
-        raise FileNotFoundError(f"image file does not exist: {resolved}")
+        raise FileNotFoundError(f"图片文件不存在：{resolved}")
     return resolved
 
 
@@ -248,21 +248,21 @@ def image_mime_type(path: Path) -> str:
     if guessed and guessed.startswith("image/"):
         return guessed
     supported = ", ".join(sorted(SUPPORTED_IMAGE_MIME_BY_SUFFIX))
-    raise ValueError(f"unsupported image type: {path.suffix or '<none>'}. Supported: {supported}")
+    raise ValueError(f"不支持的图片类型：{path.suffix or '<无>'}。支持类型：{supported}")
 
 
 def validate_image_file(path: Path) -> int:
     mime_type = image_mime_type(path)
     size_bytes = path.stat().st_size
     if size_bytes <= 0:
-        raise ValueError(f"image file is empty: {path}")
+        raise ValueError(f"图片文件为空：{path}")
     if size_bytes > MAX_IMAGE_ATTACHMENT_BYTES:
         raise ValueError(
-            f"image file is too large: {size_bytes} bytes. "
-            f"Maximum is {MAX_IMAGE_ATTACHMENT_BYTES} bytes."
+            f"图片文件过大：{size_bytes} 字节。"
+            f"最大允许 {MAX_IMAGE_ATTACHMENT_BYTES} 字节。"
         )
     if not mime_type.startswith("image/"):
-        raise ValueError(f"unsupported image MIME type: {mime_type}")
+        raise ValueError(f"不支持的图片 MIME 类型：{mime_type}")
     return size_bytes
 
 

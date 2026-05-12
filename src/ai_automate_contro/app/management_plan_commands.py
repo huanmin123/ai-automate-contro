@@ -16,7 +16,7 @@ class PlanCommandsMixin:
         """选择 plan 包入口：use <plan.json-or-package-dir>"""
         raw_path = arg.strip()
         if not raw_path:
-            self.perror("usage: use <plan.json-or-package-dir>")
+            self.perror("用法：use <plan.json-or-package-dir>")
             return
         plan_path = Path(raw_path).resolve()
         if plan_path.is_dir():
@@ -48,7 +48,7 @@ class PlanCommandsMixin:
         """创建 plan 包模板：create <dir> [name]"""
         parts = arg.split(maxsplit=1)
         if not parts or not parts[0]:
-            self.perror("usage: create <dir> [name]")
+            self.perror("用法：create <dir> [name]")
             return
         name = parts[1] if len(parts) > 1 else None
         try:
@@ -72,7 +72,7 @@ class PlanCommandsMixin:
             summary = summarize_plan(plan_path, self.project_root)
             self.poutput(
                 f"{index:02d}. {summary['relative_path']} "
-                f"| name={summary['name']} | steps={summary['steps']}"
+                f"| 名称={summary['name']} | 步骤数={summary['steps']}"
             )
 
     def do_inspect(self, arg: str) -> None:
@@ -105,13 +105,13 @@ class PlanCommandsMixin:
 
     def _require_current_plan(self) -> Path:
         if self.current_plan_path is None:
-            raise ValueError("no current plan selected; use <plan.json-or-package-dir> first")
+            raise ValueError("当前没有选择 plan；请先执行 use <plan.json-or-package-dir>。")
         return self.current_plan_path
 
     def _print_validation(self, plan_path: Path) -> bool:
         result = validate_plan_file(plan_path, self.project_root)
         if result.ok:
-            self.poutput(f"plan 校验通过：{result.plan_path}")
+            self.poutput(f"计划校验通过：{result.plan_path}")
             return True
         for error in result.errors:
             self.perror(error.format())

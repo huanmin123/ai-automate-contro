@@ -5,13 +5,39 @@ import argparse
 from ai_automate_contro.app.errors import UserFacingError
 
 
+class ChineseHelpFormatter(argparse.HelpFormatter):
+    def start_section(self, heading: str | None) -> None:
+        heading_map = {
+            "positional arguments": "位置参数",
+            "options": "选项",
+            "optional arguments": "选项",
+            "subcommands": "子命令",
+        }
+        super().start_section(heading_map.get(str(heading), heading))
+
+    def add_usage(self, usage: str | None, actions: object, groups: object, prefix: str | None = None) -> None:
+        if prefix is None or prefix == "usage: ":
+            prefix = "用法："
+        super().add_usage(usage, actions, groups, prefix=prefix)
+
+
 class UserFacingArgumentParser(argparse.ArgumentParser):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        kwargs.setdefault("formatter_class", ChineseHelpFormatter)
+        kwargs.setdefault("add_help", False)
+        super().__init__(*args, **kwargs)
+        self.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS, help="显示这段帮助信息并退出。")
+
     def error(self, message: str) -> None:
         raise UserFacingError(
             "命令参数不正确。",
             details=[_friendly_argparse_message(message)],
             fix=_friendly_usage(self.format_usage()),
         )
+
+    def add_subparsers(self, *args: object, **kwargs: object) -> argparse._SubParsersAction:
+        kwargs.setdefault("parser_class", type(self))
+        return super().add_subparsers(*args, **kwargs)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -71,25 +97,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="覆盖运行输出目录；必须位于当前 plan 包的 output/ 目录内。",
     )
 
-    debug_parser = plan_subparsers.add_parser("debug-create", help="为 plan 包创建隔离 debug workspace。")
+    debug_parser = plan_subparsers.add_parser("debug-create", help="为 plan 包创建隔离调试工作区。")
     debug_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
-    debug_parser.add_argument("--name", help="debug workspace 名称后缀。")
+    debug_parser.add_argument("--name", help="调试工作区名称后缀。")
 
-    prepare_parser = plan_subparsers.add_parser("debug-prepare", help="从最近失败运行创建 debug workspace 并注入诊断。")
+    prepare_parser = plan_subparsers.add_parser("debug-prepare", help="从最近失败运行创建调试工作区并注入诊断。")
     prepare_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
     prepare_parser.add_argument("--output-dir", help="指定失败运行输出目录；默认使用最近一次运行。")
-    prepare_parser.add_argument("--name", help="debug workspace 名称后缀。")
+    prepare_parser.add_argument("--name", help="调试工作区名称后缀。")
     prepare_parser.add_argument("--manual-confirm", action="store_true", help="在失败步骤前注入人工确认点。")
 
-    fix_parser = plan_subparsers.add_parser("debug-fix", help="在 debug workspace 中生成或应用干净修复候选。")
-    fix_parser.add_argument("--workspace", required=True, help="output/debug/<run> workspace 路径。")
+    fix_parser = plan_subparsers.add_parser("debug-fix", help="在调试工作区中生成或应用干净修复候选。")
+    fix_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
     fix_parser.add_argument("--hint", default="", help="可选用户提示，用于排序修复候选。")
     fix_parser.add_argument("--apply", action="store_true", help="把选中的修复候选写入 injected-plan/。")
-    fix_parser.add_argument("--run", action="store_true", help="应用候选后运行 debug plan。")
-    fix_parser.add_argument("--run-name", help="配合 --run 使用时覆盖 debug 运行名称。")
+    fix_parser.add_argument("--run", action="store_true", help="应用候选后运行调试 plan。")
+    fix_parser.add_argument("--run-name", help="配合 --run 使用时覆盖调试运行名称。")
 
-    inject_parser = plan_subparsers.add_parser("debug-inject", help="向已有 debug workspace 注入诊断步骤。")
-    inject_parser.add_argument("--workspace", required=True, help="output/debug/<run> workspace 路径。")
+    inject_parser = plan_subparsers.add_parser("debug-inject", help="向已有调试工作区注入诊断步骤。")
+    inject_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
     inject_parser.add_argument(
         "--preset",
         action="append",
@@ -103,11 +129,11 @@ def build_parser() -> argparse.ArgumentParser:
     inject_parser.add_argument("--position", choices=["start", "end", "before_step", "after_step"], default="end", help="步骤注入位置。")
     inject_parser.add_argument("--step", type=int, help="before_step 或 after_step 使用的 1-based 锚点步骤。")
 
-    patch_parser = plan_subparsers.add_parser("debug-patch", help="从 debug workspace 生成 patch.diff。")
-    patch_parser.add_argument("--workspace", required=True, help="output/debug/<run> workspace 路径。")
+    patch_parser = plan_subparsers.add_parser("debug-patch", help="从调试工作区生成 patch.diff。")
+    patch_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
 
-    apply_parser = plan_subparsers.add_parser("debug-apply", help="把 debug workspace 的 patch.diff 应用回原始 plan 包。")
-    apply_parser.add_argument("--workspace", required=True, help="output/debug/<run> workspace 路径。")
+    apply_parser = plan_subparsers.add_parser("debug-apply", help="把调试工作区的 patch.diff 应用回原始 plan 包。")
+    apply_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
     apply_parser.add_argument("--yes", action="store_true", help="必填确认参数，用于允许修改原始 plan 包。")
 
     return parser

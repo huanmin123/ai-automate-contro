@@ -12,18 +12,18 @@ from ai_automate_contro.ai.terminal_message_utils import (
 
 class AITerminalApprovalMixin:
     def do_pending(self, _: str) -> None:
-        """Show pending human approval requests."""
+        """查看等待人工审批的请求。"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.poutput("pending: <none>")
+            self.poutput("等待审批：<无>")
             return
         self._print_interrupts(interrupts)
 
     def do_approve(self, _: str) -> None:
-        """Approve pending patch application and resume the AI terminal graph."""
+        """批准等待中的补丁应用请求，并恢复 AI 终端图执行。"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.perror("no pending approval")
+            self.perror("当前没有等待审批的操作。")
             return
         decisions = [approval_decision_for_request(request) for request in interrupt_action_requests(interrupts)]
         self._approval_resume_active = True
@@ -33,10 +33,10 @@ class AITerminalApprovalMixin:
             self._approval_resume_active = False
 
     def do_reject(self, arg: str) -> None:
-        """Reject pending patch application and resume the AI terminal graph: reject [reason]"""
+        """拒绝等待中的补丁应用请求，并恢复 AI 终端图执行：reject [reason]"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.perror("no pending approval")
+            self.perror("当前没有等待审批的操作。")
             return
         message = arg.strip() or "用户拒绝应用补丁。"
         decisions = [{"type": "reject", "message": message} for _ in interrupt_action_requests(interrupts)]

@@ -17,8 +17,5 @@
       ],
       "note": "User-provided temporary AI test service. Keep this in test-plans/config.json for real AI scenario regression until the user removes or rotates it."
     }
-  },
-  "variables": {
-    "default_timeout_ms": 15000
   }
 }

@@ -90,7 +90,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "find_debug_workspace": ToolSpec(
         terminal_tools.find_debug_workspace_tool,
         FindDebugWorkspaceArgs,
-        "按名称、后缀或最近一次查找 debug workspace。",
+        "按名称、后缀或最近一次查找调试工作区。",
     ),
     "generate_debug_patch": ToolSpec(
         terminal_tools.generate_debug_patch_tool,
@@ -117,7 +117,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "list_debug_workspaces": ToolSpec(
         terminal_tools.list_debug_workspaces_tool,
         ListDebugWorkspacesArgs,
-        "列出某个 plan 包的 debug workspace。",
+        "列出某个 plan 包的调试工作区。",
     ),
     "list_output_artifacts": ToolSpec(
         terminal_tools.list_output_artifacts_tool,
@@ -127,7 +127,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "list_plan_packages": ToolSpec(
         list_plan_packages_tool,
         ListPlanPackagesArgs,
-        "列出 plans/ 和 test-plans/ 中可用的 plan 包。",
+        "按当前运行根的 plan_roots 列出可用 plan 包。",
         requires_project_root=True,
     ),
     "patch_debug_workspace_json": ToolSpec(
@@ -138,19 +138,19 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "prepare_failure_debug_workspace": ToolSpec(
         terminal_tools.prepare_failure_debug_workspace_tool,
         PrepareFailureDebugWorkspaceArgs,
-        "基于失败运行证据创建 debug workspace，并在失败步骤前注入诊断。",
+        "基于失败运行证据创建调试工作区，并在失败步骤前注入诊断。",
         requires_project_root=True,
     ),
     "propose_debug_fix": ToolSpec(
         terminal_tools.propose_debug_fix_tool,
         ProposeDebugFixArgs,
-        "在 debug workspace 内生成保守的干净修复候选。",
+        "在调试工作区内生成保守的干净修复候选。",
         requires_project_root=True,
     ),
     "read_debug_workspace": ToolSpec(
         terminal_tools.read_debug_workspace_tool,
         ReadDebugWorkspaceArgs,
-        "读取 debug workspace 结构和文本文件元数据，不加载完整 notes、report 或 patch 正文。",
+        "读取调试工作区结构和文本文件元数据，不加载完整 notes、report 或 patch 正文。",
     ),
     "read_latest_run_report": ToolSpec(
         terminal_tools.read_latest_run_report_tool,
@@ -192,7 +192,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "run_debug_plan": ToolSpec(
         terminal_tools.run_debug_plan_tool,
         RunDebugPlanArgs,
-        "运行 debug workspace 内的 injected-plan/plan.json。",
+        "运行调试工作区内的 injected-plan/plan.json。",
         requires_project_root=True,
     ),
     "run_plan": ToolSpec(
@@ -204,7 +204,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "validate_debug_plan": ToolSpec(
         terminal_tools.validate_debug_plan_tool,
         ValidateDebugPlanArgs,
-        "校验 debug workspace 内的 injected-plan/plan.json。",
+        "校验调试工作区内的 injected-plan/plan.json。",
         requires_project_root=True,
     ),
     "validate_plan": ToolSpec(

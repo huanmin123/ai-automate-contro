@@ -15,11 +15,11 @@ MAX_GREP_LINE_CHARS = 1_000
 MAX_FILE_SLICE_LINES = 200
 MAX_FILE_SLICE_BYTES = 64_000
 RIPGREP_INSTALL_MESSAGE = (
-    "ripgrep (rg) is required for AI terminal text search. "
-    "This project does not fall back to Windows built-in search. "
-    "Install it from PowerShell 7 with: winget install --id BurntSushi.ripgrep.MSVC -e "
-    "Then verify with: rg --version. "
-    "If you want the assistant to install it globally, confirm that before running the install command."
+    "AI 终端文本搜索必须安装 ripgrep (rg)。"
+    "本项目不使用 Windows 内置搜索兜底。"
+    "请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e。"
+    "安装后执行 rg --version 验证。"
+    "如果希望助手帮你全局安装，请先明确确认。"
 )
 
 
@@ -35,7 +35,7 @@ def grep_project_text_tool(
     max_matches: int = 50,
 ) -> dict[str, Any]:
     if not pattern:
-        raise ValueError("grep_project_text requires a non-empty pattern.")
+        raise ValueError("grep_project_text 需要非空 pattern。")
     assert_ripgrep_available()
     project_root_path = Path(project_root).resolve()
     search_root = resolve_project_path(project_root_path, root_path)
@@ -75,7 +75,7 @@ def grep_project_text_tool(
     except FileNotFoundError as error:
         raise RuntimeError(RIPGREP_INSTALL_MESSAGE) from error
     if completed.returncode not in {0, 1}:
-        raise RuntimeError(completed.stderr.strip() or "rg failed")
+        raise RuntimeError(completed.stderr.strip() or "rg 执行失败。")
 
     matches: list[dict[str, Any]] = []
     match_count = 0
@@ -147,7 +147,7 @@ def read_project_file_slice_tool(
     project_root_path = Path(project_root).resolve()
     file_path = resolve_project_path(project_root_path, path)
     if not file_path.exists() or not file_path.is_file():
-        raise FileNotFoundError(f"File does not exist: {file_path}")
+        raise FileNotFoundError(f"文件不存在：{file_path}")
 
     resolved_start_line = max(1, int(start_line))
     resolved_line_count = clamp_int(line_count, minimum=1, maximum=MAX_FILE_SLICE_LINES)
@@ -195,9 +195,9 @@ def resolve_project_path(project_root: Path, raw_path: str | Path) -> Path:
         candidate = project_root / candidate
     resolved = candidate.resolve()
     if not is_relative_to(resolved, project_root):
-        raise ValueError("Path must stay inside the project root.")
+        raise ValueError("路径必须位于项目根目录内。")
     if is_forbidden_read_path(resolved.relative_to(project_root)):
-        raise ValueError("Refusing to read/search cache, checkpoint, git, pyc, or egg-info paths.")
+        raise ValueError("拒绝读取或搜索缓存、checkpoint、git、pyc 或 egg-info 路径。")
     return resolved
 
 

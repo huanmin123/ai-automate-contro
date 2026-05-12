@@ -13,7 +13,7 @@ from ai_automate_contro.plans.validator import validate_plan_file
 def print_validation_result(raw_plan_path: str | Path, project_root: Path) -> int:
     result = validate_plan_file(raw_plan_path, project_root)
     if result.ok:
-        print(f"plan valid: {result.plan_path}")
+        print(f"计划校验通过：{result.plan_path}")
         return 0
     for error in result.errors:
         print(f"错误：{error.format()}")
@@ -29,7 +29,7 @@ def print_plan_list(project_root: Path, filter_text: str) -> None:
         summary = summarize_plan(plan_path, project_root)
         print(
             f"{index:02d}. {summary['relative_path']} "
-            f"| name={summary['name']} | steps={summary['steps']}"
+            f"| 名称={summary['name']} | 步骤数={summary['steps']}"
         )
 
 
@@ -41,6 +41,7 @@ def run_plan(
     output_dir: str | Path | None = None,
     variable_overrides: dict[str, Any] | None = None,
     manual_confirmation_handler: Any | None = None,
+    inspection_confirmation_handler: Any | None = None,
 ) -> Any:
     document = load_plan(raw_plan_path)
     document_type = detect_document_type(document)
@@ -54,6 +55,7 @@ def run_plan(
         output_dir=output_dir,
         variable_overrides=variable_overrides,
         manual_confirmation_handler=manual_confirmation_handler,
+        inspection_confirmation_handler=inspection_confirmation_handler,
     )
 
 

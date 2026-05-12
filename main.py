@@ -5,6 +5,14 @@ import sys
 from pathlib import Path
 
 
+def configure_terminal_encoding() -> None:
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            reconfigure(encoding="utf-8", errors="replace")
+
+
 def resolve_project_root(source_root: Path) -> Path:
     raw_project_root = os.environ.get("AI_AUTOMATE_PROJECT_ROOT")
     if raw_project_root:
@@ -14,6 +22,7 @@ def resolve_project_root(source_root: Path) -> Path:
     return source_root
 
 
+configure_terminal_encoding()
 SOURCE_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = resolve_project_root(SOURCE_ROOT)
 if not getattr(sys, "frozen", False):

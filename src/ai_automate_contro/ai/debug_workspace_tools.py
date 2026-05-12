@@ -41,8 +41,8 @@ def generate_debug_patch_tool(workspace: str | Path) -> dict[str, Any]:
         "patch_path": str(result.patch_path),
         "patch_size": patch_size,
         "next_actions": [
-            "Use grep_project_text to search patch.diff for targeted changes.",
-            "Use read_project_file_slice to inspect only the needed patch line range.",
+            "先用 grep_project_text 搜索 patch.diff 中的目标变更。",
+            "再用 read_project_file_slice 只读取必要的 patch 行段。",
         ],
     }
 
@@ -92,8 +92,8 @@ def read_debug_workspace_tool(workspace: str | Path) -> dict[str, Any]:
             "patch": debug_text_metadata(Path(manifest["patch_path"]).resolve()),
         },
         "next_actions": [
-            "Use grep_project_text against the workspace to locate relevant notes, report, or patch lines.",
-            "Use read_project_file_slice for the specific line range you need.",
+            "先用 grep_project_text 在 workspace 中定位相关 notes、report 或 patch 行。",
+            "再用 read_project_file_slice 读取需要的小范围行段。",
         ],
     }
 
@@ -131,13 +131,13 @@ def write_debug_workspace_file_tool(
         relative_path=relative_path,
     )
     if content is None and json_value is None:
-        raise ValueError("write_debug_workspace_file requires content or json_value.")
+        raise ValueError("write_debug_workspace_file 需要 content 或 json_value。")
     if content is not None and json_value is not None:
-        raise ValueError("write_debug_workspace_file accepts only one of content or json_value.")
+        raise ValueError("write_debug_workspace_file 的 content 和 json_value 只能提供一个。")
     if mode not in {"overwrite", "append"}:
-        raise ValueError("mode must be overwrite or append.")
+        raise ValueError("mode 必须是 overwrite 或 append。")
     if mode == "append" and root == "injected-plan":
-        raise ValueError("append mode is only allowed for notes and report.")
+        raise ValueError("append 模式只允许用于 notes 和 report。")
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if json_value is not None:
@@ -174,19 +174,19 @@ def patch_debug_workspace_json_tool(
         relative_path=relative_path,
     )
     if root.strip().lower() != "injected-plan":
-        raise ValueError("patch_debug_workspace_json can only patch files under injected-plan/.")
+        raise ValueError("patch_debug_workspace_json 只能修改 injected-plan/ 下的文件。")
     if target_path.suffix.lower() != ".json":
-        raise ValueError("patch_debug_workspace_json requires a .json target file.")
+        raise ValueError("patch_debug_workspace_json 的目标文件必须是 .json。")
     if not target_path.exists() or not target_path.is_file():
-        raise FileNotFoundError(f"Debug JSON file does not exist: {target_path}")
+        raise FileNotFoundError(f"debug JSON 文件不存在：{target_path}")
     if not isinstance(operations, list) or not operations:
-        raise ValueError("operations must be a non-empty array.")
+        raise ValueError("operations 必须是非空数组。")
 
     original_text = read_text_preserve_newlines(target_path)
     try:
         document = json.loads(original_text)
     except json.JSONDecodeError as error:
-        raise ValueError(f"Target file is not valid JSON: {error.msg}") from error
+        raise ValueError(f"目标文件不是有效 JSON：{error.msg}") from error
 
     normalized_operations = [normalize_json_patch_operation(operation) for operation in operations]
     updated_document = apply_json_patch_operations(document, normalized_operations)

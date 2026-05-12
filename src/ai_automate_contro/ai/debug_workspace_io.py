@@ -8,15 +8,15 @@ from typing import Any, Callable
 def read_debug_manifest(workspace_root: Path) -> dict[str, Any]:
     manifest_path = workspace_root / "manifest.json"
     if not manifest_path.exists():
-        raise FileNotFoundError(f"debug workspace 缺少 manifest.json：{manifest_path}")
+        raise FileNotFoundError(f"调试工作区缺少 manifest.json：{manifest_path}")
     with manifest_path.open("r", encoding="utf-8") as file:
         manifest = json.load(file)
     if not isinstance(manifest, dict):
-        raise ValueError(f"debug workspace manifest.json 必须是 JSON 对象：{manifest_path}")
+        raise ValueError(f"调试工作区 manifest.json 必须是 JSON 对象：{manifest_path}")
     required = ("source_copy_dir", "injected_plan_dir", "notes_path", "report_path", "patch_path")
     for key in required:
         if key not in manifest:
-            raise ValueError(f"debug workspace manifest.json 缺少 {key}：{manifest_path}")
+            raise ValueError(f"调试工作区 manifest.json 缺少 {key}：{manifest_path}")
     return manifest
 
 
@@ -46,23 +46,23 @@ def resolve_debug_write_path(manifest: dict[str, Any], *, root: str, relative_pa
     if normalized_root == "report":
         return Path(manifest["report_path"]).resolve()
     if normalized_root != "injected-plan":
-        raise ValueError("root must be injected-plan, notes, or report.")
+        raise ValueError("root 必须是 injected-plan、notes 或 report。")
 
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
     raw_path = Path(relative_path)
     if raw_path.is_absolute():
-        raise ValueError("relative_path must be relative to injected-plan/.")
+        raise ValueError("relative_path 必须是相对于 injected-plan/ 的路径。")
     if not raw_path.parts:
-        raise ValueError("relative_path cannot be empty.")
+        raise ValueError("relative_path 不能为空。")
     if is_forbidden_debug_write_path(raw_path):
-        raise ValueError(f"Refusing to write forbidden debug path: {relative_path}")
+        raise ValueError(f"拒绝写入禁止的 debug 路径：{relative_path}")
     if not is_allowed_plan_package_write_path(raw_path):
         raise ValueError(
-            "Debug writes under injected-plan are limited to plan.json, config.json, docs/, resources/, and sub-plans/."
+            "injected-plan 下只允许写入 plan.json、config.json、docs/、resources/ 和 sub-plans/。"
         )
     target_path = (injected_plan_dir / raw_path).resolve()
     if not is_relative_to(target_path, injected_plan_dir):
-        raise ValueError("relative_path must stay inside injected-plan/.")
+        raise ValueError("relative_path 必须位于 injected-plan/ 内。")
     return target_path
 
 
@@ -110,13 +110,13 @@ def reset_injected_file_to_source(manifest: dict[str, Any], relative_path: str) 
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
     raw_path = Path(relative_path)
     if raw_path.is_absolute() or is_forbidden_debug_write_path(raw_path):
-        raise ValueError(f"Refusing to reset forbidden debug path: {relative_path}")
+        raise ValueError(f"拒绝重置禁止的 debug 路径：{relative_path}")
     source_path = (source_copy_dir / raw_path).resolve()
     target_path = (injected_plan_dir / raw_path).resolve()
     if not is_relative_to(source_path, source_copy_dir) or not is_relative_to(target_path, injected_plan_dir):
-        raise ValueError("Debug reset path must stay inside source-copy/ and injected-plan/.")
+        raise ValueError("debug 重置路径必须位于 source-copy/ 和 injected-plan/ 内。")
     if not source_path.exists() or not source_path.is_file():
-        raise FileNotFoundError(f"Source debug file does not exist: {source_path}")
+        raise FileNotFoundError(f"源 debug 文件不存在：{source_path}")
     target_path.parent.mkdir(parents=True, exist_ok=True)
     target_path.write_bytes(source_path.read_bytes())
 

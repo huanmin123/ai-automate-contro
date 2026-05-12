@@ -134,8 +134,9 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 run_name=args.run_name,
                 output_dir=args.output_dir,
                 variable_overrides={},
+                inspection_confirmation_handler=_confirm_post_run_inspection,
             )
-            print(f"plan 运行结果 {plan_result.status}：{plan_result.output_dir}")
+            print(f"计划运行结果 {plan_result.status}：{plan_result.output_dir}")
             return 0
         if args.plan_command == "debug-create":
             workspace = create_debug_workspace(args.file, project_root, name=args.name)
@@ -218,3 +219,9 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 1
+
+
+def _confirm_post_run_inspection(prompt: str) -> bool:
+    print(prompt, end="", flush=True)
+    input()
+    return True

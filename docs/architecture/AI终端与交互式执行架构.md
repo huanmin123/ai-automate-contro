@@ -122,7 +122,7 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
-图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[Image #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
+图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[图片 #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
 
 补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 

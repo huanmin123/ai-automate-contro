@@ -28,7 +28,7 @@ def _load_json_object(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
         data = json.load(file)
     if not isinstance(data, dict):
-        raise ValueError(f"Plan config must be a JSON object: {path}")
+        raise ValueError(f"plan config 必须是 JSON 对象：{path}")
     return data
 
 

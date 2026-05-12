@@ -49,9 +49,9 @@ class AITerminalCommandsMixin:
                     "  compress [reason]               压缩并归档当前会话。",
                     "  history [limit]                 只查看最近几条消息。",
                     "  render [markdown|plain]         查看或切换 AI 回复显示方式。",
-                    "  Alt+V / Ctrl+V                  从剪贴板粘贴截图，并在输入行显示 [Image #n]。",
+                    "  Alt+V / Ctrl+V                  从剪贴板粘贴截图，并在输入行显示 [图片 #n]。",
                     "  image <image-path>              兜底：把本地图片文件加入下一条消息。",
-                    "  use|workspace|run_context        设置当前 plan、debug workspace 或运行输出上下文。",
+                    "  use|workspace|run_context        设置当前 plan、调试工作区或运行输出上下文。",
                     "  tools [name]                    列出 AI 终端工具，或查看某个工具 schema。",
                     "  pending|approve|reject <reason>  处理受保护补丁审批。",
                     "也支持斜杠形式，例如 /status、/sessions、/resume 1。",
@@ -98,9 +98,9 @@ class AITerminalCommandsMixin:
     def do_cancel(self, _: str) -> None:
         """清理上一轮残留的忙碌状态。"""
         if not self._cancel_agent_turn():
-            self.poutput("cancel：当前没有正在等待的 AI 回复")
+            self.poutput("取消：当前没有正在等待的 AI 回复。")
             return
-        self.poutput("cancel：已清理残留的 AI 等待状态")
+        self.poutput("取消：已清理残留的 AI 等待状态。")
 
     def do_sessions(self, arg: str) -> None:
         """列出已保存的 AI 会话：sessions [limit|all] [--json]"""
@@ -110,7 +110,7 @@ class AITerminalCommandsMixin:
         limit = SESSION_LIST_LIMIT_DEFAULT
         if parts:
             if len(parts) > 1:
-                self.perror("usage: sessions [limit|all] [--json]")
+                self.perror("用法：sessions [limit|all] [--json]")
                 return
             if parts[0].lower() == "all":
                 limit = SESSION_LIST_LIMIT_MAX
@@ -118,7 +118,7 @@ class AITerminalCommandsMixin:
                 try:
                     limit = int(parts[0])
                 except ValueError:
-                    self.perror("usage: sessions [limit|all] [--json]")
+                    self.perror("用法：sessions [limit|all] [--json]")
                     return
         try:
             sessions = list_ai_terminal_sessions(self.checkpointer, project_root=self.project_root, limit=limit)
@@ -206,7 +206,7 @@ class AITerminalCommandsMixin:
             self.poutput(f"AI 回复显示方式：{getattr(self, 'response_render_mode', 'plain')}")
             return
         if raw not in {"markdown", "md", "rich", "plain", "raw", "text"}:
-            self.perror("usage: render [markdown|plain]")
+            self.perror("用法：render [markdown|plain]")
             return
         self.response_render_mode = normalize_response_render_mode(raw)
         self.poutput(f"AI 回复显示方式：{self.response_render_mode}")
@@ -241,19 +241,19 @@ class AITerminalCommandsMixin:
             self.poutput(f"最近输出：{latest_output}")
 
     def do_workspace(self, arg: str) -> None:
-        """设置或查看当前 debug workspace：workspace [output/debug/<run>]"""
+        """设置或查看当前调试工作区：workspace [output/debug/<run>]"""
         raw_path = arg.strip()
         if not raw_path:
             workspace = self._context_state().get("current_debug_workspace") or "<无>"
-            self.poutput(f"当前 debug workspace：{workspace}")
+            self.poutput(f"当前调试工作区：{workspace}")
             return
         workspace = Path(raw_path).resolve()
         if not workspace.exists():
-            self.perror(f"debug workspace does not exist: {workspace}")
+            self.perror(f"调试工作区不存在：{workspace}")
             return
         self._update_context_state({"current_debug_workspace": str(workspace)})
         self._sync_current_session_index()
-        self.poutput(f"当前 debug workspace：{workspace}")
+        self.poutput(f"当前调试工作区：{workspace}")
 
     def do_run_context(self, arg: str) -> None:
         """设置或查看最近运行输出上下文：run_context [output-dir]"""
@@ -313,10 +313,10 @@ class AITerminalCommandsMixin:
         try:
             limit = int(arg.strip()) if arg.strip() else 12
         except ValueError:
-            self.perror("usage: history [limit]")
+            self.perror("用法：history [limit]")
             return
         if limit <= 0:
-            self.perror("limit must be greater than 0")
+            self.perror("数量必须大于 0。")
             return
         messages = self._current_messages()[-limit:]
         if not messages:
@@ -335,7 +335,7 @@ class AITerminalCommandsMixin:
     def _add_image_file(self, arg: str) -> None:
         command = arg.strip()
         if not command:
-            self.perror("usage: image <image-path>")
+            self.perror("用法：image <image-path>")
             return
         try:
             attachment = attach_image_file(

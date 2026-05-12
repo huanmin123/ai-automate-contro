@@ -29,10 +29,10 @@ class OutputCommandsMixin:
         try:
             line_count = int(arg.strip()) if arg.strip() else 80
         except ValueError:
-            self.perror("usage: logs [lines]")
+            self.perror("用法：logs [lines]")
             return
         if line_count <= 0:
-            self.perror("lines must be greater than 0")
+            self.perror("行数必须大于 0。")
             return
 
         output_dir = self._resolve_latest_output_dir()
@@ -52,10 +52,10 @@ class OutputCommandsMixin:
         try:
             line_count = int(arg.strip()) if arg.strip() else 40
         except ValueError:
-            self.perror("usage: events [lines]")
+            self.perror("用法：events [lines]")
             return
         if line_count <= 0:
-            self.perror("lines must be greater than 0")
+            self.perror("行数必须大于 0。")
             return
 
         output_dir = self._resolve_latest_output_dir()
@@ -85,13 +85,13 @@ class OutputCommandsMixin:
             try:
                 limit = int(parts[1])
             except ValueError:
-                self.perror("usage: artifacts [filter] [limit]")
+                self.perror("用法：artifacts [filter] [limit]")
                 return
         elif len(parts) > 2:
-            self.perror("usage: artifacts [filter] [limit]")
+            self.perror("用法：artifacts [filter] [limit]")
             return
         if limit <= 0:
-            self.perror("limit must be greater than 0")
+            self.perror("数量必须大于 0。")
             return
         try:
             plan_path = self._require_current_plan()

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from ai_automate_contro.app.runtime_config import has_runtime_config, plan_roots_for_project
+from ai_automate_contro.app.runtime_config import plan_roots_for_project
 from ai_automate_contro.plans.loader import load_plan
 
 
@@ -20,7 +20,7 @@ def create_plan_package(
     if package_dir.exists():
         existing_items = list(package_dir.iterdir())
         if existing_items and not force:
-            raise FileExistsError(f"Plan package directory is not empty: {package_dir}")
+            raise FileExistsError(f"plan 包目录非空：{package_dir}")
     package_dir.mkdir(parents=True, exist_ok=True)
 
     plan_name = name or package_dir.name
@@ -41,7 +41,6 @@ def create_plan_package(
         package_dir / "config.json",
         {
             "description": f"Local config for {plan_name}.",
-            "variables": {},
         },
     )
     (package_dir / "sub-plans").mkdir(exist_ok=True)
@@ -62,11 +61,9 @@ def create_plan_package(
 def default_plan_package_dir(project_root: Path, *, name: str) -> Path:
     slug = slugify_plan_name(name)
     roots = plan_roots_for_project(project_root)
-    if has_runtime_config(project_root):
-        if not roots:
-            raise ValueError("plan.config must define at least one plan root.")
-        return roots[0] / slug
-    return project_root / "test-plans" / "ai-generated" / slug
+    if not roots:
+        raise ValueError("plan.config 必须至少定义一个 plan root。")
+    return roots[0] / slug
 
 
 def slugify_plan_name(name: str) -> str:

@@ -10,188 +10,188 @@ class ToolArgsModel(BaseModel):
 
 
 class ListPlanPackagesArgs(ToolArgsModel):
-    filter_text: str = Field(default="", description="Optional text filter.")
+    filter_text: str = Field(default="", description="可选文本过滤条件。")
 
 
 class InspectWebPageArgs(ToolArgsModel):
-    url: str = Field(..., description="HTTP(S) URL, file URL, or local project file to inspect before creating browser steps.")
-    wait_until: str = Field(default="domcontentloaded", description="Playwright navigation wait state: commit, domcontentloaded, load, or networkidle.")
-    timeout_ms: int = Field(default=15_000, description="Navigation timeout in milliseconds; clamped to a safe maximum.")
-    wait_ms: int = Field(default=1_000, description="Extra wait after navigation in milliseconds for client-rendered content; clamped.")
-    max_elements: int = Field(default=80, description="Maximum visible headings, fields, buttons, links, forms, and tables to return; clamped.")
-    text_limit: int = Field(default=6_000, description="Maximum body text preview characters to return; clamped.")
-    headed: bool = Field(default=False, description="Show a browser window for manual observation. Use false unless the user needs to watch.")
+    url: str = Field(..., description="创建浏览器步骤前要检查的 HTTP(S) URL、file URL 或本地项目文件。")
+    wait_until: str = Field(default="domcontentloaded", description="Playwright 导航等待状态：commit、domcontentloaded、load 或 networkidle。")
+    timeout_ms: int = Field(default=15_000, description="导航超时时间，单位毫秒；工具会限制到安全上限。")
+    wait_ms: int = Field(default=1_000, description="导航后额外等待时间，单位毫秒，用于客户端渲染内容；工具会限制。")
+    max_elements: int = Field(default=80, description="最多返回的可见标题、字段、按钮、链接、表单和表格数量；工具会限制。")
+    text_limit: int = Field(default=6_000, description="最多返回的正文预览字符数；工具会限制。")
+    headed: bool = Field(default=False, description="是否显示浏览器窗口供人工观察；除非用户需要看窗口，否则使用 false。")
 
 
 class GrepProjectTextArgs(ToolArgsModel):
-    pattern: str = Field(..., description="Text or regex pattern to search for with ripgrep.")
-    root_path: str = Field(default=".", description="Project-relative directory or file to search.")
-    literal: bool = Field(default=True, description="Use fixed-string search instead of regex.")
-    include_output: bool = Field(default=False, description="Include plan output/ directories when explicitly needed.")
-    file_glob: str = Field(default="", description="Optional ripgrep glob, for example *.md or **/*.json.")
-    context_lines: int = Field(default=0, description="Context lines around matches; clamped to a small maximum.")
-    max_matches: int = Field(default=50, description="Maximum match lines to return; clamped to a small maximum.")
+    pattern: str = Field(..., description="要用 ripgrep 搜索的文本或正则表达式。")
+    root_path: str = Field(default=".", description="要搜索的项目相对目录或文件。")
+    literal: bool = Field(default=True, description="使用固定字符串搜索，而不是正则表达式。")
+    include_output: bool = Field(default=False, description="只有明确需要时才包含 plan output/ 目录。")
+    file_glob: str = Field(default="", description="可选 ripgrep glob，例如 *.md 或 **/*.json。")
+    context_lines: int = Field(default=0, description="命中附近的上下文行数；工具会限制到较小上限。")
+    max_matches: int = Field(default=50, description="最多返回的命中行数；工具会限制到较小上限。")
 
 
 class ReadProjectFileSliceArgs(ToolArgsModel):
-    path: str = Field(..., description="Project-relative or absolute path under the project root.")
-    start_line: int = Field(default=1, description="1-based first line to read.")
-    line_count: int = Field(default=80, description="Number of lines to read; clamped to a small maximum.")
-    max_bytes: int = Field(default=64_000, description="Maximum text bytes to return; clamped to a small maximum.")
+    path: str = Field(..., description="项目相对路径，或项目根目录下的绝对路径。")
+    start_line: int = Field(default=1, description="要读取的起始行，按 1 开始计数。")
+    line_count: int = Field(default=80, description="要读取的行数；工具会限制到较小上限。")
+    max_bytes: int = Field(default=64_000, description="最多返回的文本字节数；工具会限制到较小上限。")
 
 
 class ReadPlanPackageArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
 
 class CreatePlanPackageArgs(ToolArgsModel):
-    package_path: str | None = Field(default=None, description="Target plan package directory. If omitted, the tool uses the configured default plan root and the plan name.")
-    name: str | None = Field(default=None, description="Plan name. Required when package_path is omitted.")
-    force: bool = Field(default=False, description="Allow using an existing non-empty package directory.")
+    package_path: str | None = Field(default=None, description="目标 plan 包目录。省略时使用配置的默认 plan 根目录和 plan 名称。")
+    name: str | None = Field(default=None, description="plan 名称。省略 package_path 时必填。")
+    force: bool = Field(default=False, description="允许使用已有的非空包目录。")
 
 
 class WritePlanPackageFileArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    relative_path: str = Field(..., description="Allowed path inside the plan package: plan.json, config.json, docs/**, resources/**, or sub-plans/*-plan.json.")
-    content: str | None = Field(default=None, description="Text content to write.")
-    json_value: Any = Field(default=None, description="JSON value alternative to content for plan/config/sub-plan JSON files.")
-    mode: str = Field(default="overwrite", description="Write mode: overwrite or append.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    relative_path: str = Field(..., description="plan 包内允许写入的路径：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。")
+    content: str | None = Field(default=None, description="要写入的文本内容。")
+    json_value: Any = Field(default=None, description="写入 plan/config/sub-plan JSON 文件时可替代 content 的 JSON 值。")
+    mode: str = Field(default="overwrite", description="写入模式：overwrite 或 append。")
 
 
 class ValidatePlanArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
 
 class RunPlanArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    run_name: str | None = Field(default=None, description="Optional run name.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    run_name: str | None = Field(default=None, description="可选运行名称。")
     variable_overrides: dict[str, Any] = Field(
         default_factory=dict,
-        description="Temporary variable overrides.",
+        description="临时变量覆盖。",
     )
 
 
 class ReadLatestRunStateArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
 
 class ReadLatestRunReportArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
 
 class AnalyzeLatestRunFailureArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    output_dir: str | None = Field(default=None, description="Optional specific run output directory.")
-    log_lines: int = Field(default=80, description="Number of log lines to include.")
-    event_lines: int = Field(default=80, description="Number of event lines to include.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    output_dir: str | None = Field(default=None, description="可选的指定运行输出目录。")
+    log_lines: int = Field(default=80, description="要包含的日志行数。")
+    event_lines: int = Field(default=80, description="要包含的事件行数。")
 
 
 class ReadRunLogArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    output_dir: str | None = Field(default=None, description="Optional specific run output directory.")
-    lines: int = Field(default=80, description="Number of lines to read.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    output_dir: str | None = Field(default=None, description="可选的指定运行输出目录。")
+    lines: int = Field(default=80, description="要读取的行数。")
 
 
 class ReadRunEventsArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    output_dir: str | None = Field(default=None, description="Optional specific run output directory.")
-    lines: int = Field(default=40, description="Number of events to read.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    output_dir: str | None = Field(default=None, description="可选的指定运行输出目录。")
+    lines: int = Field(default=40, description="要读取的事件数量。")
 
 
 class ListOutputArtifactsArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    filter_text: str = Field(default="", description="Optional artifact filter.")
-    limit: int = Field(default=100, description="Maximum number of artifacts to return.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    filter_text: str = Field(default="", description="可选产物过滤条件。")
+    limit: int = Field(default=100, description="最多返回的产物数量。")
 
 
 class ReadOutputArtifactArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    relative_path: str = Field(..., description="Path relative to the plan package output/ directory.")
-    max_bytes: int = Field(default=64_000, description="Maximum text bytes to return; tool clamps oversized requests.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    relative_path: str = Field(..., description="相对于 plan 包 output/ 目录的路径。")
+    max_bytes: int = Field(default=64_000, description="最多返回的文本字节数；工具会限制过大的请求。")
 
 
 class CreateDebugWorkspaceArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    name: str | None = Field(default=None, description="Optional debug workspace name suffix.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    name: str | None = Field(default=None, description="可选调试工作区名称后缀。")
 
 
 class ListDebugWorkspacesArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
 
 class FindDebugWorkspaceArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    name: str | None = Field(default=None, description="Optional workspace name or suffix.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    name: str | None = Field(default=None, description="可选调试工作区名称或后缀。")
 
 
 class ReadDebugWorkspaceArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
+    workspace: str = Field(..., description="调试工作区根路径。")
 
 
 class PrepareFailureDebugWorkspaceArgs(ToolArgsModel):
-    plan_path: str = Field(..., description="Path to plan.json or a plan package directory.")
-    output_dir: str | None = Field(default=None, description="Optional failed run output directory.")
-    name: str | None = Field(default=None, description="Optional debug workspace name suffix.")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    output_dir: str | None = Field(default=None, description="可选失败运行输出目录。")
+    name: str | None = Field(default=None, description="可选调试工作区名称后缀。")
     include_manual_confirm: bool = Field(
         default=False,
-        description="Whether to inject manual_confirm before the failed step.",
+        description="是否在失败步骤前注入 manual_confirm。",
     )
 
 
 class InjectDebugStepsArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
-    presets: list[str] = Field(..., description="Diagnostic presets to inject.")
-    message: str | None = Field(default=None, description="Message for print or manual_confirm presets.")
-    browser: str | None = Field(default=None, description="Browser session name for screenshot/html presets.")
-    page: str | None = Field(default=None, description="Page name for screenshot/html presets.")
-    position: str = Field(default="end", description="Injection position: start, end, before_step, or after_step.")
-    step: int | None = Field(default=None, description="1-based anchor step for before_step or after_step.")
+    workspace: str = Field(..., description="调试工作区根路径。")
+    presets: list[str] = Field(..., description="要注入的诊断预设。")
+    message: str | None = Field(default=None, description="print 或 manual_confirm 预设使用的消息。")
+    browser: str | None = Field(default=None, description="screenshot/html 预设使用的浏览器会话名。")
+    page: str | None = Field(default=None, description="screenshot/html 预设使用的页面名。")
+    position: str = Field(default="end", description="注入位置：start、end、before_step 或 after_step。")
+    step: int | None = Field(default=None, description="before_step 或 after_step 使用的 1-based 锚点步骤。")
 
 
 class WriteDebugWorkspaceFileArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
-    root: str = Field(default="injected-plan", description="Target root: injected-plan, notes, or report.")
-    relative_path: str = Field(default="plan.json", description="Path under injected-plan; ignored for notes/report.")
-    content: str | None = Field(default=None, description="Text content to write.")
-    json_value: Any = Field(default=None, description="JSON value alternative to content.")
-    mode: str = Field(default="overwrite", description="Write mode: overwrite or append.")
+    workspace: str = Field(..., description="调试工作区根路径。")
+    root: str = Field(default="injected-plan", description="目标根目录：injected-plan、notes 或 report。")
+    relative_path: str = Field(default="plan.json", description="injected-plan 下的路径；notes/report 会忽略该字段。")
+    content: str | None = Field(default=None, description="要写入的文本内容。")
+    json_value: Any = Field(default=None, description="可替代 content 的 JSON 值。")
+    mode: str = Field(default="overwrite", description="写入模式：overwrite 或 append。")
 
 
 class PatchDebugWorkspaceJsonArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
-    root: str = Field(default="injected-plan", description="Target root; must be injected-plan.")
-    relative_path: str = Field(default="plan.json", description="JSON file path under injected-plan.")
-    operations: list[dict[str, Any]] = Field(..., description="JSON patch operations.")
+    workspace: str = Field(..., description="调试工作区根路径。")
+    root: str = Field(default="injected-plan", description="目标根目录；必须是 injected-plan。")
+    relative_path: str = Field(default="plan.json", description="injected-plan 下的 JSON 文件路径。")
+    operations: list[dict[str, Any]] = Field(..., description="JSON patch 操作数组。")
 
 
 class ProposeDebugFixArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
-    user_hint: str = Field(default="", description="Optional user hint used to rank candidates.")
-    apply: bool = Field(default=False, description="Write the selected clean fix candidate to injected-plan/.")
-    run_after_apply: bool = Field(default=False, description="Run the debug plan after applying the candidate.")
-    run_name: str | None = Field(default=None, description="Optional run name when run_after_apply is true.")
+    workspace: str = Field(..., description="调试工作区根路径。")
+    user_hint: str = Field(default="", description="可选用户提示，用于排序候选。")
+    apply: bool = Field(default=False, description="把选中的干净修复候选写入 injected-plan/。")
+    run_after_apply: bool = Field(default=False, description="应用候选后运行调试 plan。")
+    run_name: str | None = Field(default=None, description="run_after_apply 为 true 时使用的可选运行名称。")
 
 
 class ValidateDebugPlanArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
+    workspace: str = Field(..., description="调试工作区根路径。")
 
 
 class RunDebugPlanArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
-    run_name: str | None = Field(default=None, description="Optional run name.")
+    workspace: str = Field(..., description="调试工作区根路径。")
+    run_name: str | None = Field(default=None, description="可选运行名称。")
     variable_overrides: dict[str, Any] = Field(
         default_factory=dict,
-        description="Temporary variable overrides.",
+        description="临时变量覆盖。",
     )
 
 
 class GenerateDebugPatchArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
+    workspace: str = Field(..., description="调试工作区根路径。")
 
 
 class ApplyDebugPatchAfterApprovalArgs(ToolArgsModel):
-    workspace: str = Field(..., description="Debug workspace root path.")
+    workspace: str = Field(..., description="调试工作区根路径。")
     approved: bool = Field(
         default=False,
-        description="Injected by the AI terminal after a human approve decision.",
+        description="AI 终端在人工 approve 后注入的确认字段。",
     )

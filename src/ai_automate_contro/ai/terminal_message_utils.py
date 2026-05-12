@@ -10,7 +10,7 @@ def format_patch_approval_request(tool_call: dict[str, Any], *_: Any) -> str:
     args = tool_call.get("args", {})
     workspace = args.get("workspace", "<unknown>")
     return (
-        "即将把 debug workspace 里的 patch 应用回原始 plan 包。\n"
+        "即将把调试工作区里的 patch 应用回原始 plan 包。\n"
         "请先确认 patch.diff 已检查过，且这次修改只包含你要应用的最小修复。\n"
         f"workspace: {workspace}"
     )
