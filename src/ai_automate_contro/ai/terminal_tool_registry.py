@@ -7,6 +7,7 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from ai_automate_contro.ai import terminal_tools
+from ai_automate_contro.ai.compression_recall import read_compression_archive_tool
 from ai_automate_contro.ai.file_search import grep_project_text_tool, read_project_file_slice_tool
 from ai_automate_contro.ai.plan_tools import (
     create_plan_package_tool,
@@ -31,6 +32,7 @@ from ai_automate_contro.ai.tool_schemas import (
     PatchDebugWorkspaceJsonArgs,
     PrepareFailureDebugWorkspaceArgs,
     ProposeDebugFixArgs,
+    ReadCompressionArchiveArgs,
     ReadDebugWorkspaceArgs,
     ReadLatestRunReportArgs,
     ReadLatestRunStateArgs,
@@ -177,6 +179,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         read_project_file_slice_tool,
         ReadProjectFileSliceArgs,
         "在 grep 或列表定位后，读取某个项目文件的受限行片段。",
+        requires_project_root=True,
+    ),
+    "read_compression_archive": ToolSpec(
+        read_compression_archive_tool,
+        ReadCompressionArchiveArgs,
+        "受限读取当前 AI 终端线程的压缩归档：列出归档、读取摘要、搜索或读取 messages.jsonl 小片段。",
         requires_project_root=True,
     ),
     "read_run_events": ToolSpec(

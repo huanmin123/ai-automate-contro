@@ -24,6 +24,7 @@ def build_langchain_tools(
     *,
     latest_user_approved: Callable[[], bool] | None = None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None = None,
+    thread_id_provider: Callable[[], str] | None = None,
 ) -> list[StructuredTool]:
     _ensure_langchain_tool_registry_consistent()
     return [
@@ -32,6 +33,7 @@ def build_langchain_tools(
             project_root,
             latest_user_approved=latest_user_approved,
             after_tool_call=after_tool_call,
+            thread_id_provider=thread_id_provider,
         )
         for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
@@ -49,6 +51,7 @@ def _build_structured_tool(
     *,
     latest_user_approved: Callable[[], bool] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
+    thread_id_provider: Callable[[], str] | None,
 ) -> StructuredTool:
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
@@ -57,6 +60,7 @@ def _build_structured_tool(
             project_root,
             latest_user_approved=latest_user_approved,
             after_tool_call=after_tool_call,
+            thread_id_provider=thread_id_provider,
         ),
         name=tool_name,
         description=spec.description,
@@ -70,6 +74,7 @@ def _make_tool_function(
     *,
     latest_user_approved: Callable[[], bool] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
+    thread_id_provider: Callable[[], str] | None,
 ) -> Callable[..., str]:
     def _tool(**kwargs: Any) -> str:
         if tool_name == "apply_debug_patch_after_approval":
@@ -77,6 +82,11 @@ def _make_tool_function(
                 raise ValueError("应用 debug patch 需要人工审批流程传入 approved=true。")
             if latest_user_approved is not None and not latest_user_approved():
                 raise ValueError("应用 debug patch 需要当前会话存在有效的人工 approve 恢复状态。")
+        if tool_name == "read_compression_archive" and thread_id_provider is not None:
+            kwargs["thread_id"] = thread_id_provider()
+        elif tool_name == "read_compression_archive" and not kwargs.get("thread_id"):
+            if thread_id_provider is None:
+                raise ValueError("read_compression_archive 需要 thread_id。")
         result = call_ai_terminal_tool(
             tool_name,
             project_root,

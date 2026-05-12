@@ -145,6 +145,7 @@ class AITerminal(
             self.project_root,
             latest_user_approved=self._latest_user_approved,
             after_tool_call=self._after_tool_call,
+            thread_id_provider=lambda: self.thread_id,
         )
         self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(

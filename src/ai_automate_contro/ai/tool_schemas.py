@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -38,6 +38,22 @@ class ReadProjectFileSliceArgs(ToolArgsModel):
     start_line: int = Field(default=1, description="要读取的起始行，按 1 开始计数。")
     line_count: int = Field(default=80, description="要读取的行数；工具会限制到较小上限。")
     max_bytes: int = Field(default=64_000, description="最多返回的文本字节数；工具会限制到较小上限。")
+
+
+class ReadCompressionArchiveArgs(ToolArgsModel):
+    thread_id: str = Field(default="", description="AI 终端 thread id；AI 终端内会自动注入，CLI 手动调用时必填。")
+    mode: Literal["list", "summary", "messages", "manifest", "search"] = Field(
+        default="summary",
+        description="读取模式：list 列归档，summary 读摘要，messages 读消息片段，manifest 读清单，search 搜索归档。",
+    )
+    archive_path: str = Field(default="", description="可选归档目录，或 summary.md/messages.jsonl/manifest.json 路径；省略时使用最近归档。")
+    pattern: str = Field(default="", description="search 模式要搜索的文本或正则表达式。")
+    literal: bool = Field(default=True, description="search 模式是否按固定字符串搜索。")
+    start_line: int = Field(default=1, description="summary/messages 模式读取起始行，按 1 开始计数。")
+    line_count: int = Field(default=80, description="summary/messages 模式读取行数；工具会限制到较小上限。")
+    max_bytes: int = Field(default=64_000, description="summary/messages 模式最多返回文本字节数；工具会限制到较小上限。")
+    max_matches: int = Field(default=50, description="search 模式最多返回命中数；工具会限制到较小上限。")
+    max_archives: int = Field(default=20, description="list 模式最多返回归档数；工具会限制到较小上限。")
 
 
 class ReadPlanPackageArgs(ToolArgsModel):

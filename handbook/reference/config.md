@@ -6,8 +6,7 @@
 
 ## 位置
 
-- `plans/config.json`: 公开示例 plan 集合级配置。
-- `test-plans/config.json`: 测试 plan 集合级配置。
+- `<plan-root>/config.json`: 当前 plan 集合级配置，`plan-root` 来自运行根的 `plan.config.plan_roots`。
 - `plan-package/config.json`: 当前 plan 包局部配置。
 
 局部配置会覆盖集合级配置。嵌套对象递归合并；数组、字符串、数字、布尔值和 `null` 由局部值整体覆盖。
@@ -54,4 +53,4 @@
 }
 ```
 
-公开示例配置不要保存真实密钥。项目测试集合中的临时真实服务由用户主动提供时，可以保留在本机测试配置中。
+不要把真实密钥写入要分发或提交的配置。需要本机真实服务时，只保留在本机运行根的配置中。

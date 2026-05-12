@@ -24,6 +24,7 @@ from ai_automate_contro.ai.image_attachments import (
     expand_message_image_attachments_for_model,
     image_attachment_placeholder,
 )
+from ai_automate_contro.ai.compression_recall import read_compression_archive_tool
 from ai_automate_contro.ai.session_compression import archive_messages, redact_image_data_urls
 from ai_automate_contro.ai.session_store import (
     count_images_in_messages,
@@ -121,6 +122,55 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
                 detail={
                     "messages_path": str(archive.messages_path),
                     "summary_path": str(archive.summary_path),
+                },
+            )
+        )
+        recall_list = read_compression_archive_tool(temp_dir, thread_id="self-check-thread", mode="list")
+        recall_summary = read_compression_archive_tool(temp_dir, thread_id="self-check-thread", mode="summary")
+        recall_messages = read_compression_archive_tool(
+            temp_dir,
+            thread_id="self-check-thread",
+            mode="messages",
+            line_count=2,
+        )
+        recall_search = read_compression_archive_tool(
+            temp_dir,
+            thread_id="self-check-thread",
+            mode="search",
+            pattern="inspect attached screenshot",
+        )
+        denied_cross_thread = False
+        denied_cross_thread_error = ""
+        try:
+            read_compression_archive_tool(
+                temp_dir,
+                thread_id="other-thread",
+                mode="summary",
+                archive_path=str(archive.archive_dir),
+            )
+        except Exception as error:
+            denied_cross_thread = "当前线程" in str(error) or "compressions" in str(error)
+            denied_cross_thread_error = str(error)
+        checks.append(
+            _self_check_result(
+                name="compression_archive_recall_is_bounded",
+                passed=(
+                    bool(recall_list.get("ok"))
+                    and recall_list.get("archive_count") == 1
+                    and bool(recall_summary.get("ok"))
+                    and any(line.get("text") == "summary" for line in recall_summary.get("lines", []))
+                    and bool(recall_messages.get("ok"))
+                    and len(recall_messages.get("messages", [])) == 2
+                    and bool(recall_search.get("ok"))
+                    and recall_search.get("match_count") == 1
+                    and denied_cross_thread
+                ),
+                detail={
+                    "list_archive_count": recall_list.get("archive_count"),
+                    "summary_lines": recall_summary.get("lines"),
+                    "message_count": len(recall_messages.get("messages", [])),
+                    "search_match_count": recall_search.get("match_count"),
+                    "cross_thread_error": denied_cross_thread_error,
                 },
             )
         )

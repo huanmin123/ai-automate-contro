@@ -126,7 +126,7 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 
 补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 
-模型服务从 `test-plans/config.json` 的 `ai_services.default` 读取。该配置当前用于真实 AI 回归，包含用户主动提供的临时测试服务和密钥。
+模型服务从当前运行根的 `default_ai_config_dir/config.json` 读取，默认服务名为 `ai_services.default`。发行包默认使用 `plans/config.json`；源码开发仓库可以通过 `plan.config` 或默认运行配置指向开发回归配置。
 
 ## 交互式执行器
 
@@ -332,7 +332,7 @@ AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [
 
 chat completions streaming 解析有独立本地回归入口 `python .\main.py self-check ai-stream`，用于在不访问模型服务的情况下验证 chunk、reasoning chunk 忽略、SDK 对象和空流拒绝逻辑。
 
-`test-plans/config.json` 可以包含用户提供的临时测试模型服务，用于真实 AI 场景回归；公开示例配置不放真实密钥。
+真实模型服务只保存在本机运行根配置中；需要分发或提交的示例配置不放真实密钥。
 
 ## 设计结论
 
