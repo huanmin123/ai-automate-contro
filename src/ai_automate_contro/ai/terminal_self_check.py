@@ -185,6 +185,8 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
             )
         )
 
+        checks.append(_check_terminal_prompt_strategy())
+        checks.append(_check_terminal_context_suffix_contract())
         checks.extend(_check_session_listing(human_message))
         checks.extend(_check_terminal_command_flow(storage_root, human_message))
         checks.extend(_check_terminal_input_widgets(attachment))
@@ -204,6 +206,92 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         "project_root": str(resolved_project_root),
         "checks": checks,
     }
+
+
+def _check_terminal_prompt_strategy() -> dict[str, Any]:
+    from ai_automate_contro.ai.prompts.terminal import build_system_prompt
+
+    prompt = build_system_prompt()
+    required_fragments = [
+        "开工前判断：",
+        "目标、范围、目标 plan/URL/文件、输入数据、输出要求、登录权限和验收标准",
+        "能通过当前上下文、handbook、plan、output 或只读工具确认的事情",
+        "必须在执行前一次性问清楚",
+        "只问关键缺口",
+        "暂停并说明已有证据、缺口和用户需要完成的动作",
+        "浏览器本地页面优先使用 {{resources_file_url}}",
+        "不要硬编码本机绝对 file URL",
+        "写 plan.json 前必须先拿页面证据",
+        "优先调用 inspect_web_page",
+    ]
+    missing = [fragment for fragment in required_fragments if fragment not in prompt]
+    section_order = [
+        "你的职责：",
+        "边界：",
+        "开工前判断：",
+        "项目约定：",
+        "网页 plan 创建规则：",
+        "工具使用：",
+        "回答要求：",
+    ]
+    positions = {section: prompt.find(section) for section in section_order}
+    order_ok = all(position >= 0 for position in positions.values()) and list(positions.values()) == sorted(positions.values())
+    dynamic_fragments = [
+        "current_plan_path:",
+        "current_debug_workspace:",
+        "latest_output_dir:",
+        "latest_compression_summary_path:",
+        ".keygen/ai-terminal-sessions/",
+    ]
+    dynamic_leakage = [fragment for fragment in dynamic_fragments if fragment in prompt]
+    return _self_check_result(
+        name="terminal_prompt_declares_startup_decision_policy",
+        passed=not missing and order_ok and not dynamic_leakage,
+        detail={
+            "missing": missing,
+            "section_positions": positions,
+            "dynamic_leakage": dynamic_leakage,
+        },
+    )
+
+
+def _check_terminal_context_suffix_contract() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal_context import format_ai_terminal_context
+
+    empty_context = format_ai_terminal_context({})
+    state = {
+        "ignored_dynamic_noise": "should not appear",
+        "latest_compression_archive_dir": ".keygen/ai-terminal-sessions/thread/compressions/archive",
+        "latest_output_dir": "plans/demo/output/run",
+        "current_debug_workspace": "plans/demo/output/debug/run",
+        "latest_compression_messages_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/messages.jsonl",
+        "current_plan_path": "plans/demo/plan.json",
+        "latest_compression_summary_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/summary.md",
+    }
+    context = format_ai_terminal_context(state)
+    repeated_context = format_ai_terminal_context(dict(state))
+    expected_order = [
+        "- current_plan_path:",
+        "- current_debug_workspace:",
+        "- latest_output_dir:",
+        "- latest_compression_summary_path:",
+        "- latest_compression_messages_path:",
+        "- latest_compression_archive_dir:",
+    ]
+    positions = {field: context.find(field) for field in expected_order}
+    order_ok = all(position >= 0 for position in positions.values()) and list(positions.values()) == sorted(positions.values())
+    ignored_unknown = "ignored_dynamic_noise" not in context and "should not appear" not in context
+    guidance_ok = "优先使用这些上下文" in context and "先读取压缩摘要" in context
+    return _self_check_result(
+        name="terminal_context_suffix_is_stable_and_bounded",
+        passed=empty_context == "" and context == repeated_context and order_ok and ignored_unknown and guidance_ok,
+        detail={
+            "empty_context": empty_context,
+            "field_positions": positions,
+            "ignored_unknown": ignored_unknown,
+            "guidance_ok": guidance_ok,
+        },
+    )
 
 
 def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
@@ -465,6 +553,8 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         )
         terminal.forwarded_messages: list[str] = []
         terminal._run_agent_turn = lambda line: terminal.forwarded_messages.append(str(line))
+        terminal.default = lambda line: AITerminal.default(terminal, line)
+        terminal._handle_slash_command = lambda line: AITerminal._handle_slash_command(terminal, line)
         plain_status_message_ok = AITerminal.onecmd(terminal, "status") is False and terminal.forwarded_messages[-1] == "status"
         mid_slash_message_ok = (
             AITerminal.onecmd(terminal, "普通文字 /status") is False
@@ -626,6 +716,7 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
     from prompt_toolkit.document import Document
 
     from ai_automate_contro.ai.terminal import (
+        AITerminal,
         IMAGE_PLACEHOLDER_STYLE,
         ImagePlaceholderLexer,
         SlashCommandCompleter,
@@ -745,6 +836,32 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
         and snap_cursor_out_of_image_placeholder(snap_text, snap_start - 1, previous_cursor=snap_start - 2) == snap_start - 1
     )
 
+    class FakePromptSession:
+        def __init__(self) -> None:
+            self.prompt_kwargs: dict[str, Any] = {}
+
+        def prompt(self, *_args: Any, **kwargs: Any) -> str:
+            self.prompt_kwargs = kwargs
+            return "typed"
+
+    toolbar_state = {"text": "AI 正在处理"}
+    fake_prompt_session = FakePromptSession()
+    toolbar_terminal = object.__new__(AITerminal)
+    toolbar_terminal.project_root = Path(".").resolve()
+    toolbar_terminal.thread_id = "toolbar-check"
+    toolbar_terminal._pending_attachments = []
+    toolbar_terminal._pending_attachment_placeholder_required = []
+    toolbar_terminal._ai_prompt_session = fake_prompt_session
+    typed = AITerminal._read_ai_input_with_images(
+        toolbar_terminal,
+        "ai> ",
+        bottom_toolbar=lambda: toolbar_state["text"],
+    )
+    captured_toolbar = fake_prompt_session.prompt_kwargs.get("bottom_toolbar")
+    toolbar_live_ok = typed == "typed" and callable(captured_toolbar) and captured_toolbar() == "AI 正在处理"
+    toolbar_state["text"] = ""
+    toolbar_live_ok = toolbar_live_ok and callable(captured_toolbar) and captured_toolbar() is None
+
     class FakeCompletionState:
         def __init__(self) -> None:
             self.completions = ["one", "two"]
@@ -813,12 +930,25 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
             passed=snap_ok,
             detail={"text": snap_text, "start": snap_start, "end": snap_end},
         ),
+        _self_check_result(
+            name="terminal_bottom_toolbar_reads_live_status",
+            passed=toolbar_live_ok,
+            detail={
+                "typed": typed,
+                "captured_callable": callable(captured_toolbar),
+                "final_toolbar": captured_toolbar() if callable(captured_toolbar) else captured_toolbar,
+            },
+        ),
     ]
 
 
 def _check_terminal_markdown_rendering() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal
-    from ai_automate_contro.ai.terminal_markdown import normalize_response_render_mode, render_markdown_to_ansi
+    from ai_automate_contro.ai.terminal_markdown import (
+        normalize_response_render_mode,
+        render_markdown_to_ansi,
+        terminal_supports_rich_markdown,
+    )
 
     markdown_text = "# 标题\n\n**重点**\n\n```python\nprint('ok')\n```"
     rendered = render_markdown_to_ansi(markdown_text, width=80)
@@ -843,11 +973,54 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         builtins.print = original_print
 
     captured_text = "".join(captured)
+    plain_fallback_captured: list[str] = []
+    stream_fallback_ok = False
+    try:
+        terminal.response_render_mode = "markdown"
+        terminal_module.terminal_supports_rich_markdown = lambda: False
+        builtins.print = lambda *args, **kwargs: plain_fallback_captured.append(
+            "".join(str(arg) for arg in args) + ("" if kwargs.get("end") == "" else "\n")
+        )
+        stream_fallback_ok = AITerminal._should_render_stream_markdown(terminal) is False
+        AITerminal._print_assistant_message(terminal, markdown_text)
+    finally:
+        terminal_module.terminal_supports_rich_markdown = original_supports_markdown
+        builtins.print = original_print
+    plain_fallback_text = "".join(plain_fallback_captured)
+
+    import io
+    import os
+
+    class FakeTTY(io.StringIO):
+        def isatty(self) -> bool:
+            return True
+
+    env_keys = ["NO_COLOR", "TERM", "CLICOLOR", "CLICOLOR_FORCE"]
+    original_env = {key: os.environ.get(key) for key in env_keys}
+    try:
+        os.environ["NO_COLOR"] = "1"
+        os.environ["TERM"] = "xterm-256color"
+        os.environ.pop("CLICOLOR", None)
+        os.environ.pop("CLICOLOR_FORCE", None)
+        no_color_disables_markdown = terminal_supports_rich_markdown(FakeTTY()) is False
+    finally:
+        for key, value in original_env.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
     terminal.response_render_mode = "plain"
     plain_should_not_render = AITerminal._should_render_final_markdown(terminal) is False
+    plain_fallback_ok = (
+        plain_fallback_text == f"AI> {markdown_text}\n"
+        and "\x1b[" not in plain_fallback_text
+        and stream_fallback_ok
+    )
     passed = (
         normalize_response_render_mode("md") == "markdown"
         and normalize_response_render_mode("raw") == "plain"
+        and no_color_disables_markdown
         and "标题" in rendered
         and "重点" in rendered
         and "print" in rendered
@@ -861,6 +1034,7 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         and captured_text.startswith("AI>\n")
         and markdown_text not in captured_text
         and plain_should_not_render
+        and plain_fallback_ok
     )
     return _self_check_result(
         name="terminal_markdown_rendering_is_display_only",
@@ -868,6 +1042,9 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         detail={
             "rendered_chars": len(rendered),
             "captured_prefix": captured_text[:80],
+            "plain_fallback_prefix": plain_fallback_text[:80],
+            "plain_fallback_ok": plain_fallback_ok,
+            "no_color_disables_markdown": no_color_disables_markdown,
             "mode_md": normalize_response_render_mode("md"),
             "mode_raw": normalize_response_render_mode("raw"),
             "plain_should_not_render": plain_should_not_render,
@@ -1120,7 +1297,13 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     terminal.onecmd("/ai")
     entered_ok = terminal.mode == "ai" and terminal.prompt == "ai> "
     terminal.onecmd("status")
-    forwarded_ok = fake_ai.lines == ["status"]
+    with terminal._ai_queue_condition:
+        worker_drain_ok = terminal._ai_queue_condition.wait_for(
+            lambda: not terminal._ai_queue and terminal._ai_active_input is None and fake_ai.lines == ["status"],
+            timeout=1,
+        )
+    forwarded_ok = worker_drain_ok and fake_ai.lines == ["status"]
+    initial_forwarded_lines = list(fake_ai.lines)
     terminal.onecmd("/exit")
     returned_ok = terminal.mode == "plan" and terminal.prompt == "plan> "
     returned_mode = terminal.mode
@@ -1211,6 +1394,14 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     terminal._ai_force_next_input = True
     terminal._dispatch_ai_line("/status")
     immediate_clears_force_ok = fake_ai.lines == ["/status"] and not terminal._ai_force_next_input
+    immediate_lines = list(fake_ai.lines)
+    invalidations: list[str] = []
+    fake_ai._ai_prompt_session = SimpleNamespace(
+        app=SimpleNamespace(invalidate=lambda: invalidations.append("invalidate"))
+    )
+    terminal._ai_terminal = fake_ai
+    terminal._invalidate_ai_input_prompt()
+    prompt_invalidation_ok = invalidations == ["invalidate"]
 
     return [
         _self_check_result(
@@ -1229,7 +1420,8 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
             detail={
                 "lazy_ok": lazy_ok,
                 "entered_ok": entered_ok,
-                "forwarded_lines": fake_ai.lines,
+                "forwarded_lines": initial_forwarded_lines,
+                "worker_drain_ok": worker_drain_ok,
                 "returned_mode": returned_mode,
                 "plain_plan_command_rejected_ok": plain_plan_command_rejected_ok,
                 "slash_help_ok": slash_help_ok,
@@ -1251,6 +1443,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 and idle_status_ok
                 and confirmation_exit_ok
                 and immediate_clears_force_ok
+                and prompt_invalidation_ok
             ),
             detail={
                 "queued": [item.text for item in terminal._ai_queue],
@@ -1258,7 +1451,8 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 "status": status_text,
                 "idle_status": terminal._ai_input_status(),
                 "confirmation_exit_lines": pending_ai.lines,
-                "immediate_lines": fake_ai.lines,
+                "immediate_lines": immediate_lines,
+                "prompt_invalidations": invalidations,
             },
         )
     ]
@@ -1373,9 +1567,9 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
         and allowed_status is False
         and "等待当前回复完成" in blocked_error
         and terminal.forwarded_lines == ["/status"]
-        and allowed["status"]
+        and not allowed["status"]
         and allowed["/status"]
-        and allowed["help"]
+        and not allowed["help"]
         and allowed["/help"]
         and not allowed["/new"]
         and not allowed["/exit"]

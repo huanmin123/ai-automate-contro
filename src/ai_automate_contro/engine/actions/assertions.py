@@ -66,3 +66,61 @@ def assert_count(executor: Any, step: dict[str, Any]) -> None:
     raise AssertionError(
         f"Count assertion failed. mode={mode}, expected={expected}, actual={actual}"
     )
+
+
+def assert_attribute(executor: Any, step: dict[str, Any]) -> None:
+    actual = executor._locator(step).get_attribute(step["attribute"])
+    _assert_string(actual or "", str(step["expected"]), step.get("mode", "equals"), "Attribute")
+
+
+def assert_css(executor: Any, step: dict[str, Any]) -> None:
+    actual = executor._locator(step).evaluate(
+        "(element, propertyName) => window.getComputedStyle(element).getPropertyValue(propertyName)",
+        step["property"],
+    )
+    _assert_string(str(actual).strip(), str(step["expected"]), step.get("mode", "equals"), "CSS")
+
+
+def assert_checked(executor: Any, step: dict[str, Any]) -> None:
+    if not executor._locator(step).is_checked():
+        raise AssertionError("Checked assertion failed.")
+
+
+def assert_unchecked(executor: Any, step: dict[str, Any]) -> None:
+    if executor._locator(step).is_checked():
+        raise AssertionError("Unchecked assertion failed.")
+
+
+def assert_enabled(executor: Any, step: dict[str, Any]) -> None:
+    if not executor._locator(step).is_enabled():
+        raise AssertionError("Enabled assertion failed.")
+
+
+def assert_disabled(executor: Any, step: dict[str, Any]) -> None:
+    if not executor._locator(step).is_disabled():
+        raise AssertionError("Disabled assertion failed.")
+
+
+def assert_visible(executor: Any, step: dict[str, Any]) -> None:
+    if not executor._locator(step).is_visible():
+        raise AssertionError("Visible assertion failed.")
+
+
+def assert_hidden(executor: Any, step: dict[str, Any]) -> None:
+    if not executor._locator(step).is_hidden():
+        raise AssertionError("Hidden assertion failed.")
+
+
+def assert_title(executor: Any, step: dict[str, Any]) -> None:
+    actual = executor._page(step).title()
+    _assert_string(actual, str(step["expected"]), step.get("mode", "contains"), "Title")
+
+
+def _assert_string(actual: str, expected: str, mode: str, label: str) -> None:
+    if mode == "equals" and actual == expected:
+        return
+    if mode == "contains" and expected in actual:
+        return
+    if mode == "not_contains" and expected not in actual:
+        return
+    raise AssertionError(f"{label} assertion failed. mode={mode}, expected={expected!r}, actual={actual!r}")

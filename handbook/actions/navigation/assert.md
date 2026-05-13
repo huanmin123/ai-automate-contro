@@ -19,11 +19,22 @@
 | `value` | `selector`、`expected` | `equals` |
 | `url` | `expected` | `contains` |
 | `count` | `selector`、`expected` | `equals` |
+| `attribute` | `selector`、`attribute`、`expected` | `equals` |
+| `css` | `selector`、`property`、`expected` | `equals` |
+| `checked` | 定位字段 | 无 |
+| `unchecked` | 定位字段 | 无 |
+| `enabled` | 定位字段 | 无 |
+| `disabled` | 定位字段 | 无 |
+| `visible` | 定位字段 | 无 |
+| `hidden` | 定位字段 | 无 |
+| `title` | `expected` | `contains` |
 
 ## 可选字段
 
-- `mode`: `text` / `value` 支持 `equals`、`contains`；`url` 支持 `contains`、`equals`、`not_contains`；`count` 支持 `equals`、`gte`、`lte`
+- `mode`: `text` / `value` / `attribute` / `css` / `title` 支持 `equals`、`contains`、`not_contains`；`url` 支持 `contains`、`equals`、`not_contains`；`count` 支持 `equals`、`gte`、`lte`
 - `state`: 仅 `type: selector` 有效，默认 `visible`
+- `frame_selector`: iframe 选择器
+- `index`: 选择器匹配多个元素时选择第几个
 
 ## 示例
 
@@ -34,5 +45,18 @@
   "browser": "main",
   "selector": "#submit-btn",
   "expected": "进入控制台"
+}
+```
+
+断言属性：
+
+```json
+{
+  "action": "assert",
+  "type": "attribute",
+  "browser": "main",
+  "selector": "#status",
+  "attribute": "data-state",
+  "expected": "ready"
 }
 ```

@@ -1,0 +1,362 @@
+{
+  "name": "browser-advanced",
+  "variables": {
+    "demo_url": "{{resources_file_url}}/advanced_browser.html",
+    "upload_file": "resources/upload.txt"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "advanced",
+      "headed": false,
+      "timeout_ms": 15000,
+      "viewport": {
+        "width": 900,
+        "height": 700
+      },
+      "locale": "zh-CN",
+      "timezone_id": "Asia/Shanghai",
+      "user_agent": "ai-automate-contro-demo/1.0",
+      "extra_http_headers": {
+        "x-demo-suite": "browser-advanced"
+      },
+      "record_har_path": "browser-advanced.har",
+      "record_har_content": "omit"
+    },
+    {
+      "action": "trace",
+      "type": "start",
+      "browser": "advanced"
+    },
+    {
+      "action": "script",
+      "type": "add_init_script",
+      "browser": "advanced",
+      "js": "window.__fromInitScript = 'ready';"
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "advanced",
+      "url": "https://fixture.local/api/data",
+      "json": {
+        "message": "Mocked network data",
+        "ok": true
+      }
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "advanced",
+      "url": "https://fixture.local/blocked-event",
+      "mode": "abort"
+    },
+    {
+      "action": "event",
+      "type": "start",
+      "browser": "advanced"
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "advanced",
+      "url": "{{demo_url}}"
+    },
+    {
+      "action": "wait",
+      "type": "load_state",
+      "browser": "advanced",
+      "state": "domcontentloaded"
+    },
+    {
+      "action": "assert",
+      "type": "title",
+      "browser": "advanced",
+      "expected": "Advanced Browser Demo",
+      "mode": "equals"
+    },
+    {
+      "action": "extract",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#context-result",
+      "save_as": "context_text"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#context-result",
+      "expected": "zh-CN 900x700",
+      "mode": "contains"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "advanced",
+      "role": "button",
+      "name": "Run semantic action"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#semantic-result",
+      "text": "Semantic clicked",
+      "mode": "equals"
+    },
+    {
+      "action": "assert",
+      "type": "attribute",
+      "browser": "advanced",
+      "selector": "#semantic-result",
+      "attribute": "data-state",
+      "expected": "clicked"
+    },
+    {
+      "action": "assert",
+      "type": "visible",
+      "browser": "advanced",
+      "selector": "#semantic-result"
+    },
+    {
+      "action": "assert",
+      "type": "hidden",
+      "browser": "advanced",
+      "selector": "#hidden-note"
+    },
+    {
+      "action": "assert",
+      "type": "disabled",
+      "browser": "advanced",
+      "selector": "#disabled-btn"
+    },
+    {
+      "action": "element",
+      "type": "check",
+      "browser": "advanced",
+      "selector": "#accept-check"
+    },
+    {
+      "action": "assert",
+      "type": "checked",
+      "browser": "advanced",
+      "selector": "#accept-check"
+    },
+    {
+      "action": "element",
+      "type": "uncheck",
+      "browser": "advanced",
+      "selector": "#accept-check"
+    },
+    {
+      "action": "assert",
+      "type": "unchecked",
+      "browser": "advanced",
+      "selector": "#accept-check"
+    },
+    {
+      "action": "element",
+      "type": "right_click",
+      "browser": "advanced",
+      "selector": "#right-click-target"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#menu-result",
+      "expected": "Context opened"
+    },
+    {
+      "action": "element",
+      "type": "dblclick",
+      "browser": "advanced",
+      "selector": "#double-click-target"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#double-result",
+      "expected": "Double clicked"
+    },
+    {
+      "action": "element",
+      "type": "set_files",
+      "browser": "advanced",
+      "selector": "#upload-input",
+      "files": "{{upload_file}}"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#upload-result",
+      "expected": "upload.txt"
+    },
+    {
+      "action": "wait_for_file_chooser",
+      "type": "set_files",
+      "browser": "advanced",
+      "files": "{{upload_file}}",
+      "trigger": {
+        "action": "element",
+        "type": "click",
+        "browser": "advanced",
+        "selector": "#file-chooser-btn"
+      }
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#upload-result",
+      "expected": "upload.txt"
+    },
+    {
+      "action": "element",
+      "type": "fill",
+      "browser": "advanced",
+      "frame_selector": "#demo-frame",
+      "label": "Frame Code",
+      "value": "A-42"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "advanced",
+      "frame_selector": "#demo-frame",
+      "test_id": "frame-save"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "frame_selector": "#demo-frame",
+      "selector": "#frame-result",
+      "expected": "Saved A-42"
+    },
+    {
+      "action": "element",
+      "type": "drag_to",
+      "browser": "advanced",
+      "selector": "#drag-source",
+      "target_selector": "#drop-target"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#drop-target",
+      "expected": "Dropped"
+    },
+    {
+      "action": "assert",
+      "type": "css",
+      "browser": "advanced",
+      "selector": "#drop-target",
+      "property": "color",
+      "expected": "rgb(0, 128, 0)"
+    },
+    {
+      "action": "script",
+      "type": "evaluate",
+      "browser": "advanced",
+      "js": "() => window.__fromInitScript",
+      "save_as": "init_script_value"
+    },
+    {
+      "action": "storage",
+      "type": "set_local_storage",
+      "browser": "advanced",
+      "key": "demo-token",
+      "value": "token-123"
+    },
+    {
+      "action": "storage",
+      "type": "local_storage",
+      "browser": "advanced",
+      "key": "demo-token",
+      "save_as": "local_storage_value"
+    },
+    {
+      "action": "storage",
+      "type": "set_session_storage",
+      "browser": "advanced",
+      "key": "session-flag",
+      "value": "flag-yes"
+    },
+    {
+      "action": "storage",
+      "type": "session_storage",
+      "browser": "advanced",
+      "key": "session-flag",
+      "save_as": "session_storage_value"
+    },
+    {
+      "action": "wait_for_network",
+      "type": "response",
+      "browser": "advanced",
+      "url": "https://fixture.local/api/data",
+      "include_body": true,
+      "body_type": "json",
+      "save_as": "mock_response",
+      "trigger": {
+        "action": "script",
+        "type": "evaluate",
+        "browser": "advanced",
+        "js": "() => window.loadMockData()"
+      }
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "advanced",
+      "selector": "#network-result",
+      "expected": "Mocked network data"
+    },
+    {
+      "action": "extract",
+      "type": "bounding_box",
+      "browser": "advanced",
+      "selector": "#semantic-btn",
+      "save_as": "semantic_button_box"
+    },
+    {
+      "action": "extract",
+      "type": "css",
+      "browser": "advanced",
+      "selector": "#drop-target",
+      "property": "color",
+      "save_as": "drop_target_color"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "browser-advanced-summary.json",
+      "value": {
+        "context_text": "{{context_text}}",
+        "init_script_value": "{{init_script_value}}",
+        "local_storage_value": "{{local_storage_value}}",
+        "session_storage_value": "{{session_storage_value}}",
+        "mock_response": "{{mock_response}}",
+        "semantic_button_box": "{{semantic_button_box}}",
+        "drop_target_color": "{{drop_target_color}}"
+      }
+    },
+    {
+      "action": "event",
+      "type": "stop",
+      "browser": "advanced",
+      "path": "browser-events.json",
+      "save_as": "browser_events"
+    },
+    {
+      "action": "trace",
+      "type": "stop",
+      "browser": "advanced",
+      "path": "browser-advanced.zip"
+    }
+  ]
+}

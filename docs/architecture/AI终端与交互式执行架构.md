@@ -11,7 +11,7 @@
 - 生成修复补丁。
 - 产出报告。
 
-因此 CLI 是一个统一终端，里面分为 `plan>` 管理模式和 `ai>` AI 模式。默认进入 `plan>`，不加载 AI 服务；用户输入 `ai`、`ai <message>` 或直接运行 `python .\main.py ai` 时，才懒加载 AI 终端。
+因此 CLI 是一个统一终端，里面分为 `plan>` 管理模式和 `ai>` AI 模式。默认进入 `plan>`，不加载 AI 服务；用户输入 `/ai`、`/ai <message>` 或直接运行 `python .\main.py ai` 时，才懒加载 AI 终端。
 
 ## 总体分层
 
@@ -103,7 +103,7 @@ python .\main.py ai --thread login-debug
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
-会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`history [limit]`、`new` 和 `compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
+会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `/status`、`/sessions [limit|all]`、`/resume <thread-id-or-index>`、`/history [limit]`、`/new` 和 `/compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；`/sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
 AI 终端回合由后台 worker 执行，输入行保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端；期间继续发送的普通消息进入队列，底部状态展示运行中和排队数量。按 `Esc` 不会硬杀当前模型或工具调用，只会把下一条输入标记为安全介入：当前回合继续 drain 到安全边界，但后续流式输出被抑制，队首消息随后处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
@@ -122,9 +122,9 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
-图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[图片 #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
+图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[图片 #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `/image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
 
-补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
+补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `/approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `/reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 
 模型服务从当前运行根的 `default_ai_config_dir/config.json` 读取，默认服务名为 `ai_services.default`。发行包默认使用 `plans/config.json`；源码开发仓库可以通过 `plan.config` 或默认运行配置指向开发回归配置。
 
@@ -296,7 +296,7 @@ python .\main.py tool schema validate_plan
 python .\main.py tool call list_plan_packages --args-json '{"filter_text":"ai"}'
 ```
 
-`apply_debug_patch_after_approval` 有双重保护：AI 终端通过 `HumanInTheLoopMiddleware` 在工具执行前中断，只有用户在终端输入 `approve` 后才会通过 `Command(resume=...)` 恢复；工具自身仍要求参数包含 `approved: true`，避免绕过终端审批直接调用。
+`apply_debug_patch_after_approval` 有双重保护：AI 终端通过 `HumanInTheLoopMiddleware` 在工具执行前中断，只有用户在终端输入 `/approve` 后才会通过 `Command(resume=...)` 恢复；工具自身仍要求参数包含 `approved: true`，避免绕过终端审批直接调用。
 
 AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必须先安装 `ripgrep`，或经用户确认后由助手执行 PowerShell 全局安装命令；工具层不提供 Windows 内置搜索兜底。
 

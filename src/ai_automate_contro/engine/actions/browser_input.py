@@ -61,6 +61,9 @@ def mouse(executor: Any, step: dict[str, Any]) -> None:
     if mouse_type == "wheel":
         target_mouse.wheel(float(step.get("delta_x", 0)), float(step.get("delta_y", 0)))
         return
+    if mouse_type == "tap":
+        executor._page(step).touchscreen.tap(float(step["x"]), float(step["y"]))
+        return
     raise ValueError(f"Unsupported mouse type: {mouse_type}")
 
 

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame Surface</title>
+  </head>
+  <body>
+    <label>
+      Frame Code
+      <input id="frame-input" aria-label="Frame Code" />
+    </label>
+    <button id="frame-save" data-testid="frame-save">Save Frame</button>
+    <p id="frame-result" data-status="idle">Waiting</p>
+    <script>
+      document.getElementById("frame-save").addEventListener("click", () => {
+        const value = document.getElementById("frame-input").value;
+        const result = document.getElementById("frame-result");
+        result.textContent = `Saved ${value}`;
+        result.dataset.status = "saved";
+      });
+    </script>
+  </body>
+</html>

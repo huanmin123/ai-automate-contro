@@ -24,6 +24,17 @@ def action_extract(executor: Any, step: dict[str, Any]) -> None:
         value = [locator.nth(index).input_value() for index in range(locator.count())]
     elif extract_type == "table":
         value = _extract_table_value(executor, step)
+    elif extract_type == "url":
+        value = executor._page(step).url
+    elif extract_type == "title":
+        value = executor._page(step).title()
+    elif extract_type == "bounding_box":
+        value = executor._locator(step).bounding_box()
+    elif extract_type == "css":
+        value = executor._locator(step).evaluate(
+            "(element, propertyName) => window.getComputedStyle(element).getPropertyValue(propertyName)",
+            step["property"],
+        )
     else:
         raise ValueError(f"Unsupported extract type: {extract_type}")
     executor.state.variables[step["save_as"]] = value

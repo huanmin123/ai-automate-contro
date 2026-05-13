@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import io
+import os
 import sys
 import time
-from typing import Any
+from typing import Any, TextIO
 
 from rich.console import Console, Group
 from rich.live import Live
@@ -38,8 +39,23 @@ def normalize_response_render_mode(value: object, *, default: str = "markdown") 
     return default
 
 
-def terminal_supports_rich_markdown() -> bool:
-    return bool(getattr(sys.stdout, "isatty", lambda: False)())
+def terminal_supports_rich_markdown(stream: TextIO | None = None) -> bool:
+    stream = stream or sys.stdout
+    if not bool(getattr(stream, "isatty", lambda: False)()):
+        return False
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    if os.environ.get("TERM", "").strip().lower() == "dumb":
+        return False
+    clicolor_force = os.environ.get("CLICOLOR_FORCE", "").strip().lower()
+    if os.environ.get("CLICOLOR") == "0" and clicolor_force in {"", "0", "false", "no", "off"}:
+        return False
+    console = Console(file=stream, legacy_windows=False, theme=MARKDOWN_THEME)
+    return bool(
+        console.is_terminal
+        and not getattr(console, "is_dumb_terminal", False)
+        and console.color_system is not None
+    )
 
 
 def terminal_supports_live_markdown() -> bool:

@@ -198,18 +198,21 @@ class AITerminal(
         handle_confirmation = getattr(self, "_handle_ai_confirmation_reply", None)
         if callable(handle_confirmation) and handle_confirmation(text):
             return False
-        if self._is_agent_busy() and not self._command_allowed_while_busy(line):
-            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
-            return False
         parsed_command = _parse_slash_command(text)
         if parsed_command is None:
             if text.startswith("/"):
                 self.perror("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
                 return False
+            if self._is_agent_busy():
+                self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+                return False
             self.default(text)
             return False
         command, arg = parsed_command
         normalized = command.lower().replace("-", "_")
+        if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
+            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+            return False
         if normalized in {"exit", "back"}:
             return True
         if normalized == "quit":
@@ -224,9 +227,10 @@ class AITerminal(
         return False
 
     def default(self, line: str) -> None:
-        text = getattr(line, "command_and_args", str(line)).strip()
-        if not text:
+        raw_text = str(getattr(line, "command_and_args", str(line)))
+        if not raw_text.strip():
             return
+        text = raw_text.rstrip()
         if text.startswith("/") and self._handle_slash_command(text):
             return
         if self._current_interrupts():
@@ -702,7 +706,10 @@ class AITerminal(
             self._ai_prompt_session = PromptSession(history=InMemoryHistory(), erase_when_done=True)
             attach_image_placeholder_cursor_guard(self._ai_prompt_session.default_buffer)
         with patch_stdout():
-            toolbar = bottom_toolbar() if callable(bottom_toolbar) else bottom_toolbar
+            def resolve_bottom_toolbar() -> Any:
+                toolbar = bottom_toolbar() if callable(bottom_toolbar) else bottom_toolbar
+                return toolbar or None
+
             return self._ai_prompt_session.prompt(
                 prompt,
                 key_bindings=bindings,
@@ -713,7 +720,7 @@ class AITerminal(
                 reserve_space_for_menu=0,
                 enable_history_search=True,
                 multiline=False,
-                bottom_toolbar=toolbar or None,
+                bottom_toolbar=resolve_bottom_toolbar if bottom_toolbar is not None else None,
                 lexer=ImagePlaceholderLexer(),
                 style=AI_INPUT_STYLE,
             )

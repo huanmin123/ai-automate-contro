@@ -1,0 +1,228 @@
+{
+  "name": "browser-parameter-coverage",
+  "variables": {
+    "coverage_url": "{{resources_file_url}}/coverage.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "coverage",
+      "headed": false,
+      "timeout_ms": 15000,
+      "accept_downloads": true,
+      "ignore_https_errors": true,
+      "java_script_enabled": true,
+      "bypass_csp": false,
+      "offline": false,
+      "strict_selectors": false,
+      "viewport": {
+        "width": 640,
+        "height": 480
+      },
+      "screen": {
+        "width": 640,
+        "height": 480
+      },
+      "record_video_dir": "coverage",
+      "record_video_size": {
+        "width": 640,
+        "height": 480
+      },
+      "record_har_path": "coverage.har",
+      "record_har_content": "omit",
+      "service_workers": "allow",
+      "color_scheme": "light",
+      "reduced_motion": "no-preference",
+      "forced_colors": "none",
+      "device_scale_factor": 1,
+      "has_touch": true,
+      "is_mobile": false,
+      "permissions": [],
+      "args": [],
+      "extra_http_headers": {
+        "x-coverage": "true"
+      }
+    },
+    {
+      "action": "network",
+      "type": "set_extra_http_headers",
+      "browser": "coverage",
+      "headers": {
+        "x-runtime-header": "set"
+      }
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "coverage",
+      "url": "https://fixture.local/coverage",
+      "mode": "fulfill",
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "json": {
+        "message": "coverage route"
+      }
+    },
+    {
+      "action": "event",
+      "type": "start",
+      "browser": "coverage",
+      "console": true,
+      "pageerror": true,
+      "requestfailed": true,
+      "websocket": false
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "coverage",
+      "url": "{{coverage_url}}"
+    },
+    {
+      "action": "wait",
+      "type": "function",
+      "browser": "coverage",
+      "js": "() => window.readyFlag === true",
+      "timeout_ms": 5000
+    },
+    {
+      "action": "wait",
+      "type": "element_state",
+      "browser": "coverage",
+      "selector": "#status",
+      "state": "visible"
+    },
+    {
+      "action": "assert",
+      "type": "enabled",
+      "browser": "coverage",
+      "selector": "#load"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "coverage",
+      "selector": "#load",
+      "button": "left",
+      "click_count": 1,
+      "delay_ms": 0,
+      "force": false,
+      "trial": false,
+      "modifiers": [],
+      "position": {
+        "x": 8,
+        "y": 8
+      }
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "coverage",
+      "selector": "#network",
+      "text": "coverage route",
+      "mode": "equals"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "coverage",
+      "selector": "#network",
+      "expected": "coverage route"
+    },
+    {
+      "action": "storage",
+      "type": "set_cookies",
+      "browser": "coverage",
+      "cookies": [
+        {
+          "name": "coverage",
+          "value": "cookie",
+          "url": "https://fixture.local"
+        }
+      ]
+    },
+    {
+      "action": "storage",
+      "type": "cookies",
+      "browser": "coverage",
+      "urls": "https://fixture.local",
+      "save_as": "cookies"
+    },
+    {
+      "action": "storage",
+      "type": "clear_cookies",
+      "browser": "coverage"
+    },
+    {
+      "action": "storage",
+      "type": "set_local_storage",
+      "browser": "coverage",
+      "key": "temp",
+      "value": "1"
+    },
+    {
+      "action": "storage",
+      "type": "remove_local_storage",
+      "browser": "coverage",
+      "key": "temp"
+    },
+    {
+      "action": "storage",
+      "type": "clear_local_storage",
+      "browser": "coverage"
+    },
+    {
+      "action": "storage",
+      "type": "set_session_storage",
+      "browser": "coverage",
+      "key": "temp-session",
+      "value": "1"
+    },
+    {
+      "action": "storage",
+      "type": "remove_session_storage",
+      "browser": "coverage",
+      "key": "temp-session"
+    },
+    {
+      "action": "storage",
+      "type": "clear_session_storage",
+      "browser": "coverage"
+    },
+    {
+      "action": "event",
+      "type": "clear",
+      "browser": "coverage"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "coverage",
+      "selector": "#clear-event"
+    },
+    {
+      "action": "event",
+      "type": "stop",
+      "browser": "coverage",
+      "path": "coverage-events.json",
+      "save_as": "coverage_events"
+    },
+    {
+      "action": "network",
+      "type": "unroute",
+      "browser": "coverage",
+      "url": "https://fixture.local/coverage"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "coverage-summary.json",
+      "value": {
+        "cookies": "{{cookies}}",
+        "events": "{{coverage_events}}"
+      }
+    }
+  ]
+}

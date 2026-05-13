@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Advanced Browser Demo</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 24px;
+      }
+
+      #drag-source,
+      #drop-target {
+        align-items: center;
+        border: 1px solid #888;
+        display: inline-flex;
+        height: 48px;
+        justify-content: center;
+        margin-right: 12px;
+        width: 140px;
+      }
+
+      #drop-target.ready {
+        color: rgb(0, 128, 0);
+      }
+
+      #hidden-note {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Advanced Browser Demo</h1>
+    <button id="semantic-btn" aria-label="Run semantic action">Semantic Action</button>
+    <button id="right-click-target">Right Click Target</button>
+    <button id="double-click-target">Double Click Target</button>
+    <button id="disabled-btn" disabled>Disabled Button</button>
+    <label><input id="accept-check" type="checkbox" /> Accept terms</label>
+    <input id="upload-input" type="file" />
+    <button id="file-chooser-btn">Pick File</button>
+    <input id="hidden-upload" type="file" style="display: none" />
+    <p id="upload-result">No file</p>
+    <p id="hidden-note">Hidden note</p>
+    <p id="semantic-result" data-state="idle">Idle</p>
+    <p id="context-result">No context</p>
+    <p id="network-result">No data</p>
+    <p id="menu-result">No menu</p>
+    <p id="double-result">No double</p>
+    <div id="drag-source" draggable="true">Drag Source</div>
+    <div id="drop-target">Drop Target</div>
+    <iframe id="demo-frame" src="./frame.html" title="Demo Frame"></iframe>
+
+    <script>
+      document.getElementById("context-result").textContent =
+        `${navigator.language} ${window.innerWidth}x${window.innerHeight}`;
+
+      document.getElementById("semantic-btn").addEventListener("click", () => {
+        const result = document.getElementById("semantic-result");
+        result.textContent = "Semantic clicked";
+        result.dataset.state = "clicked";
+      });
+
+      document.getElementById("right-click-target").addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        document.getElementById("menu-result").textContent = "Context opened";
+      });
+
+      document.getElementById("double-click-target").addEventListener("dblclick", () => {
+        document.getElementById("double-result").textContent = "Double clicked";
+      });
+
+      document.getElementById("file-chooser-btn").addEventListener("click", () => {
+        document.getElementById("hidden-upload").click();
+      });
+
+      for (const id of ["upload-input", "hidden-upload"]) {
+        document.getElementById(id).addEventListener("change", (event) => {
+          const file = event.target.files[0];
+          document.getElementById("upload-result").textContent = file ? file.name : "No file";
+        });
+      }
+
+      document.getElementById("drag-source").addEventListener("dragstart", (event) => {
+        event.dataTransfer.setData("text/plain", "drag-source");
+      });
+
+      document.getElementById("drop-target").addEventListener("dragover", (event) => {
+        event.preventDefault();
+      });
+
+      document.getElementById("drop-target").addEventListener("drop", (event) => {
+        event.preventDefault();
+        event.currentTarget.textContent = "Dropped";
+        event.currentTarget.classList.add("ready");
+      });
+
+      window.loadMockData = async () => {
+        const response = await fetch("https://fixture.local/api/data");
+        const data = await response.json();
+        document.getElementById("network-result").textContent = data.message;
+        return data;
+      };
+
+      console.info("advanced demo loaded");
+      fetch("https://fixture.local/blocked-event").catch(() => {});
+    </script>
+  </body>
+</html>

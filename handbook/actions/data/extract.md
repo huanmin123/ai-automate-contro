@@ -12,6 +12,8 @@
 - `selector`: Playwright 选择器
 - `save_as`: 保存变量名
 
+除表格行提取外，元素定位支持 `selector`、`frame_selector` 和语义定位字段：`role` + `name`、`text`、`label`、`placeholder`、`alt_text`、`title`、`test_id`。
+
 ## 类型说明
 
 | type | 额外字段 | 结果 |
@@ -24,6 +26,10 @@
 | `all_texts` | 可选 `skip_empty` | 所有文本数组 |
 | `all_values` | 无 | 所有输入值数组 |
 | `table` | `row_selector` | 表格行数据 |
+| `url` | 无 | 当前页面 URL |
+| `title` | 无 | 当前页面标题 |
+| `bounding_box` | 无 | 元素位置和尺寸 |
+| `css` | `property` | 元素计算样式属性值 |
 
 ## 示例
 
@@ -35,6 +41,19 @@
   "selector": "#username",
   "attribute": "placeholder",
   "save_as": "username_placeholder"
+}
+```
+
+提取 iframe 内元素文本：
+
+```json
+{
+  "action": "extract",
+  "type": "text",
+  "browser": "main",
+  "frame_selector": "#content-frame",
+  "selector": "#result",
+  "save_as": "frame_result"
 }
 ```
 

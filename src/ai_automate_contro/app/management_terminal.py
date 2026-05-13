@@ -259,6 +259,7 @@ class ManagementTerminal(
                     return
                 queued_input = self._ai_queue.popleft()
                 self._ai_active_input = queued_input
+            self._invalidate_ai_input_prompt()
             try:
                 self._require_ai_terminal().onecmd(queued_input.text)
             except SystemExit:
@@ -270,6 +271,8 @@ class ManagementTerminal(
                     if self._ai_active_input is queued_input:
                         self._ai_active_input = None
                     remaining = len(self._ai_queue)
+                    self._ai_queue_condition.notify_all()
+                self._invalidate_ai_input_prompt()
             if remaining:
                 self.poutput(f"[AI队列] 继续处理下一条，剩余 {remaining} 条。")
 
@@ -281,6 +284,7 @@ class ManagementTerminal(
             self._ai_worker_shutdown = True
             self._ai_queue.clear()
             self._ai_queue_condition.notify_all()
+        self._invalidate_ai_input_prompt()
         if worker.is_alive():
             worker.join(timeout=1)
 
@@ -298,12 +302,25 @@ class ManagementTerminal(
             self.poutput("[AI确认] 当前正在等待确认；直接回复你的决定即可。")
             return
         self._ai_force_next_input = True
+        self._invalidate_ai_input_prompt()
         self.poutput("[AI队列] 介入已开启：下一条消息会排到队首，并在当前轮安全边界后处理。")
 
     def _request_ai_interrupt(self, ai_terminal: Any) -> None:
         cancel = getattr(ai_terminal, "_cancel_agent_turn", None)
         if callable(cancel):
             cancel()
+
+    def _invalidate_ai_input_prompt(self) -> None:
+        ai_terminal = self._ai_terminal
+        prompt_session = getattr(ai_terminal, "_ai_prompt_session", None)
+        app = getattr(prompt_session, "app", None)
+        invalidate = getattr(app, "invalidate", None)
+        if not callable(invalidate):
+            return
+        try:
+            invalidate()
+        except Exception:
+            pass
 
     def _ai_input_status(self) -> str:
         ai_terminal = self._ai_terminal

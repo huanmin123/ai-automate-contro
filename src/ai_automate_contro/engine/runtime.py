@@ -64,6 +64,8 @@ class RuntimeState:
     failure_htmls: list[str] = field(default_factory=list)
     failure_page_states: list[str] = field(default_factory=list)
     downloads: list[str] = field(default_factory=list)
+    browser_events: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    browser_event_handlers: dict[str, list[tuple[Any, str, Any]]] = field(default_factory=dict)
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
     manual_confirmation_handler: Callable[[str], bool] | None = None

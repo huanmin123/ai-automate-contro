@@ -7,7 +7,7 @@
 ## 必填字段
 
 - `action`: 固定写成 `mouse`
-- `type`: `move`、`click`、`down`、`up`、`wheel`
+- `type`: `move`、`click`、`down`、`up`、`wheel`、`tap`
 - `browser`: 浏览器会话名
 
 ## 类型说明
@@ -19,6 +19,7 @@
 | `down` | 无 | 按下鼠标键 |
 | `up` | 无 | 释放鼠标键 |
 | `wheel` | `delta_x` / `delta_y` | 滚轮滚动 |
+| `tap` | `x`、`y` | 触摸点击坐标 |
 
 ## 可选字段
 

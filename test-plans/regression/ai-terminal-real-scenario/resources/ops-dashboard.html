@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Ops Dashboard</title>
+</head>
+<body>
+  <button id="export-risk-report" type="button">Export risk report</button>
+  <div id="report-status">Risk report pending</div>
+  <script>
+    document.getElementById('export-risk-report').addEventListener('click', function () {
+      document.getElementById('report-status').textContent = 'Risk report ready: 4 orders reviewed, 2 escalations';
+    });
+  </script>
+</body>
+</html>

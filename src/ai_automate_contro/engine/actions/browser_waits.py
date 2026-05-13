@@ -22,17 +22,26 @@ def wait(executor: Any, step: dict[str, Any]) -> None:
     if wait_type == "count":
         _wait_for_count(executor, step)
         return
+    if wait_type == "load_state":
+        executor._page(step).wait_for_load_state(step["state"])
+        return
+    if wait_type == "element_state":
+        executor._locator(step).wait_for(state=step["state"])
+        return
+    if wait_type == "function":
+        target_page = executor._page(step)
+        if "arg" in step:
+            target_page.wait_for_function(step["js"], arg=step["arg"], timeout=int(step.get("timeout_ms", 15_000)))
+        else:
+            target_page.wait_for_function(step["js"], timeout=int(step.get("timeout_ms", 15_000)))
+        return
     raise ValueError(f"不支持的 wait type：{wait_type}")
 
 
 def _wait_for_selector(executor: Any, step: dict[str, Any]) -> None:
-    target_page = executor._page(step)
     selector = step["selector"]
     state = step.get("state", "visible")
-    if "index" in step:
-        target_page.locator(selector).nth(int(step["index"])).wait_for(state=state)
-        return
-    target_page.wait_for_selector(selector, state=state)
+    executor._locator_for_selector(step, selector).wait_for(state=state)
 
 
 def _wait_for_text(executor: Any, step: dict[str, Any]) -> None:
@@ -40,12 +49,20 @@ def _wait_for_text(executor: Any, step: dict[str, Any]) -> None:
     expected = str(step["text"])
     mode = step.get("mode", "contains")
     locator.wait_for(state=step.get("state", "visible"))
-    actual = locator.inner_text()
-    if mode == "contains" and expected in actual:
-        return
-    if mode == "equals" and actual.strip() == expected:
-        return
-    raise AssertionError(f"wait_for_text 失败。mode={mode}，expected={expected!r}，actual={actual!r}")
+    target_page = executor._page(step)
+    timeout_ms = int(step.get("timeout_ms", 15_000))
+    start = target_page.evaluate("Date.now()")
+    actual = ""
+    while True:
+        actual = locator.inner_text()
+        if mode == "contains" and expected in actual:
+            return
+        if mode == "equals" and actual.strip() == expected:
+            return
+        now = target_page.evaluate("Date.now()")
+        if int(now) - int(start) >= timeout_ms:
+            raise AssertionError(f"wait_for_text 失败。mode={mode}，expected={expected!r}，actual={actual!r}")
+        target_page.wait_for_timeout(200)
 
 
 def _wait_for_count(executor: Any, step: dict[str, Any]) -> None:

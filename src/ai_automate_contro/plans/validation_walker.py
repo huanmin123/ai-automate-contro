@@ -96,10 +96,16 @@ def validate_action_specific_fields(
             stack=stack,
         )
 
+    if action == "open_browser":
+        if "record_har_path" in step:
+            validate_output_path(step["record_har_path"], "har", location, package_root, issues)
+        if "record_video_dir" in step:
+            validate_output_path(step["record_video_dir"], "videos", location, package_root, issues)
+
     if action == "write" and step.get("type") != "variables" and "value" not in step:
         issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 
-    if action == "capture" or action == "write" or action == "wait_for_download" or action == "ai":
+    if action in {"capture", "write", "wait_for_download", "ai", "trace", "event"}:
         output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
         category = OUTPUT_ACTION_CATEGORIES.get((action, output_type))
         if category and "path" in step:

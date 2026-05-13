@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import Locator, Page
+from playwright.sync_api import FrameLocator, Locator, Page
 
 from ai_automate_contro.engine.conditions import ConditionEvaluator
 from ai_automate_contro.engine.runtime import RuntimeState
@@ -17,6 +17,7 @@ from . import (
     browser_events,
     browser_flow,
     browser_input,
+    browser_state,
     control_flow,
     extraction,
     failure_capture,
@@ -31,6 +32,7 @@ EXTERNAL_ACTION_MODULES = (
     browser_events,
     browser_flow,
     browser_input,
+    browser_state,
     control_flow,
     extraction,
 )
@@ -112,9 +114,46 @@ class ActionExecutor:
 
     def _locator(self, step: dict[str, Any]) -> Locator:
         page = self._page(step)
-        locator = page.locator(step["selector"])
+        root: Page | FrameLocator
+        root = page.frame_locator(step["frame_selector"]) if "frame_selector" in step else page
+        locator = self._root_locator(root, step)
         if "index" in step:
             locator = locator.nth(int(step["index"]))
+        return locator
+
+    def _root_locator(self, root: Page | FrameLocator, step: dict[str, Any]) -> Locator:
+        if "selector" in step:
+            return root.locator(step["selector"])
+        if "role" in step:
+            options = _locator_options(step, "name", "exact")
+            return root.get_by_role(step["role"], **options)
+        if "text" in step:
+            return root.get_by_text(str(step["text"]), exact=bool(step.get("exact", False)))
+        if "label" in step:
+            return root.get_by_label(str(step["label"]), exact=bool(step.get("exact", False)))
+        if "placeholder" in step:
+            return root.get_by_placeholder(str(step["placeholder"]), exact=bool(step.get("exact", False)))
+        if "alt_text" in step:
+            return root.get_by_alt_text(str(step["alt_text"]), exact=bool(step.get("exact", False)))
+        if "title" in step:
+            return root.get_by_title(str(step["title"]), exact=bool(step.get("exact", False)))
+        if "test_id" in step:
+            return root.get_by_test_id(str(step["test_id"]))
+        raise ValueError("需要 selector 或一种语义定位字段。")
+
+    def _locator_for_selector(
+        self,
+        step: dict[str, Any],
+        selector: str,
+        *,
+        index_field: str = "index",
+    ) -> Locator:
+        page = self._page(step)
+        root: Page | FrameLocator
+        root = page.frame_locator(step["frame_selector"]) if "frame_selector" in step else page
+        locator = root.locator(selector)
+        if index_field in step:
+            locator = locator.nth(int(step[index_field]))
         return locator
 
     def _page(self, step: dict[str, Any]) -> Page:
@@ -134,3 +173,11 @@ class ActionExecutor:
         self.state.pending_dialog = dialog
         self.state.last_dialog_message = dialog.message
         self.state.logger.log("info", "dialog captured", dialog_type=dialog.type, dialog_message=dialog.message)
+
+
+def _locator_options(step: dict[str, Any], *allowed_fields: str) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for field in allowed_fields:
+        if field in step:
+            options[field] = step[field]
+    return options

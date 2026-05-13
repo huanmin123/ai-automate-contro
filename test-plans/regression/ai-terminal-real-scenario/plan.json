@@ -1,0 +1,48 @@
+{
+  "name": "ai-terminal-real-scenario",
+  "variables": {
+    "dashboard_url": "{{resources_file_url}}/ops-dashboard.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "dashboard",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "dashboard",
+      "url": "{{dashboard_url}}"
+    },
+    {
+      "action": "wait",
+      "type": "selector",
+      "browser": "dashboard",
+      "selector": "body"
+    },
+    {
+      "action": "capture",
+      "type": "screenshot",
+      "browser": "dashboard",
+      "path": "ops-dashboard.png",
+      "full_page": true
+    },
+    {
+      "action": "extract",
+      "type": "title",
+      "browser": "dashboard",
+      "save_as": "title_text"
+    },
+    {
+      "action": "write",
+      "type": "text",
+      "path": "title.txt",
+      "value": "{{title_text}}"
+    },
+    {
+      "action": "close_browser",
+      "browser": "dashboard"
+    }
+  ]
+}

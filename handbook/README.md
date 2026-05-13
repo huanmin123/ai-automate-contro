@@ -22,13 +22,14 @@
 
 - `reference/config.md`: `config.json`、AI 服务、运行后检查等配置字段。
 - `actions/browser/`: 浏览器会话、页面对象和关闭浏览器。
-- `actions/navigation/`: 跳转、等待、断言、弹窗/下载/网络等待。
+- `actions/navigation/`: 跳转、等待、断言、弹窗/下载/网络等待、文件选择器和网络拦截。
 - `actions/interaction/`: 元素、键盘、鼠标和滚动。
-- `actions/data/`: 变量、提取和验证状态检测。
+- `actions/data/`: 变量、提取、浏览器存储和验证状态检测。
 - `actions/ai/`: 受控专项 AI action。
 - `actions/control-flow/`: 子计划、条件、循环和重试。
 - `actions/io/`: 读取和写入文件。
-- `actions/utility/`: 打印、人工确认、截图/录制/HTML 捕获、浏览器 dialog 和睡眠。
+- `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、trace 和睡眠。
+- `browser-capability-roadmap.md`: 浏览器能力已落地范围和后续 backlog。
 
 ## 写作约束
 

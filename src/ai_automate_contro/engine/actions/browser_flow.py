@@ -18,11 +18,26 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
         slow_mo_ms=int(step.get("slow_mo_ms", 0)),
         timeout_ms=int(step.get("timeout_ms", 15_000)),
     )
-    browser = executor.state.playwright.chromium.launch(
-        headless=not config.headed,
-        slow_mo=config.slow_mo_ms,
+    browser_type = step.get("browser_type", "chromium")
+    if browser_type not in {"chromium", "firefox", "webkit"}:
+        raise ValueError(f"不支持的 browser_type：{browser_type}")
+    browser_launcher = getattr(executor.state.playwright, browser_type)
+    launch_kwargs: dict[str, Any] = {
+        "headless": not config.headed,
+        "slow_mo": config.slow_mo_ms,
+    }
+    if "proxy" in step:
+        launch_kwargs["proxy"] = step["proxy"]
+    if "channel" in step:
+        if browser_type != "chromium":
+            raise ValueError("channel 仅支持 Chromium 浏览器。")
+        launch_kwargs["channel"] = step["channel"]
+    if "args" in step:
+        launch_kwargs["args"] = step["args"]
+    browser = browser_launcher.launch(
+        **launch_kwargs,
     )
-    context_kwargs: dict[str, Any] = {}
+    context_kwargs = _build_context_kwargs(executor, step)
     if "storage_state_path" in step:
         context_kwargs["storage_state"] = str(executor._resolve_path(step["storage_state_path"]))
     context = browser.new_context(**context_kwargs)
@@ -98,10 +113,18 @@ def element(executor: Any, step: dict[str, Any]) -> None:
     element_type = step["type"]
     locator = executor._locator(step)
     if element_type == "click":
-        locator.click()
+        locator.click(**_click_options(step))
+        return
+    if element_type == "dblclick":
+        locator.dblclick(**_click_options(step))
+        return
+    if element_type == "right_click":
+        options = _click_options(step)
+        options["button"] = "right"
+        locator.click(**options)
         return
     if element_type == "hover":
-        locator.hover()
+        locator.hover(**_hover_options(step))
         return
     if element_type == "fill":
         locator.fill(str(step["value"]))
@@ -134,6 +157,14 @@ def element(executor: Any, step: dict[str, Any]) -> None:
         resolved_files = [str(executor._resolve_path(file_path)) for file_path in files]
         locator.set_input_files(resolved_files)
         return
+    if element_type == "drag_to":
+        target_locator = executor._locator_for_selector(
+            step,
+            step["target_selector"],
+            index_field="target_index",
+        )
+        locator.drag_to(target_locator, **_drag_options(step))
+        return
     raise ValueError(f"不支持的 element type：{element_type}")
 
 
@@ -159,3 +190,79 @@ def _select_option(locator: Any, step: dict[str, Any]) -> None:
         locator.select_option(index=int(step["index_value"]))
         return
     raise ValueError("element type=select 需要 value、label 或 index_value 之一。")
+
+
+def _build_context_kwargs(executor: Any, step: dict[str, Any]) -> dict[str, Any]:
+    context_kwargs: dict[str, Any] = {}
+    passthrough_fields = {
+        "viewport",
+        "screen",
+        "user_agent",
+        "locale",
+        "timezone_id",
+        "geolocation",
+        "permissions",
+        "color_scheme",
+        "reduced_motion",
+        "forced_colors",
+        "accept_downloads",
+        "ignore_https_errors",
+        "java_script_enabled",
+        "bypass_csp",
+        "device_scale_factor",
+        "is_mobile",
+        "has_touch",
+        "extra_http_headers",
+        "http_credentials",
+        "base_url",
+        "offline",
+        "strict_selectors",
+        "service_workers",
+        "record_video_size",
+        "record_har_omit_content",
+        "record_har_url_filter",
+        "record_har_mode",
+        "record_har_content",
+    }
+    for field in passthrough_fields:
+        if field in step:
+            context_kwargs[field] = step[field]
+    if "record_video_dir" in step:
+        context_kwargs["record_video_dir"] = str(executor._resolve_output_path(step["record_video_dir"], category="videos"))
+    if "record_har_path" in step:
+        context_kwargs["record_har_path"] = str(executor._resolve_output_path(step["record_har_path"], category="har"))
+    return context_kwargs
+
+
+def _click_options(step: dict[str, Any]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for field in ("button", "modifiers", "position", "timeout", "trial"):
+        if field in step:
+            options[field] = step[field]
+    if "click_count" in step:
+        options["click_count"] = int(step["click_count"])
+    if "delay_ms" in step:
+        options["delay"] = int(step["delay_ms"])
+    if "force" in step:
+        options["force"] = bool(step["force"])
+    return options
+
+
+def _hover_options(step: dict[str, Any]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for field in ("modifiers", "position", "timeout", "trial"):
+        if field in step:
+            options[field] = step[field]
+    if "force" in step:
+        options["force"] = bool(step["force"])
+    return options
+
+
+def _drag_options(step: dict[str, Any]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for field in ("source_position", "target_position", "timeout", "trial"):
+        if field in step:
+            options[field] = step[field]
+    if "force" in step:
+        options["force"] = bool(step["force"])
+    return options
