@@ -217,6 +217,7 @@ $PackagePlansDir = Join-Path $PackageDir "plans"
 $PackagePlansConfigPath = Join-Path $PackagePlansDir "config.json"
 $PackageDemoPlanDir = Join-Path $PackagePlansDir "demo"
 $PackageDemoDocsDir = Join-Path $PackageDemoPlanDir "docs"
+$PackageDemoOutputDir = Join-Path $PackageDemoPlanDir "output"
 New-Item -ItemType Directory -Force -Path $PackagePlansDir | Out-Null
 New-Item -ItemType Directory -Force -Path $PackageDemoDocsDir | Out-Null
 $planConfig = [ordered]@{
@@ -227,7 +228,6 @@ $planConfig = [ordered]@{
 $planConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PlanConfigPath -Encoding UTF8
 [ordered]@{
     description = "分发包 plans 的共享配置。需要使用 AI 终端或 ai action 时，请在这里添加 ai_services.default。"
-    variables = [ordered]@{}
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PackagePlansConfigPath -Encoding UTF8
 [ordered]@{
     name = "packaged-demo"
@@ -266,6 +266,11 @@ if ($SmokeTest) {
     }
 }
 
+if (Test-Path -LiteralPath $PackageDemoOutputDir) {
+    Assert-UnderRepo $PackageDemoOutputDir
+    Remove-Item -LiteralPath $PackageDemoOutputDir -Recurse -Force
+}
+
 if (Test-Path -LiteralPath $PackageZipPath) {
     Remove-Item -LiteralPath $PackageZipPath -Force
 }
@@ -297,8 +302,26 @@ if ($SmokeTest) {
 
 if ($null -ne $LocalPlansConfigBackupPath -and (Test-Path -LiteralPath $LocalPlansConfigBackupPath)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackagePlansConfigPath) | Out-Null
-    Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
-    Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
+    $RestoredPlansConfig = $false
+    try {
+        $RestoredConfig = Get-Content -LiteralPath $LocalPlansConfigBackupPath -Raw | ConvertFrom-Json
+        if (
+            $RestoredConfig -is [System.Management.Automation.PSCustomObject] -and
+            $RestoredConfig.PSObject.Properties.Name -contains "variables"
+        ) {
+            $RestoredConfig.PSObject.Properties.Remove("variables")
+            $RestoredConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $PackagePlansConfigPath -Encoding UTF8
+            $RestoredPlansConfig = $true
+            Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置，并移除旧 variables 字段；zip 内仍使用示例配置。"
+        }
+    }
+    catch {
+        $RestoredPlansConfig = $false
+    }
+    if (-not $RestoredPlansConfig) {
+        Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
+        Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
+    }
 }
 
 if (Test-Path -LiteralPath $BuildDir) {
