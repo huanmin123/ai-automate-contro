@@ -35,6 +35,7 @@ from ai_automate_contro.ai.session_store import (
     update_ai_terminal_session_index,
 )
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
+from ai_automate_contro.ai.terminal_commands import format_keyboard_shortcuts_for_terminal
 from ai_automate_contro.app.errors import UserFacingError, format_error_for_terminal
 
 
@@ -178,7 +179,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         redacted = redact_image_data_urls({"image": "data:image/png;base64,AAAA"})
         checks.append(
             _self_check_result(
-                name="legacy_data_url_redaction",
+                name="data_url_redaction",
                 passed=redacted["image"].startswith("<redacted image data URL"),
                 detail=redacted,
             )
@@ -244,7 +245,7 @@ def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
 
 
 def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
-    formatted_usage = format_error_for_terminal("用法：history [limit]", project_root=project_root)
+    formatted_usage = format_error_for_terminal("用法：/history [limit]", project_root=project_root)
     formatted_unknown_command = format_error_for_terminal(
         "unknown AI terminal command: /attach",
         project_root=project_root,
@@ -410,9 +411,7 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         )
         terminal._current_turn_text = "busy turn"
         busy_status_payload = terminal.status_payload()
-        terminal.do_cancel("")
-        cancel_output = terminal.outputs[-1]
-        cancel_ok = cancel_output == "取消：已清理残留的 AI 等待状态。" and terminal._current_turn_text is None
+        terminal._current_turn_text = None
 
         terminal.do_sessions("--json")
         sessions_payload = json.loads(terminal.outputs[-1])
@@ -433,6 +432,22 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         slash_ok = AITerminal._handle_slash_command(terminal, "/status") is True
         slash_status_payload = json.loads(terminal.outputs[-1])
         slash_ok = slash_ok and slash_status_payload["thread_id"] == "flow-thread"
+        keyboard_command_ok = (
+            AITerminal._handle_slash_command(terminal, "/keyboard") is True
+            and "AI 终端键盘快捷键：" in terminal.outputs[-1]
+        )
+        mac_keyboard_text = format_keyboard_shortcuts_for_terminal("Darwin")
+        windows_keyboard_text = format_keyboard_shortcuts_for_terminal("Windows")
+        keyboard_platform_ok = (
+            "Enter" in mac_keyboard_text
+            and "Option+Enter" in mac_keyboard_text
+            and "Control+V" in mac_keyboard_text
+            and "Command+V" in mac_keyboard_text
+            and "Windows" not in mac_keyboard_text
+            and "Ctrl+V" in windows_keyboard_text
+            and "Control+V" not in windows_keyboard_text
+            and "Cmd+V" not in windows_keyboard_text
+        )
 
         terminal.do_help("")
         help_text = terminal.outputs[-1]
@@ -448,11 +463,27 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             terminal.response_render_mode == "plain"
             and terminal.outputs[-1] == "AI 回复显示方式：plain"
         )
-        plain_question_help = AITerminal.onecmd(terminal, "?") is False and terminal.outputs[-1].startswith("AI 终端命令：")
+        terminal.forwarded_messages: list[str] = []
+        terminal._run_agent_turn = lambda line: terminal.forwarded_messages.append(str(line))
+        plain_status_message_ok = AITerminal.onecmd(terminal, "status") is False and terminal.forwarded_messages[-1] == "status"
+        mid_slash_message_ok = (
+            AITerminal.onecmd(terminal, "普通文字 /status") is False
+            and terminal.forwarded_messages[-1] == "普通文字 /status"
+        )
+        leading_space_message_ok = (
+            AITerminal.onecmd(terminal, " /status") is False
+            and terminal.forwarded_messages[-1] == " /status"
+        )
+        bad_slash_format = AITerminal.onecmd(terminal, "/键盘") is False
+        bad_slash_error = terminal.errors[-1] if terminal.errors else ""
         slash_attach_unknown = AITerminal._handle_slash_command(terminal, "/attach list") is True
         slash_attach_error = terminal.errors[-1] if terminal.errors else ""
         slash_paste_unknown = AITerminal._handle_slash_command(terminal, "/paste-image") is True
         slash_paste_error = terminal.errors[-1] if terminal.errors else ""
+        slash_run_context_unknown = AITerminal._handle_slash_command(terminal, "/run_context output/run") is True
+        slash_run_context_error = terminal.errors[-1] if terminal.errors else ""
+        slash_context_unknown = AITerminal._handle_slash_command(terminal, "/context") is True
+        slash_context_error = terminal.errors[-1] if terminal.errors else ""
         image_surface_ok = (
             "attach list" not in help_text
             and "attach remove" not in help_text
@@ -460,11 +491,24 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             and "/attach" not in help_text
             and "/paste-image" not in help_text
             and "paste_image" not in help_text
-            and plain_question_help
+            and "cancel" not in help_text
+            and "run_context" not in help_text
+            and "tools [name]" not in help_text
+            and "context" not in help_text
+            and "  status" not in help_text
+            and plain_status_message_ok
+            and mid_slash_message_ok
+            and leading_space_message_ok
+            and bad_slash_format
+            and "命令名必须以英文字母开头" in bad_slash_error
             and slash_attach_unknown
             and "未知 AI 终端命令：/attach" in slash_attach_error
             and slash_paste_unknown
             and "未知 AI 终端命令：/paste-image" in slash_paste_error
+            and slash_run_context_unknown
+            and "未知 AI 终端命令：/run_context" in slash_run_context_error
+            and slash_context_unknown
+            and "未知 AI 终端命令：/context" in slash_context_error
         )
 
         busy_guard_ok, busy_guard_detail = _check_busy_command_guard()
@@ -500,14 +544,6 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 },
             ),
             _self_check_result(
-                name="terminal_cancel_command_clears_stale_turn_state",
-                passed=cancel_ok,
-                detail={
-                    "cancel_output": cancel_output,
-                    "current_turn_text": terminal._current_turn_text,
-                },
-            ),
-            _self_check_result(
                 name="terminal_sessions_command_lists_checkpoints",
                 passed=sessions_ok and sessions_index_ok,
                 detail={
@@ -533,17 +569,32 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 },
             ),
             _self_check_result(
+                name="terminal_keyboard_command_describes_shortcuts",
+                passed=keyboard_command_ok and keyboard_platform_ok and "keyboard" in help_text and "Alt+V" not in help_text,
+                detail={
+                    "keyboard_command_ok": keyboard_command_ok,
+                    "mac_mentions_control": "Control+V" in mac_keyboard_text,
+                    "windows_mentions_ctrl": "Ctrl+V" in windows_keyboard_text,
+                    "help_mentions_keyboard": "keyboard" in help_text,
+                    "help_mentions_inline_paste": "Alt+V" in help_text,
+                },
+            ),
+            _self_check_result(
                 name="terminal_image_command_surface_is_low_friction",
                 passed=image_surface_ok,
                 detail={
-                    "help_mentions_alt_v": "Alt+V" in help_text,
+                    "help_mentions_keyboard": "keyboard" in help_text,
+                    "plain_status_messages": terminal.forwarded_messages,
+                    "bad_slash_error": bad_slash_error,
                     "slash_attach_error": slash_attach_error,
                     "slash_paste_error": slash_paste_error,
+                    "slash_run_context_error": slash_run_context_error,
+                    "slash_context_error": slash_context_error,
                 },
             ),
             _self_check_result(
                 name="terminal_render_command_switches_display_layer",
-                passed=render_status_ok and render_markdown_ok and render_plain_ok and "render [markdown|plain]" in help_text,
+                passed=render_status_ok and render_markdown_ok and render_plain_ok and "/render [markdown|plain]" in help_text,
                 detail={
                     "render_status_ok": render_status_ok,
                     "render_markdown_ok": render_markdown_ok,
@@ -581,6 +632,7 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
         _is_slash_completion_context,
         reconcile_image_placeholders,
         reconcile_pending_image_attachments,
+        refresh_slash_completion,
         remove_image_placeholder_near_cursor,
         select_completion_candidate,
         snap_cursor_out_of_image_placeholder,
@@ -589,15 +641,66 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
 
     completions_for_slash = list(SlashCommandCompleter().get_completions(Document("/"), None))
     completions_for_prefix = list(SlashCommandCompleter().get_completions(Document("/s"), None))
+    completions_without_slash = list(SlashCommandCompleter().get_completions(Document("status"), None))
+    completions_mid_text = list(SlashCommandCompleter().get_completions(Document("text /s"), None))
+    completions_leading_space = list(SlashCommandCompleter().get_completions(Document(" /s"), None))
+    completions_chinese_command = list(SlashCommandCompleter().get_completions(Document("/键"), None))
     slash_completion_ok = (
         any(completion.text == "/status" for completion in completions_for_slash)
         and any(completion.text == "/sessions" for completion in completions_for_prefix)
         and all(completion.text.startswith("/s") for completion in completions_for_prefix)
+        and not completions_without_slash
+        and not completions_mid_text
+        and not completions_leading_space
+        and not completions_chinese_command
+        and all(
+            completion.text
+            not in {
+                "/ask",
+                "/cancel",
+                "/context",
+                "/run-context",
+                "/run_context",
+                "/thread",
+                "/tools",
+                "/use",
+                "/workspace",
+                "/键盘",
+            }
+            for completion in completions_for_slash
+        )
         and _is_slash_completion_context("/", 1)
         and _is_slash_completion_context("/s", 2)
+        and not _is_slash_completion_context("status", 6)
+        and not _is_slash_completion_context(" /s", 3)
         and not _is_slash_completion_context("text /", 6)
         and not _is_slash_completion_context("/status now", 11)
     )
+
+    class FakeSlashBuffer:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.cursor_position = len(text)
+            self.complete_state = None
+            self.started = 0
+            self.cancelled = 0
+
+        def start_completion(self, *, select_first: bool) -> None:
+            self.started += 1
+            self.select_first = select_first
+            self.complete_state = object()
+
+        def cancel_completion(self) -> None:
+            self.cancelled += 1
+            self.complete_state = None
+
+    slash_buffer = FakeSlashBuffer("/a")
+    refresh_slash_completion(slash_buffer)
+    slash_refresh_ok = slash_buffer.started == 1 and slash_buffer.cancelled == 0 and slash_buffer.select_first is False
+    slash_buffer.text = "hello"
+    slash_buffer.cursor_position = len(slash_buffer.text)
+    refresh_slash_completion(slash_buffer)
+    slash_refresh_ok = slash_refresh_ok and slash_buffer.cancelled == 1
 
     placeholder_1 = image_attachment_placeholder(1)
     placeholder_2 = image_attachment_placeholder(2)
@@ -676,10 +779,16 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
     return [
         _self_check_result(
             name="terminal_slash_completion_suggests_commands",
-            passed=slash_completion_ok and completion_ok,
+            passed=slash_completion_ok and slash_refresh_ok and completion_ok,
             detail={
                 "slash": [completion.text for completion in completions_for_slash],
                 "prefix": [completion.text for completion in completions_for_prefix],
+                "without_slash": [completion.text for completion in completions_without_slash],
+                "mid_text": [completion.text for completion in completions_mid_text],
+                "leading_space": [completion.text for completion in completions_leading_space],
+                "chinese_command": [completion.text for completion in completions_chinese_command],
+                "refresh_started": slash_buffer.started,
+                "refresh_cancelled": slash_buffer.cancelled,
                 "completion_index": completion_state.complete_index,
             },
         ),
@@ -1008,13 +1117,27 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
         close=lambda: setattr(fake_ai, "closed", True),
     )
     terminal._ai_terminal = fake_ai
-    terminal.onecmd("ai")
+    terminal.onecmd("/ai")
     entered_ok = terminal.mode == "ai" and terminal.prompt == "ai> "
     terminal.onecmd("status")
     forwarded_ok = fake_ai.lines == ["status"]
-    terminal.onecmd("exit")
+    terminal.onecmd("/exit")
     returned_ok = terminal.mode == "plan" and terminal.prompt == "plan> "
     returned_mode = terminal.mode
+    terminal.outputs = []
+    terminal.errors = []
+    terminal.perror = lambda value, *args, **kwargs: terminal.errors.append(
+        format_error_for_terminal(value, project_root=project_root)
+    )
+    terminal.onecmd("status")
+    plain_plan_command_rejected_ok = (
+        terminal.mode == "plan"
+        and terminal.errors
+        and "必须写在行首并以 / 开头" in terminal.errors[-1]
+    )
+    plan_no_slash_completions = list(PlanCommandCompleter().get_completions(Document("ar"), None))
+    plan_mid_slash_completions = list(PlanCommandCompleter().get_completions(Document("hello /s"), None))
+    plan_leading_space_completions = list(PlanCommandCompleter().get_completions(Document(" /s"), None))
     terminal.outputs = []
     terminal.onecmd("/help")
     slash_help_ok = terminal.outputs and "命令：" in terminal.outputs[-1]
@@ -1023,8 +1146,13 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     plan_slash_completion_ok = (
         any(completion.text == "/status" for completion in plan_completions)
         and any(completion.text == "/status" for completion in plan_prefix_completions)
+        and not plan_no_slash_completions
+        and not plan_mid_slash_completions
+        and not plan_leading_space_completions
         and _is_plan_completion_context("/", 1)
         and _is_plan_completion_context("/s", 2)
+        and not _is_plan_completion_context("ar", 2)
+        and not _is_plan_completion_context(" /s", 3)
         and not _is_plan_completion_context("text /", 6)
         and not _is_plan_completion_context("/status now", 11)
     )
@@ -1051,9 +1179,10 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
         and terminal._ai_queue[0].force is True
     )
     status_text = terminal._ai_input_status()
-    queue_status_ok = "排队 2 条" in status_text and "Enter 发送" in status_text
+    queue_status_ok = "排队 2 条" in status_text and "Enter 发送" not in status_text
     terminal._ai_queue.clear()
     terminal._ai_worker_thread = None
+    idle_status_ok = terminal._ai_input_status() == ""
 
     pending_ai = SimpleNamespace(
         lines=[],
@@ -1080,8 +1209,8 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     terminal.mode = "ai"
     terminal.prompt = "ai> "
     terminal._ai_force_next_input = True
-    terminal._dispatch_ai_line("status")
-    immediate_clears_force_ok = fake_ai.lines == ["status"] and not terminal._ai_force_next_input
+    terminal._dispatch_ai_line("/status")
+    immediate_clears_force_ok = fake_ai.lines == ["/status"] and not terminal._ai_force_next_input
 
     return [
         _self_check_result(
@@ -1091,6 +1220,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 and entered_ok
                 and forwarded_ok
                 and returned_ok
+                and plain_plan_command_rejected_ok
                 and slash_help_ok
                 and plan_slash_completion_ok
                 and stdin_repair_ok
@@ -1101,9 +1231,13 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 "entered_ok": entered_ok,
                 "forwarded_lines": fake_ai.lines,
                 "returned_mode": returned_mode,
+                "plain_plan_command_rejected_ok": plain_plan_command_rejected_ok,
                 "slash_help_ok": slash_help_ok,
                 "plan_slash_completions": [completion.text for completion in plan_completions],
                 "plan_prefix_completions": [completion.text for completion in plan_prefix_completions],
+                "plan_no_slash_completions": [completion.text for completion in plan_no_slash_completions],
+                "plan_mid_slash_completions": [completion.text for completion in plan_mid_slash_completions],
+                "plan_leading_space_completions": [completion.text for completion in plan_leading_space_completions],
                 "stdin_repair_ok": stdin_repair_ok,
                 "closed": fake_ai.closed,
             },
@@ -1114,6 +1248,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 first_queue_ok
                 and force_queue_ok
                 and queue_status_ok
+                and idle_status_ok
                 and confirmation_exit_ok
                 and immediate_clears_force_ok
             ),
@@ -1121,6 +1256,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 "queued": [item.text for item in terminal._ai_queue],
                 "outputs": terminal.outputs,
                 "status": status_text,
+                "idle_status": terminal._ai_input_status(),
                 "confirmation_exit_lines": pending_ai.lines,
                 "immediate_lines": fake_ai.lines,
             },
@@ -1218,7 +1354,8 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
     terminal.default = lambda line: terminal.forwarded_lines.append(str(line))
     terminal.do_status = lambda arg: terminal.forwarded_lines.append("/status")
 
-    blocked_stop = AITerminal.onecmd(terminal, "new blocked-thread")
+    plain_text_while_busy = AITerminal.onecmd(terminal, "new blocked-thread")
+    blocked_stop = AITerminal.onecmd(terminal, "/new blocked-thread")
     blocked_error = terminal.errors[-1] if terminal.errors else ""
     allowed_status = AITerminal.onecmd(terminal, "/status")
 
@@ -1226,19 +1363,22 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
         "status": AITerminal._command_allowed_while_busy(terminal, "status"),
         "/status": AITerminal._command_allowed_while_busy(terminal, "/status"),
         "help": AITerminal._command_allowed_while_busy(terminal, "help"),
-        "new": AITerminal._command_allowed_while_busy(terminal, "new blocked-thread"),
-        "exit": AITerminal._command_allowed_while_busy(terminal, "exit"),
+        "/help": AITerminal._command_allowed_while_busy(terminal, "/help"),
+        "/new": AITerminal._command_allowed_while_busy(terminal, "/new blocked-thread"),
+        "/exit": AITerminal._command_allowed_while_busy(terminal, "/exit"),
     }
     passed = (
-        blocked_stop is False
+        plain_text_while_busy is False
+        and blocked_stop is False
         and allowed_status is False
         and "等待当前回复完成" in blocked_error
         and terminal.forwarded_lines == ["/status"]
         and allowed["status"]
         and allowed["/status"]
         and allowed["help"]
-        and not allowed["new"]
-        and not allowed["exit"]
+        and allowed["/help"]
+        and not allowed["/new"]
+        and not allowed["/exit"]
     )
     return passed, {
         "blocked_error": blocked_error,

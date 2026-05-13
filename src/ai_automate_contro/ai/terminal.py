@@ -24,7 +24,6 @@ from prompt_toolkit.filters import emacs_insert_mode, vi_insert_mode
 from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.document import Document
 from prompt_toolkit.lexers import Lexer
-from prompt_toolkit.styles import Style
 
 try:
     from langchain_core._api.deprecation import LangChainPendingDeprecationWarning
@@ -58,8 +57,6 @@ from ai_automate_contro.ai.terminal_message_utils import (
     format_patch_approval_request,
     interrupt_action_requests,
     message_content_to_text,
-    text_has_approval,
-    text_has_rejection,
 )
 from ai_automate_contro.ai.terminal_markdown import (
     MarkdownLiveRenderer,
@@ -71,45 +68,51 @@ from ai_automate_contro.ai.terminal_markdown import (
 from ai_automate_contro.ai.prompts.terminal import build_system_prompt
 from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
 from ai_automate_contro.app.errors import format_error_for_terminal
+from ai_automate_contro.support.terminal_style import terminal_input_style
 
 
-BUSY_ALLOWED_COMMANDS = {"?", "help", "pending", "status"}
+SLASH_COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.*))?$")
+BUSY_ALLOWED_COMMANDS = {"help", "keyboard", "pending", "status"}
 SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "approve": {"method": "do_approve", "description": "批准当前等待的受保护补丁操作"},
-    "ask": {"method": "do_ask", "description": "发送一条 AI 消息"},
+    "back": {"method": "", "description": "返回 plan 模式"},
     "compress": {"method": "do_compress", "description": "压缩并归档当前会话"},
-    "context": {"method": "do_context", "description": "查看当前上下文和 checkpoint"},
+    "exit": {"method": "", "description": "返回 plan 模式"},
     "help": {"method": "do_help", "description": "查看 AI 终端命令"},
     "history": {"method": "do_history", "description": "查看最近几条会话消息"},
     "image": {"method": "do_image", "description": "把图片文件加入下一条消息"},
+    "keyboard": {"method": "do_keyboard", "description": "查看键盘快捷键和兼容说明"},
     "new": {"method": "do_new", "description": "新建一个会话"},
     "pending": {"method": "do_pending", "description": "查看等待审批的受保护操作"},
+    "quit": {"method": "", "description": "退出终端"},
     "reject": {"method": "do_reject", "description": "拒绝当前等待审批的操作"},
     "render": {"method": "do_render", "description": "查看或切换 AI 回复渲染方式"},
     "resume": {"method": "do_resume", "description": "恢复已保存的会话"},
-    "run-context": {"method": "do_run_context", "description": "设置最近运行输出目录"},
-    "run_context": {"method": "do_run_context", "description": "设置最近运行输出目录"},
     "sessions": {"method": "do_sessions", "description": "列出已保存会话"},
     "status": {"method": "do_status", "description": "查看当前线程、上下文、checkpoint 和待发送图片"},
-    "thread": {"method": "do_thread", "description": "查看或切换线程 id"},
-    "tools": {"method": "do_tools", "description": "列出 AI 终端工具或查看某个工具 schema"},
-    "use": {"method": "do_use", "description": "设置当前 plan 上下文"},
-    "workspace": {"method": "do_workspace", "description": "设置当前调试工作区上下文"},
+}
+SLASH_COMPLETION_COMMANDS = {
+    "approve",
+    "back",
+    "compress",
+    "exit",
+    "help",
+    "history",
+    "image",
+    "keyboard",
+    "new",
+    "pending",
+    "quit",
+    "reject",
+    "render",
+    "resume",
+    "sessions",
+    "status",
 }
 IMAGE_PLACEHOLDER_STYLE = "class:image-placeholder"
 IMAGE_PLACEHOLDER_PATTERN = "[图片 #"
 IMAGE_PLACEHOLDER_RE = re.compile(r"\[(?:图片|Image) #(\d+)\]")
-AI_INPUT_STYLE = Style.from_dict(
-    {
-        "image-placeholder": "fg:#0087ff bold underline noreverse",
-        "completion-menu.completion": "fg:#d7d7d7 noreverse",
-        "completion-menu.completion.current": "fg:#0087ff bold underline noreverse",
-        "completion-menu.meta.completion": "fg:#808080 noreverse",
-        "completion-menu.meta.completion.current": "fg:#0087ff noreverse",
-        "scrollbar.background": "",
-        "scrollbar.button": "fg:#808080 noreverse",
-    }
-)
+AI_INPUT_STYLE = terminal_input_style({"image-placeholder": "fg:#0087ff bold underline noreverse"})
 
 
 class AITerminal(
@@ -117,7 +120,7 @@ class AITerminal(
     AITerminalCommandsMixin,
     AITerminalStateMixin,
 ):
-    intro = "AI 自动化终端。输入 help 或 ? 查看命令。"
+    intro = "AI 自动化终端。输入 /help 查看命令。"
 
     def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
         self.project_root = project_root.resolve()
@@ -188,26 +191,33 @@ class AITerminal(
         print(format_error_for_terminal(msg, project_root=self.project_root))
 
     def onecmd(self, line: str) -> bool:
-        text = str(line).strip()
-        if not text:
+        raw_text = str(line)
+        if not raw_text.strip():
             return False
+        text = raw_text.rstrip()
         handle_confirmation = getattr(self, "_handle_ai_confirmation_reply", None)
         if callable(handle_confirmation) and handle_confirmation(text):
             return False
         if self._is_agent_busy() and not self._command_allowed_while_busy(line):
             self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
             return False
-        command, _, arg = text.partition(" ")
-        normalized = command.lower()
-        if normalized == "?":
-            self.do_help(arg)
+        parsed_command = _parse_slash_command(text)
+        if parsed_command is None:
+            if text.startswith("/"):
+                self.perror("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
+                return False
+            self.default(text)
             return False
+        command, arg = parsed_command
+        normalized = command.lower().replace("-", "_")
         if normalized in {"exit", "back"}:
             return True
         if normalized == "quit":
             raise SystemExit(0)
-        method = getattr(self, f"do_{normalized.replace('-', '_')}", None)
-        if callable(method):
+        command_spec = SLASH_COMMANDS.get(normalized)
+        method_name = command_spec["method"] if command_spec else None
+        if method_name:
+            method = getattr(self, method_name)
             method(arg)
             return False
         self.default(text)
@@ -217,16 +227,10 @@ class AITerminal(
         text = getattr(line, "command_and_args", str(line)).strip()
         if not text:
             return
-        if self._handle_slash_command(text):
+        if text.startswith("/") and self._handle_slash_command(text):
             return
         if self._current_interrupts():
-            if text_has_approval(text):
-                self.do_approve("")
-                return
-            if text_has_rejection(text):
-                self.do_reject(text)
-                return
-            self.perror("当前有补丁审批等待处理；请先输入 approve 或 reject <原因>。")
+            self.perror("当前有补丁审批等待处理；请先输入 /approve 或 /reject <原因>。")
             return
         self._run_agent_turn(text)
 
@@ -296,10 +300,18 @@ class AITerminal(
             return self._ai_confirmation
 
     def _handle_slash_command(self, text: str) -> bool:
-        if not text.startswith("/"):
+        parsed_command = _parse_slash_command(text)
+        if parsed_command is None:
+            if str(text).startswith("/"):
+                self.perror("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
+                return True
             return False
-        command, _, arg = text[1:].partition(" ")
-        normalized = command.strip().lower()
+        command, arg = parsed_command
+        normalized = command.lower().replace("-", "_")
+        if normalized in {"exit", "back"}:
+            return True
+        if normalized == "quit":
+            raise SystemExit(0)
         command_spec = SLASH_COMMANDS.get(normalized)
         method_name = command_spec["method"] if command_spec else None
         if method_name:
@@ -545,12 +557,13 @@ class AITerminal(
             return self._current_turn_id in self._cancelled_turn_ids
 
     def _command_allowed_while_busy(self, line: str) -> bool:
-        text = str(line).strip()
+        text = str(line).rstrip()
         if not text:
             return True
-        if text.startswith("/"):
-            text = text[1:].lstrip()
-        command = text.split(None, 1)[0].lower() if text else ""
+        parsed_command = _parse_slash_command(text)
+        if parsed_command is None:
+            return False
+        command = parsed_command[0].lower().replace("-", "_")
         return command in BUSY_ALLOWED_COMMANDS
 
     def _stream_response_text(self, text: str) -> None:
@@ -628,10 +641,6 @@ class AITerminal(
 
         @bindings.add("enter")
         def _(event: Any) -> None:
-            raw_input = event.data or ""
-            if raw_input in {"\x1b[27;2;13~", "\x1b[13;2u"}:
-                event.current_buffer.insert_text("\n")
-                return
             buffer = event.current_buffer
             if buffer.complete_state and buffer.complete_state.current_completion:
                 buffer.apply_completion(buffer.complete_state.current_completion)
@@ -651,7 +660,9 @@ class AITerminal(
         @bindings.add("<any>", filter=emacs_insert_mode | vi_insert_mode)
         def _(event: Any) -> None:
             snap_buffer_cursor_out_of_image_placeholder(event.current_buffer)
-            event.current_buffer.insert_text(event.data * event.arg)
+            buffer = event.current_buffer
+            buffer.insert_text(event.data * event.arg)
+            refresh_slash_completion(buffer)
 
         @bindings.add("escape", "v")
         @bindings.add("c-v")
@@ -685,13 +696,13 @@ class AITerminal(
         def _(event: Any) -> None:
             buffer = event.current_buffer
             buffer.insert_text("/")
-            if _is_slash_completion_context(buffer.text, buffer.cursor_position):
-                buffer.start_completion(select_first=False)
+            refresh_slash_completion(buffer)
 
         if self._ai_prompt_session is None:
             self._ai_prompt_session = PromptSession(history=InMemoryHistory(), erase_when_done=True)
             attach_image_placeholder_cursor_guard(self._ai_prompt_session.default_buffer)
         with patch_stdout():
+            toolbar = bottom_toolbar() if callable(bottom_toolbar) else bottom_toolbar
             return self._ai_prompt_session.prompt(
                 prompt,
                 key_bindings=bindings,
@@ -702,7 +713,7 @@ class AITerminal(
                 reserve_space_for_menu=0,
                 enable_history_search=True,
                 multiline=False,
-                bottom_toolbar=bottom_toolbar,
+                bottom_toolbar=toolbar or None,
                 lexer=ImagePlaceholderLexer(),
                 style=AI_INPUT_STYLE,
             )
@@ -711,13 +722,15 @@ class AITerminal(
 class SlashCommandCompleter(Completer):
     def get_completions(self, document: Any, complete_event: Any) -> Any:
         text = document.text_before_cursor
-        if not text.startswith("/"):
+        if not _is_slash_completion_context(document.text, document.cursor_position):
             return
         command_text = text[1:]
         if " " in command_text:
             return
         prefix = command_text.lower()
         for name, spec in sorted(SLASH_COMMANDS.items()):
+            if name not in SLASH_COMPLETION_COMMANDS:
+                continue
             if not name.startswith(prefix):
                 continue
             yield Completion(
@@ -726,6 +739,15 @@ class SlashCommandCompleter(Completer):
                 display="/" + name,
                 display_meta=spec["description"],
             )
+
+
+def refresh_slash_completion(buffer: Any) -> None:
+    if _is_slash_completion_context(buffer.text, buffer.cursor_position):
+        buffer.start_completion(select_first=False)
+        return
+    complete_state = getattr(buffer, "complete_state", None)
+    if complete_state is not None:
+        buffer.cancel_completion()
 
 
 @dataclass
@@ -1004,9 +1026,14 @@ def select_completion_candidate(buffer: Any, *, previous: bool) -> bool:
 
 def _is_slash_completion_context(text: str, cursor: int) -> bool:
     before_cursor = text[:cursor]
-    line_start = before_cursor.rfind("\n") + 1
-    current_line = before_cursor[line_start:]
-    return current_line.startswith("/") and " " not in current_line
+    return before_cursor.startswith("/") and "\n" not in before_cursor and " " not in before_cursor
+
+
+def _parse_slash_command(text: str) -> tuple[str, str] | None:
+    match = SLASH_COMMAND_RE.fullmatch(str(text).rstrip())
+    if match is None:
+        return None
+    return match.group(1), (match.group(2) or "").strip()
 
 
 def reconcile_image_placeholders(

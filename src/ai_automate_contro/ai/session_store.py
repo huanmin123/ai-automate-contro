@@ -103,7 +103,7 @@ def resolve_ai_terminal_session(
 ) -> str:
     query = identifier.strip()
     if not query:
-        raise ValueError("用法：resume <thread-id-or-index>")
+        raise ValueError("用法：/resume <thread-id-or-index>")
     if ai_terminal_session_exists(checkpointer, query, project_root=project_root):
         return query
 

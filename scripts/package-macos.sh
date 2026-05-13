@@ -1,0 +1,339 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage:
+  ./scripts/package-macos.sh [--install-dependencies] [--clean] [--smoke-test]
+
+Options:
+  --install-dependencies  Install editable project dependencies with package extras.
+  --clean                 Remove previous package output before building.
+  --smoke-test            Run packaged executable self-checks and a browser smoke plan.
+  --python PATH           Use a specific Python interpreter.
+  -h, --help              Show this help.
+
+Environment:
+  PYTHON                  Python interpreter path, same as --python.
+  EXECUTABLE_NAME         Output executable file name. Defaults to "aic"; do not include a path.
+EOF
+}
+
+die() {
+  printf '错误：%s\n' "$*" >&2
+  exit 1
+}
+
+run_checked() {
+  "$@"
+}
+
+install_dependencies=0
+clean=0
+smoke_test=0
+python_bin="${PYTHON:-}"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --install-dependencies)
+      install_dependencies=1
+      ;;
+    --clean)
+      clean=1
+      ;;
+    --smoke-test)
+      smoke_test=1
+      ;;
+    --python)
+      shift
+      [ "$#" -gt 0 ] || die "--python 需要一个路径。"
+      python_bin="$1"
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      die "未知参数：$1"
+      ;;
+  esac
+  shift
+done
+
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+cd "$repo_root"
+
+[ "$(uname -s)" = "Darwin" ] || die "当前脚本只支持 macOS。"
+[ "$(uname -m)" = "arm64" ] || die "macOS 打包目前只支持 Apple Silicon arm64，当前架构：$(uname -m)"
+
+if [ -z "$python_bin" ]; then
+  if [ -x "$repo_root/.venv/bin/python" ]; then
+    python_bin="$repo_root/.venv/bin/python"
+  elif [ "$install_dependencies" -eq 1 ]; then
+    command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
+    python3 -m venv "$repo_root/.venv"
+    python_bin="$repo_root/.venv/bin/python"
+  else
+    command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
+    python_bin="$(command -v python3)"
+  fi
+fi
+
+[ -x "$python_bin" ] || die "Python 不可执行：$python_bin"
+
+run_checked "$python_bin" - <<'PY'
+import sys
+
+if sys.version_info < (3, 11):
+    raise SystemExit(f"需要 Python 3.11 或更高版本，当前是 {sys.version.split()[0]}")
+PY
+
+platform_name="macos-arm64"
+default_executable_name="aic"
+legacy_executable_name="ai-automate-contro-$platform_name"
+executable_name="${EXECUTABLE_NAME:-$default_executable_name}"
+
+if [[ -z "$executable_name" || "$executable_name" == */* || "$executable_name" == "." || "$executable_name" == ".." || "$executable_name" =~ [[:space:]] ]]; then
+  die "EXECUTABLE_NAME 只能是普通文件名，不能包含路径、空白或特殊目录名：$executable_name"
+fi
+
+command -v rg >/dev/null 2>&1 || die "分发版 AI 终端依赖 ripgrep (rg)。macOS 可先执行：brew install ripgrep"
+
+if [ "$install_dependencies" -eq 1 ]; then
+  run_checked "$python_bin" -m pip install -e ".[package]"
+fi
+
+run_checked "$python_bin" - <<'PY'
+try:
+    import PyInstaller  # noqa: F401
+except Exception as exc:
+    raise SystemExit(
+        "未安装 PyInstaller。请执行：./scripts/package-macos.sh --install-dependencies --clean --smoke-test"
+    ) from exc
+PY
+
+run_checked env PLAYWRIGHT_BROWSERS_PATH=0 "$python_bin" -m playwright install chromium
+
+out_dir="$repo_root/out"
+package_dir="$out_dir/ai-automate-contro"
+zip_path="$out_dir/ai-automate-contro-$platform_name.zip"
+legacy_executable_path="$out_dir/$legacy_executable_name"
+build_temp_root="${TMPDIR:-/tmp}/ai-automate-contro-pyinstaller"
+build_dir="$build_temp_root/$platform_name"
+pyinstaller_dist_dir="$build_dir/dist"
+pyinstaller_config_dir="$build_dir/pyinstaller-config"
+source_dir="$repo_root/src"
+entry_point="$repo_root/main.py"
+executable_path="$package_dir/$executable_name"
+package_plans_config_path="$package_dir/plans/config.json"
+local_plans_config_backup=""
+local_plans_config_backup_dir=""
+
+mkdir -p "$out_dir"
+
+if [ -f "$package_plans_config_path" ]; then
+  local_plans_config_backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-out-config.XXXXXX")"
+  local_plans_config_backup="$local_plans_config_backup_dir/config.json"
+  cp "$package_plans_config_path" "$local_plans_config_backup"
+fi
+
+if [ "$clean" -eq 1 ]; then
+  rm -rf "$build_dir" "$package_dir" "$zip_path" "$legacy_executable_path"
+fi
+
+rm -rf "$build_dir" "$package_dir" "$zip_path"
+mkdir -p "$build_dir" "$package_dir"
+
+browser_dir="$("$python_bin" - <<'PY'
+from pathlib import Path
+import playwright
+
+print(Path(playwright.__file__).resolve().parent / "driver" / "package" / ".local-browsers")
+PY
+)"
+[ -d "$browser_dir" ] || die "没有找到 Playwright 浏览器目录：$browser_dir"
+
+browser_backup_parent="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-contro-playwright-browsers.XXXXXX")"
+browser_backup="$browser_backup_parent/.local-browsers"
+
+restore_browsers() {
+  if [ -d "$browser_backup" ]; then
+    rm -rf "$browser_dir"
+    mkdir -p "$(dirname "$browser_dir")"
+    mv "$browser_backup" "$browser_dir"
+  fi
+  rm -rf "$browser_backup_parent"
+}
+
+trap restore_browsers EXIT
+mv "$browser_dir" "$browser_backup"
+
+env PYINSTALLER_CONFIG_DIR="$pyinstaller_config_dir" "$python_bin" -m PyInstaller \
+  --noconfirm \
+  --clean \
+  --onedir \
+  --console \
+  --noupx \
+  --contents-directory "_internal" \
+  --name "$executable_name" \
+  --distpath "$pyinstaller_dist_dir" \
+  --workpath "$build_dir" \
+  --specpath "$build_dir" \
+  --paths "$source_dir" \
+  --collect-data "playwright" \
+  --collect-submodules "langchain" \
+  --collect-submodules "langchain_openai" \
+  --collect-submodules "langgraph" \
+  --collect-submodules "langgraph.checkpoint.sqlite" \
+  --collect-submodules "rich" \
+  "$entry_point"
+
+restore_browsers
+trap - EXIT
+
+pyinstaller_package_dir="$pyinstaller_dist_dir/$executable_name"
+[ -d "$pyinstaller_package_dir" ] || die "打包已完成，但没有找到 PyInstaller 输出目录：$pyinstaller_package_dir"
+
+rm -rf "$package_dir"
+mkdir -p "$package_dir"
+cp -R "$pyinstaller_package_dir/." "$package_dir/"
+[ -f "$executable_path" ] || die "打包复制已完成，但没有找到可执行文件：$executable_path"
+chmod +x "$executable_path"
+
+mkdir -p "$package_dir/_internal/playwright/driver/package"
+cp -R "$browser_dir" "$package_dir/_internal/playwright/driver/package/.local-browsers"
+
+rm -rf "$package_dir/handbook"
+cp -R "$repo_root/handbook" "$package_dir/handbook"
+
+mkdir -p "$package_dir/plans/demo/docs"
+
+cat > "$package_dir/plan.config" <<'JSON'
+{
+  "handbook_path": "handbook",
+  "plan_roots": [
+    "plans"
+  ],
+  "default_ai_config_dir": "plans"
+}
+JSON
+
+cat > "$package_plans_config_path" <<'JSON'
+{
+  "description": "分发包 plans 的共享配置。需要使用 AI 终端或 ai action 时，请在这里添加 ai_services.default。"
+}
+JSON
+
+cat > "$package_dir/plans/demo/plan.json" <<'JSON'
+{
+  "name": "packaged-demo",
+  "variables": {},
+  "steps": [
+    {
+      "action": "print",
+      "message": "分发包 demo plan 可用。"
+    }
+  ]
+}
+JSON
+
+cat > "$package_dir/plans/demo/docs/README.md" <<EOF
+# 分发包 demo
+
+这个 plan 用于验证分发包是否可以正常校验和运行。
+
+\`\`\`bash
+./$executable_name plan validate --file ./plans/demo/plan.json
+./$executable_name plan run --file ./plans/demo/plan.json --run-name demo-smoke
+\`\`\`
+EOF
+
+if [ "$smoke_test" -eq 1 ]; then
+  (
+    cd "$package_dir"
+    run_checked "./$executable_name" self-check ai-stream
+    run_checked "./$executable_name" self-check ai-terminal
+    run_checked "./$executable_name" self-check runtime
+    run_checked "./$executable_name" tool check
+    run_checked "./$executable_name" self-check ai-tools
+    run_checked "./$executable_name" plan validate --file "./plans/demo/plan.json"
+    run_checked "./$executable_name" plan run --file "./plans/demo/plan.json" --run-name "demo-smoke"
+  )
+
+  browser_smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-browser-smoke.XXXXXX")"
+  mkdir -p "$browser_smoke_dir/resources"
+  cat > "$browser_smoke_dir/resources/demo.html" <<'HTML'
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Packaged Browser Smoke</title></head>
+  <body><h1 id="title">Packaged Browser Smoke</h1></body>
+</html>
+HTML
+  cat > "$browser_smoke_dir/plan.json" <<'JSON'
+{
+  "name": "packaged-browser-smoke",
+  "variables": {
+    "expected_title": "Packaged Browser Smoke"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{resources_file_url}}/demo.html",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "#title",
+      "expected": "{{expected_title}}",
+      "type": "text"
+    }
+  ]
+}
+JSON
+  run_checked "$executable_path" plan validate --file "$browser_smoke_dir/plan.json"
+  run_checked "$executable_path" plan run --file "$browser_smoke_dir/plan.json" --run-name "browser-smoke"
+  rm -rf "$browser_smoke_dir"
+  rm -rf "$package_dir/plans/demo/output"
+fi
+
+(
+  cd "$out_dir"
+  zip -qr "$(basename "$zip_path")" "$(basename "$package_dir")"
+)
+
+if [ "$smoke_test" -eq 1 ]; then
+  zip_smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-zip-smoke.XXXXXX")"
+  unzip -q "$zip_path" -d "$zip_smoke_dir"
+  (
+    cd "$zip_smoke_dir/ai-automate-contro"
+    run_checked "./$executable_name" self-check runtime
+    run_checked "./$executable_name" tool check
+    run_checked "./$executable_name" plan validate --file "./plans/demo/plan.json"
+    run_checked "./$executable_name" plan run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"
+  )
+  rm -rf "$zip_smoke_dir"
+fi
+
+if [ -n "$local_plans_config_backup" ] && [ -f "$local_plans_config_backup" ]; then
+  mkdir -p "$(dirname "$package_plans_config_path")"
+  cp "$local_plans_config_backup" "$package_plans_config_path"
+  rm -rf "$local_plans_config_backup_dir"
+  printf '已恢复 out/ai-automate-contro/plans/config.json 的本地配置；zip 内仍使用示例配置。\n'
+fi
+
+rm -rf "$build_dir"
+if [ -d "$build_temp_root" ] && [ -z "$(find "$build_temp_root" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+  rmdir "$build_temp_root"
+fi
+
+printf '分发包可执行文件：\n%s\n' "$executable_path"
+printf '分发包 zip：\n%s\n' "$zip_path"
+printf '请从 out/ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。\n'

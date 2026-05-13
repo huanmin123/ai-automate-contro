@@ -46,6 +46,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 
 ## 开发规则
 
+- 本项目是本地脚本程序，不是长期在线服务；废弃字段、旧命令、旧别名和旧入口默认直接删除，不为了向下兼容保留隐藏路径。除非用户明确要求迁移期兼容，否则实现、文档、补全和帮助只保留当前最优、最新的单一路径。
 - 优先保持 JSON 计划格式、动作命名和现有字段风格一致。
 - 一个 plan 包代表一个独立需求；主入口固定命名为 `plan.json`。
 - `plan.json` 是最小可执行单元，可以通过 `run_sub_plan` 调用同包内的 `sub-plans/*-plan.json` 子计划。
@@ -64,7 +65,7 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护，然后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
 - AI 新建 plan 包可使用 `create_plan_package` 和 `write_plan_package_file` 写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。该工具必须拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径；已有原始 plan 的修复仍走 debug workspace、patch 和 HITL approval。
 - AI 为真实网站、URL、后台页面或网页流程创建 plan 前，必须先拿页面证据，优先用 `inspect_web_page` 真实访问并读取受限 DOM 摘要、表单、输入框、按钮、链接、表格以及登录/验证信号；不能只按用户文字猜 selector。若页面需要登录、验证码、二次验证或权限确认，AI 必须通知用户完成验证或提供页面状态，再继续写 plan。
-- AI 终端线程状态包含 `current_plan_path`、`current_debug_workspace` 和 `latest_output_dir`，由 `use`、`workspace`、`run_context` 命令和工具返回自动维护，并通过 middleware 注入模型上下文。
+- AI 终端线程状态包含 `current_plan_path`、`current_debug_workspace` 和 `latest_output_dir`，由选择、运行、调试 plan 和工具返回自动维护，并通过 middleware 注入模型上下文；不为用户暴露手动设置这些内部状态的旧命令。
 - AI 调试修复必须先把原始 plan 包复制到当前 plan 的 `output/debug/<run>/source-copy/`，再在 `output/debug/<run>/injected-plan/` 注入日志、截图、变量落盘或人工确认；修复候选只能写入 `injected-plan/`、`notes.md` 或 `report.md`，确认问题后只把最小补丁应用回原始 plan。
 - selector 自动修复必须保守：没有明确用户提示或候选分数接近时，只能返回候选和歧义原因，不能自动写入 `injected-plan/`。
 - 专项 AI 统一使用 `ai` action，并通过 `type` 区分 `connectivity`、`extract_data`、`classify_text`、`transform_data`、`summarize_text`；必须有固定输入、固定输出 schema、固定系统提示词和 `output/ai/` 调试产物。

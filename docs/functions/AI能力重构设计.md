@@ -49,9 +49,9 @@ python .\main.py ai --thread login-debug
 
 AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 AI 终端启动都会检查 `rg` 是否可用；缺失时直接提示用 PowerShell 7 执行 `winget install --id BurntSushi.ripgrep.MSVC -e`，不使用 Windows 内置搜索替代。
 
-会话状态由 LangGraph `SqliteSaver` 持久化到 `.keygen/ai-terminal-checkpoints.sqlite`。同一个 `--thread` 可以跨终端进程恢复上下文；终端内可用 `context` 查看 checkpoint 信息、`history [limit]` 查看近期消息、`thread [id]` 切换线程、`reset` 删除当前线程。
+会话状态由 LangGraph `SqliteSaver` 持久化到 `.keygen/ai-terminal-checkpoints.sqlite`。同一个 `--thread` 可以跨终端进程恢复上下文；终端内可用 `status` 查看状态、`sessions [limit|all]` 查询会话、`resume <thread-id-or-index>` 恢复会话、`history [limit]` 查看近期消息、`new [thread-id]` 开新线程。
 
-线程状态包含当前 plan、当前 debug workspace 和最近输出目录。用户可以用 `use`、`workspace`、`run_context` 显式设置；工具返回相关路径时也会自动更新。模型调用前会通过 LangChain middleware 把这些状态注入 system message，减少重复路径输入和上下文误判。
+线程状态包含当前 plan、当前 debug workspace 和最近输出目录，并在选择、运行、调试 plan 或工具返回相关路径时自动更新。模型调用前会通过 LangChain middleware 把这些状态注入 system message，减少重复路径输入和上下文误判。
 
 原始 plan 补丁应用使用 LangChain `HumanInTheLoopMiddleware` 做人机审批。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图先中断并等待用户；用户在 AI 终端输入 `approve` 才会通过 `Command(resume=...)` 恢复执行，终端会把 `approved: true` 注入工具参数。输入 `reject <reason>` 会拒绝工具调用，并把拒绝原因返回给模型继续处理。
 

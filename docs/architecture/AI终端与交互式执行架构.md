@@ -51,20 +51,20 @@ CLI
 
 第一批命令：
 
-- `create`: 创建 plan 包模板。
-- `validate`: 校验 plan 结构、路径、组件字段和输出约束。
-- `run`: 先校验再运行 plan。
-- `status`: 查看当前运行状态。
-- `continue`: 继续等待中的 plan。
-- `stop`: 停止等待中的 plan。
-- `var`: 修改运行变量。
-- `logs`: 查看运行日志。
-- `events`: 查看结构化事件。
-- `output`: 查看输出目录。
-- `report`: 查看运行报告。
-- `ai`: 切换到 `ai>`，或用 `ai <message>` 发送一条 AI 消息。
+- `/create`: 创建 plan 包模板。
+- `/validate`: 校验 plan 结构、路径、组件字段和输出约束。
+- `/run`: 先校验再运行 plan。
+- `/status`: 查看当前运行状态。
+- `/continue`: 继续等待中的 plan。
+- `/stop`: 停止等待中的 plan。
+- `/var`: 修改运行变量。
+- `/logs`: 查看运行日志。
+- `/events`: 查看结构化事件。
+- `/output`: 查看输出目录。
+- `/report`: 查看运行报告。
+- `/ai`: 切换到 `ai>`，或用 `/ai <message>` 发送一条 AI 消息。
 
-`plan>` 中命令支持普通形式和斜杠形式，例如 `status` 与 `/status` 等价。管理模式不猜需求，只执行明确命令。
+`plan>` 和 `ai>` 中的本地命令必须写在输入行最开头，格式是 `/command` 或 `/command <args>`。`/` 后面的命令名必须以英文字母开头；命令和参数之间至少一个空格。普通文字中间的 `/xxx` 不会被当作命令，也不会触发命令补全。管理模式不猜需求，只执行明确命令。
 
 ## AI 终端
 
@@ -103,7 +103,7 @@ python .\main.py ai --thread login-debug
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
-会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`context`、`history [limit]`、`thread [id]`、`new` 和 `compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
+会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`history [limit]`、`new` 和 `compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
 AI 终端回合由后台 worker 执行，输入行保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端；期间继续发送的普通消息进入队列，底部状态展示运行中和排队数量。按 `Esc` 不会硬杀当前模型或工具调用，只会把下一条输入标记为安全介入：当前回合继续 drain 到安全边界，但后续流式输出被抑制，队首消息随后处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
@@ -118,7 +118,7 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 - `latest_compression_messages_path`
 - `latest_compression_archive_dir`
 
-终端命令 `use [plan]`、`workspace [debug-workspace]`、`run_context [output-dir]` 可以显式设置这些状态；`/new [thread-id]` 开新线程，`/status` 查看当前线程摘要，`/sessions` 查询已落盘会话，`/resume <id-or-index>` 恢复会话，`/compress [reason]` 手动压缩当前线程。结构化工具返回 plan、debug workspace 或 run output 时也会自动更新状态。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
+终端线程状态会在选择、运行、调试 plan 或结构化工具返回 plan、debug workspace、run output 时自动更新；`/new [thread-id]` 开新线程，`/status` 查看当前线程摘要，`/sessions` 查询已落盘会话，`/resume <id-or-index>` 恢复会话，`/compress [reason]` 手动压缩当前线程。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 

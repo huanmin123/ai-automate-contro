@@ -44,14 +44,14 @@ AI 终端的 bug 修复能力必须围绕 plan 包工作，而不是直接改用
 当前确定性工具：
 
 ```powershell
-debug create <name>
-debug prepare <name>
-debug list
-debug fix [--apply] [workspace]
-debug inject <preset[,preset...]> [workspace]
-debug patch [workspace]
-debug apply --yes [workspace]
-artifacts [filter] [limit]
+/debug create <name>
+/debug prepare <name>
+/debug list
+/debug fix [--apply] [workspace]
+/debug inject <preset[,preset...]> [workspace]
+/debug patch [workspace]
+/debug apply --yes [workspace]
+/artifacts [filter] [limit]
 python .\main.py plan debug-create --file <plan.json> --name <name>
 python .\main.py plan debug-prepare --file <plan.json> --name <name>
 python .\main.py plan debug-fix --workspace <output/debug/run> --hint "selector target"

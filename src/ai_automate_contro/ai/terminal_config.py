@@ -28,7 +28,7 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
             "AI 服务配置格式不正确：config.ai_services 必须是 JSON object。",
             details=[f"配置文件：{config_path}"],
             fix="把 ai_services 改成对象，并在里面配置 default 服务。",
-            verify=[".\\ai-automate-contro-windows-x64.exe self-check env"],
+            verify=[".\\aic.exe self-check env"],
         )
     service_config = ai_services.get(service_name)
     if not isinstance(service_config, dict):
@@ -51,8 +51,8 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
                 "}"
             ),
             verify=[
-                ".\\ai-automate-contro-windows-x64.exe self-check env",
-                ".\\ai-automate-contro-windows-x64.exe ai",
+                ".\\aic.exe self-check env",
+                ".\\aic.exe ai",
             ],
         )
     if not service_config.get("model"):
@@ -60,7 +60,7 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
             f"AI 终端服务缺少 model：{service_name}",
             details=[f"配置文件：{config_path}"],
             fix=f"在 ai_services.{service_name}.model 填入模型名。",
-            verify=[".\\ai-automate-contro-windows-x64.exe self-check env"],
+            verify=[".\\aic.exe self-check env"],
         )
     resolve_ai_terminal_api_key(service_name, service_config)
     return AITerminalConfig(service_name=service_name, service_config=service_config)
@@ -95,5 +95,5 @@ def resolve_ai_terminal_api_key(service_name: str, service_config: dict[str, Any
             f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在 PowerShell 7 中设置对应环境变量。\n"
             "示例：$env:OPENAI_API_KEY='sk-your-key'"
         ),
-        verify=[".\\ai-automate-contro-windows-x64.exe self-check env"],
+        verify=[".\\aic.exe self-check env"],
     )

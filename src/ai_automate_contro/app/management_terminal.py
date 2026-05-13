@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import dataclass
-import shlex
+import re
 import sys
 import threading
 from pathlib import Path
@@ -15,7 +15,6 @@ from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts.prompt import CompleteStyle
-from prompt_toolkit.styles import Style
 
 from ai_automate_contro.app.errors import format_error_for_terminal
 from ai_automate_contro.app.management_debug_commands import DebugCommandsMixin
@@ -23,6 +22,7 @@ from ai_automate_contro.app.management_output_commands import OutputCommandsMixi
 from ai_automate_contro.app.management_plan_commands import PlanCommandsMixin
 from ai_automate_contro.app.management_run_commands import RunCommandsMixin
 from ai_automate_contro.engine.interactive import InteractiveRun
+from ai_automate_contro.support.terminal_style import terminal_input_style
 
 
 PLAN_COMMANDS: dict[str, str] = {
@@ -49,17 +49,8 @@ PLAN_COMMANDS: dict[str, str] = {
     "validate": "校验当前或指定 plan",
     "var": "管理本次终端变量覆盖",
 }
-PLAN_INPUT_STYLE = Style.from_dict(
-    {
-        "bottom-toolbar": "fg:#808080 noreverse",
-        "completion-menu.completion": "fg:#d7d7d7 noreverse",
-        "completion-menu.completion.current": "fg:#0087ff bold underline noreverse",
-        "completion-menu.meta.completion": "fg:#808080 noreverse",
-        "completion-menu.meta.completion.current": "fg:#0087ff noreverse",
-        "scrollbar.background": "",
-        "scrollbar.button": "fg:#808080 noreverse",
-    }
-)
+PLAN_INPUT_STYLE = terminal_input_style({"bottom-toolbar": "fg:#808080 noreverse"})
+SLASH_COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.*))?$")
 
 
 class ManagementTerminal(
@@ -68,7 +59,7 @@ class ManagementTerminal(
     RunCommandsMixin,
     PlanCommandsMixin,
 ):
-    intro = "AI 自动化控制终端。输入 help 查看命令，输入 ai 进入 AI 模式。"
+    intro = "AI 自动化控制终端。输入 /help 查看命令，输入 /ai 进入 AI 模式。"
 
     def __init__(self, project_root: Path) -> None:
         self.project_root = project_root.resolve()
@@ -109,9 +100,10 @@ class ManagementTerminal(
         self.close()
 
     def onecmd(self, line: str) -> bool:
-        text = str(line).strip()
-        if not text:
+        raw_text = str(line)
+        if not raw_text.strip():
             return False
+        text = raw_text.rstrip()
         if self.mode == "ai":
             return self._dispatch_ai_line(text)
         return self._dispatch_plan_line(text)
@@ -131,17 +123,20 @@ class ManagementTerminal(
     def do_help(self, _: str = "") -> None:
         lines = ["命令："]
         for name, description in sorted(PLAN_COMMANDS.items()):
-            lines.append(f"  {name:<12} {description}")
+            lines.append(f"  /{name:<11} {description}")
         lines.extend(
             [
                 "",
-                "AI 模式：",
-                "  ai                 进入 AI 模式；启动时不会提前初始化 AI。",
-                "  ai <message>       在 plan 模式下直接发送一条 AI 消息。",
-                "  exit/back          从 ai> 返回 plan>。",
-                "  quit               退出终端。",
+                "命令语法：",
+                "  命令必须写在输入行最开头，格式是 /command 或 /command <args>。",
+                "  / 后面的命令名必须以英文字母开头；命令和参数之间至少一个空格。",
+                "  普通文字中间的 /xxx 不会被当作命令，也不会触发命令补全。",
                 "",
-                "提示：plan 命令也支持斜杠形式，例如 /status 或 /run。",
+                "AI 模式：",
+                "  /ai                进入 AI 模式；启动时不会提前初始化 AI。",
+                "  /ai <message>      在 plan 模式下直接发送一条 AI 消息。",
+                "  /exit 或 /back     从 ai> 返回 plan>。",
+                "  /quit              退出终端。",
             ]
         )
         self.poutput("\n".join(lines))
@@ -170,14 +165,15 @@ class ManagementTerminal(
             )
 
     def _dispatch_plan_line(self, text: str) -> bool:
-        command, arg = _split_command(text)
-        slash_command = command.startswith("/") and len(command) > 1
-        if slash_command:
-            command = command[1:]
+        parsed = _parse_slash_command(text)
+        if parsed is None:
+            self.perror("交互命令必须写在行首并以 / 开头，例如 /help。")
+            return False
+        command, arg = parsed
         normalized = command.lower().replace("-", "_")
         if normalized in {"exit", "quit"}:
             return True
-        if normalized in {"help", "?"}:
+        if normalized == "help":
             self.do_help(arg)
             return False
         if normalized == "ai":
@@ -187,17 +183,17 @@ class ManagementTerminal(
         if callable(method):
             method(arg)
             return False
-        display_command = f"/{command}" if slash_command else command
-        self.perror(f"unknown command: {display_command}")
+        self.perror(f"unknown command: /{command}")
         return False
 
     def _dispatch_ai_line(self, text: str) -> bool:
-        normalized = text.split(None, 1)[0].lower()
         ai_terminal = self._require_ai_terminal()
         if self._ai_has_pending_confirmation(ai_terminal):
             self._ai_force_next_input = False
             ai_terminal.onecmd(text)
             return False
+        parsed = _parse_slash_command(text)
+        normalized = parsed[0].lower().replace("-", "_") if parsed else ""
         if normalized in {"exit", "back"}:
             self._ai_force_next_input = False
             self.mode = "plan"
@@ -206,44 +202,12 @@ class ManagementTerminal(
         if normalized == "quit":
             self._ai_force_next_input = False
             return True
-        if self._should_run_ai_line_immediately(text):
+        if parsed is not None or text.startswith("/"):
             self._ai_force_next_input = False
             ai_terminal.onecmd(text)
             return False
         self._enqueue_ai_line(text)
         return False
-
-    def _should_run_ai_line_immediately(self, text: str) -> bool:
-        command = text.strip().split(None, 1)[0].lower() if text.strip() else ""
-        if command.startswith("/") and len(command) > 1:
-            command = command[1:]
-        always_immediate = {"?", "help", "pending", "status"}
-        if command in always_immediate:
-            return True
-        immediate_when_idle = {
-            "?",
-            "approve",
-            "back",
-            "context",
-            "exit",
-            "help",
-            "history",
-            "image",
-            "pending",
-            "reject",
-            "render",
-            "run-context",
-            "run_context",
-            "sessions",
-            "status",
-            "thread",
-            "tools",
-            "use",
-            "workspace",
-        }
-        if command not in immediate_when_idle:
-            return False
-        return not self._is_ai_processing()
 
     def _is_ai_processing(self) -> bool:
         ai_terminal = self._ai_terminal
@@ -354,7 +318,6 @@ class ManagementTerminal(
             parts.append(f"排队 {queued} 条")
         if self._ai_force_next_input:
             parts.append("强制接入：下一条插队")
-        parts.append("Enter 发送 | Esc 强制接入 | Alt+Enter 换行 | Ctrl+V 图片")
         return "  ".join(parts)
 
     def _handle_plan_ai(self, arg: str) -> None:
@@ -364,7 +327,7 @@ class ManagementTerminal(
             return
         self.mode = "ai"
         self.prompt = "ai> "
-        self.poutput("已进入 AI 模式。输入 exit 或 back 返回 plan 模式。")
+        self.poutput("已进入 AI 模式。输入 /exit 或 /back 返回 plan 模式。")
 
     def _require_ai_terminal(self) -> Any:
         if self._ai_terminal is None:
@@ -403,14 +366,15 @@ class ManagementTerminal(
 class PlanCommandCompleter(Completer):
     def get_completions(self, document: Any, complete_event: Any) -> Any:
         text = document.text_before_cursor
+        if not _is_plan_completion_context(document.text, document.cursor_position):
+            return
         if " " in text:
             return
-        uses_slash = text.startswith("/")
-        prefix = text[1:].lower() if uses_slash else text.lower()
+        prefix = text[1:].lower()
         for name, description in sorted(PLAN_COMMANDS.items()):
             if not name.startswith(prefix):
                 continue
-            completion_text = f"/{name}" if uses_slash else name
+            completion_text = f"/{name}"
             yield Completion(completion_text, start_position=-len(text), display=completion_text, display_meta=description)
 
 
@@ -450,21 +414,14 @@ def _select_plan_completion_candidate(buffer: Any, *, previous: bool) -> None:
 
 def _is_plan_completion_context(text: str, cursor: int) -> bool:
     before_cursor = text[:cursor]
-    line_start = before_cursor.rfind("\n") + 1
-    current_line = before_cursor[line_start:]
-    return current_line.startswith("/") and " " not in current_line
+    return before_cursor.startswith("/") and "\n" not in before_cursor and " " not in before_cursor
 
 
-def _split_command(text: str) -> tuple[str, str]:
-    try:
-        parts = shlex.split(text, posix=False)
-    except ValueError:
-        parts = text.split(maxsplit=1)
-    if not parts:
-        return "", ""
-    command = parts[0]
-    raw_arg = text[len(command) :].strip()
-    return command, raw_arg
+def _parse_slash_command(text: str) -> tuple[str, str] | None:
+    match = SLASH_COMMAND_RE.fullmatch(str(text).rstrip())
+    if match is None:
+        return None
+    return match.group(1), (match.group(2) or "").strip()
 
 
 def _repair_piped_stdin_text(text: str, *, encoding: str | None = None) -> str:

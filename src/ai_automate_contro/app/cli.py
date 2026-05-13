@@ -69,7 +69,7 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             terminal._ai_terminal = app
             terminal.mode = "ai"
             terminal.prompt = "ai> "
-            terminal.intro = "AI 自动化控制终端。当前已进入 AI 模式；输入 /help 查看 AI 命令，输入 exit/back 返回 plan 模式，输入 quit 退出。"
+            terminal.intro = "AI 自动化控制终端。当前已进入 AI 模式；输入 /help 查看 AI 命令，输入 /exit 或 /back 返回 plan 模式，输入 /quit 退出。"
             terminal.cmdloop()
             app = None
             return 0

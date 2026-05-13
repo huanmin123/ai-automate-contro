@@ -69,8 +69,9 @@ if ($IsMacOS -and $osArchitecture -ne "arm64") {
 }
 
 $PlatformName = if ($IsWindows) { "windows-$osArchitecture" } else { "macos-arm64" }
-$ExecutableBaseName = "ai-automate-contro-$PlatformName"
+$ExecutableBaseName = "aic"
 $ExecutableFileName = if ($IsWindows) { "$ExecutableBaseName.exe" } else { $ExecutableBaseName }
+$ExecutableCommandForDocs = if ($IsWindows) { ".\$ExecutableFileName" } else { "./$ExecutableFileName" }
 $OutDir = Resolve-RepoPath "out"
 $PackageDir = Join-Path $OutDir "ai-automate-contro"
 $BuildTempRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) "ai-automate-contro-pyinstaller"))
@@ -81,7 +82,11 @@ $PyInstallerExecutablePath = Join-Path $PyInstallerPackageDir $ExecutableFileNam
 $SourceDir = Resolve-RepoPath "src"
 $EntryPoint = Resolve-RepoPath "main.py"
 $ExecutablePath = Join-Path $PackageDir $ExecutableFileName
-$LegacyExecutablePath = Join-Path $OutDir $ExecutableFileName
+$LegacyPlatformExecutableFileName = if ($IsWindows) { "ai-automate-contro-$PlatformName.exe" } else { "ai-automate-contro-$PlatformName" }
+$LegacyExecutablePaths = @(
+    (Join-Path $OutDir $ExecutableFileName),
+    (Join-Path $OutDir $LegacyPlatformExecutableFileName)
+)
 $HandbookSourceDir = Resolve-RepoPath "handbook"
 $PlanConfigPath = Join-Path $PackageDir "plan.config"
 $PackageZipPath = Join-Path $OutDir "ai-automate-contro-$PlatformName.zip"
@@ -95,7 +100,9 @@ Assert-UnderRepo $EntryPoint
 Assert-UnderRepo $HandbookSourceDir
 Assert-UnderRepo $PlanConfigPath
 Assert-UnderRepo $PackageZipPath
-Assert-UnderRepo $LegacyExecutablePath
+foreach ($LegacyExecutablePath in $LegacyExecutablePaths) {
+    Assert-UnderRepo $LegacyExecutablePath
+}
 
 if (Test-Path -LiteralPath $ExistingPackagePlansConfigPath) {
     Assert-UnderRepo $ExistingPackagePlansConfigPath
@@ -124,9 +131,11 @@ if ($Clean) {
         Assert-UnderRepo $PackageZipPath
         Remove-Item -LiteralPath $PackageZipPath -Force
     }
-    if (Test-Path -LiteralPath $LegacyExecutablePath) {
-        Assert-UnderRepo $LegacyExecutablePath
-        Remove-Item -LiteralPath $LegacyExecutablePath -Force
+    foreach ($LegacyExecutablePath in $LegacyExecutablePaths) {
+        if (Test-Path -LiteralPath $LegacyExecutablePath) {
+            Assert-UnderRepo $LegacyExecutablePath
+            Remove-Item -LiteralPath $LegacyExecutablePath -Force
+        }
     }
 }
 
@@ -239,16 +248,16 @@ $planConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PlanConfigPath
         }
     )
 } | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $PackageDemoPlanDir "plan.json") -Encoding UTF8
-$demoReadme = @'
+$demoReadme = @"
 # 分发包 demo
 
 这个 plan 用于验证分发包是否可以正常校验和运行。
 
 ```powershell
-.\ai-automate-contro-windows-x64.exe plan validate --file .\plans\demo\plan.json
-.\ai-automate-contro-windows-x64.exe plan run --file .\plans\demo\plan.json --run-name demo-smoke
+$ExecutableCommandForDocs plan validate --file .\plans\demo\plan.json
+$ExecutableCommandForDocs plan run --file .\plans\demo\plan.json --run-name demo-smoke
 ```
-'@
+"@
 $demoReadme | Set-Content -LiteralPath (Join-Path $PackageDemoDocsDir "README.md") -Encoding UTF8
 
 if ($SmokeTest) {
