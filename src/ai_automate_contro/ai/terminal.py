@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 import sys
 import threading
 import time
 import warnings
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -71,7 +73,7 @@ from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
 from ai_automate_contro.app.errors import format_error_for_terminal
 
 
-BUSY_ALLOWED_COMMANDS = {"?", "help", "status"}
+BUSY_ALLOWED_COMMANDS = {"?", "help", "pending", "status"}
 SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "approve": {"method": "do_approve", "description": "批准当前等待的受保护补丁操作"},
     "ask": {"method": "do_ask", "description": "发送一条 AI 消息"},
@@ -129,6 +131,8 @@ class AITerminal(
         self._cancelled_turn_ids: set[int] = set()
         self._turn_lock = threading.Lock()
         self._output_lock = threading.Lock()
+        self._ai_confirmation_lock = threading.Lock()
+        self._ai_confirmation: AIConfirmationWait | None = None
         self._approval_resume_active = False
         self._last_error: str = ""
         self._pending_attachments: list[ImageAttachment] = []
@@ -146,6 +150,8 @@ class AITerminal(
             latest_user_approved=self._latest_user_approved,
             after_tool_call=self._after_tool_call,
             thread_id_provider=lambda: self.thread_id,
+            manual_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="manual_confirm"),
+            inspection_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="post_run_inspection"),
         )
         self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(
@@ -182,11 +188,14 @@ class AITerminal(
         print(format_error_for_terminal(msg, project_root=self.project_root))
 
     def onecmd(self, line: str) -> bool:
-        if self._is_agent_busy() and not self._command_allowed_while_busy(line):
-            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
-            return False
         text = str(line).strip()
         if not text:
+            return False
+        handle_confirmation = getattr(self, "_handle_ai_confirmation_reply", None)
+        if callable(handle_confirmation) and handle_confirmation(text):
+            return False
+        if self._is_agent_busy() and not self._command_allowed_while_busy(line):
+            self.perror("AI 终端正在处理上一轮请求；请等待当前回复完成。")
             return False
         command, _, arg = text.partition(" ")
         normalized = command.lower()
@@ -220,6 +229,71 @@ class AITerminal(
             self.perror("当前有补丁审批等待处理；请先输入 approve 或 reject <原因>。")
             return
         self._run_agent_turn(text)
+
+    def _wait_for_ai_confirmation(self, prompt: str, *, wait_type: str) -> bool:
+        wait = AIConfirmationWait(prompt=str(prompt), wait_type=wait_type)
+        with self._ai_confirmation_lock:
+            if self._ai_confirmation is not None:
+                raise RuntimeError("AI 模式已有一个等待确认的 plan。")
+            self._ai_confirmation = wait
+        self.poutput(_format_ai_confirmation_prompt(wait))
+        wait.event.wait()
+        with self._ai_confirmation_lock:
+            if self._ai_confirmation is wait:
+                self._ai_confirmation = None
+        return bool(wait.accepted)
+
+    def _handle_ai_confirmation_reply(self, text: str) -> bool:
+        wait = self._current_ai_confirmation()
+        if wait is None:
+            return False
+        decision = self._classify_ai_confirmation_reply(text, wait)
+        if decision == "approve":
+            wait.accepted = True
+            wait.event.set()
+            self.poutput("AI确认：已理解为继续。")
+            return True
+        if decision == "reject":
+            wait.accepted = False
+            wait.event.set()
+            self.poutput("AI确认：已理解为停止。")
+            return True
+        self.poutput("AI确认：我还不能确定你的意思。请直接说明是继续还是停止。")
+        return True
+
+    def _classify_ai_confirmation_reply(self, text: str, wait: "AIConfirmationWait") -> str:
+        try:
+            messages = [
+                (
+                    "system",
+                    "你是确认意图分类器。只判断用户是否同意继续一个正在等待人工确认的自动化 plan。"
+                    "只能返回 JSON：{\"decision\":\"approve|reject|unclear\"}。"
+                    "approve 表示用户同意继续、确认完成、允许下一步；"
+                    "reject 表示用户要求停止、取消、不同意继续；"
+                    "unclear 表示用户只是在提问、描述状态、犹豫或意图不明确。"
+                    "不要执行任务，不要解释。",
+                ),
+                (
+                    "user",
+                    f"等待类型：{wait.wait_type}\n确认提示：{wait.prompt}\n用户回复：{text}",
+                ),
+            ]
+            response = self.model.invoke(messages)
+            raw = message_content_to_text(getattr(response, "content", response))
+            parsed = json.loads(raw)
+            decision = str(parsed.get("decision", "")).strip().lower()
+            if decision in {"approve", "reject", "unclear"}:
+                return decision
+        except Exception:
+            pass
+        return classify_ai_confirmation_reply(text)
+
+    def _current_ai_confirmation(self) -> "AIConfirmationWait | None":
+        lock = getattr(self, "_ai_confirmation_lock", None)
+        if lock is None:
+            return None
+        with lock:
+            return self._ai_confirmation
 
     def _handle_slash_command(self, text: str) -> bool:
         if not text.startswith("/"):
@@ -335,6 +409,7 @@ class AITerminal(
     def _invoke_graph_streaming(self, graph_input: Any) -> tuple[dict[str, Any], bool]:
         final_state: dict[str, Any] | None = None
         streamed = False
+        suppress_stream_output = False
         indicator = self._start_thinking_indicator()
         markdown_renderer: MarkdownLiveRenderer | None = None
         render_markdown = self._should_render_stream_markdown()
@@ -344,11 +419,21 @@ class AITerminal(
                 config=self._graph_config(),
                 stream_mode=["messages", "values"],
             ):
+                if self._current_agent_turn_cancelled():
+                    suppress_stream_output = True
                 mode, payload = _split_stream_event(event)
                 if mode == "values" and isinstance(payload, dict):
                     final_state = payload
                     continue
                 if mode != "messages":
+                    continue
+                if suppress_stream_output:
+                    if markdown_renderer is not None:
+                        markdown_renderer.finish()
+                        markdown_renderer = None
+                    if indicator is not None:
+                        self._stop_thinking_indicator(indicator)
+                        indicator = None
                     continue
                 chunk_text = _stream_message_text(payload)
                 if not chunk_text:
@@ -416,6 +501,15 @@ class AITerminal(
         )
 
     def close(self) -> None:
+        wait: AIConfirmationWait | None = None
+        lock = getattr(self, "_ai_confirmation_lock", None)
+        if lock is not None:
+            with lock:
+                wait = self._ai_confirmation
+                self._ai_confirmation = None
+        if wait is not None and not wait.event.is_set():
+            wait.accepted = False
+            wait.event.set()
         self._close_checkpoint_connection()
 
     def _finish_agent_turn(self, turn_id: int, *, error: str = "") -> bool:
@@ -442,6 +536,13 @@ class AITerminal(
             self._cancelled_turn_ids.add(self._current_turn_id)
             self._current_turn_text = None
         return True
+
+    def _current_agent_turn_cancelled(self) -> bool:
+        lock = getattr(self, "_turn_lock", None)
+        if lock is None:
+            return False
+        with lock:
+            return self._current_turn_id in self._cancelled_turn_ids
 
     def _command_allowed_while_busy(self, line: str) -> bool:
         text = str(line).strip()
@@ -479,10 +580,17 @@ class AITerminal(
         if indicator is not None:
             indicator.stop()
 
-    def _read_ai_input_with_images(self, prompt: str) -> str:
+    def _read_ai_input_with_images(
+        self,
+        prompt: str,
+        *,
+        bottom_toolbar: Any | None = None,
+        on_escape: Any | None = None,
+    ) -> str:
         from prompt_toolkit import PromptSession
         from prompt_toolkit.history import InMemoryHistory
         from prompt_toolkit.key_binding import KeyBindings
+        from prompt_toolkit.patch_stdout import patch_stdout
 
         bindings = KeyBindings()
 
@@ -512,6 +620,11 @@ class AITerminal(
         @bindings.add("escape", "c-m")
         def _(event: Any) -> None:
             event.current_buffer.insert_text("\n")
+
+        @bindings.add("escape")
+        def _(event: Any) -> None:
+            if callable(on_escape):
+                on_escape()
 
         @bindings.add("enter")
         def _(event: Any) -> None:
@@ -578,19 +691,21 @@ class AITerminal(
         if self._ai_prompt_session is None:
             self._ai_prompt_session = PromptSession(history=InMemoryHistory(), erase_when_done=True)
             attach_image_placeholder_cursor_guard(self._ai_prompt_session.default_buffer)
-        return self._ai_prompt_session.prompt(
-            prompt,
-            key_bindings=bindings,
-            completer=SlashCommandCompleter(),
-            complete_while_typing=True,
-            complete_in_thread=True,
-            complete_style=CompleteStyle.COLUMN,
-            reserve_space_for_menu=0,
-            enable_history_search=True,
-            multiline=False,
-            lexer=ImagePlaceholderLexer(),
-            style=AI_INPUT_STYLE,
-        )
+        with patch_stdout():
+            return self._ai_prompt_session.prompt(
+                prompt,
+                key_bindings=bindings,
+                completer=SlashCommandCompleter(),
+                complete_while_typing=True,
+                complete_in_thread=True,
+                complete_style=CompleteStyle.COLUMN,
+                reserve_space_for_menu=0,
+                enable_history_search=True,
+                multiline=False,
+                bottom_toolbar=bottom_toolbar,
+                lexer=ImagePlaceholderLexer(),
+                style=AI_INPUT_STYLE,
+            )
 
 
 class SlashCommandCompleter(Completer):
@@ -611,6 +726,104 @@ class SlashCommandCompleter(Completer):
                 display="/" + name,
                 display_meta=spec["description"],
             )
+
+
+@dataclass
+class AIConfirmationWait:
+    prompt: str
+    wait_type: str
+    event: Any
+    accepted: bool | None = None
+
+    def __init__(self, *, prompt: str, wait_type: str) -> None:
+        self.prompt = prompt
+        self.wait_type = wait_type
+        self.event = threading.Event()
+        self.accepted = None
+
+
+def _format_ai_confirmation_prompt(wait: AIConfirmationWait) -> str:
+    label = "运行后检查" if wait.wait_type == "post_run_inspection" else "人工确认"
+    return f"AI> [{label}] {wait.prompt}\n你可以直接用自然语言回复，我会判断是继续还是停止。"
+
+
+def classify_ai_confirmation_reply(text: str) -> str:
+    normalized = re.sub(r"\s+", "", str(text).strip().lower())
+    if not normalized:
+        return "unclear"
+    reject_tokens = (
+        "不要继续",
+        "别继续",
+        "不继续",
+        "不能继续",
+        "别导入",
+        "不要导入",
+        "不导入",
+        "不要",
+        "不行",
+        "不可以",
+        "不确认",
+        "不同意",
+        "有问题",
+        "不对",
+        "停止",
+        "终止",
+        "取消",
+        "算了",
+        "停",
+        "退出",
+        "否",
+        "no",
+        "stop",
+        "cancel",
+        "reject",
+        "abort",
+        "quit",
+        "exit",
+    )
+    approve_tokens = (
+        "继续",
+        "接着",
+        "接下来",
+        "下一步",
+        "确认",
+        "可以",
+        "可",
+        "没问题",
+        "没毛病",
+        "通过",
+        "同意",
+        "批准",
+        "好了",
+        "好啦",
+        "好",
+        "行",
+        "对",
+        "看到了",
+        "完成",
+        "完成了",
+        "弄吧",
+        "去做",
+        "导入",
+        "追加导入",
+        "开始",
+        "执行",
+        "yes",
+        "y",
+        "ok",
+        "okay",
+        "go",
+        "continue",
+        "proceed",
+        "approve",
+        "approved",
+        "done",
+    )
+    if any(token in normalized for token in reject_tokens):
+        return "reject"
+    if any(token in normalized for token in approve_tokens):
+        return "approve"
+    return "unclear"
 
 
 class _ThinkingIndicator:

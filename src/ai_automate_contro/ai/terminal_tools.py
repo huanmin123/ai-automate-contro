@@ -30,6 +30,8 @@ def run_plan_tool(
     *,
     run_name: str | None = None,
     variable_overrides: dict[str, Any] | None = None,
+    _manual_confirmation_handler: Any | None = None,
+    _inspection_confirmation_handler: Any | None = None,
 ) -> dict[str, Any]:
     return _run_plan_tool(
         project_root,
@@ -37,6 +39,8 @@ def run_plan_tool(
         run_name=run_name,
         variable_overrides=variable_overrides,
         latest_state_reader=read_latest_run_state_tool,
+        manual_confirmation_handler=_manual_confirmation_handler,
+        inspection_confirmation_handler=_inspection_confirmation_handler,
     )
 
 
@@ -275,6 +279,8 @@ def run_debug_plan_tool(
     workspace: str | Path,
     run_name: str | None = None,
     variable_overrides: dict[str, Any] | None = None,
+    _manual_confirmation_handler: Any | None = None,
+    _inspection_confirmation_handler: Any | None = None,
 ) -> dict[str, Any]:
     return debug_workspace_tools.run_debug_plan_tool(
         project_root,
@@ -282,6 +288,8 @@ def run_debug_plan_tool(
         run_plan=run_plan_tool,
         run_name=run_name,
         variable_overrides=variable_overrides,
+        _manual_confirmation_handler=_manual_confirmation_handler,
+        _inspection_confirmation_handler=_inspection_confirmation_handler,
     )
 
 

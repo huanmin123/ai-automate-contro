@@ -105,7 +105,7 @@ python .\main.py ai --thread login-debug
 
 会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `status`、`sessions [limit|all]`、`resume <thread-id-or-index>`、`context`、`history [limit]`、`thread [id]`、`new` 和 `compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；旧会话没有 index 时会从 checkpoint 回填。`sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
-AI 终端回合在前台执行，用户发送一条消息后会等待当前模型回复完成，并通过 LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端。回复完成后才回到 `ai>` 输入下一句；服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
+AI 终端回合由后台 worker 执行，输入行保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端；期间继续发送的普通消息进入队列，底部状态展示运行中和排队数量。按 `Esc` 不会硬杀当前模型或工具调用，只会把下一条输入标记为安全介入：当前回合继续 drain 到安全边界，但后续流式输出被抑制，队首消息随后处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
 真实回归中，线程 `real-tool-regression-validate-plan` 已确认模型生成 `tool_calls=validate_plan`，工具结果以 `ToolMessage` 返回 `ok=true`，并由 `SqliteSaver` 保存同一线程的消息与工具调用历史。
 
@@ -203,7 +203,7 @@ InteractivePlanRunner
 > continue
 ```
 
-AI 终端可以解释等待原因，但继续执行的命令仍由用户确认。
+这套 `continue` / `stop` 只属于 `plan>` 管理终端。AI 终端通过 `run_plan` 或 `run_debug_plan` 运行到 `manual_confirm` 或运行后检查时，会注入 AI 模式确认 handler：确认提示显示在 `ai>` 对话中，用户可以自然语言回复，终端用模型分类和本地兜底判断为继续、停止或不明确。不明确时不会恢复 plan，会继续要求用户澄清。
 
 ## LangGraph 落点
 

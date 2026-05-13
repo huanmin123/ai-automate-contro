@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from collections import deque
+from dataclasses import dataclass
 import shlex
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +13,7 @@ from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.filters import has_completions
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.patch_stdout import patch_stdout
 from prompt_toolkit.shortcuts.prompt import CompleteStyle
 from prompt_toolkit.styles import Style
 
@@ -78,6 +82,12 @@ class ManagementTerminal(
         self._ai_terminal: Any | None = None
         self._session: PromptSession[str] | None = None
         self._plan_completer = PlanCommandCompleter()
+        self._ai_queue: deque[QueuedAIInput] = deque()
+        self._ai_queue_condition = threading.Condition()
+        self._ai_worker_thread: threading.Thread | None = None
+        self._ai_worker_shutdown = False
+        self._ai_active_input: QueuedAIInput | None = None
+        self._ai_force_next_input = False
 
     def cmdloop(self) -> None:
         self.poutput(self.intro)
@@ -107,6 +117,7 @@ class ManagementTerminal(
         return self._dispatch_plan_line(text)
 
     def close(self) -> None:
+        self._shutdown_ai_worker()
         if self._ai_terminal is not None:
             self._ai_terminal.close()
             self._ai_terminal = None
@@ -139,19 +150,24 @@ class ManagementTerminal(
         if not sys.stdin.isatty():
             return _repair_piped_stdin_text(input(self.prompt), encoding=sys.stdin.encoding)
         if self.mode == "ai":
-            return self._require_ai_terminal()._read_ai_input_with_images(self.prompt)
+            return self._require_ai_terminal()._read_ai_input_with_images(
+                self.prompt,
+                bottom_toolbar=self._ai_input_status,
+                on_escape=self._mark_next_ai_input_for_interrupt,
+            )
         if self._session is None:
             self._session = PromptSession(history=InMemoryHistory())
-        return self._session.prompt(
-            self.prompt,
-            completer=self._plan_completer,
-            complete_while_typing=True,
-            complete_in_thread=True,
-            complete_style=CompleteStyle.COLUMN,
-            key_bindings=_plan_key_bindings(),
-            reserve_space_for_menu=0,
-            style=PLAN_INPUT_STYLE,
-        )
+        with patch_stdout():
+            return self._session.prompt(
+                self.prompt,
+                completer=self._plan_completer,
+                complete_while_typing=True,
+                complete_in_thread=True,
+                complete_style=CompleteStyle.COLUMN,
+                key_bindings=_plan_key_bindings(),
+                reserve_space_for_menu=0,
+                style=PLAN_INPUT_STYLE,
+            )
 
     def _dispatch_plan_line(self, text: str) -> bool:
         command, arg = _split_command(text)
@@ -177,14 +193,169 @@ class ManagementTerminal(
 
     def _dispatch_ai_line(self, text: str) -> bool:
         normalized = text.split(None, 1)[0].lower()
+        ai_terminal = self._require_ai_terminal()
+        if self._ai_has_pending_confirmation(ai_terminal):
+            self._ai_force_next_input = False
+            ai_terminal.onecmd(text)
+            return False
         if normalized in {"exit", "back"}:
+            self._ai_force_next_input = False
             self.mode = "plan"
             self._refresh_prompt()
             return False
         if normalized == "quit":
+            self._ai_force_next_input = False
             return True
-        self._require_ai_terminal().onecmd(text)
+        if self._should_run_ai_line_immediately(text):
+            self._ai_force_next_input = False
+            ai_terminal.onecmd(text)
+            return False
+        self._enqueue_ai_line(text)
         return False
+
+    def _should_run_ai_line_immediately(self, text: str) -> bool:
+        command = text.strip().split(None, 1)[0].lower() if text.strip() else ""
+        if command.startswith("/") and len(command) > 1:
+            command = command[1:]
+        always_immediate = {"?", "help", "pending", "status"}
+        if command in always_immediate:
+            return True
+        immediate_when_idle = {
+            "?",
+            "approve",
+            "back",
+            "context",
+            "exit",
+            "help",
+            "history",
+            "image",
+            "pending",
+            "reject",
+            "render",
+            "run-context",
+            "run_context",
+            "sessions",
+            "status",
+            "thread",
+            "tools",
+            "use",
+            "workspace",
+        }
+        if command not in immediate_when_idle:
+            return False
+        return not self._is_ai_processing()
+
+    def _is_ai_processing(self) -> bool:
+        ai_terminal = self._ai_terminal
+        terminal_busy = bool(ai_terminal is not None and ai_terminal._is_agent_busy())
+        return terminal_busy or self._is_ai_worker_busy() or self._queued_ai_count() > 0
+
+    def _ai_has_pending_confirmation(self, ai_terminal: Any) -> bool:
+        current = getattr(ai_terminal, "_current_ai_confirmation", None)
+        return bool(callable(current) and current() is not None)
+
+    def _enqueue_ai_line(self, text: str) -> None:
+        force = self._ai_force_next_input
+        self._ai_force_next_input = False
+        ai_terminal = self._require_ai_terminal()
+        queue_position = 1
+        with self._ai_queue_condition:
+            queued_input = QueuedAIInput(text=text, force=force)
+            if force:
+                self._request_ai_interrupt(ai_terminal)
+                self._ai_queue.appendleft(queued_input)
+                queue_position = 1
+            else:
+                self._ai_queue.append(queued_input)
+                queue_position = len(self._ai_queue)
+            self._ensure_ai_worker_locked()
+            self._ai_queue_condition.notify()
+        if force:
+            self.poutput("[AI队列] 已请求介入：消息已排到队首，当前轮到达安全边界后处理。")
+        elif queue_position > 1:
+            self.poutput(f"[AI队列] 已排队：前方还有 {queue_position - 1} 条消息。按 Esc 后发送可插队。")
+        elif self._is_ai_worker_busy():
+            self.poutput("[AI队列] 已排队：当前回复结束后处理。按 Esc 后发送可插队。")
+        else:
+            self.poutput("[AI队列] 已发送，AI 正在处理；你可以继续输入下一条。")
+
+    def _ensure_ai_worker_locked(self) -> None:
+        if self._ai_worker_thread is not None and self._ai_worker_thread.is_alive():
+            return
+        self._ai_worker_shutdown = False
+        self._ai_worker_thread = threading.Thread(target=self._ai_worker_loop, name="ai-terminal-queue-worker", daemon=True)
+        self._ai_worker_thread.start()
+
+    def _ai_worker_loop(self) -> None:
+        while True:
+            with self._ai_queue_condition:
+                while not self._ai_queue and not self._ai_worker_shutdown:
+                    self._ai_queue_condition.wait()
+                if self._ai_worker_shutdown:
+                    return
+                queued_input = self._ai_queue.popleft()
+                self._ai_active_input = queued_input
+            try:
+                self._require_ai_terminal().onecmd(queued_input.text)
+            except SystemExit:
+                raise
+            except BaseException as error:
+                self.perror(error)
+            finally:
+                with self._ai_queue_condition:
+                    if self._ai_active_input is queued_input:
+                        self._ai_active_input = None
+                    remaining = len(self._ai_queue)
+            if remaining:
+                self.poutput(f"[AI队列] 继续处理下一条，剩余 {remaining} 条。")
+
+    def _shutdown_ai_worker(self) -> None:
+        worker = self._ai_worker_thread
+        if worker is None:
+            return
+        with self._ai_queue_condition:
+            self._ai_worker_shutdown = True
+            self._ai_queue.clear()
+            self._ai_queue_condition.notify_all()
+        if worker.is_alive():
+            worker.join(timeout=1)
+
+    def _is_ai_worker_busy(self) -> bool:
+        with self._ai_queue_condition:
+            return self._ai_active_input is not None
+
+    def _queued_ai_count(self) -> int:
+        with self._ai_queue_condition:
+            return len(self._ai_queue)
+
+    def _mark_next_ai_input_for_interrupt(self) -> None:
+        ai_terminal = self._ai_terminal
+        if ai_terminal is not None and self._ai_has_pending_confirmation(ai_terminal):
+            self.poutput("[AI确认] 当前正在等待确认；直接回复你的决定即可。")
+            return
+        self._ai_force_next_input = True
+        self.poutput("[AI队列] 介入已开启：下一条消息会排到队首，并在当前轮安全边界后处理。")
+
+    def _request_ai_interrupt(self, ai_terminal: Any) -> None:
+        cancel = getattr(ai_terminal, "_cancel_agent_turn", None)
+        if callable(cancel):
+            cancel()
+
+    def _ai_input_status(self) -> str:
+        ai_terminal = self._ai_terminal
+        if ai_terminal is not None and self._ai_has_pending_confirmation(ai_terminal):
+            return "AI 等待你的确认回复  直接说明继续或停止"
+        busy = self._is_ai_worker_busy() or bool(ai_terminal is not None and ai_terminal._is_agent_busy())
+        queued = self._queued_ai_count()
+        parts: list[str] = []
+        if busy:
+            parts.append("AI 正在处理")
+        if queued:
+            parts.append(f"排队 {queued} 条")
+        if self._ai_force_next_input:
+            parts.append("强制接入：下一条插队")
+        parts.append("Enter 发送 | Esc 强制接入 | Alt+Enter 换行 | Ctrl+V 图片")
+        return "  ".join(parts)
 
     def _handle_plan_ai(self, arg: str) -> None:
         ai_terminal = self._require_ai_terminal()
@@ -312,3 +483,9 @@ def _repair_piped_stdin_text(text: str, *, encoding: str | None = None) -> str:
         if not any("\udc80" <= char <= "\udcff" for char in decoded):
             return decoded
     return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+@dataclass
+class QueuedAIInput:
+    text: str
+    force: bool = False

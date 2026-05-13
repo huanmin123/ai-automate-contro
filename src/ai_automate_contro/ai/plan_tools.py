@@ -171,6 +171,8 @@ def run_plan_tool(
     run_name: str | None = None,
     variable_overrides: dict[str, Any] | None = None,
     latest_state_reader: Any | None = None,
+    manual_confirmation_handler: Any | None = None,
+    inspection_confirmation_handler: Any | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     document = load_plan(plan_path)
@@ -184,6 +186,8 @@ def run_plan_tool(
             plan_path=plan_path,
             run_name=run_name,
             variable_overrides=variable_overrides or {},
+            manual_confirmation_handler=manual_confirmation_handler,
+            inspection_confirmation_handler=inspection_confirmation_handler,
         )
     except Exception as error:
         payload: dict[str, Any] = {

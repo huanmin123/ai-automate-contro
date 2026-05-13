@@ -25,6 +25,8 @@ def build_langchain_tools(
     latest_user_approved: Callable[[], bool] | None = None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None = None,
     thread_id_provider: Callable[[], str] | None = None,
+    manual_confirmation_handler: Callable[[str], bool] | None = None,
+    inspection_confirmation_handler: Callable[[str], bool] | None = None,
 ) -> list[StructuredTool]:
     _ensure_langchain_tool_registry_consistent()
     return [
@@ -34,6 +36,8 @@ def build_langchain_tools(
             latest_user_approved=latest_user_approved,
             after_tool_call=after_tool_call,
             thread_id_provider=thread_id_provider,
+            manual_confirmation_handler=manual_confirmation_handler,
+            inspection_confirmation_handler=inspection_confirmation_handler,
         )
         for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
@@ -52,6 +56,8 @@ def _build_structured_tool(
     latest_user_approved: Callable[[], bool] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
     thread_id_provider: Callable[[], str] | None,
+    manual_confirmation_handler: Callable[[str], bool] | None,
+    inspection_confirmation_handler: Callable[[str], bool] | None,
 ) -> StructuredTool:
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
@@ -61,6 +67,8 @@ def _build_structured_tool(
             latest_user_approved=latest_user_approved,
             after_tool_call=after_tool_call,
             thread_id_provider=thread_id_provider,
+            manual_confirmation_handler=manual_confirmation_handler,
+            inspection_confirmation_handler=inspection_confirmation_handler,
         ),
         name=tool_name,
         description=spec.description,
@@ -75,6 +83,8 @@ def _make_tool_function(
     latest_user_approved: Callable[[], bool] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
     thread_id_provider: Callable[[], str] | None,
+    manual_confirmation_handler: Callable[[str], bool] | None,
+    inspection_confirmation_handler: Callable[[str], bool] | None,
 ) -> Callable[..., str]:
     def _tool(**kwargs: Any) -> str:
         if tool_name == "apply_debug_patch_after_approval":
@@ -87,6 +97,11 @@ def _make_tool_function(
         elif tool_name == "read_compression_archive" and not kwargs.get("thread_id"):
             if thread_id_provider is None:
                 raise ValueError("read_compression_archive 需要 thread_id。")
+        if tool_name in {"run_plan", "run_debug_plan"}:
+            if manual_confirmation_handler is not None:
+                kwargs["_manual_confirmation_handler"] = manual_confirmation_handler
+            if inspection_confirmation_handler is not None:
+                kwargs["_inspection_confirmation_handler"] = inspection_confirmation_handler
         result = call_ai_terminal_tool(
             tool_name,
             project_root,

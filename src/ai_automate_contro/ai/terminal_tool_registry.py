@@ -268,7 +268,14 @@ def call_ai_terminal_tool(
         raise ValueError(
             f"工具 {tool_name} 是受保护工具，只能通过 AI 终端人工审批流程执行。"
         )
-    tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, arguments or {})
+    raw_arguments = dict(arguments or {})
+    injected_arguments: dict[str, Any] = {}
+    if tool_name in {"run_plan", "run_debug_plan"}:
+        for key in ("_manual_confirmation_handler", "_inspection_confirmation_handler"):
+            if key in raw_arguments:
+                injected_arguments[key] = raw_arguments.pop(key)
+    tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, raw_arguments)
+    tool_arguments.update(injected_arguments)
     if spec.requires_project_root:
         return spec.handler(project_root, **tool_arguments)
     return spec.handler(**tool_arguments)

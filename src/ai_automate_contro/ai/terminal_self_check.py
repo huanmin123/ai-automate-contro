@@ -189,6 +189,8 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.extend(_check_terminal_input_widgets(attachment))
         checks.append(_check_terminal_markdown_rendering())
         checks.append(_check_terminal_streaming_output())
+        checks.append(_check_terminal_streaming_interrupt_drains_safely())
+        checks.append(_check_ai_mode_manual_confirmation_dialog())
         checks.append(_check_terminal_user_message_echo())
         checks.append(_check_terminal_multiline_input_formatting())
         checks.extend(_check_unified_terminal_mode_switch(storage_root))
@@ -824,6 +826,134 @@ def _check_terminal_streaming_output() -> dict[str, Any]:
     )
 
 
+def _check_terminal_streaming_interrupt_drains_safely() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    class FakeGraph:
+        def __init__(self) -> None:
+            self.events_seen = 0
+
+        def stream(self, *_: Any, **__: Any) -> Any:
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="前半"),
+                    {"langgraph_node": "model"},
+                ),
+            )
+            self.events_seen += 1
+            yield (
+                "messages",
+                (
+                    AIMessageChunk(content="后半"),
+                    {"langgraph_node": "model"},
+                ),
+            )
+            self.events_seen += 1
+            yield ("values", {"messages": [AIMessage(content="前半后半")]})
+            self.events_seen += 1
+
+        def get_state(self, *_: Any, **__: Any) -> Any:
+            return SimpleNamespace(values={"messages": []})
+
+    terminal = object.__new__(AITerminal)
+    terminal.graph = FakeGraph()
+    terminal.thread_id = "safe-interrupt-check"
+    terminal.response_render_mode = "plain"
+    terminal.chunks: list[str] = []
+    terminal.indicator_events: list[str] = []
+    terminal._graph_config = lambda: {"configurable": {"thread_id": terminal.thread_id}}
+    terminal._stream_response_text = lambda text: terminal.chunks.append(text)
+    terminal._stream_response_newline = lambda: terminal.chunks.append("\n")
+    terminal._start_thinking_indicator = lambda: terminal.indicator_events.append("start") or "indicator"
+    terminal._stop_thinking_indicator = lambda indicator: terminal.indicator_events.append(f"stop:{indicator}")
+
+    cancel_after_first_chunk = {"seen_first_chunk": False}
+
+    def current_turn_cancelled() -> bool:
+        if cancel_after_first_chunk["seen_first_chunk"]:
+            return True
+        cancel_after_first_chunk["seen_first_chunk"] = True
+        return False
+
+    terminal._current_agent_turn_cancelled = current_turn_cancelled
+    final_state, streamed = AITerminal._invoke_graph_streaming(terminal, {"messages": []})
+    rendered = "".join(terminal.chunks)
+    return _self_check_result(
+        name="terminal_safe_interrupt_drains_stream",
+        passed=(
+            streamed
+            and rendered == "AI> 前半\n"
+            and terminal.graph.events_seen == 3
+            and len(final_state.get("messages", [])) == 1
+        ),
+        detail={
+            "streamed": streamed,
+            "rendered": rendered,
+            "events_seen": terminal.graph.events_seen,
+            "message_count": len(final_state.get("messages", [])),
+        },
+    )
+
+
+def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import (
+        AITerminal,
+        classify_ai_confirmation_reply,
+    )
+
+    terminal = object.__new__(AITerminal)
+    terminal.outputs: list[str] = []
+    terminal.poutput = lambda value: terminal.outputs.append(str(value))
+    terminal.project_root = Path(".").resolve()
+    terminal.model = SimpleNamespace(invoke=lambda messages: AIMessage(content='{"decision":"approve"}'))
+    terminal._ai_confirmation_lock = __import__("threading").Lock()
+    terminal._ai_confirmation = None
+
+    result: dict[str, Any] = {}
+
+    def wait_for_confirmation() -> None:
+        result["accepted"] = AITerminal._wait_for_ai_confirmation(
+            terminal,
+            "请确认页面状态。",
+            wait_type="manual_confirm",
+        )
+
+    thread = __import__("threading").Thread(target=wait_for_confirmation)
+    thread.start()
+    for _ in range(100):
+        if AITerminal._current_ai_confirmation(terminal) is not None:
+            break
+        __import__("time").sleep(0.01)
+    waiting_ok = AITerminal._current_ai_confirmation(terminal) is not None
+    AITerminal.onecmd(terminal, "页面看到了，可以继续导入")
+    thread.join(timeout=2)
+    continued_ok = result.get("accepted") is True and AITerminal._current_ai_confirmation(terminal) is None
+    classifier_ok = (
+        classify_ai_confirmation_reply("别继续了，取消") == "reject"
+        and classify_ai_confirmation_reply("可以，继续") == "approve"
+        and classify_ai_confirmation_reply("页面没问题，你接着弄") == "approve"
+        and classify_ai_confirmation_reply("exit") == "reject"
+        and classify_ai_confirmation_reply("我看一下") == "unclear"
+    )
+    model_classifier_ok = AITerminal._classify_ai_confirmation_reply(
+        terminal,
+        "页面没问题，你接着弄",
+        SimpleNamespace(wait_type="manual_confirm", prompt="确认页面"),
+    ) == "approve"
+    return _self_check_result(
+        name="ai_mode_manual_confirmation_uses_dialog",
+        passed=waiting_ok and continued_ok and classifier_ok and model_classifier_ok,
+        detail={
+            "waiting_ok": waiting_ok,
+            "accepted": result.get("accepted"),
+            "classifier_ok": classifier_ok,
+            "model_classifier_ok": model_classifier_ok,
+            "outputs": terminal.outputs,
+        },
+    )
+
+
 def _check_terminal_user_message_echo() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal, format_user_terminal_message
 
@@ -873,6 +1003,8 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
         lines=[],
         closed=False,
         onecmd=lambda line: fake_ai.lines.append(line),
+        _is_agent_busy=lambda: False,
+        _cancel_agent_turn=lambda: False,
         close=lambda: setattr(fake_ai, "closed", True),
     )
     terminal._ai_terminal = fake_ai
@@ -882,6 +1014,7 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     forwarded_ok = fake_ai.lines == ["status"]
     terminal.onecmd("exit")
     returned_ok = terminal.mode == "plan" and terminal.prompt == "plan> "
+    returned_mode = terminal.mode
     terminal.outputs = []
     terminal.onecmd("/help")
     slash_help_ok = terminal.outputs and "命令：" in terminal.outputs[-1]
@@ -900,6 +1033,56 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
     terminal.close()
     closed_ok = fake_ai.closed
 
+    terminal = ManagementTerminal(project_root)
+    terminal.outputs = []
+    terminal.poutput = lambda value: terminal.outputs.append(str(value))
+    terminal._require_ai_terminal = lambda: fake_ai
+    terminal._ensure_ai_worker_locked = lambda: None
+    terminal._ai_worker_thread = SimpleNamespace(is_alive=lambda: False, join=lambda timeout=None: None)
+    terminal.mode = "ai"
+    terminal.prompt = "ai> "
+    terminal._dispatch_ai_line("first")
+    first_queue_ok = len(terminal._ai_queue) == 1 and terminal._ai_queue[0].text == "first"
+    terminal._mark_next_ai_input_for_interrupt()
+    terminal._dispatch_ai_line("urgent")
+    force_queue_ok = (
+        len(terminal._ai_queue) == 2
+        and [item.text for item in terminal._ai_queue] == ["urgent", "first"]
+        and terminal._ai_queue[0].force is True
+    )
+    status_text = terminal._ai_input_status()
+    queue_status_ok = "排队 2 条" in status_text and "Enter 发送" in status_text
+    terminal._ai_queue.clear()
+    terminal._ai_worker_thread = None
+
+    pending_ai = SimpleNamespace(
+        lines=[],
+        _current_ai_confirmation=lambda: object(),
+        onecmd=lambda line: pending_ai.lines.append(line),
+        _is_agent_busy=lambda: False,
+        _cancel_agent_turn=lambda: False,
+    )
+    terminal = ManagementTerminal(project_root)
+    terminal.outputs = []
+    terminal.poutput = lambda value: terminal.outputs.append(str(value))
+    terminal._require_ai_terminal = lambda: pending_ai
+    terminal.mode = "ai"
+    terminal.prompt = "ai> "
+    terminal._ai_force_next_input = True
+    terminal._dispatch_ai_line("exit")
+    confirmation_exit_ok = terminal.mode == "ai" and pending_ai.lines == ["exit"] and not terminal._ai_force_next_input
+
+    terminal = ManagementTerminal(project_root)
+    terminal.outputs = []
+    terminal.poutput = lambda value: terminal.outputs.append(str(value))
+    fake_ai.lines = []
+    terminal._require_ai_terminal = lambda: fake_ai
+    terminal.mode = "ai"
+    terminal.prompt = "ai> "
+    terminal._ai_force_next_input = True
+    terminal._dispatch_ai_line("status")
+    immediate_clears_force_ok = fake_ai.lines == ["status"] and not terminal._ai_force_next_input
+
     return [
         _self_check_result(
             name="unified_terminal_lazy_ai_mode",
@@ -917,12 +1100,29 @@ def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, An
                 "lazy_ok": lazy_ok,
                 "entered_ok": entered_ok,
                 "forwarded_lines": fake_ai.lines,
-                "returned_mode": terminal.mode,
+                "returned_mode": returned_mode,
                 "slash_help_ok": slash_help_ok,
                 "plan_slash_completions": [completion.text for completion in plan_completions],
                 "plan_prefix_completions": [completion.text for completion in plan_prefix_completions],
                 "stdin_repair_ok": stdin_repair_ok,
                 "closed": fake_ai.closed,
+            },
+        ),
+        _self_check_result(
+            name="unified_terminal_ai_input_queue",
+            passed=(
+                first_queue_ok
+                and force_queue_ok
+                and queue_status_ok
+                and confirmation_exit_ok
+                and immediate_clears_force_ok
+            ),
+            detail={
+                "queued": [item.text for item in terminal._ai_queue],
+                "outputs": terminal.outputs,
+                "status": status_text,
+                "confirmation_exit_lines": pending_ai.lines,
+                "immediate_lines": fake_ai.lines,
             },
         )
     ]
