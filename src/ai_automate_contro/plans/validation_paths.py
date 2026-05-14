@@ -5,6 +5,7 @@ from typing import Any
 
 from ai_automate_contro.plans.validation_models import ValidationIssue
 from ai_automate_contro.plans.validation_rules import FORBIDDEN_OUTPUT_ROOTS
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 def validate_output_path(
@@ -18,8 +19,8 @@ def validate_output_path(
         issues.append(ValidationIssue(location, "output path 必须是非空字符串"))
         return
 
-    path = Path(raw_path)
-    if path.is_absolute():
+    path = path_from_text(raw_path)
+    if is_absolute_path_text(raw_path):
         issues.append(ValidationIssue(location, f"output path 必须相对于 output/{category}/"))
         return
     if not path.parts:

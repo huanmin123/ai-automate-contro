@@ -12,6 +12,7 @@ from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.plans.results import PlanResult, write_report_markdown, write_result_json
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.state import RunStateWriter
+from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp, sanitize_name
 
 
@@ -27,7 +28,7 @@ def execute_plan(
     run_context_handler: Callable[[Path, RunLogger], None] | None = None,
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
-    resolved_plan_path = Path(plan_path).resolve() if plan_path else None
+    resolved_plan_path = path_from_text(plan_path).resolve() if plan_path else None
     if resolved_plan_path is not None and resolved_plan_path.name != "plan.json":
         raise ValueError(
             "只能直接执行名为 plan.json 的包入口计划。"
@@ -36,7 +37,7 @@ def execute_plan(
     plan_dir = resolved_plan_path.parent if resolved_plan_path else root_path
     resolved_run_name = run_name or plan.get("name") or (resolved_plan_path.stem if resolved_plan_path else "plan-run")
     resolved_output_dir = (
-        Path(output_dir).resolve()
+        path_from_text(output_dir).resolve()
         if output_dir
         else ensure_directory(plan_dir / "output" / f"{make_timestamp()}-{sanitize_name(resolved_run_name)}")
     )

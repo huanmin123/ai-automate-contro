@@ -8,6 +8,7 @@ from typing import Any
 
 from ai_automate_contro.debug.models import DebugWorkspace
 from ai_automate_contro.debug.workspace_paths import resolve_plan_path, unique_workspace_path
+from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp, sanitize_name
 
 
@@ -40,7 +41,7 @@ def create_debug_workspace(
                 "# Debug Notes",
                 "",
                 f"- Created at: {datetime.now().isoformat(timespec='seconds')}",
-                f"- Project root: {Path(project_root).resolve()}",
+                f"- Project root: {path_from_text(project_root).resolve()}",
                 f"- Original plan: {resolved_plan_path}",
                 f"- Source copy: {source_copy_dir}",
                 f"- Injected plan: {injected_plan_dir}",

@@ -13,8 +13,9 @@
 7. [architecture/AI调试修复工作流](./architecture/AI调试修复工作流.md)
 8. [functions/核心功能设计](./functions/核心功能设计.md)
 9. [functions/AI能力重构设计](./functions/AI能力重构设计.md)
-10. [develop/运行说明](./develop/运行说明.md)
-11. [plans/计划-0003-AI终端与交互式执行器重构](./plans/计划-0003-AI终端与交互式执行器重构.md)
+10. [functions/跨平台电脑控制远期设计](./functions/跨平台电脑控制远期设计.md)
+11. [develop/运行说明](./develop/运行说明.md)
+12. [plans/计划-0003-AI终端与交互式执行器重构](./plans/计划-0003-AI终端与交互式执行器重构.md)
 
 教学入口只有 `handbook/`，这里不承担组件教学职责。
 

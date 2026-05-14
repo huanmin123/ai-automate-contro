@@ -12,6 +12,7 @@ from ai_automate_contro.plans.validation_io import load_json_document
 from ai_automate_contro.plans.validation_models import ValidationIssue
 from ai_automate_contro.plans.validation_paths import is_relative_to, validate_output_path
 from ai_automate_contro.plans.validation_rules import OUTPUT_ACTION_CATEGORIES, REQUIRED_FIELDS
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 def validate_plan_document(
@@ -105,7 +106,7 @@ def validate_action_specific_fields(
     if action == "write" and step.get("type") != "variables" and "value" not in step:
         issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 
-    if action in {"capture", "write", "wait_for_download", "ai", "trace", "event"}:
+    if action in {"capture", "write", "wait_for_download", "ai", "trace", "event", "coverage"}:
         output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
         category = OUTPUT_ACTION_CATEGORIES.get((action, output_type))
         if category and "path" in step:
@@ -166,8 +167,8 @@ def validate_sub_plan(
         issues.append(ValidationIssue(location, "run_sub_plan.path 必须是静态路径，便于校验"))
         return
 
-    path = Path(raw_path)
-    if path.is_absolute():
+    path = path_from_text(raw_path)
+    if is_absolute_path_text(raw_path):
         issues.append(ValidationIssue(location, "run_sub_plan.path 必须相对于当前 plan 包"))
         return
     if not path.parts or path.parts[0] != "sub-plans":

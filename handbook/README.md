@@ -28,7 +28,7 @@
 - `actions/ai/`: 受控专项 AI action。
 - `actions/control-flow/`: 子计划、条件、循环和重试。
 - `actions/io/`: 读取和写入文件。
-- `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、trace 和睡眠。
+- `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、coverage、trace 和睡眠。
 - `browser-capability-roadmap.md`: 浏览器能力已落地范围和后续 backlog。
 
 ## 写作约束

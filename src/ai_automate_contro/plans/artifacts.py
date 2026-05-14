@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.support.paths import path_from_text
+
 
 @dataclass(frozen=True)
 class OutputArtifact:
@@ -27,7 +29,7 @@ def list_output_artifacts(
     filter_text: str = "",
     limit: int = 100,
 ) -> list[OutputArtifact]:
-    resolved_plan_path = Path(plan_path).resolve()
+    resolved_plan_path = path_from_text(plan_path).resolve()
     if resolved_plan_path.is_dir():
         resolved_plan_path = resolved_plan_path / "plan.json"
     output_root = resolved_plan_path.parent / "output"

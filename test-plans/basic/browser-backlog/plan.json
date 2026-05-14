@@ -1,0 +1,198 @@
+{
+  "name": "browser-backlog",
+  "variables": {
+    "demo_url": "{{resources_file_url}}/backlog.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "backlog",
+      "browser_type": "chromium",
+      "headed": false,
+      "timeout_ms": 15000,
+      "device": "iPhone 12",
+      "ignore_https_errors": true
+    },
+    {
+      "action": "network",
+      "type": "route_from_har",
+      "browser": "backlog",
+      "path": "resources/replay.har",
+      "url": "https://fixture.local/har-data",
+      "not_found": "fallback"
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "backlog",
+      "url": "https://fixture.local/sse",
+      "status": 200,
+      "headers": {
+        "access-control-allow-origin": "*",
+        "cache-control": "no-cache"
+      },
+      "content_type": "text/event-stream",
+      "body": "data: SSE hello\n\n"
+    },
+    {
+      "action": "network",
+      "type": "route_web_socket",
+      "browser": "backlog",
+      "url": "wss://fixture.local/ws",
+      "server_messages": [
+        "server-ready"
+      ],
+      "response": "reply:ok"
+    },
+    {
+      "action": "event",
+      "type": "start",
+      "browser": "backlog",
+      "console": true,
+      "pageerror": true,
+      "requestfailed": true,
+      "websocket": true,
+      "websocket_frames": true,
+      "eventsource": true
+    },
+    {
+      "action": "coverage",
+      "type": "start",
+      "browser": "backlog",
+      "js": true,
+      "css": true
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "backlog",
+      "url": "{{demo_url}}"
+    },
+    {
+      "action": "wait",
+      "type": "function",
+      "browser": "backlog",
+      "js": "() => window.backlogReady === true"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#device-result",
+      "expected": "390x",
+      "mode": "contains"
+    },
+    {
+      "action": "element",
+      "type": "tap",
+      "browser": "backlog",
+      "selector": "#tap-target"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#tap-result",
+      "text": "Tapped by locator",
+      "mode": "equals"
+    },
+    {
+      "action": "mouse",
+      "type": "swipe",
+      "browser": "backlog",
+      "start_x": 40,
+      "start_y": 190,
+      "end_x": 300,
+      "end_y": 190,
+      "steps": 8,
+      "duration_ms": 240,
+      "touch": true,
+      "fallback_to_mouse": false
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#swipe-result",
+      "text": "Swiped right",
+      "mode": "equals"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "backlog",
+      "selector": "#load-har"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#har-result",
+      "text": "HAR replay data",
+      "mode": "equals"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "backlog",
+      "selector": "#start-sse"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#sse-result",
+      "text": "SSE hello",
+      "mode": "equals",
+      "timeout_ms": 5000
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "backlog",
+      "selector": "#start-ws"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "backlog",
+      "selector": "#ws-result",
+      "text": "reply:ok",
+      "mode": "contains",
+      "timeout_ms": 5000
+    },
+    {
+      "action": "extract",
+      "type": "aria_snapshot",
+      "browser": "backlog",
+      "selector": "body",
+      "depth": 4,
+      "mode": "default",
+      "save_as": "aria_snapshot"
+    },
+    {
+      "action": "coverage",
+      "type": "stop",
+      "browser": "backlog",
+      "path": "browser-backlog-coverage.json",
+      "save_as": "coverage_result"
+    },
+    {
+      "action": "event",
+      "type": "stop",
+      "browser": "backlog",
+      "path": "browser-backlog-events.json",
+      "save_as": "browser_events"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "browser-backlog-summary.json",
+      "value": {
+        "coverage_summary": "{{coverage_result.summary}}",
+        "aria_snapshot": "{{aria_snapshot}}",
+        "events": "{{browser_events}}"
+      }
+    }
+  ]
+}

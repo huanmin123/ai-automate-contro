@@ -14,6 +14,7 @@ from ai_automate_contro.plans.packages import (
     summarize_plan,
 )
 from ai_automate_contro.plans.validator import ValidationIssue, validate_plan_file
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 MAX_PACKAGE_DOCS = 20
@@ -107,8 +108,8 @@ def write_plan_package_file_tool(
     if not resolved_plan_path.exists():
         raise FileNotFoundError(f"plan 包入口不存在：{resolved_plan_path}")
 
-    raw_relative_path = Path(relative_path)
-    if raw_relative_path.is_absolute():
+    raw_relative_path = path_from_text(relative_path)
+    if is_absolute_path_text(relative_path):
         raise ValueError("relative_path 必须是相对于 plan 包的路径。")
     normalized_relative_path = Path(*raw_relative_path.parts)
     _validate_plan_package_write_path(normalized_relative_path)
@@ -204,7 +205,7 @@ def run_plan_tool(
 
 
 def resolve_plan_path(raw_plan_path: str | Path) -> Path:
-    plan_path = Path(raw_plan_path).resolve()
+    plan_path = path_from_text(raw_plan_path).resolve()
     if plan_path.is_dir():
         plan_path = plan_path / "plan.json"
     return plan_path

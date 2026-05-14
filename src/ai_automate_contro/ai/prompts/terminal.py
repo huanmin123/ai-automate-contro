@@ -52,7 +52,7 @@ SYSTEM_PROMPT = """你是 ai-automate-contro 的 plan 级 AI 终端。
 - 管理上下文时只保留当前 plan、当前调试工作区、最近输出目录、最近压缩摘要路径和归档路径等摘要状态；不要把完整 run.log、events.jsonl、commands.jsonl 或大段产物内容塞进上下文。
 - 需要历史会话细节时，先用 read_compression_archive 读取压缩摘要；摘要不足时再用它搜索或读取当前线程归档 messages.jsonl 的小范围片段。
 - 读取文本必须渐进式：先用 read_plan_package/read_debug_workspace/list_output_artifacts 看结构和路径，再用 grep_project_text 通过 rg 定位关键词，最后用 read_project_file_slice 或小范围 artifact 读取拿必要行段。
-- 如果 rg 缺失，提醒用户安装 ripgrep，或在用户确认后帮助执行 winget install --id BurntSushi.ripgrep.MSVC -e；不要改用 Windows 内置搜索。
+- 如果 rg 缺失，提醒用户按当前系统安装 ripgrep；不要改用系统内置搜索。
 - 需要运行证据时优先读取报告、状态和日志/事件尾部；除非用户明确要求或定位问题必须，不要读取完整日志或大型 artifact。
 - 用户附加的图片会随当前消息进入模型；回答时按图片内容处理，不要把 base64 data URL、图片字节或大段 OCR 内容写入 plan、日志或上下文。
 

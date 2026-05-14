@@ -126,6 +126,9 @@ def element(executor: Any, step: dict[str, Any]) -> None:
     if element_type == "hover":
         locator.hover(**_hover_options(step))
         return
+    if element_type == "tap":
+        locator.tap(**_tap_options(step))
+        return
     if element_type == "fill":
         locator.fill(str(step["value"]))
         return
@@ -194,6 +197,18 @@ def _select_option(locator: Any, step: dict[str, Any]) -> None:
 
 def _build_context_kwargs(executor: Any, step: dict[str, Any]) -> dict[str, Any]:
     context_kwargs: dict[str, Any] = {}
+    if "device" in step:
+        device_name = str(step["device"])
+        devices = executor.state.playwright.devices
+        if device_name not in devices:
+            raise ValueError(f"未知的 Playwright 设备预设：{device_name}")
+        context_kwargs.update(
+            {
+                key: value
+                for key, value in devices[device_name].items()
+                if key != "default_browser_type"
+            }
+        )
     passthrough_fields = {
         "viewport",
         "screen",
@@ -251,6 +266,16 @@ def _click_options(step: dict[str, Any]) -> dict[str, Any]:
 def _hover_options(step: dict[str, Any]) -> dict[str, Any]:
     options: dict[str, Any] = {}
     for field in ("modifiers", "position", "timeout", "trial"):
+        if field in step:
+            options[field] = step[field]
+    if "force" in step:
+        options["force"] = bool(step["force"])
+    return options
+
+
+def _tap_options(step: dict[str, Any]) -> dict[str, Any]:
+    options: dict[str, Any] = {}
+    for field in ("modifiers", "position", "timeout", "trial", "no_wait_after"):
         if field in step:
             options[field] = step[field]
     if "force" in step:

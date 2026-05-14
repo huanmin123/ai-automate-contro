@@ -4,13 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.support.paths import format_missing_path_message, path_from_text
+
 
 def resolve_plan_path(plan_path: str | Path) -> Path:
-    resolved_path = Path(plan_path).resolve()
+    resolved_path = path_from_text(plan_path).resolve()
     if resolved_path.is_dir():
         resolved_path = resolved_path / "plan.json"
     if not resolved_path.exists():
-        raise FileNotFoundError(f"plan 文件不存在：{resolved_path}")
+        raise FileNotFoundError(format_missing_path_message(plan_path, resolved_path, label="plan 文件"))
     if resolved_path.name != "plan.json":
         raise ValueError(f"调试工作区只能基于 plan 包入口 plan.json 创建：{resolved_path}")
     return resolved_path

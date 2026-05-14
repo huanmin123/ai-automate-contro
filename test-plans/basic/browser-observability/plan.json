@@ -1,0 +1,149 @@
+{
+  "name": "browser-observability",
+  "variables": {
+    "demo_url": "{{resources_file_url}}/observability.html",
+    "frame_url_part": "frame-child.html"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "observe",
+      "browser_type": "chromium",
+      "headed": false,
+      "timeout_ms": 15000,
+      "ignore_https_errors": true,
+      "service_workers": "allow"
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "observe",
+      "url": "https://fixture.local/observability",
+      "path": "resources/observability.html",
+      "content_type": "text/html"
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "observe",
+      "url": "https://fixture.local/frame-child.html",
+      "path": "resources/frame-child.html",
+      "content_type": "text/html"
+    },
+    {
+      "action": "network",
+      "type": "route",
+      "browser": "observe",
+      "url": "https://fixture.local/sw.js",
+      "path": "resources/sw.js",
+      "content_type": "application/javascript"
+    },
+    {
+      "action": "event",
+      "type": "start",
+      "browser": "observe",
+      "console": true,
+      "pageerror": true,
+      "requestfailed": true,
+      "websocket": false,
+      "webrtc": true,
+      "serviceworker": true
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "observe",
+      "url": "https://fixture.local/observability"
+    },
+    {
+      "action": "wait",
+      "type": "function",
+      "browser": "observe",
+      "js": "() => window.observabilityReady === true"
+    },
+    {
+      "action": "element",
+      "type": "fill",
+      "browser": "observe",
+      "frame_name": "details-frame",
+      "label": "Frame Note",
+      "value": "by-name"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "observe",
+      "frame_url_contains": "{{frame_url_part}}",
+      "selector": "#frame-save"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "observe",
+      "frame_index": 1,
+      "selector": "#frame-result",
+      "expected": "Frame saved by-name",
+      "mode": "equals"
+    },
+    {
+      "action": "assert",
+      "type": "count",
+      "browser": "observe",
+      "frame_url": "https://fixture.local/frame-child.html",
+      "selector": "#frame-result",
+      "expected": 1
+    },
+    {
+      "action": "extract",
+      "type": "frames",
+      "browser": "observe",
+      "save_as": "frames"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "observe",
+      "selector": "#run-webrtc"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "observe",
+      "selector": "#webrtc-result",
+      "text": "stable:stable",
+      "mode": "equals",
+      "timeout_ms": 8000
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "observe",
+      "selector": "#register-sw"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "observe",
+      "selector": "#serviceworker-result",
+      "text": "SW registered",
+      "mode": "equals",
+      "timeout_ms": 8000
+    },
+    {
+      "action": "event",
+      "type": "stop",
+      "browser": "observe",
+      "path": "browser-observability-events.json",
+      "save_as": "observability_events"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "browser-observability-summary.json",
+      "value": {
+        "frames": "{{frames}}",
+        "events": "{{observability_events}}"
+      }
+    }
+  ]
+}

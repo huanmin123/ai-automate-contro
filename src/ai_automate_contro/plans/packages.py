@@ -7,6 +7,7 @@ from typing import Any
 
 from ai_automate_contro.app.runtime_config import plan_roots_for_project
 from ai_automate_contro.plans.loader import load_plan
+from ai_automate_contro.support.paths import path_from_text
 
 
 def create_plan_package(
@@ -16,7 +17,7 @@ def create_plan_package(
     name: str | None = None,
     force: bool = False,
 ) -> Path:
-    package_dir = Path(raw_path).resolve()
+    package_dir = path_from_text(raw_path).resolve()
     if package_dir.exists():
         existing_items = list(package_dir.iterdir())
         if existing_items and not force:
@@ -85,7 +86,7 @@ def discover_plan_packages(project_root: Path) -> list[Path]:
 
 
 def summarize_plan(plan_path: str | Path, project_root: Path) -> dict[str, Any]:
-    resolved_plan_path = Path(plan_path).resolve()
+    resolved_plan_path = path_from_text(plan_path).resolve()
     if resolved_plan_path.is_dir():
         resolved_plan_path = resolved_plan_path / "plan.json"
     document = load_plan(resolved_plan_path)
@@ -150,7 +151,7 @@ def plan_matches_filter(plan_path: Path, project_root: Path, filter_text: str) -
 
 
 def resolve_plan_path(raw_plan_path: str | Path) -> Path:
-    plan_path = Path(raw_plan_path).resolve()
+    plan_path = path_from_text(raw_plan_path).resolve()
     if plan_path.is_dir():
         plan_path = plan_path / "plan.json"
     return plan_path

@@ -17,6 +17,8 @@
 | `route` | `url` | 拦截匹配请求 |
 | `unroute` | `url` | 移除匹配请求的拦截 |
 | `set_extra_http_headers` | `headers` | 设置上下文级额外请求头 |
+| `route_from_har` | `path` | 使用 HAR 文件回放匹配请求 |
+| `route_web_socket` | `url` | mock WebSocket 连接和消息 |
 
 ## `route` 字段
 
@@ -29,6 +31,27 @@
 - `content_type`: mock 响应 Content-Type
 - `error_code`: `mode: abort` 时使用，默认 `failed`
 - `continue_url`、`method`、`post_data`: `mode: continue` 时改写请求
+
+## `route_from_har` 字段
+
+- `path`: HAR 文件路径，通常放在当前 plan 包 `resources/` 下
+- `url`: 只对匹配 URL 启用 HAR 回放；建议显式提供，避免影响其他请求
+- `not_found`: HAR 未命中时的行为，`abort` 或 `fallback`
+- `update`: 是否更新 HAR 文件
+- `update_content`: `attach` 或 `embed`
+- `update_mode`: `full` 或 `minimal`
+- `scope`: `context` 或 `page`，默认 `context`
+
+## `route_web_socket` 字段
+
+- `url`: WebSocket URL 匹配规则
+- `server_messages`: 建连后由 mock server 主动发送的消息数组
+- `response`: 收到客户端消息后返回的固定消息
+- `echo`: 是否把客户端消息原样发回
+- `close_after_response`: 回复后是否关闭连接
+- `close_on_connect`: 建连后是否立即关闭
+- `close_code`、`close_reason`: 关闭连接时使用
+- `scope`: `context` 或 `page`，默认 `context`
 
 ## 示例
 
@@ -53,5 +76,31 @@
   "browser": "main",
   "url": "**/*.{png,jpg,jpeg}",
   "mode": "abort"
+}
+```
+
+使用 HAR 回放接口：
+
+```json
+{
+  "action": "network",
+  "type": "route_from_har",
+  "browser": "main",
+  "path": "resources/replay.har",
+  "url": "https://example.com/api/profile",
+  "not_found": "fallback"
+}
+```
+
+mock WebSocket：
+
+```json
+{
+  "action": "network",
+  "type": "route_web_socket",
+  "browser": "main",
+  "url": "wss://example.com/ws",
+  "server_messages": ["ready"],
+  "response": "ok"
 }
 ```

@@ -54,7 +54,7 @@ def assert_url(executor: Any, step: dict[str, Any]) -> None:
 
 
 def assert_count(executor: Any, step: dict[str, Any]) -> None:
-    actual = executor._page(step).locator(step["selector"]).count()
+    actual = executor._locator_for_selector(step, step["selector"], index_field="count_index").count()
     expected = int(step["expected"])
     mode = step.get("mode", "equals")
     if mode == "equals" and actual == expected:

@@ -34,6 +34,10 @@
 - `mode`: `text` / `value` / `attribute` / `css` / `title` 支持 `equals`、`contains`、`not_contains`；`url` 支持 `contains`、`equals`、`not_contains`；`count` 支持 `equals`、`gte`、`lte`
 - `state`: 仅 `type: selector` 有效，默认 `visible`
 - `frame_selector`: iframe 选择器
+- `frame_name`: 通过 frame name 定位
+- `frame_url`: 通过完整 frame URL 定位
+- `frame_url_contains`: 通过 URL 片段定位
+- `frame_index`: 通过 `page.frames` 顺序定位，从 `0` 开始
 - `index`: 选择器匹配多个元素时选择第几个
 
 ## 示例

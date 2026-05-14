@@ -7,11 +7,12 @@ from pathlib import Path
 
 from ai_automate_contro.debug.models import DebugPatchResult
 from ai_automate_contro.debug.workspace_paths import load_workspace_manifest
+from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp
 
 
 def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = load_workspace_manifest(workspace_root)
     source_copy_dir = Path(manifest["source_copy_dir"]).resolve()
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
@@ -46,7 +47,7 @@ def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
 def apply_debug_patch(workspace: str | Path, *, yes: bool = False) -> DebugPatchResult:
     if not yes:
         raise ValueError("应用 debug patch 需要显式确认：请加 --yes。")
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = load_workspace_manifest(workspace_root)
     package_dir = Path(manifest["package_dir"]).resolve()
     patch_path = Path(manifest["patch_path"]).resolve()

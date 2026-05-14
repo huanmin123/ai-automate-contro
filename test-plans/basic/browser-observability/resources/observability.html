@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser Observability Demo</title>
+  </head>
+  <body>
+    <h1>Browser Observability Demo</h1>
+    <iframe id="named-frame" name="details-frame" src="./frame-child.html" title="Details Frame"></iframe>
+    <p id="frame-url-result">No frame url</p>
+    <button id="run-webrtc">Run WebRTC</button>
+    <button id="register-sw">Register Service Worker</button>
+    <p id="webrtc-result">No WebRTC</p>
+    <p id="serviceworker-result">No Service Worker</p>
+
+    <script>
+      window.observabilityReady = true;
+
+      document.getElementById("frame-url-result").textContent =
+        document.getElementById("named-frame").contentWindow.location.href.includes("frame-child.html")
+          ? "Frame URL ready"
+          : "Frame URL pending";
+
+      document.getElementById("run-webrtc").addEventListener("click", async () => {
+        const offerer = new RTCPeerConnection();
+        const answerer = new RTCPeerConnection();
+        offerer.createDataChannel("demo-channel");
+        offerer.onicecandidate = (event) => {
+          if (event.candidate) {
+            answerer.addIceCandidate(event.candidate);
+          }
+        };
+        answerer.onicecandidate = (event) => {
+          if (event.candidate) {
+            offerer.addIceCandidate(event.candidate);
+          }
+        };
+        const offer = await offerer.createOffer();
+        await offerer.setLocalDescription(offer);
+        await answerer.setRemoteDescription(offer);
+        const answer = await answerer.createAnswer();
+        await answerer.setLocalDescription(answer);
+        await offerer.setRemoteDescription(answer);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        document.getElementById("webrtc-result").textContent =
+          `${offerer.signalingState}:${answerer.signalingState}`;
+        offerer.close();
+        answerer.close();
+      });
+
+      document.getElementById("register-sw").addEventListener("click", async () => {
+        const registration = await navigator.serviceWorker.register("/sw.js");
+        await navigator.serviceWorker.ready;
+        document.getElementById("serviceworker-result").textContent =
+          `SW ${registration.scope.includes("fixture.local") ? "registered" : "unknown"}`;
+      });
+    </script>
+  </body>
+</html>

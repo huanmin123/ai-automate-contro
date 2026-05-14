@@ -17,6 +17,14 @@ LOCATOR_FIELDS = {
     "test_id",
 }
 
+FRAME_FIELDS = {
+    "frame_selector",
+    "frame_name",
+    "frame_url",
+    "frame_url_contains",
+    "frame_index",
+}
+
 
 def validate_type_field(
     step: dict[str, Any],
@@ -93,6 +101,8 @@ def validate_type_specific_required_fields(
         required = ("selector",)
     elif action == "extract" and step_type == "table":
         required = ("row_selector",)
+    elif action == "extract" and step_type == "frames":
+        required = ()
     elif action == "extract" and step_type == "css":
         required = ("property",)
     elif action == "keyboard" and step_type in {"press", "down", "up"}:
@@ -103,6 +113,8 @@ def validate_type_specific_required_fields(
         required = ("x", "y")
     elif action == "mouse" and step_type == "tap":
         required = ("x", "y")
+    elif action == "mouse" and step_type == "swipe":
+        required = ("start_x", "start_y", "end_x", "end_y")
     elif action == "assert" and step_type == "selector":
         required = ("selector",)
     elif action == "assert" and step_type in {"text", "value"}:
@@ -125,7 +137,13 @@ def validate_type_specific_required_fields(
         required = ("url",)
     elif action == "network" and step_type == "set_extra_http_headers":
         required = ("headers",)
+    elif action == "network" and step_type == "route_from_har":
+        required = ("path",)
+    elif action == "network" and step_type == "route_web_socket":
+        required = ("url",)
     elif action == "event" and step_type == "stop":
+        required = ("path",)
+    elif action == "coverage" and step_type == "stop":
         required = ("path",)
     elif action == "script" and step_type in {"evaluate", "add_init_script"}:
         required = ("js",)
@@ -160,9 +178,13 @@ def validate_type_specific_required_fields(
         "function",
         "title",
         "table",
+        "frames",
         "count",
     }:
+        _validate_frame_fields(step, location, issues)
         _validate_locator_fields(step, action, step_type, location, issues)
+    elif action in {"element", "wait", "extract", "assert"}:
+        _validate_frame_fields(step, location, issues)
 
 
 def _validate_locator_fields(
@@ -187,6 +209,20 @@ def _validate_locator_fields(
     if len(locator_fields) > 1 and "selector" not in step:
         allowed = ", ".join(sorted(locator_fields))
         issues.append(ValidationIssue(location, f"只能同时使用一种语义定位字段，当前包含：{allowed}"))
+
+
+def _validate_frame_fields(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    frame_fields = [field for field in FRAME_FIELDS if field in step]
+    if len(frame_fields) > 1:
+        allowed = ", ".join(sorted(frame_fields))
+        issues.append(ValidationIssue(location, f"只能同时使用一种 frame 定位字段，当前包含：{allowed}"))
+    for field in ("frame_selector", "frame_name", "frame_url", "frame_url_contains"):
+        _validate_string(step, field, location, issues)
+    _validate_int(step, "frame_index", location, issues, minimum=0)
 
 
 def _validate_optional_field_values(
@@ -218,8 +254,25 @@ def _validate_optional_field_values(
         _validate_network_fields(step, step_type, location, issues)
         return
     if action == "event":
-        for field in ("console", "pageerror", "requestfailed", "websocket"):
+        for field in (
+            "console",
+            "pageerror",
+            "requestfailed",
+            "websocket",
+            "websocket_frames",
+            "eventsource",
+            "webrtc",
+            "webrtc_include_sdp",
+            "webrtc_include_candidate",
+            "serviceworker",
+        ):
             _validate_bool(step, field, location, issues)
+        return
+    if action == "coverage":
+        _validate_bool(step, "js", location, issues)
+        _validate_bool(step, "css", location, issues)
+        if step_type == "start" and step.get("js") is False and step.get("css") is False:
+            issues.append(ValidationIssue(location, "coverage.start 至少需要启用 js 或 css 之一"))
         return
     if action == "trace":
         for field in ("screenshots", "snapshots", "sources"):
@@ -234,11 +287,22 @@ def _validate_optional_field_values(
     if action == "element":
         _validate_element_fields(step, step_type, location, issues)
         return
+    if action == "extract":
+        _validate_extract_fields(step, step_type, location, issues)
+        return
     if action == "mouse":
         _validate_number(step, "x", location, issues)
         _validate_number(step, "y", location, issues)
         _validate_number(step, "delta_x", location, issues)
         _validate_number(step, "delta_y", location, issues)
+        _validate_number(step, "start_x", location, issues)
+        _validate_number(step, "start_y", location, issues)
+        _validate_number(step, "end_x", location, issues)
+        _validate_number(step, "end_y", location, issues)
+        _validate_int(step, "steps", location, issues, minimum=1)
+        _validate_int(step, "duration_ms", location, issues, minimum=0)
+        _validate_bool(step, "touch", location, issues)
+        _validate_bool(step, "fallback_to_mouse", location, issues)
 
 
 def _validate_open_browser_fields(
@@ -273,6 +337,7 @@ def _validate_open_browser_fields(
         _validate_dict(step, field, location, issues)
     _validate_list(step, "permissions", location, issues)
     _validate_list(step, "args", location, issues)
+    _validate_string(step, "device", location, issues)
     _validate_number(step, "device_scale_factor", location, issues)
     _validate_int(step, "slow_mo_ms", location, issues, minimum=0)
     _validate_int(step, "timeout_ms", location, issues, minimum=0)
@@ -297,6 +362,23 @@ def _validate_network_fields(
         return
     if step_type == "set_extra_http_headers":
         _validate_dict(step, "headers", location, issues)
+        return
+    if step_type == "route_from_har":
+        _validate_string(step, "path", location, issues)
+        _validate_enum(step, "scope", {"context", "page"}, location, issues)
+        _validate_enum(step, "not_found", {"abort", "fallback"}, location, issues)
+        _validate_enum(step, "update_content", {"attach", "embed"}, location, issues)
+        _validate_enum(step, "update_mode", {"full", "minimal"}, location, issues)
+        _validate_bool(step, "update", location, issues)
+        return
+    if step_type == "route_web_socket":
+        _validate_string(step, "url", location, issues)
+        _validate_enum(step, "scope", {"context", "page"}, location, issues)
+        _validate_bool(step, "echo", location, issues)
+        _validate_bool(step, "close_after_response", location, issues)
+        _validate_bool(step, "close_on_connect", location, issues)
+        _validate_list(step, "server_messages", location, issues)
+        _validate_int(step, "close_code", location, issues, minimum=1000)
 
 
 def _validate_storage_fields(
@@ -326,6 +408,7 @@ def _validate_element_fields(
 ) -> None:
     _validate_bool(step, "force", location, issues)
     _validate_bool(step, "trial", location, issues)
+    _validate_bool(step, "no_wait_after", location, issues)
     _validate_int(step, "timeout", location, issues, minimum=0)
     _validate_int(step, "click_count", location, issues, minimum=1)
     _validate_int(step, "delay_ms", location, issues, minimum=0)
@@ -336,6 +419,18 @@ def _validate_element_fields(
     _validate_enum(step, "button", {"left", "right", "middle"}, location, issues)
     if step_type == "select" and not any(field in step for field in ("value", "label", "index_value")):
         issues.append(ValidationIssue(location, "element.select 需要 value、label 或 index_value 之一"))
+
+
+def _validate_extract_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type == "aria_snapshot":
+        _validate_int(step, "timeout", location, issues, minimum=0)
+        _validate_int(step, "depth", location, issues, minimum=0)
+        _validate_enum(step, "mode", {"ai", "default"}, location, issues)
 
 
 def _validate_enum(

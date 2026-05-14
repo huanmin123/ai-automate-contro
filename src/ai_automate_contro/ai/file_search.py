@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import platform
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.app.errors import UserFacingError
+from ai_automate_contro.support.paths import path_from_text
 
 
 MAX_GREP_MATCHES = 100
@@ -14,10 +16,21 @@ MAX_GREP_CONTEXT_LINES = 5
 MAX_GREP_LINE_CHARS = 1_000
 MAX_FILE_SLICE_LINES = 200
 MAX_FILE_SLICE_BYTES = 64_000
+
+
+def ripgrep_install_hint() -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return "brew install ripgrep"
+    if system == "Linux":
+        return "使用系统包管理器安装 ripgrep，例如 sudo apt install ripgrep 或 sudo dnf install ripgrep"
+    return "winget install --id BurntSushi.ripgrep.MSVC -e"
+
+
 RIPGREP_INSTALL_MESSAGE = (
     "AI 终端文本搜索必须安装 ripgrep (rg)。"
-    "本项目不使用 Windows 内置搜索兜底。"
-    "请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e。"
+    "本项目不使用系统内置搜索兜底。"
+    f"安装建议：{ripgrep_install_hint()}。"
     "安装后执行 rg --version 验证。"
     "如果希望助手帮你全局安装，请先明确确认。"
 )
@@ -89,7 +102,7 @@ def grep_project_text_tool(
             continue
         data = event.get("data", {})
         path_text = str(data.get("path", {}).get("text", ""))
-        path = Path(path_text).resolve()
+        path = path_from_text(path_text).resolve()
         line_text = str(data.get("lines", {}).get("text", "")).rstrip("\r\n")
         entry = {
             "type": event_type,
@@ -128,9 +141,9 @@ def assert_ripgrep_available() -> None:
         raise UserFacingError(
             "缺少 ripgrep：AI 终端文本搜索需要 rg。",
             fix=(
-                "本项目不使用 Windows 内置搜索兜底。\n"
-                "请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e\n"
-                "安装后重新打开 PowerShell 7，再执行：rg --version"
+                "本项目不使用系统内置搜索兜底。\n"
+                f"安装建议：{ripgrep_install_hint()}\n"
+                "安装后重新打开终端，再执行：rg --version"
             ),
             verify=["rg --version"],
         )
@@ -190,7 +203,7 @@ def read_project_file_slice_tool(
 
 
 def resolve_project_path(project_root: Path, raw_path: str | Path) -> Path:
-    candidate = Path(raw_path)
+    candidate = path_from_text(raw_path)
     if not candidate.is_absolute():
         candidate = project_root / candidate
     resolved = candidate.resolve()
@@ -255,3 +268,4 @@ def is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+

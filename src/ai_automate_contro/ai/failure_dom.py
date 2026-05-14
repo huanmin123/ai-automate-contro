@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.ai.debug_workspace_io import is_relative_to
+from ai_automate_contro.support.paths import path_from_text
 
 
 MAX_FAILURE_HTML_SUMMARY_BYTES = 256_000
@@ -13,7 +14,7 @@ DOM_TEXT_IGNORED_TAGS = {"head", "script", "style", "template"}
 
 
 def summarize_failure_html(run_output_dir: Path, raw_html_path: str) -> dict[str, Any]:
-    html_path = Path(raw_html_path).resolve()
+    html_path = path_from_text(raw_html_path).resolve()
     if not is_relative_to(html_path, run_output_dir.resolve()):
         return {}
     if not html_path.exists() or not html_path.is_file():

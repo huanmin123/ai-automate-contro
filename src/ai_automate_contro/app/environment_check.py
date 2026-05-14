@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.metadata
 import importlib.util
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -16,7 +17,7 @@ from ai_automate_contro.plans.config import load_plan_config
 def self_check_environment(project_root: Path) -> dict[str, Any]:
     checks = [
         _check_python_version(),
-        _check_pwsh(),
+        _check_shell(),
         _check_imports(),
         _check_ripgrep(),
         _check_playwright_chromium(),
@@ -28,9 +29,9 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
         "checks": checks,
         "install": {
             "project": "python -m pip install -e .",
-            "ripgrep": "winget install --id BurntSushi.ripgrep.MSVC -e",
+            "ripgrep": _ripgrep_install_hint(),
             "playwright_chromium": "python -m playwright install chromium",
-            "verify": "python .\\main.py self-check env",
+            "verify": "python main.py self-check env",
         },
     }
 
@@ -51,15 +52,29 @@ def _check_python_version() -> dict[str, Any]:
         current >= minimum,
         version=f"{current.major}.{current.minor}.{current.micro}",
         detail="需要 Python 3.11 或更高版本。",
-        fix="安装 Python 3.11+ 后，在 PowerShell 7 中重新运行。",
+        fix="安装 Python 3.11+ 后，在当前终端重新运行。",
     )
+
+
+def _check_shell() -> dict[str, Any]:
+    system = platform.system()
+    if system != "Windows":
+        return _check_result(
+            "shell",
+            True,
+            system=system,
+            shell=os.environ.get("SHELL", ""),
+            detail="当前系统可使用原生终端运行；PowerShell 7 只在 Windows 作为推荐 shell 检查。",
+            fix="",
+        )
+    return _check_pwsh()
 
 
 def _check_pwsh() -> dict[str, Any]:
     pwsh = shutil.which("pwsh")
     if pwsh is None:
         return _check_result(
-            "powershell_7",
+            "shell",
             False,
             detail="PATH 中没有找到 PowerShell 7 (pwsh)。",
             fix="安装 PowerShell 7，并从 pwsh 中运行命令。",
@@ -75,10 +90,10 @@ def _check_pwsh() -> dict[str, Any]:
     )
     version = completed.stdout.strip()
     return _check_result(
-        "powershell_7",
+        "shell",
         completed.returncode == 0 and version.startswith("7."),
         version=version,
-        detail="本项目支持的交互式 shell 是 PowerShell 7。",
+        detail="Windows 推荐的交互式 shell 是 PowerShell 7。",
         fix="请从 PowerShell 7 中运行本项目。",
     )
 
@@ -120,7 +135,7 @@ def _check_ripgrep() -> dict[str, Any]:
             "ripgrep",
             False,
             detail="必须安装 ripgrep (rg)。本项目不使用 Windows 内置搜索作为兜底。",
-            fix="winget install --id BurntSushi.ripgrep.MSVC -e",
+            fix=_ripgrep_install_hint(),
         )
 
     completed = subprocess.run(
@@ -138,7 +153,7 @@ def _check_ripgrep() -> dict[str, Any]:
         path=rg,
         version=version,
         detail="AI 终端文本搜索只使用 rg。",
-        fix="winget install --id BurntSushi.ripgrep.MSVC -e",
+        fix=_ripgrep_install_hint(),
     )
 
 
@@ -265,3 +280,12 @@ def _distribution_version(package: str) -> str:
 
 def _check_result(name: str, ok: bool, **details: Any) -> dict[str, Any]:
     return {"name": name, "ok": ok, **details}
+
+
+def _ripgrep_install_hint() -> str:
+    system = platform.system()
+    if system == "Darwin":
+        return "brew install ripgrep"
+    if system == "Linux":
+        return "使用系统包管理器安装 ripgrep，例如 sudo apt install ripgrep 或 sudo dnf install ripgrep。"
+    return "winget install --id BurntSushi.ripgrep.MSVC -e"

@@ -8,6 +8,8 @@ from urllib.request import url2pathname
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 from playwright.sync_api import sync_playwright
 
+from ai_automate_contro.support.paths import path_from_text
+
 
 MAX_WEB_INSPECTION_ELEMENTS = 120
 MAX_WEB_INSPECTION_TEXT_CHARS = 12_000
@@ -103,7 +105,7 @@ def _resolve_inspection_url(project_root: Path, raw_url: str) -> str:
     if not text:
         raise ValueError("inspect_web_page 需要非空 url。")
 
-    local_candidate = Path(text)
+    local_candidate = path_from_text(text)
     if local_candidate.is_absolute() or "://" not in text:
         if "://" in text and not local_candidate.is_absolute():
             return text

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 from dataclasses import dataclass
 from typing import Any
 
@@ -126,10 +127,16 @@ def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
     raise UserFacingError(
         f"AI 服务缺少 api_key 或有效的 api_key_env：{service_name}",
         fix=(
-            f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在 PowerShell 7 中设置对应环境变量。\n"
-            "示例：$env:OPENAI_API_KEY='sk-your-key'"
+            f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在当前终端设置对应环境变量。\n"
+            f"示例：{_api_key_env_example()}"
         ),
     )
+
+
+def _api_key_env_example() -> str:
+    if platform.system() == "Windows":
+        return "$env:OPENAI_API_KEY='sk-your-key'"
+    return "export OPENAI_API_KEY='sk-your-key'"
 
 
 def resolve_response_format(service_config: dict[str, Any]) -> str:

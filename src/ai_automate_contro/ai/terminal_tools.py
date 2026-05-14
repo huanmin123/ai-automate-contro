@@ -22,6 +22,7 @@ from ai_automate_contro.ai.run_failure_analysis import (
     analyze_latest_run_failure_tool as _analyze_latest_run_failure_tool,
 )
 from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
+from ai_automate_contro.support.paths import path_from_text
 
 
 def run_plan_tool(
@@ -295,7 +296,7 @@ def run_debug_plan_tool(
 
 def _resolve_run_output_dir(plan_path: str | Path, output_dir: str | Path | None) -> Path:
     if output_dir is not None:
-        return Path(output_dir).resolve()
+        return path_from_text(output_dir).resolve()
     resolved_plan_path = resolve_plan_path(plan_path)
     latest_output = find_latest_run_output(resolved_plan_path.parent)
     if latest_output is None:

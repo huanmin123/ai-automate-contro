@@ -73,7 +73,7 @@ def _wait_for_count(executor: Any, step: dict[str, Any]) -> None:
     timeout_ms = int(step.get("timeout_ms", 15_000))
     start = target_page.evaluate("Date.now()")
     while True:
-        actual = target_page.locator(selector).count()
+        actual = executor._locator_for_selector(step, selector, index_field="count_index").count()
         if mode == "equals" and actual == expected:
             return
         if mode == "gte" and actual >= expected:

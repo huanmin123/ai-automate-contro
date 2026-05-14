@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from playwright.sync_api import FrameLocator, Locator, Page
+from playwright.sync_api import Frame, FrameLocator, Locator, Page
 
 from ai_automate_contro.engine.conditions import ConditionEvaluator
 from ai_automate_contro.engine.runtime import RuntimeState
@@ -113,15 +113,13 @@ class ActionExecutor:
         return handlers
 
     def _locator(self, step: dict[str, Any]) -> Locator:
-        page = self._page(step)
-        root: Page | FrameLocator
-        root = page.frame_locator(step["frame_selector"]) if "frame_selector" in step else page
+        root = self._locator_root(step)
         locator = self._root_locator(root, step)
         if "index" in step:
             locator = locator.nth(int(step["index"]))
         return locator
 
-    def _root_locator(self, root: Page | FrameLocator, step: dict[str, Any]) -> Locator:
+    def _root_locator(self, root: Page | Frame | FrameLocator, step: dict[str, Any]) -> Locator:
         if "selector" in step:
             return root.locator(step["selector"])
         if "role" in step:
@@ -148,13 +146,37 @@ class ActionExecutor:
         *,
         index_field: str = "index",
     ) -> Locator:
-        page = self._page(step)
-        root: Page | FrameLocator
-        root = page.frame_locator(step["frame_selector"]) if "frame_selector" in step else page
+        root = self._locator_root(step)
         locator = root.locator(selector)
         if index_field in step:
             locator = locator.nth(int(step[index_field]))
         return locator
+
+    def _locator_root(self, step: dict[str, Any]) -> Page | Frame | FrameLocator:
+        page = self._page(step)
+        frame_fields = [
+            field
+            for field in ("frame_selector", "frame_name", "frame_url", "frame_url_contains", "frame_index")
+            if field in step
+        ]
+        if not frame_fields:
+            return page
+        if len(frame_fields) > 1:
+            raise ValueError(f"只能同时使用一种 frame 定位字段，当前包含：{', '.join(frame_fields)}")
+        if "frame_selector" in step:
+            return page.frame_locator(step["frame_selector"])
+        if "frame_name" in step:
+            frame = page.frame(name=str(step["frame_name"]))
+        elif "frame_url" in step:
+            frame = page.frame(url=str(step["frame_url"]))
+        elif "frame_url_contains" in step:
+            expected = str(step["frame_url_contains"])
+            frame = next((candidate for candidate in page.frames if expected in candidate.url), None)
+        else:
+            frame = _frame_by_index(page, int(step["frame_index"]))
+        if frame is None:
+            raise ValueError("未找到匹配的 frame。")
+        return frame
 
     def _page(self, step: dict[str, Any]) -> Page:
         session = self.state.require_session(step["browser"])
@@ -181,3 +203,10 @@ def _locator_options(step: dict[str, Any], *allowed_fields: str) -> dict[str, An
         if field in step:
             options[field] = step[field]
     return options
+
+
+def _frame_by_index(page: Page, index: int) -> Frame:
+    frames = page.frames
+    if index < 0 or index >= len(frames):
+        raise ValueError(f"frame_index 超出范围：{index}")
+    return frames[index]

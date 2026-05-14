@@ -16,6 +16,7 @@ from ai_automate_contro.ai.file_search import (
 )
 from ai_automate_contro.ai.session_compression import redact_image_data_urls, sanitize_thread_id, session_root
 from ai_automate_contro.ai.terminal_message_utils import message_content_to_text
+from ai_automate_contro.support.paths import path_from_text
 
 
 CompressionRecallMode = Literal["list", "summary", "messages", "manifest", "search"]
@@ -223,7 +224,7 @@ def _search_archive(
         if event.get("type") != "match":
             continue
         data = event.get("data", {})
-        path = Path(str(data.get("path", {}).get("text", ""))).resolve()
+        path = path_from_text(str(data.get("path", {}).get("text", ""))).resolve()
         text = str(data.get("lines", {}).get("text", "")).rstrip("\r\n")
         matches.append(
             {
@@ -255,7 +256,7 @@ def _search_archive(
 
 def _resolve_archive_dir(root: Path, compressions_root: Path, archive_path: str | Path) -> Path:
     if archive_path:
-        candidate = Path(archive_path)
+        candidate = path_from_text(archive_path)
         if not candidate.is_absolute():
             candidate = root / candidate
         resolved = candidate.resolve()

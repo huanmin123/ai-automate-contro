@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from ai_automate_contro.ai.session_compression import session_root
+from ai_automate_contro.support.paths import path_from_text
 
 
 MAX_IMAGE_ATTACHMENTS = 5
@@ -74,7 +75,7 @@ def attach_clipboard_images(
         from PIL import ImageGrab
     except Exception as error:
         raise RuntimeError(
-            "剪贴板图片粘贴需要 Pillow。请在 PowerShell 7 中安装项目依赖："
+            "剪贴板图片粘贴需要 Pillow。请先安装项目依赖："
             "python -m pip install -e ."
         ) from error
 
@@ -230,7 +231,7 @@ def image_attachment_placeholders(attachments: list[ImageAttachment]) -> list[st
 
 
 def resolve_image_path(project_root: Path, image_path: str | Path) -> Path:
-    raw_path = Path(str(image_path).strip().strip("\"'"))
+    raw_path = path_from_text(image_path)
     if raw_path.is_absolute():
         resolved = raw_path.resolve()
     else:

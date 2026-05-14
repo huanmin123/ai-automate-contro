@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Browser Backlog Demo</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        margin: 16px;
+      }
+
+      button {
+        display: block;
+        margin: 10px 0;
+      }
+
+      .used-panel {
+        border: 1px solid #23705f;
+        min-height: 36px;
+        padding: 8px;
+      }
+
+      .unused-panel {
+        color: #999;
+      }
+
+      #swipe-surface {
+        align-items: center;
+        background: #f3faf7;
+        border: 1px solid #23705f;
+        display: flex;
+        height: 96px;
+        justify-content: center;
+        margin: 12px 0;
+        touch-action: none;
+        width: 340px;
+      }
+
+      #results {
+        margin-top: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Browser Backlog Demo</h1>
+    <p id="device-result">No device</p>
+    <button id="tap-target" aria-label="Tap the accessible action">Tap action</button>
+    <div id="swipe-surface">Swipe surface</div>
+    <button id="load-har">Load HAR data</button>
+    <button id="start-sse">Start SSE</button>
+    <button id="start-ws">Start WebSocket</button>
+    <section id="results" class="used-panel" aria-label="Demo results">
+      <p id="tap-result">No tap</p>
+      <p id="swipe-result">No swipe</p>
+      <p id="har-result">No HAR</p>
+      <p id="sse-result">No SSE</p>
+      <p id="ws-result">No WS</p>
+    </section>
+
+    <script>
+      window.backlogReady = true;
+      document.getElementById("device-result").textContent =
+        `${navigator.maxTouchPoints}:${window.innerWidth}x${window.innerHeight}`;
+
+      function coveredFunction(value) {
+        return `covered:${value}`;
+      }
+      window.coverageMarker = coveredFunction("js");
+
+      document.getElementById("tap-target").addEventListener("click", () => {
+        document.getElementById("tap-result").textContent = "Tapped by locator";
+      });
+
+      let startX = 0;
+      let startY = 0;
+      const swipeSurface = document.getElementById("swipe-surface");
+      swipeSurface.addEventListener("touchstart", (event) => {
+        startX = event.changedTouches[0].clientX;
+        startY = event.changedTouches[0].clientY;
+      });
+      swipeSurface.addEventListener("touchend", (event) => {
+        const endX = event.changedTouches[0].clientX;
+        const endY = event.changedTouches[0].clientY;
+        if (Math.abs(endX - startX) > 120 && Math.abs(endY - startY) < 60) {
+          document.getElementById("swipe-result").textContent = "Swiped right";
+        }
+      });
+
+      document.getElementById("load-har").addEventListener("click", async () => {
+        const response = await fetch("https://fixture.local/har-data");
+        const data = await response.json();
+        document.getElementById("har-result").textContent = data.message;
+      });
+
+      document.getElementById("start-sse").addEventListener("click", () => {
+        const source = new EventSource("https://fixture.local/sse");
+        source.onmessage = (event) => {
+          document.getElementById("sse-result").textContent = event.data;
+          source.close();
+        };
+      });
+
+      document.getElementById("start-ws").addEventListener("click", () => {
+        const socket = new WebSocket("wss://fixture.local/ws");
+        socket.onopen = () => socket.send("client-hello");
+        socket.onmessage = (event) => {
+          const current = document.getElementById("ws-result").textContent;
+          document.getElementById("ws-result").textContent =
+            current === "No WS" ? event.data : `${current}|${event.data}`;
+        };
+      });
+    </script>
+  </body>
+</html>

@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any
 import json
 
+from ai_automate_contro.support.paths import path_from_text
+
 
 @dataclass
 class PlanResult:
@@ -86,7 +88,7 @@ def _metadata_list(metadata: dict[str, Any], key: str) -> list[str]:
 
 
 def _display_artifact_path(output_dir: Path, raw_path: str) -> str:
-    path = Path(raw_path)
+    path = path_from_text(raw_path)
     try:
         return str(path.resolve().relative_to(output_dir.resolve()))
     except ValueError:

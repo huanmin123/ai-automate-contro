@@ -19,6 +19,7 @@
 - `browser_type`: 浏览器类型，支持 `chromium`、`firefox`、`webkit`，默认 `chromium`
 - `channel`: Chromium 渠道，例如 `chrome`、`msedge`
 - `args`: 浏览器启动参数数组
+- `device`: Playwright 设备预设名，例如 `iPhone 12`；预设会填充 viewport、user_agent、device_scale_factor、is_mobile、has_touch
 - `proxy`: 代理配置对象
 - `storage_state_path`: 从文件加载登录态或上下文状态
 - `viewport`: 视口尺寸，例如 `{"width": 1280, "height": 720}`
@@ -57,6 +58,18 @@
 }
 ```
 
+移动设备预设：
+
+```json
+{
+  "action": "open_browser",
+  "name": "mobile",
+  "browser_type": "chromium",
+  "device": "iPhone 12",
+  "ignore_https_errors": true
+}
+```
+
 ## 什么时候用
 
 - 你需要启动第一个浏览器窗口
@@ -68,4 +81,5 @@
 - `name` 不能重复。
 - 如果你后面要写 `browser: "main"`，这里的 `name` 就必须叫 `main`。
 - 默认新建一个空白上下文；需要继承状态时使用 `storage_state_path`。
+- `device` 不会自动切换 `browser_type`；需要指定浏览器内核时显式填写 `browser_type`。
 - 多数真实站点调试时，优先显式设置 `viewport`、`locale`、`timezone_id`、`user_agent` 和必要的 `extra_http_headers`。

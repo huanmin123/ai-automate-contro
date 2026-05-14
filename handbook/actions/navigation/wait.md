@@ -32,6 +32,10 @@
 - `timeout_ms`: 仅 `type: count` 有效，默认 `15000`
 - `index`: `selector` / `text` 使用，当选择器匹配多个元素时选择第几个
 - `frame_selector`: iframe 选择器
+- `frame_name`: 通过 frame name 定位
+- `frame_url`: 通过完整 frame URL 定位
+- `frame_url_contains`: 通过 URL 片段定位
+- `frame_index`: 通过 `page.frames` 顺序定位，从 `0` 开始
 - `arg`: `type: function` 的 JS 参数
 
 ## 示例

@@ -8,6 +8,7 @@ from typing import Any
 
 from ai_automate_contro.debug.models import DebugInjectionResult
 from ai_automate_contro.debug.workspace_paths import load_workspace_manifest
+from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp
 
 
@@ -21,7 +22,7 @@ def inject_debug_steps(
     position: str = "end",
     step: int | None = None,
 ) -> DebugInjectionResult:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = load_workspace_manifest(workspace_root)
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
     plan_path = injected_plan_dir / "plan.json"

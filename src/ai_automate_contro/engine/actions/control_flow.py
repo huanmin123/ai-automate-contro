@@ -5,6 +5,7 @@ from typing import Any
 
 from ai_automate_contro.engine.template import render_value
 from ai_automate_contro.plans.loader import load_plan
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 def action_run_sub_plan(executor: Any, step: dict[str, Any]) -> None:
@@ -70,8 +71,8 @@ def action_retry(executor: Any, step: dict[str, Any]) -> None:
 
 
 def resolve_sub_plan_path(executor: Any, raw_path: str) -> Path:
-    path = Path(raw_path)
-    if path.is_absolute():
+    path = path_from_text(raw_path)
+    if is_absolute_path_text(raw_path):
         raise ValueError("run_sub_plan path 必须是相对于当前 plan 包的路径。")
     package_root = executor._package_root().resolve()
     resolved_path = (package_root / path).resolve()

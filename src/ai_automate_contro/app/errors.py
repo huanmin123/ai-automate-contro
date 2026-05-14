@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import sys
 import traceback
 from dataclasses import dataclass, field
@@ -44,7 +45,7 @@ def print_cli_error(error: BaseException, *, project_root: Path | None = None) -
     if _debug_traceback_enabled():
         traceback.print_exception(type(error), error, error.__traceback__)
     elif not _is_common_user_error(error):
-        print("需要开发堆栈时，在 PowerShell 7 里设置：$env:AI_AUTOMATE_DEBUG='1'", file=sys.stderr)
+        print(f"需要开发堆栈时，设置环境变量后重试：{_debug_env_hint()}", file=sys.stderr)
     return 1
 
 
@@ -106,7 +107,8 @@ def _user_facing_error_lines(error: UserFacingError) -> list[str]:
 
 def _generic_fix_for(error: BaseException, *, project_root: Path | None) -> str:
     if isinstance(error, FileNotFoundError):
-        return "检查命令里的文件路径是否存在；相对路径请确认当前 Set-Location 所在目录。"
+        location_command = "Set-Location" if platform.system() == "Windows" else "cd"
+        return f"检查命令里的文件路径是否存在；相对路径请确认当前 {location_command} 所在目录。"
     if isinstance(error, PermissionError):
         return "检查文件是否被占用、是否有读写权限，或换到有权限的工作目录后重试。"
     if isinstance(error, (ValueError, KeyError)):
@@ -216,6 +218,12 @@ def _as_lines(value: str | Iterable[str]) -> list[str]:
 
 def _debug_traceback_enabled() -> bool:
     return os.environ.get("AI_AUTOMATE_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _debug_env_hint() -> str:
+    if platform.system() == "Windows":
+        return "$env:AI_AUTOMATE_DEBUG='1'"
+    return "AI_AUTOMATE_DEBUG=1"
 
 
 def _is_common_user_error(error: BaseException) -> bool:

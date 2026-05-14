@@ -6,13 +6,15 @@
 
 ## 快速开始
 
+开发环境默认使用 Windows + PowerShell 7 + 全局或用户级 Python。项目不要求在仓库根目录创建 `.venv`；本机已有的 `.venv/` 只算临时开发环境，不作为文档、脚本或 plan 的固定路径。
+
 ```powershell
 python -m pip install -e .
 python -m playwright install chromium
 python .\main.py
 ```
 
-项目使用 `src/` 布局。开发环境建议执行 `python -m pip install -e .`，或在 IDE 里把 `src` 标记为 Sources Root。
+项目使用 `src/` 布局，声明支持 Python 3.11 及以上，推荐 Python 3.13。开发环境建议执行 `python -m pip install -e .`，由 `pyproject.toml` 统一安装 Playwright、Pydantic、LangChain/LangGraph、OpenAI SDK 等依赖；也可以在 IDE 里把 `src` 标记为 Sources Root。
 
 进入管理终端后：
 

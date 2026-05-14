@@ -10,6 +10,7 @@ from ai_automate_contro.ai.debug_workspace_io import (
     reset_injected_file_to_source,
 )
 from ai_automate_contro.ai.plan_tools import validate_plan_tool
+from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import dict_get, first_string, safe_int
 
 
@@ -142,7 +143,7 @@ def propose_debug_fix_tool(
     run_after_apply: bool = False,
     run_name: str | None = None,
 ) -> dict[str, Any]:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = read_debug_manifest(workspace_root)
     source_plan_path = Path(manifest["source_copy_dir"]).resolve() / "plan.json"
     original_plan_path = Path(manifest["plan_path"]).resolve()

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 from langchain.agents import AgentState
@@ -10,6 +9,7 @@ from langchain_core.messages import SystemMessage
 from typing_extensions import NotRequired
 
 from ai_automate_contro.plans.packages import resolve_plan_path
+from ai_automate_contro.support.paths import path_from_text
 
 
 class AITerminalState(AgentState):
@@ -134,7 +134,7 @@ def _capture_context_value(update: dict[str, str], key: str, value: Any) -> None
         update["current_plan_path"] = str(resolve_plan_path(value))
         return
     if key == "workspace":
-        update["current_debug_workspace"] = str(Path(value).resolve())
+        update["current_debug_workspace"] = str(path_from_text(value).resolve())
         return
     if key == "output_dir":
-        update["latest_output_dir"] = str(Path(value).resolve())
+        update["latest_output_dir"] = str(path_from_text(value).resolve())

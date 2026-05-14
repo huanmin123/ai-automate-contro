@@ -9,6 +9,7 @@ from ai_automate_contro.plans.packages import (
     summarize_plan,
 )
 from ai_automate_contro.plans.validator import validate_plan_file
+from ai_automate_contro.support.paths import path_from_text
 
 
 class PlanCommandsMixin:
@@ -18,7 +19,7 @@ class PlanCommandsMixin:
         if not raw_path:
             self.perror("用法：use <plan.json-or-package-dir>")
             return
-        plan_path = Path(raw_path).resolve()
+        plan_path = path_from_text(raw_path).resolve()
         if plan_path.is_dir():
             plan_path = plan_path / "plan.json"
         self.current_plan_path = plan_path
@@ -98,7 +99,7 @@ class PlanCommandsMixin:
         raw_path = arg.strip()
         if not raw_path:
             return self._require_current_plan()
-        plan_path = Path(raw_path).resolve()
+        plan_path = path_from_text(raw_path).resolve()
         if plan_path.is_dir():
             plan_path = plan_path / "plan.json"
         return plan_path

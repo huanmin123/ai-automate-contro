@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -28,7 +29,7 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
             "AI 服务配置格式不正确：config.ai_services 必须是 JSON object。",
             details=[f"配置文件：{config_path}"],
             fix="把 ai_services 改成对象，并在里面配置 default 服务。",
-            verify=[".\\aic.exe self-check env"],
+            verify=[_verify_command("self-check env")],
         )
     service_config = ai_services.get(service_name)
     if not isinstance(service_config, dict):
@@ -51,8 +52,8 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
                 "}"
             ),
             verify=[
-                ".\\aic.exe self-check env",
-                ".\\aic.exe ai",
+                _verify_command("self-check env"),
+                _verify_command("ai"),
             ],
         )
     if not service_config.get("model"):
@@ -60,7 +61,7 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
             f"AI 终端服务缺少 model：{service_name}",
             details=[f"配置文件：{config_path}"],
             fix=f"在 ai_services.{service_name}.model 填入模型名。",
-            verify=[".\\aic.exe self-check env"],
+            verify=[_verify_command("self-check env")],
         )
     resolve_ai_terminal_api_key(service_name, service_config)
     return AITerminalConfig(service_name=service_name, service_config=service_config)
@@ -92,8 +93,19 @@ def resolve_ai_terminal_api_key(service_name: str, service_config: dict[str, Any
     raise UserFacingError(
         f"AI 终端服务缺少 api_key 或有效的 api_key_env：{service_name}",
         fix=(
-            f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在 PowerShell 7 中设置对应环境变量。\n"
-            "示例：$env:OPENAI_API_KEY='sk-your-key'"
+            f"在 ai_services.{service_name} 里配置 api_key，或配置 api_key_env 并在当前终端设置对应环境变量。\n"
+            f"示例：{_api_key_env_example()}"
         ),
-        verify=[".\\aic.exe self-check env"],
+        verify=[_verify_command("self-check env")],
     )
+
+
+def _verify_command(arguments: str) -> str:
+    executable = ".\\aic.exe" if platform.system() == "Windows" else "./aic"
+    return f"{executable} {arguments}"
+
+
+def _api_key_env_example() -> str:
+    if platform.system() == "Windows":
+        return "$env:OPENAI_API_KEY='sk-your-key'"
+    return "export OPENAI_API_KEY='sk-your-key'"

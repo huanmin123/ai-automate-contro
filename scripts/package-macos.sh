@@ -16,6 +16,9 @@ Options:
 Environment:
   PYTHON                  Python interpreter path, same as --python.
   EXECUTABLE_NAME         Output executable file name. Defaults to "aic"; do not include a path.
+  PIP_REQUIRE_VIRTUALENV  Set to false if local pip config requires a virtualenv.
+  PIP_BREAK_SYSTEM_PACKAGES
+                          Set to 1 for Homebrew Python user/global maintenance when pip enforces PEP 668.
 EOF
 }
 
@@ -68,16 +71,8 @@ cd "$repo_root"
 [ "$(uname -m)" = "arm64" ] || die "macOS 打包目前只支持 Apple Silicon arm64，当前架构：$(uname -m)"
 
 if [ -z "$python_bin" ]; then
-  if [ -x "$repo_root/.venv/bin/python" ]; then
-    python_bin="$repo_root/.venv/bin/python"
-  elif [ "$install_dependencies" -eq 1 ]; then
-    command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
-    python3 -m venv "$repo_root/.venv"
-    python_bin="$repo_root/.venv/bin/python"
-  else
-    command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
-    python_bin="$(command -v python3)"
-  fi
+  command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
+  python_bin="$(command -v python3)"
 fi
 
 [ -x "$python_bin" ] || die "Python 不可执行：$python_bin"
@@ -101,7 +96,9 @@ fi
 command -v rg >/dev/null 2>&1 || die "分发版 AI 终端依赖 ripgrep (rg)。macOS 可先执行：brew install ripgrep"
 
 if [ "$install_dependencies" -eq 1 ]; then
-  run_checked "$python_bin" -m pip install -e ".[package]"
+  if ! "$python_bin" -m pip install -e ".[package]"; then
+    die "依赖安装失败。项目默认不创建 .venv；如果当前 Python 的 pip 被本机策略拦截，可先设置 PIP_REQUIRE_VIRTUALENV=false，Homebrew Python 还可能需要 PIP_BREAK_SYSTEM_PACKAGES=1，或用 --python 指向你准备好的解释器。"
+  fi
 fi
 
 run_checked "$python_bin" - <<'PY'

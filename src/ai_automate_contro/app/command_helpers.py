@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.loader import detect_document_type, load_plan
 from ai_automate_contro.plans.packages import discover_plan_packages, plan_matches_filter, summarize_plan
 from ai_automate_contro.plans.validator import validate_plan_file
+from ai_automate_contro.support.paths import path_from_text
 
 
 def print_validation_result(raw_plan_path: str | Path, project_root: Path) -> int:
@@ -61,16 +63,31 @@ def run_plan(
 
 def load_tool_arguments(args_json: str, args_file: str | None) -> dict[str, Any]:
     if args_file:
-        raw_value = Path(args_file).read_text(encoding="utf-8")
+        raw_value = path_from_text(args_file).read_text(encoding="utf-8")
     else:
         raw_value = args_json
     try:
         value = json.loads(raw_value)
     except json.JSONDecodeError as error:
-        raise ValueError(f"工具参数必须是 JSON 对象：{error.msg}") from error
+        repaired_value = _repair_windows_path_backslashes_in_json(raw_value)
+        if repaired_value == raw_value:
+            raise ValueError(f"工具参数必须是 JSON 对象：{error.msg}") from error
+        try:
+            value = json.loads(repaired_value)
+        except json.JSONDecodeError:
+            raise ValueError(f"工具参数必须是 JSON 对象：{error.msg}") from error
     if not isinstance(value, dict):
         raise ValueError("工具参数必须是 JSON 对象。")
     return value
+
+
+def _repair_windows_path_backslashes_in_json(raw_value: str) -> str:
+    def repair_string(match: re.Match[str]) -> str:
+        content = match.group(1)
+        repaired = re.sub(r"\\(?![\"\\/bfnrtu])", r"\\\\", content)
+        return f'"{repaired}"'
+
+    return re.sub(r'"((?:[^"\\]|\\.)*)"', repair_string, raw_value)
 
 
 def print_json(value: Any, *, compact: bool = False) -> None:

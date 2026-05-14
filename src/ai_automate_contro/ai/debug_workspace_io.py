@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
+
 
 def read_debug_manifest(workspace_root: Path) -> dict[str, Any]:
     manifest_path = workspace_root / "manifest.json"
@@ -49,8 +51,8 @@ def resolve_debug_write_path(manifest: dict[str, Any], *, root: str, relative_pa
         raise ValueError("root 必须是 injected-plan、notes 或 report。")
 
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
-    raw_path = Path(relative_path)
-    if raw_path.is_absolute():
+    raw_path = path_from_text(relative_path)
+    if is_absolute_path_text(relative_path):
         raise ValueError("relative_path 必须是相对于 injected-plan/ 的路径。")
     if not raw_path.parts:
         raise ValueError("relative_path 不能为空。")
@@ -108,8 +110,8 @@ def debug_relative_path(manifest: dict[str, Any], path: Path) -> str:
 def reset_injected_file_to_source(manifest: dict[str, Any], relative_path: str) -> None:
     source_copy_dir = Path(manifest["source_copy_dir"]).resolve()
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
-    raw_path = Path(relative_path)
-    if raw_path.is_absolute() or is_forbidden_debug_write_path(raw_path):
+    raw_path = path_from_text(relative_path)
+    if is_absolute_path_text(relative_path) or is_forbidden_debug_write_path(raw_path):
         raise ValueError(f"拒绝重置禁止的 debug 路径：{relative_path}")
     source_path = (source_copy_dir / raw_path).resolve()
     target_path = (injected_plan_dir / raw_path).resolve()

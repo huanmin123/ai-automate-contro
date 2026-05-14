@@ -10,6 +10,7 @@ from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.plans.loader import load_plan
 from ai_automate_contro.plans.results import PlanResult
+from ai_automate_contro.support.paths import path_from_text
 
 
 class InteractiveRun:
@@ -21,7 +22,7 @@ class InteractiveRun:
         run_name: str | None = None,
         variable_overrides: dict[str, Any] | None = None,
     ) -> None:
-        self.plan_path = Path(plan_path).resolve()
+        self.plan_path = path_from_text(plan_path).resolve()
         self.project_root = Path(project_root).resolve()
         self.run_name = run_name
         self.variable_overrides = variable_overrides or {}

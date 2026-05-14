@@ -30,6 +30,7 @@ from ai_automate_contro.ai.plan_tools import (
     read_sub_plans,
     validate_plan_tool,
 )
+from ai_automate_contro.support.paths import path_from_text
 
 
 def generate_debug_patch_tool(workspace: str | Path) -> dict[str, Any]:
@@ -63,7 +64,7 @@ def find_debug_workspace_tool(plan_path: str | Path, *, name: str | None = None)
 
 
 def read_debug_workspace_tool(workspace: str | Path) -> dict[str, Any]:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = read_debug_manifest(workspace_root)
     source_copy_dir = Path(manifest["source_copy_dir"]).resolve()
     injected_plan_dir = Path(manifest["injected_plan_dir"]).resolve()
@@ -123,7 +124,7 @@ def write_debug_workspace_file_tool(
     json_value: Any | None = None,
     mode: str = "overwrite",
 ) -> dict[str, Any]:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = read_debug_manifest(workspace_root)
     target_path = resolve_debug_write_path(
         manifest,
@@ -166,7 +167,7 @@ def patch_debug_workspace_json_tool(
     relative_path: str = "plan.json",
     operations: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    workspace_root = Path(workspace).resolve()
+    workspace_root = path_from_text(workspace).resolve()
     manifest = read_debug_manifest(workspace_root)
     target_path = resolve_debug_write_path(
         manifest,
@@ -208,7 +209,7 @@ def patch_debug_workspace_json_tool(
 
 
 def validate_debug_plan_tool(project_root: str | Path, *, workspace: str | Path) -> dict[str, Any]:
-    manifest = read_debug_manifest(Path(workspace).resolve())
+    manifest = read_debug_manifest(path_from_text(workspace).resolve())
     return validate_plan_tool(project_root, Path(manifest["injected_plan_dir"]) / "plan.json")
 
 
@@ -222,7 +223,7 @@ def run_debug_plan_tool(
     _manual_confirmation_handler: Any | None = None,
     _inspection_confirmation_handler: Any | None = None,
 ) -> dict[str, Any]:
-    manifest = read_debug_manifest(Path(workspace).resolve())
+    manifest = read_debug_manifest(path_from_text(workspace).resolve())
     injected_plan_path = Path(manifest["injected_plan_dir"]) / "plan.json"
     return run_plan(
         project_root,

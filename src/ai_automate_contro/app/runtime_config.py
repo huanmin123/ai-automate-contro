@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.support.paths import path_from_text
+
 
 CONFIG_FILE_NAME = "plan.config"
 
@@ -85,7 +87,7 @@ def _default_ai_config_dir(root: Path, plan_roots: list[Path]) -> str:
 
 
 def _resolve_config_path(root: Path, raw_path: str | Path) -> Path:
-    path = Path(raw_path)
+    path = path_from_text(raw_path)
     if not path.is_absolute():
         path = root / path
     return path.resolve()

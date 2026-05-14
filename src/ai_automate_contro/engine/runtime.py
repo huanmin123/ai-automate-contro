@@ -8,6 +8,7 @@ from playwright.sync_api import Browser, BrowserContext, Dialog, Download, Page,
 
 from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.engine.state import RunStateWriter
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 @dataclass
@@ -66,6 +67,8 @@ class RuntimeState:
     downloads: list[str] = field(default_factory=list)
     browser_events: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     browser_event_handlers: dict[str, list[tuple[Any, str, Any]]] = field(default_factory=dict)
+    browser_event_options: dict[str, dict[str, Any]] = field(default_factory=dict)
+    browser_coverage_sessions: dict[str, dict[str, Any]] = field(default_factory=dict)
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
     manual_confirmation_handler: Callable[[str], bool] | None = None
@@ -87,17 +90,17 @@ class RuntimeState:
         return self.step_counter
 
     def resolve_path(self, raw_path: str) -> Path:
-        path = Path(raw_path)
-        if path.is_absolute():
-            return path
+        path = path_from_text(raw_path)
+        if is_absolute_path_text(raw_path):
+            return path.resolve()
         if path.parts and path.parts[0] in {"resources", "output", "docs"} and self.package_dir is not None:
             return (self.package_dir / path).resolve()
         return (self.plan_dir / path).resolve()
 
     def resolve_output_path(self, raw_path: str, category: str | None = None) -> Path:
         package_output_dir = self.package_output_dir
-        path = Path(raw_path)
-        if path.is_absolute():
+        path = path_from_text(raw_path)
+        if is_absolute_path_text(raw_path):
             raise ValueError(f"运行输出路径必须相对于当前 plan output 目录：{raw_path}")
         if not path.parts:
             raise ValueError("运行输出路径不能为空。")

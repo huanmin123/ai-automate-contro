@@ -7,6 +7,7 @@ from typing import Any
 from ai_automate_contro.ai.debug_workspace_io import is_relative_to
 from ai_automate_contro.plans.artifacts import list_output_artifacts
 from ai_automate_contro.plans.packages import find_latest_run_output
+from ai_automate_contro.support.paths import path_from_text
 
 
 MAX_TEXT_ARTIFACT_BYTES = 64_000
@@ -124,7 +125,7 @@ def read_output_artifact_tool(
 ) -> dict[str, Any]:
     resolved_plan_path = resolve_plan_path(plan_path)
     output_root = (resolved_plan_path.parent / "output").resolve()
-    artifact_path = (output_root / relative_path).resolve()
+    artifact_path = (output_root / path_from_text(relative_path)).resolve()
     if not is_relative_to(artifact_path, output_root):
         raise ValueError("产物路径必须位于当前 plan output 目录内。")
     if not artifact_path.exists() or not artifact_path.is_file():

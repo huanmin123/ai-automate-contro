@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Frame Child</title>
+  </head>
+  <body>
+    <label>
+      Frame Note
+      <input id="frame-note" aria-label="Frame Note" />
+    </label>
+    <button id="frame-save">Save Frame Note</button>
+    <p id="frame-result">Frame idle</p>
+    <script>
+      document.getElementById("frame-save").addEventListener("click", () => {
+        document.getElementById("frame-result").textContent =
+          `Frame saved ${document.getElementById("frame-note").value}`;
+      });
+    </script>
+  </body>
+</html>
