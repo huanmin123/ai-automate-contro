@@ -20,7 +20,7 @@ class InspectWebPageArgs(ToolArgsModel):
     wait_ms: int = Field(default=1_000, description="导航后额外等待时间，单位毫秒，用于客户端渲染内容；工具会限制。")
     max_elements: int = Field(default=80, description="最多返回的可见标题、字段、按钮、链接、表单和表格数量；工具会限制。")
     text_limit: int = Field(default=6_000, description="最多返回的正文预览字符数；工具会限制。")
-    headed: bool = Field(default=False, description="是否显示浏览器窗口供人工观察；除非用户需要看窗口，否则使用 false。")
+    headed: bool = Field(default=False, description="是否显示一次性探测浏览器；真实流程或需要用户操作时应改用 open_browser.headed=true 的探索 plan + manual_confirm。")
 
 
 class GrepProjectTextArgs(ToolArgsModel):

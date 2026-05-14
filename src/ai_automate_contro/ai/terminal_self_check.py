@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -193,10 +194,10 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(_check_terminal_markdown_rendering())
         checks.append(_check_terminal_streaming_output())
         checks.append(_check_terminal_streaming_interrupt_drains_safely())
+        checks.append(_check_terminal_structured_event_stream())
+        checks.append(_check_terminal_busy_confirmation_route())
         checks.append(_check_ai_mode_manual_confirmation_dialog())
-        checks.append(_check_terminal_user_message_echo())
-        checks.append(_check_terminal_multiline_input_formatting())
-        checks.extend(_check_unified_terminal_mode_switch(storage_root))
+        checks.append(_check_terminal_tool_progress_output())
         checks.append(_check_missing_ai_config_is_user_facing(temp_dir))
         checks.append(_check_terminal_error_formatting(storage_root))
 
@@ -218,11 +219,15 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "能通过当前上下文、handbook、plan、output 或只读工具确认的事情",
         "必须在执行前一次性问清楚",
         "只问关键缺口",
-        "暂停并说明已有证据、缺口和用户需要完成的动作",
+        "当前自动化浏览器停在哪一步、已有证据、缺口和用户需要在该浏览器里完成的动作",
         "浏览器本地页面优先使用 {{resources_file_url}}",
         "不要硬编码本机绝对 file URL",
-        "写 plan.json 前必须先拿页面证据",
-        "优先调用 inspect_web_page",
+        "写最终 plan.json 前必须先跑通流程证据",
+        "第一步用 inspect_web_page 获取入口页面证据",
+        "open_browser.headed=true",
+        "让用户在同一个 Playwright 浏览器窗口里完成操作",
+        "不要让用户去自己浏览器打开页面",
+        "用户提供的截图或 HTML 只能作为辅助证据",
     ]
     missing = [fragment for fragment in required_fragments if fragment not in prompt]
     section_order = [
@@ -528,13 +533,13 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         windows_keyboard_text = format_keyboard_shortcuts_for_terminal("Windows")
         keyboard_platform_ok = (
             "Enter" in mac_keyboard_text
-            and "Option+Enter" in mac_keyboard_text
-            and "Control+V" in mac_keyboard_text
-            and "Command+V" in mac_keyboard_text
+            and "Control+J" in mac_keyboard_text
+            and "Control+Q / Control+C" in mac_keyboard_text
+            and "Textual 客户端" in mac_keyboard_text
             and "Windows" not in mac_keyboard_text
-            and "Ctrl+V" in windows_keyboard_text
-            and "Control+V" not in windows_keyboard_text
-            and "Cmd+V" not in windows_keyboard_text
+            and "Ctrl+J" in windows_keyboard_text
+            and "Ctrl+Q / Ctrl+C" in windows_keyboard_text
+            and "Control+Q" not in windows_keyboard_text
         )
 
         terminal.do_help("")
@@ -553,18 +558,18 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         )
         terminal.forwarded_messages: list[str] = []
         terminal._run_agent_turn = lambda line: terminal.forwarded_messages.append(str(line))
-        terminal.default = lambda line: AITerminal.default(terminal, line)
+        terminal.handle_user_request = lambda line: AITerminal.handle_user_request(terminal, line)
         terminal._handle_slash_command = lambda line: AITerminal._handle_slash_command(terminal, line)
-        plain_status_message_ok = AITerminal.onecmd(terminal, "status") is False and terminal.forwarded_messages[-1] == "status"
+        plain_status_message_ok = AITerminal.handle_input(terminal, "status") is False and terminal.forwarded_messages[-1] == "status"
         mid_slash_message_ok = (
-            AITerminal.onecmd(terminal, "普通文字 /status") is False
+            AITerminal.handle_input(terminal, "普通文字 /status") is False
             and terminal.forwarded_messages[-1] == "普通文字 /status"
         )
         leading_space_message_ok = (
-            AITerminal.onecmd(terminal, " /status") is False
+            AITerminal.handle_input(terminal, " /status") is False
             and terminal.forwarded_messages[-1] == " /status"
         )
-        bad_slash_format = AITerminal.onecmd(terminal, "/键盘") is False
+        bad_slash_format = AITerminal.handle_input(terminal, "/键盘") is False
         bad_slash_error = terminal.errors[-1] if terminal.errors else ""
         slash_attach_unknown = AITerminal._handle_slash_command(terminal, "/attach list") is True
         slash_attach_error = terminal.errors[-1] if terminal.errors else ""
@@ -663,8 +668,8 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 passed=keyboard_command_ok and keyboard_platform_ok and "keyboard" in help_text and "Alt+V" not in help_text,
                 detail={
                     "keyboard_command_ok": keyboard_command_ok,
-                    "mac_mentions_control": "Control+V" in mac_keyboard_text,
-                    "windows_mentions_ctrl": "Ctrl+V" in windows_keyboard_text,
+                    "mac_mentions_control": "Control+Q / Control+C" in mac_keyboard_text,
+                    "windows_mentions_ctrl": "Ctrl+Q / Ctrl+C" in windows_keyboard_text,
                     "help_mentions_keyboard": "keyboard" in help_text,
                     "help_mentions_inline_paste": "Alt+V" in help_text,
                 },
@@ -713,107 +718,26 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
 
 
 def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
-    from prompt_toolkit.document import Document
-
     from ai_automate_contro.ai.terminal import (
-        AITerminal,
-        IMAGE_PLACEHOLDER_STYLE,
-        ImagePlaceholderLexer,
-        SlashCommandCompleter,
-        _is_slash_completion_context,
         reconcile_image_placeholders,
         reconcile_pending_image_attachments,
-        refresh_slash_completion,
-        remove_image_placeholder_near_cursor,
-        select_completion_candidate,
-        snap_cursor_out_of_image_placeholder,
-        style_image_placeholders,
-    )
-
-    completions_for_slash = list(SlashCommandCompleter().get_completions(Document("/"), None))
-    completions_for_prefix = list(SlashCommandCompleter().get_completions(Document("/s"), None))
-    completions_without_slash = list(SlashCommandCompleter().get_completions(Document("status"), None))
-    completions_mid_text = list(SlashCommandCompleter().get_completions(Document("text /s"), None))
-    completions_leading_space = list(SlashCommandCompleter().get_completions(Document(" /s"), None))
-    completions_chinese_command = list(SlashCommandCompleter().get_completions(Document("/键"), None))
-    slash_completion_ok = (
-        any(completion.text == "/status" for completion in completions_for_slash)
-        and any(completion.text == "/sessions" for completion in completions_for_prefix)
-        and all(completion.text.startswith("/s") for completion in completions_for_prefix)
-        and not completions_without_slash
-        and not completions_mid_text
-        and not completions_leading_space
-        and not completions_chinese_command
-        and all(
-            completion.text
-            not in {
-                "/ask",
-                "/cancel",
-                "/context",
-                "/run-context",
-                "/run_context",
-                "/thread",
-                "/tools",
-                "/use",
-                "/workspace",
-                "/键盘",
-            }
-            for completion in completions_for_slash
-        )
-        and _is_slash_completion_context("/", 1)
-        and _is_slash_completion_context("/s", 2)
-        and not _is_slash_completion_context("status", 6)
-        and not _is_slash_completion_context(" /s", 3)
-        and not _is_slash_completion_context("text /", 6)
-        and not _is_slash_completion_context("/status now", 11)
-    )
-
-    class FakeSlashBuffer:
-        def __init__(self, text: str) -> None:
-            self.text = text
-            self.cursor_position = len(text)
-            self.complete_state = None
-            self.started = 0
-            self.cancelled = 0
-
-        def start_completion(self, *, select_first: bool) -> None:
-            self.started += 1
-            self.select_first = select_first
-            self.complete_state = object()
-
-        def cancel_completion(self) -> None:
-            self.cancelled += 1
-            self.complete_state = None
-
-    slash_buffer = FakeSlashBuffer("/a")
-    refresh_slash_completion(slash_buffer)
-    slash_refresh_ok = slash_buffer.started == 1 and slash_buffer.cancelled == 0 and slash_buffer.select_first is False
-    slash_buffer.text = "hello"
-    slash_buffer.cursor_position = len(slash_buffer.text)
-    refresh_slash_completion(slash_buffer)
-    slash_refresh_ok = slash_refresh_ok and slash_buffer.cancelled == 1
-
-    placeholder_1 = image_attachment_placeholder(1)
-    placeholder_2 = image_attachment_placeholder(2)
-    styled = style_image_placeholders(f"看 {placeholder_1} 这里")
-    lexer_line = ImagePlaceholderLexer().lex_document(Document(f"看 {placeholder_1} 这里"))(0)
-    style_ok = (
-        (IMAGE_PLACEHOLDER_STYLE, placeholder_1) in styled
-        and (IMAGE_PLACEHOLDER_STYLE, placeholder_1) in lexer_line
     )
 
     first = attachment
     second = attachment
-    buffer = SimpleNamespace(text=f"{placeholder_1} 然后 {placeholder_2}", cursor_position=len(placeholder_1))
-    attachments = [first, second]
-    deleted = remove_image_placeholder_near_cursor(buffer, attachments, prefer_before=True)
-    delete_ok = (
-        deleted
-        and buffer.text == f" 然后 {placeholder_1}"
-        and buffer.cursor_position == 0
-        and attachments == [second]
+    placeholder_1 = image_attachment_placeholder(1)
+    placeholder_2 = image_attachment_placeholder(2)
+    reordered_text, reordered_attachments, reordered_required = reconcile_pending_image_attachments(
+        f"{placeholder_2} 然后 {placeholder_1}",
+        [first, second],
+        [True, True],
+        preserve_when_absent=False,
     )
-
+    reorder_ok = (
+        reordered_text == f"{placeholder_1} 然后 {placeholder_2}"
+        and reordered_attachments == [second, first]
+        and reordered_required == [True, True]
+    )
     no_placeholder_text, no_placeholder_attachments = reconcile_image_placeholders(
         "plain request",
         [first],
@@ -827,119 +751,41 @@ def _check_terminal_input_widgets(attachment: Any) -> list[dict[str, Any]]:
         preserve_when_absent=False,
     )
     submit_filter_ok = submit_text == "plain request" and submit_attachments == [second] and submit_required == [False]
-    snap_text = f"前面 {placeholder_1} 后面"
-    snap_start = snap_text.index(placeholder_1)
-    snap_end = snap_start + len(placeholder_1)
-    snap_ok = (
-        snap_cursor_out_of_image_placeholder(snap_text, snap_start + 2, previous_cursor=snap_start) == snap_end
-        and snap_cursor_out_of_image_placeholder(snap_text, snap_end - 2, previous_cursor=snap_end) == snap_start
-        and snap_cursor_out_of_image_placeholder(snap_text, snap_start - 1, previous_cursor=snap_start - 2) == snap_start - 1
+    invalid_text, invalid_attachments, invalid_required = reconcile_pending_image_attachments(
+        f"{placeholder_1} {placeholder_1} [图片 #99]",
+        [first, second],
+        [True, False],
+        preserve_when_absent=False,
     )
-
-    class FakePromptSession:
-        def __init__(self) -> None:
-            self.prompt_kwargs: dict[str, Any] = {}
-
-        def prompt(self, *_args: Any, **kwargs: Any) -> str:
-            self.prompt_kwargs = kwargs
-            return "typed"
-
-    toolbar_state = {"text": "AI 正在处理"}
-    fake_prompt_session = FakePromptSession()
-    toolbar_terminal = object.__new__(AITerminal)
-    toolbar_terminal.project_root = Path(".").resolve()
-    toolbar_terminal.thread_id = "toolbar-check"
-    toolbar_terminal._pending_attachments = []
-    toolbar_terminal._pending_attachment_placeholder_required = []
-    toolbar_terminal._ai_prompt_session = fake_prompt_session
-    typed = AITerminal._read_ai_input_with_images(
-        toolbar_terminal,
-        "ai> ",
-        bottom_toolbar=lambda: toolbar_state["text"],
+    invalid_placeholder_ok = (
+        invalid_text == f"{placeholder_1} {placeholder_1} [图片 #99]"
+        and invalid_attachments == [first, second]
+        and invalid_required == [True, False]
     )
-    captured_toolbar = fake_prompt_session.prompt_kwargs.get("bottom_toolbar")
-    toolbar_live_ok = typed == "typed" and callable(captured_toolbar) and captured_toolbar() == "AI 正在处理"
-    toolbar_state["text"] = ""
-    toolbar_live_ok = toolbar_live_ok and callable(captured_toolbar) and captured_toolbar() is None
-
-    class FakeCompletionState:
-        def __init__(self) -> None:
-            self.completions = ["one", "two"]
-            self.complete_index = None
-
-        @property
-        def current_completion(self) -> str | None:
-            if self.complete_index is None:
-                return None
-            return self.completions[self.complete_index]
-
-    completion_state = FakeCompletionState()
-    completion_buffer = SimpleNamespace(
-        complete_state=completion_state,
-        go_to_completion=lambda index: setattr(completion_state, "complete_index", index),
-        complete_previous=lambda: setattr(completion_state, "complete_index", max(0, completion_state.complete_index - 1)),
-        complete_next=lambda: setattr(
-            completion_state,
-            "complete_index",
-            min(len(completion_state.completions) - 1, completion_state.complete_index + 1),
-        ),
-    )
-    completion_ok = (
-        select_completion_candidate(completion_buffer, previous=False)
-        and completion_state.complete_index == 0
-        and select_completion_candidate(completion_buffer, previous=False)
-        and completion_state.complete_index == 1
-        and select_completion_candidate(completion_buffer, previous=True)
-        and completion_state.complete_index == 0
-    )
-
     return [
         _self_check_result(
-            name="terminal_slash_completion_suggests_commands",
-            passed=slash_completion_ok and slash_refresh_ok and completion_ok,
+            name="terminal_image_attachment_placeholder_reconcile",
+            passed=reorder_ok and no_placeholder_ok and submit_filter_ok and invalid_placeholder_ok,
             detail={
-                "slash": [completion.text for completion in completions_for_slash],
-                "prefix": [completion.text for completion in completions_for_prefix],
-                "without_slash": [completion.text for completion in completions_without_slash],
-                "mid_text": [completion.text for completion in completions_mid_text],
-                "leading_space": [completion.text for completion in completions_leading_space],
-                "chinese_command": [completion.text for completion in completions_chinese_command],
-                "refresh_started": slash_buffer.started,
-                "refresh_cancelled": slash_buffer.cancelled,
-                "completion_index": completion_state.complete_index,
-            },
-        ),
-        _self_check_result(
-            name="terminal_image_placeholder_is_highlighted",
-            passed=style_ok,
-            detail={"styled": styled, "lexer_line": lexer_line},
-        ),
-        _self_check_result(
-            name="terminal_image_placeholder_deletes_as_unit",
-            passed=delete_ok and no_placeholder_ok and submit_filter_ok,
-            detail={
-                "deleted": deleted,
-                "text": buffer.text,
-                "attachments": len(attachments),
+                "reordered_text": reordered_text,
+                "reordered_count": len(reordered_attachments),
                 "no_placeholder_attachments": len(no_placeholder_attachments),
                 "submit_filter_attachments": len(submit_attachments),
+                "invalid_text": invalid_text,
+                "invalid_count": len(invalid_attachments),
             },
-        ),
-        _self_check_result(
-            name="terminal_image_placeholder_cursor_skips_body",
-            passed=snap_ok,
-            detail={"text": snap_text, "start": snap_start, "end": snap_end},
-        ),
-        _self_check_result(
-            name="terminal_bottom_toolbar_reads_live_status",
-            passed=toolbar_live_ok,
-            detail={
-                "typed": typed,
-                "captured_callable": callable(captured_toolbar),
-                "final_toolbar": captured_toolbar() if callable(captured_toolbar) else captured_toolbar,
-            },
-        ),
+        )
     ]
+
+def _formatted_text_content(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    try:
+        return "".join(str(fragment[1]) for fragment in value)
+    except Exception:
+        return str(value)
 
 
 def _check_terminal_markdown_rendering() -> dict[str, Any]:
@@ -967,29 +813,26 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         builtins.print = lambda *args, **kwargs: captured.append(
             "".join(str(arg) for arg in args) + ("" if kwargs.get("end") == "" else "\n")
         )
-        AITerminal._print_assistant_message(terminal, markdown_text)
+        AITerminal._emit_assistant_message(terminal, markdown_text)
     finally:
         terminal_module.terminal_supports_rich_markdown = original_supports_markdown
         builtins.print = original_print
 
     captured_text = "".join(captured)
     plain_fallback_captured: list[str] = []
-    stream_fallback_ok = False
     try:
         terminal.response_render_mode = "markdown"
         terminal_module.terminal_supports_rich_markdown = lambda: False
         builtins.print = lambda *args, **kwargs: plain_fallback_captured.append(
             "".join(str(arg) for arg in args) + ("" if kwargs.get("end") == "" else "\n")
         )
-        stream_fallback_ok = AITerminal._should_render_stream_markdown(terminal) is False
-        AITerminal._print_assistant_message(terminal, markdown_text)
+        AITerminal._emit_assistant_message(terminal, markdown_text)
     finally:
         terminal_module.terminal_supports_rich_markdown = original_supports_markdown
         builtins.print = original_print
     plain_fallback_text = "".join(plain_fallback_captured)
 
     import io
-    import os
 
     class FakeTTY(io.StringIO):
         def isatty(self) -> bool:
@@ -1012,10 +855,11 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
 
     terminal.response_render_mode = "plain"
     plain_should_not_render = AITerminal._should_render_final_markdown(terminal) is False
+    old_ai_prefix = "› " + "AI"
     plain_fallback_ok = (
-        plain_fallback_text == f"AI> {markdown_text}\n"
+        plain_fallback_text == f"{markdown_text}\n"
         and "\x1b[" not in plain_fallback_text
-        and stream_fallback_ok
+        and old_ai_prefix not in plain_fallback_text
     )
     passed = (
         normalize_response_render_mode("md") == "markdown"
@@ -1031,7 +875,8 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
         and "\x1b[107m" not in rendered
         and "\x1b[7m" not in rendered
         and "\x1b[27m" not in rendered
-        and captured_text.startswith("AI>\n")
+        and old_ai_prefix not in captured_text
+        and "标题" in captured_text
         and markdown_text not in captured_text
         and plain_should_not_render
         and plain_fallback_ok
@@ -1053,7 +898,7 @@ def _check_terminal_markdown_rendering() -> dict[str, Any]:
 
 
 def _check_terminal_streaming_output() -> dict[str, Any]:
-    from ai_automate_contro.ai.terminal import AITerminal, format_user_terminal_message
+    from ai_automate_contro.ai.terminal import AITerminal
 
     class FakeGraph:
         def stream(self, *_: Any, **__: Any) -> Any:
@@ -1099,7 +944,7 @@ def _check_terminal_streaming_output() -> dict[str, Any]:
         name="terminal_agent_turn_streams_tokens",
         passed=(
             streamed
-            and rendered == "AI> 流式输出\n"
+            and rendered == "流式输出\n"
             and len(final_state.get("messages", [])) == 2
             and terminal.indicator_events == ["start", "stop:indicator"]
         ),
@@ -1169,7 +1014,7 @@ def _check_terminal_streaming_interrupt_drains_safely() -> dict[str, Any]:
         name="terminal_safe_interrupt_drains_stream",
         passed=(
             streamed
-            and rendered == "AI> 前半\n"
+            and rendered == "前半\n"
             and terminal.graph.events_seen == 3
             and len(final_state.get("messages", [])) == 1
         ),
@@ -1182,6 +1027,95 @@ def _check_terminal_streaming_interrupt_drains_safely() -> dict[str, Any]:
     )
 
 
+def _check_terminal_structured_event_stream() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.project_root = Path(".").resolve()
+    terminal.response_render_mode = "markdown"
+    terminal.events = []
+    terminal.commands: list[str] = []
+    terminal.handle_input = lambda line: terminal.commands.append(str(line)) or (str(line).strip() == "/exit")
+    terminal._client_event_sink = None
+
+    AITerminal.run_client_turn(terminal, "创建 plan", terminal.events.append)
+    first_turn_mode_restored = terminal.response_render_mode == "markdown"
+
+    with AITerminal.client_event_sink(terminal, terminal.events.append):
+        AITerminal._emit_user_message(terminal, "用户消息")
+        AITerminal._emit_assistant_message(terminal, "AI 正文")
+        AITerminal._stream_response_text(terminal, "流式")
+        AITerminal._stream_response_newline(terminal)
+        AITerminal._start_thinking_indicator(terminal)
+        AITerminal._print_tool_progress(terminal, "start", "inspect_web_page", {"url": "https://example.com"})
+        AITerminal._print_tool_progress(
+            terminal,
+            "done",
+            "inspect_web_page",
+            {"url": "https://example.com"},
+            {"ok": True, "resolved_url": "https://example.com"},
+        )
+
+    AITerminal.run_client_turn(terminal, "/exit", terminal.events.append)
+
+    kinds = [event.kind for event in terminal.events]
+    user_message_suppressed = all(event.text != "用户消息" for event in terminal.events)
+    passed = (
+        terminal.commands == ["创建 plan", "/exit"]
+        and first_turn_mode_restored
+        and user_message_suppressed
+        and kinds.count("assistant_delta") == 2
+        and kinds.count("assistant_done") == 2
+        and "status" in kinds
+        and "tool_started" in kinds
+        and "tool_finished" in kinds
+        and "exit_requested" in kinds
+    )
+    return _self_check_result(
+        name="terminal_structured_event_stream_for_textual_client",
+        passed=passed,
+        detail={
+            "commands": terminal.commands,
+            "kinds": kinds,
+            "texts": [event.text for event in terminal.events],
+            "mode_restored": first_turn_mode_restored,
+        },
+    )
+
+
+def _check_terminal_busy_confirmation_route() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal, AIConfirmationWait
+
+    terminal = object.__new__(AITerminal)
+    terminal._current_turn_text = "等待用户确认"
+    terminal._current_turn_id = 1
+    terminal._cancelled_turn_ids = set()
+    terminal._turn_lock = __import__("threading").Lock()
+    terminal._ai_confirmation_lock = __import__("threading").Lock()
+    terminal._ai_confirmation = AIConfirmationWait(prompt="请确认浏览器状态。", wait_type="manual_confirm")
+
+    confirmation_allowed = AITerminal.can_handle_input_during_turn(terminal, "可以继续") is True
+    status_allowed = AITerminal.can_handle_input_during_turn(terminal, "/status") is True
+
+    with terminal._ai_confirmation_lock:
+        terminal._ai_confirmation = None
+    plain_blocked = AITerminal.can_handle_input_during_turn(terminal, "普通消息") is False
+    help_allowed = AITerminal.can_handle_input_during_turn(terminal, "/help") is True
+    new_blocked = AITerminal.can_handle_input_during_turn(terminal, "/new thread") is False
+    passed = confirmation_allowed and status_allowed and plain_blocked and help_allowed and new_blocked
+    return _self_check_result(
+        name="terminal_busy_turn_accepts_manual_confirmation_input",
+        passed=passed,
+        detail={
+            "confirmation_allowed": confirmation_allowed,
+            "status_allowed": status_allowed,
+            "plain_blocked": plain_blocked,
+            "help_allowed": help_allowed,
+            "new_blocked": new_blocked,
+        },
+    )
+
+
 def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import (
         AITerminal,
@@ -1190,7 +1124,7 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
 
     terminal = object.__new__(AITerminal)
     terminal.outputs: list[str] = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
+    terminal._emit_terminal_output = lambda value: terminal.outputs.append(str(value))
     terminal.project_root = Path(".").resolve()
     terminal.model = SimpleNamespace(invoke=lambda messages: AIMessage(content='{"decision":"approve"}'))
     terminal._ai_confirmation_lock = __import__("threading").Lock()
@@ -1212,7 +1146,7 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
             break
         __import__("time").sleep(0.01)
     waiting_ok = AITerminal._current_ai_confirmation(terminal) is not None
-    AITerminal.onecmd(terminal, "页面看到了，可以继续导入")
+    AITerminal.handle_input(terminal, "页面看到了，可以继续导入")
     thread.join(timeout=2)
     continued_ok = result.get("accepted") is True and AITerminal._current_ai_confirmation(terminal) is None
     classifier_ok = (
@@ -1240,222 +1174,67 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
     )
 
 
-def _check_terminal_user_message_echo() -> dict[str, Any]:
-    from ai_automate_contro.ai.terminal import AITerminal, format_user_terminal_message
+def _check_terminal_tool_progress_output() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
 
     terminal = object.__new__(AITerminal)
     terminal.outputs: list[str] = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    placeholder = image_attachment_placeholder(1)
-    AITerminal._print_user_message(terminal, f"第一行\n{placeholder} 第二行")
-    expected = f"你> 第一行\n... {placeholder} 第二行"
-    return _self_check_result(
-        name="terminal_user_message_echo",
-        passed=terminal.outputs == [expected],
-        detail={
-            "outputs": terminal.outputs,
-            "formatted": format_user_terminal_message(f"第一行\n{placeholder} 第二行"),
+    terminal._emit_terminal_output = lambda value: terminal.outputs.append(str(value))
+
+    AITerminal._print_tool_progress(
+        terminal,
+        "start",
+        "inspect_web_page",
+        {"url": "https://example.com/login", "headed": True, "_manual_confirmation_handler": object()},
+    )
+    AITerminal._print_tool_progress(
+        terminal,
+        "done",
+        "inspect_web_page",
+        {"url": "https://example.com/login", "headed": True},
+        {
+            "ok": True,
+            "resolved_url": "https://example.com/login",
+            "page": {
+                "title": "登录页面",
+                "final_url": "https://example.com/login",
+                "auth": {
+                    "login_fields_detected": True,
+                    "challenge_detected": True,
+                },
+            },
         },
     )
-
-
-def _check_terminal_multiline_input_formatting() -> dict[str, Any]:
-    from ai_automate_contro.ai.terminal import format_user_terminal_message
-
-    formatted = format_user_terminal_message("第一行\n第二行\n第三行")
+    AITerminal._print_tool_progress(
+        terminal,
+        "done",
+        "grep_project_text",
+        {"pattern": "工具进度", "root_path": ".", "file_glob": "*.md"},
+        {"ok": True, "match_count": 0, "truncated": False},
+    )
+    AITerminal._print_tool_progress(
+        terminal,
+        "done",
+        "run_plan",
+        {"plan_path": "plans/demo/plan.json"},
+        {"ok": False, "error": "示例失败原因"},
+    )
+    output = "\n".join(terminal.outputs)
     return _self_check_result(
-        name="terminal_multiline_input_formatting",
-        passed=formatted == "第一行\n... 第二行\n... 第三行",
-        detail={"formatted": formatted},
-    )
-
-
-def _check_unified_terminal_mode_switch(project_root: Path) -> list[dict[str, Any]]:
-    from prompt_toolkit.document import Document
-
-    from ai_automate_contro.app.management_terminal import (
-        ManagementTerminal,
-        PlanCommandCompleter,
-        _is_plan_completion_context,
-        _repair_piped_stdin_text,
-    )
-
-    terminal = ManagementTerminal(project_root)
-    terminal.outputs = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    lazy_ok = terminal.mode == "plan" and terminal._ai_terminal is None and terminal.prompt == "plan> "
-
-    fake_ai = SimpleNamespace(
-        lines=[],
-        closed=False,
-        onecmd=lambda line: fake_ai.lines.append(line),
-        _is_agent_busy=lambda: False,
-        _cancel_agent_turn=lambda: False,
-        close=lambda: setattr(fake_ai, "closed", True),
-    )
-    terminal._ai_terminal = fake_ai
-    terminal.onecmd("/ai")
-    entered_ok = terminal.mode == "ai" and terminal.prompt == "ai> "
-    terminal.onecmd("status")
-    with terminal._ai_queue_condition:
-        worker_drain_ok = terminal._ai_queue_condition.wait_for(
-            lambda: not terminal._ai_queue and terminal._ai_active_input is None and fake_ai.lines == ["status"],
-            timeout=1,
-        )
-    forwarded_ok = worker_drain_ok and fake_ai.lines == ["status"]
-    initial_forwarded_lines = list(fake_ai.lines)
-    terminal.onecmd("/exit")
-    returned_ok = terminal.mode == "plan" and terminal.prompt == "plan> "
-    returned_mode = terminal.mode
-    terminal.outputs = []
-    terminal.errors = []
-    terminal.perror = lambda value, *args, **kwargs: terminal.errors.append(
-        format_error_for_terminal(value, project_root=project_root)
-    )
-    terminal.onecmd("status")
-    plain_plan_command_rejected_ok = (
-        terminal.mode == "plan"
-        and terminal.errors
-        and "必须写在行首并以 / 开头" in terminal.errors[-1]
-    )
-    plan_no_slash_completions = list(PlanCommandCompleter().get_completions(Document("ar"), None))
-    plan_mid_slash_completions = list(PlanCommandCompleter().get_completions(Document("hello /s"), None))
-    plan_leading_space_completions = list(PlanCommandCompleter().get_completions(Document(" /s"), None))
-    terminal.outputs = []
-    terminal.onecmd("/help")
-    slash_help_ok = terminal.outputs and "命令：" in terminal.outputs[-1]
-    plan_completions = list(PlanCommandCompleter().get_completions(Document("/"), None))
-    plan_prefix_completions = list(PlanCommandCompleter().get_completions(Document("/s"), None))
-    plan_slash_completion_ok = (
-        any(completion.text == "/status" for completion in plan_completions)
-        and any(completion.text == "/status" for completion in plan_prefix_completions)
-        and not plan_no_slash_completions
-        and not plan_mid_slash_completions
-        and not plan_leading_space_completions
-        and _is_plan_completion_context("/", 1)
-        and _is_plan_completion_context("/s", 2)
-        and not _is_plan_completion_context("ar", 2)
-        and not _is_plan_completion_context(" /s", 3)
-        and not _is_plan_completion_context("text /", 6)
-        and not _is_plan_completion_context("/status now", 11)
-    )
-    surrogate_text = "ai 测试".encode("utf-8").decode("ascii", errors="surrogateescape")
-    stdin_repair_ok = _repair_piped_stdin_text(surrogate_text, encoding="ascii") == "ai 测试"
-    terminal.close()
-    closed_ok = fake_ai.closed
-
-    terminal = ManagementTerminal(project_root)
-    terminal.outputs = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    terminal._require_ai_terminal = lambda: fake_ai
-    terminal._ensure_ai_worker_locked = lambda: None
-    terminal._ai_worker_thread = SimpleNamespace(is_alive=lambda: False, join=lambda timeout=None: None)
-    terminal.mode = "ai"
-    terminal.prompt = "ai> "
-    terminal._dispatch_ai_line("first")
-    first_queue_ok = len(terminal._ai_queue) == 1 and terminal._ai_queue[0].text == "first"
-    terminal._mark_next_ai_input_for_interrupt()
-    terminal._dispatch_ai_line("urgent")
-    force_queue_ok = (
-        len(terminal._ai_queue) == 2
-        and [item.text for item in terminal._ai_queue] == ["urgent", "first"]
-        and terminal._ai_queue[0].force is True
-    )
-    status_text = terminal._ai_input_status()
-    queue_status_ok = "排队 2 条" in status_text and "Enter 发送" not in status_text
-    terminal._ai_queue.clear()
-    terminal._ai_worker_thread = None
-    idle_status_ok = terminal._ai_input_status() == ""
-
-    pending_ai = SimpleNamespace(
-        lines=[],
-        _current_ai_confirmation=lambda: object(),
-        onecmd=lambda line: pending_ai.lines.append(line),
-        _is_agent_busy=lambda: False,
-        _cancel_agent_turn=lambda: False,
-    )
-    terminal = ManagementTerminal(project_root)
-    terminal.outputs = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    terminal._require_ai_terminal = lambda: pending_ai
-    terminal.mode = "ai"
-    terminal.prompt = "ai> "
-    terminal._ai_force_next_input = True
-    terminal._dispatch_ai_line("exit")
-    confirmation_exit_ok = terminal.mode == "ai" and pending_ai.lines == ["exit"] and not terminal._ai_force_next_input
-
-    terminal = ManagementTerminal(project_root)
-    terminal.outputs = []
-    terminal.poutput = lambda value: terminal.outputs.append(str(value))
-    fake_ai.lines = []
-    terminal._require_ai_terminal = lambda: fake_ai
-    terminal.mode = "ai"
-    terminal.prompt = "ai> "
-    terminal._ai_force_next_input = True
-    terminal._dispatch_ai_line("/status")
-    immediate_clears_force_ok = fake_ai.lines == ["/status"] and not terminal._ai_force_next_input
-    immediate_lines = list(fake_ai.lines)
-    invalidations: list[str] = []
-    fake_ai._ai_prompt_session = SimpleNamespace(
-        app=SimpleNamespace(invalidate=lambda: invalidations.append("invalidate"))
-    )
-    terminal._ai_terminal = fake_ai
-    terminal._invalidate_ai_input_prompt()
-    prompt_invalidation_ok = invalidations == ["invalidate"]
-
-    return [
-        _self_check_result(
-            name="unified_terminal_lazy_ai_mode",
-            passed=(
-                lazy_ok
-                and entered_ok
-                and forwarded_ok
-                and returned_ok
-                and plain_plan_command_rejected_ok
-                and slash_help_ok
-                and plan_slash_completion_ok
-                and stdin_repair_ok
-                and closed_ok
-            ),
-            detail={
-                "lazy_ok": lazy_ok,
-                "entered_ok": entered_ok,
-                "forwarded_lines": initial_forwarded_lines,
-                "worker_drain_ok": worker_drain_ok,
-                "returned_mode": returned_mode,
-                "plain_plan_command_rejected_ok": plain_plan_command_rejected_ok,
-                "slash_help_ok": slash_help_ok,
-                "plan_slash_completions": [completion.text for completion in plan_completions],
-                "plan_prefix_completions": [completion.text for completion in plan_prefix_completions],
-                "plan_no_slash_completions": [completion.text for completion in plan_no_slash_completions],
-                "plan_mid_slash_completions": [completion.text for completion in plan_mid_slash_completions],
-                "plan_leading_space_completions": [completion.text for completion in plan_leading_space_completions],
-                "stdin_repair_ok": stdin_repair_ok,
-                "closed": fake_ai.closed,
-            },
+        name="terminal_tool_progress_output",
+        passed=(
+            "调用工具 inspect_web_page" in output
+            and "url=https://example.com/login" in output
+            and "_manual_confirmation_handler" not in output
+            and "工具 inspect_web_page 完成" in output
+            and "title=登录页面" in output
+            and "发现登录字段/验证信号" in output
+            and "工具 grep_project_text 完成：matches=0" in output
+            and "工具 run_plan 失败：status=failed，error=示例失败原因" in output
         ),
-        _self_check_result(
-            name="unified_terminal_ai_input_queue",
-            passed=(
-                first_queue_ok
-                and force_queue_ok
-                and queue_status_ok
-                and idle_status_ok
-                and confirmation_exit_ok
-                and immediate_clears_force_ok
-                and prompt_invalidation_ok
-            ),
-            detail={
-                "queued": [item.text for item in terminal._ai_queue],
-                "outputs": terminal.outputs,
-                "status": status_text,
-                "idle_status": terminal._ai_input_status(),
-                "confirmation_exit_lines": pending_ai.lines,
-                "immediate_lines": immediate_lines,
-                "prompt_invalidations": invalidations,
-            },
-        )
-    ]
+        detail={"outputs": terminal.outputs},
+    )
+
 
 
 class _FakeTerminal(AITerminalCommandsMixin):
@@ -1489,10 +1268,10 @@ class _FakeTerminal(AITerminalCommandsMixin):
         self.outputs: list[str] = []
         self.errors: list[str] = []
 
-    def poutput(self, value: Any) -> None:
+    def _emit_terminal_output(self, value: Any) -> None:
         self.outputs.append(str(value))
 
-    def perror(self, value: Any) -> None:
+    def _emit_error(self, value: Any) -> None:
         self.errors.append(format_error_for_terminal(value, project_root=self.project_root))
 
     def _clear_pending_attachments(self) -> None:
@@ -1544,14 +1323,14 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
     terminal.forwarded_lines = []
     terminal._busy = True
     terminal._is_agent_busy = lambda: terminal._busy
-    terminal.perror = lambda value: terminal.errors.append(format_error_for_terminal(value, project_root=Path.cwd()))
-    terminal.default = lambda line: terminal.forwarded_lines.append(str(line))
+    terminal._emit_error = lambda value: terminal.errors.append(format_error_for_terminal(value, project_root=Path.cwd()))
+    terminal.handle_user_request = lambda line: terminal.forwarded_lines.append(str(line))
     terminal.do_status = lambda arg: terminal.forwarded_lines.append("/status")
 
-    plain_text_while_busy = AITerminal.onecmd(terminal, "new blocked-thread")
-    blocked_stop = AITerminal.onecmd(terminal, "/new blocked-thread")
+    plain_text_while_busy = AITerminal.handle_input(terminal, "new blocked-thread")
+    blocked_stop = AITerminal.handle_input(terminal, "/new blocked-thread")
     blocked_error = terminal.errors[-1] if terminal.errors else ""
-    allowed_status = AITerminal.onecmd(terminal, "/status")
+    allowed_status = AITerminal.handle_input(terminal, "/status")
 
     allowed = {
         "status": AITerminal._command_allowed_while_busy(terminal, "status"),

@@ -72,17 +72,17 @@ def inspect_web_page_tool(
     auth = data.get("auth") if isinstance(data.get("auth"), dict) else {}
     next_actions = [
         "Use the returned selectors and labels as evidence before writing browser steps.",
-        "If evidence is incomplete, ask the user for the missing page state instead of inventing selectors.",
+        "If evidence is incomplete for a real flow, create and run a headed exploration plan instead of inventing selectors or asking the user to use another browser.",
     ]
     if auth.get("challenge_detected"):
         next_actions.insert(
             0,
-            "A challenge or verification signal was detected. Ask the user to complete it, then continue with manual_confirm or saved storage_state.",
+            "A challenge or verification signal was detected. Build and run a headed exploration plan; use normal page flow and user-provided verification data when authorized, and hand off with manual_confirm in the same Playwright browser when automation cannot continue.",
         )
     elif auth.get("login_fields_detected"):
         next_actions.insert(
             0,
-            "Login fields were detected. Use user-provided variables/resources or ask the user for a manual login handoff; do not hardcode credentials.",
+            "Login fields were detected. If the user has authorized credentials, use variables/resources in a headed exploration plan and only use manual_confirm when the same Playwright browser needs user action.",
         )
 
     return {

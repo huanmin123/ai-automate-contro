@@ -52,6 +52,6 @@
 
 ## 推荐处理方式
 
-- 在正式站点遇到验证时，使用 `manual_confirm` 做人工交接。
+- 在正式站点遇到验证时，优先让自动化正常尝试页面提供的验证流程；需要用户操作时，使用 `open_browser.headed=true` 加 `manual_confirm` 做同一个 Playwright 浏览器窗口内的人工交接。
 - 人工通过后，用 `capture` + `type: storage_state` 保存登录态，后续回归用 `open_browser.storage_state_path` 复用。
 - 在测试环境中，优先使用本地 fixture 或后端测试开关模拟验证流程。

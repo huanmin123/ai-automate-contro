@@ -6,6 +6,7 @@ import platform
 from langchain_core.messages import AIMessage
 
 from ai_automate_contro.ai.image_attachments import (
+    attach_clipboard_images,
     attach_image_file,
     image_attachment_placeholder,
 )
@@ -45,23 +46,17 @@ def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> st
     if is_macos:
         send_key = "Enter"
         newline_ctrl = "Control+J"
-        newline_alt = "Option+Enter"
-        paste_shortcut = "Control+V / Option+V"
-        paste_note = "Command+V 通常由终端自身处理文本粘贴；要让 AI 终端读取剪贴板图片，请用 Control+V，或在终端把 Option 当 Meta 发送时用 Option+V。"
+        close_key = "Control+Q / Control+C"
         system_note = "当前系统：macOS。下列按键按 macOS 终端习惯显示。"
     elif is_windows:
         send_key = "Enter"
         newline_ctrl = "Ctrl+J"
-        newline_alt = "Alt+Enter"
-        paste_shortcut = "Ctrl+V"
-        paste_note = "Windows Terminal / PowerShell 里 Ctrl+V 通常用于粘贴；本工具会优先尝试读取剪贴板图片，失败时回退为粘贴文本。"
+        close_key = "Ctrl+Q / Ctrl+C"
         system_note = "当前系统：Windows。"
     else:
         send_key = "Enter"
         newline_ctrl = "Ctrl+J"
-        newline_alt = "Alt+Enter"
-        paste_shortcut = "Ctrl+V"
-        paste_note = "Linux/Unix 终端对 Ctrl+V、Alt 组合键的处理取决于终端模拟器配置。"
+        close_key = "Ctrl+Q / Ctrl+C"
         system_note = f"当前系统：{system_name or platform.system() or '未知'}。终端快捷键可能受终端模拟器配置影响。"
 
     return "\n".join(
@@ -70,17 +65,11 @@ def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> st
             f"  {system_note}",
             f"  {send_key:<25} 发送当前消息。",
             f"  {newline_ctrl:<25} 插入换行，跨平台最稳定。",
-            f"  {newline_alt:<25} 插入换行；需要终端把这个组合键传给程序。",
-            "  Esc                       在 AI 正在处理时，将下一条消息标记为强制接入。",
-            f"  {paste_shortcut:<25} 从剪贴板粘贴图片，并在输入行插入 [图片 #n]。",
-            "  /                         展开 AI 命令补全；继续输入前缀可过滤。",
-            "  Up / Down                 在命令补全候选里移动；无候选时按多行输入内容移动。",
-            "  Backspace / Delete        删除图片占位时会整张图片一起移除并重新编号。",
+            f"  {close_key:<25} 关闭 Textual 客户端。",
             "",
-            "兼容说明：",
+            "输入说明：",
             "  普通 Enter 始终发送消息。",
-            "  需要稳定换行时请用 Ctrl+J；Alt/Option+Enter 依赖当前终端支持。",
-            f"  {paste_note}",
+            "  需要稳定换行时请用 Ctrl+J。",
             "  已保存成文件的图片可用 /image <image-path> 添加。",
         ]
     )
@@ -89,7 +78,7 @@ def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> st
 class AITerminalCommandsMixin:
     def do_help(self, arg: str) -> None:
         """查看 AI 终端命令：/help"""
-        self.poutput(
+        self._emit_terminal_output(
             "\n".join(
                 [
                     "AI 终端命令：",
@@ -99,11 +88,11 @@ class AITerminalCommandsMixin:
                     "  /new [thread-id]                新建会话。",
                     "  /compress [reason]              压缩并归档当前会话。",
                     "  /history [limit]                只查看最近几条消息。",
-                    "  /keyboard                       查看当前系统的键盘快捷键和兼容说明。",
+                    "  /keyboard                       查看当前系统的键盘快捷键和输入说明。",
                     "  /render [markdown|plain]        查看或切换 AI 回复显示方式。",
                     "  /image <image-path>             兜底：把本地图片文件加入下一条消息。",
                     "  /pending | /approve | /reject <reason>  处理受保护补丁审批。",
-                    "  /exit 或 /back                  返回 plan 模式。",
+                    "  /exit 或 /back                  退出当前客户端。",
                     "  /quit                           退出终端。",
                     COMMAND_SYNTAX_HELP,
                     "上下文会在选择、运行和调试 plan 时自动更新，通常不需要手动设置。",
@@ -145,11 +134,11 @@ class AITerminalCommandsMixin:
             "pending_attachments": [attachment.to_dict() for attachment in self._pending_attachments],
             "context_state": self._context_state(),
         }
-        self.poutput(json.dumps(payload, ensure_ascii=False, indent=2))
+        self._emit_terminal_output(json.dumps(payload, ensure_ascii=False, indent=2))
 
     def do_keyboard(self, _: str) -> None:
         """查看 AI 终端键盘快捷键。"""
-        self.poutput(format_keyboard_shortcuts_for_terminal())
+        self._emit_terminal_output(format_keyboard_shortcuts_for_terminal())
 
     def do_sessions(self, arg: str) -> None:
         """列出已保存的 AI 会话：/sessions [limit|all] [--json]"""
@@ -159,7 +148,7 @@ class AITerminalCommandsMixin:
         limit = SESSION_LIST_LIMIT_DEFAULT
         if parts:
             if len(parts) > 1:
-                self.perror("用法：/sessions [limit|all] [--json]")
+                self._emit_error("用法：/sessions [limit|all] [--json]")
                 return
             if parts[0].lower() == "all":
                 limit = SESSION_LIST_LIMIT_MAX
@@ -167,24 +156,24 @@ class AITerminalCommandsMixin:
                 try:
                     limit = int(parts[0])
                 except ValueError:
-                    self.perror("用法：/sessions [limit|all] [--json]")
+                    self._emit_error("用法：/sessions [limit|all] [--json]")
                     return
         try:
             sessions = list_ai_terminal_sessions(self.checkpointer, project_root=self.project_root, limit=limit)
         except Exception as error:
-            self.perror(error)
+            self._emit_error(error)
             return
         if as_json:
-            self.poutput(json.dumps([session.to_dict() for session in sessions], ensure_ascii=False, indent=2))
+            self._emit_terminal_output(json.dumps([session.to_dict() for session in sessions], ensure_ascii=False, indent=2))
             return
-        self.poutput(format_sessions_table(sessions))
+        self._emit_terminal_output(format_sessions_table(sessions))
 
     def do_resume(self, arg: str) -> None:
         """恢复已保存的 AI 会话：/resume <thread-id-or-index>"""
         try:
             next_thread_id = resolve_ai_terminal_session(self.checkpointer, arg, project_root=self.project_root)
         except Exception as error:
-            self.perror(error)
+            self._emit_error(error)
             return
         self.thread_id = next_thread_id
         self._current_turn_text = None
@@ -192,9 +181,9 @@ class AITerminalCommandsMixin:
         self._last_error = ""
         self._clear_pending_attachments()
         session = current_ai_terminal_session(self.checkpointer, self.thread_id, project_root=self.project_root)
-        self.poutput(f"AI 终端线程：{self.thread_id}")
+        self._emit_terminal_output(f"AI 终端线程：{self.thread_id}")
         if session is not None:
-            self.poutput(
+            self._emit_terminal_output(
                 f"消息数={session.message_count} checkpoint 数={session.checkpoint_count} "
                 f"最后时间={session.last_timestamp or '<未知>'}"
             )
@@ -203,13 +192,13 @@ class AITerminalCommandsMixin:
         """查看或设置 AI 回复显示方式：/render [markdown|plain]"""
         raw = arg.strip().lower()
         if not raw or raw == "status":
-            self.poutput(f"AI 回复显示方式：{getattr(self, 'response_render_mode', 'plain')}")
+            self._emit_terminal_output(f"AI 回复显示方式：{getattr(self, 'response_render_mode', 'plain')}")
             return
         if raw not in {"markdown", "md", "rich", "plain", "raw", "text"}:
-            self.perror("用法：/render [markdown|plain]")
+            self._emit_error("用法：/render [markdown|plain]")
             return
         self.response_render_mode = normalize_response_render_mode(raw)
-        self.poutput(f"AI 回复显示方式：{self.response_render_mode}")
+        self._emit_terminal_output(f"AI 回复显示方式：{self.response_render_mode}")
 
     def do_new(self, arg: str) -> None:
         """新建 AI 终端线程：/new [thread-id]"""
@@ -219,7 +208,7 @@ class AITerminalCommandsMixin:
         self._approval_resume_active = False
         self._last_error = ""
         self._clear_pending_attachments()
-        self.poutput(f"AI 终端线程：{self.thread_id}")
+        self._emit_terminal_output(f"AI 终端线程：{self.thread_id}")
 
     def do_compress(self, arg: str) -> None:
         """压缩当前 AI 终端会话历史：/compress [reason]"""
@@ -227,24 +216,24 @@ class AITerminalCommandsMixin:
         try:
             result = self._compress_current_thread(reason=reason)
         except Exception as error:
-            self.perror(error)
+            self._emit_error(error)
             return
         self._sync_current_session_index()
-        self.poutput(json.dumps(result, ensure_ascii=False, indent=2))
+        self._emit_terminal_output(json.dumps(result, ensure_ascii=False, indent=2))
 
     def do_history(self, arg: str) -> None:
         """查看最近的会话消息：/history [limit]"""
         try:
             limit = int(arg.strip()) if arg.strip() else 12
         except ValueError:
-            self.perror("用法：/history [limit]")
+            self._emit_error("用法：/history [limit]")
             return
         if limit <= 0:
-            self.perror("数量必须大于 0。")
+            self._emit_error("数量必须大于 0。")
             return
         messages = self._current_messages()[-limit:]
         if not messages:
-            self.poutput("历史记录：<空>")
+            self._emit_terminal_output("历史记录：<空>")
             return
         for index, message in enumerate(messages, start=1):
             role = type(message).__name__
@@ -254,12 +243,12 @@ class AITerminalCommandsMixin:
                 content = f"tool_calls={calls}"
             if len(content) > 500:
                 content = content[:497] + "..."
-            self.poutput(f"{index:02d}. {role}: {content}")
+            self._emit_terminal_output(f"{index:02d}. {role}: {content}")
 
     def _add_image_file(self, arg: str) -> None:
         command = arg.strip()
         if not command:
-            self.perror("用法：/image <image-path>")
+            self._emit_error("用法：/image <image-path>")
             return
         try:
             attachment = attach_image_file(
@@ -269,13 +258,24 @@ class AITerminalCommandsMixin:
                 pending_count=len(self._pending_attachments),
             )
         except Exception as error:
-            self.perror(error)
+            self._emit_error(error)
             return
         self._pending_attachments.append(attachment)
         self._pending_attachment_placeholder_required.append(False)
         placeholder = image_attachment_placeholder(len(self._pending_attachments))
-        self.poutput(f"已添加图片：{placeholder}。可以继续输入文字。")
+        self._emit_terminal_output(f"已添加图片：{placeholder}。可以继续输入文字。")
 
     def do_image(self, arg: str) -> None:
         """把图片文件加入下一条 AI 消息：/image <image-path>"""
         self._add_image_file(arg)
+
+    def attach_clipboard_images(self) -> list[str]:
+        attachments = attach_clipboard_images(
+            self.project_root,
+            self.thread_id,
+            pending_count=len(self._pending_attachments),
+        )
+        self._pending_attachments.extend(attachments)
+        self._pending_attachment_placeholder_required.extend(False for _ in attachments)
+        start = len(self._pending_attachments) - len(attachments) + 1
+        return [image_attachment_placeholder(index) for index in range(start, len(self._pending_attachments) + 1)]

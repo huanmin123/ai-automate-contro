@@ -82,11 +82,6 @@ $PyInstallerExecutablePath = Join-Path $PyInstallerPackageDir $ExecutableFileNam
 $SourceDir = Resolve-RepoPath "src"
 $EntryPoint = Resolve-RepoPath "main.py"
 $ExecutablePath = Join-Path $PackageDir $ExecutableFileName
-$LegacyPlatformExecutableFileName = if ($IsWindows) { "ai-automate-contro-$PlatformName.exe" } else { "ai-automate-contro-$PlatformName" }
-$LegacyExecutablePaths = @(
-    (Join-Path $OutDir $ExecutableFileName),
-    (Join-Path $OutDir $LegacyPlatformExecutableFileName)
-)
 $HandbookSourceDir = Resolve-RepoPath "handbook"
 $PlanConfigPath = Join-Path $PackageDir "plan.config"
 $PackageZipPath = Join-Path $OutDir "ai-automate-contro-$PlatformName.zip"
@@ -100,9 +95,6 @@ Assert-UnderRepo $EntryPoint
 Assert-UnderRepo $HandbookSourceDir
 Assert-UnderRepo $PlanConfigPath
 Assert-UnderRepo $PackageZipPath
-foreach ($LegacyExecutablePath in $LegacyExecutablePaths) {
-    Assert-UnderRepo $LegacyExecutablePath
-}
 
 if (Test-Path -LiteralPath $ExistingPackagePlansConfigPath) {
     Assert-UnderRepo $ExistingPackagePlansConfigPath
@@ -130,12 +122,6 @@ if ($Clean) {
     if (Test-Path -LiteralPath $PackageZipPath) {
         Assert-UnderRepo $PackageZipPath
         Remove-Item -LiteralPath $PackageZipPath -Force
-    }
-    foreach ($LegacyExecutablePath in $LegacyExecutablePaths) {
-        if (Test-Path -LiteralPath $LegacyExecutablePath) {
-            Assert-UnderRepo $LegacyExecutablePath
-            Remove-Item -LiteralPath $LegacyExecutablePath -Force
-        }
     }
 }
 
@@ -182,11 +168,13 @@ try {
         "--specpath", $BuildDir,
         "--paths", $SourceDir,
         "--collect-data", "playwright",
+        "--collect-data", "textual",
         "--collect-submodules", "langchain",
         "--collect-submodules", "langchain_openai",
         "--collect-submodules", "langgraph",
         "--collect-submodules", "langgraph.checkpoint.sqlite",
         "--collect-submodules", "rich",
+        "--collect-submodules", "textual",
         $EntryPoint
     )
     Invoke-Checked "python" $pyinstallerArgs
@@ -264,6 +252,7 @@ if ($SmokeTest) {
     Push-Location $PackageDir
     try {
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExecutablePath @("tool", "check")
@@ -297,6 +286,7 @@ if ($SmokeTest) {
     Push-Location $ExtractedPackageDir
     try {
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExtractedExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExtractedExecutablePath @("tool", "check")
@@ -311,26 +301,8 @@ if ($SmokeTest) {
 
 if ($null -ne $LocalPlansConfigBackupPath -and (Test-Path -LiteralPath $LocalPlansConfigBackupPath)) {
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackagePlansConfigPath) | Out-Null
-    $RestoredPlansConfig = $false
-    try {
-        $RestoredConfig = Get-Content -LiteralPath $LocalPlansConfigBackupPath -Raw | ConvertFrom-Json
-        if (
-            $RestoredConfig -is [System.Management.Automation.PSCustomObject] -and
-            $RestoredConfig.PSObject.Properties.Name -contains "variables"
-        ) {
-            $RestoredConfig.PSObject.Properties.Remove("variables")
-            $RestoredConfig | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $PackagePlansConfigPath -Encoding UTF8
-            $RestoredPlansConfig = $true
-            Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置，并移除旧 variables 字段；zip 内仍使用示例配置。"
-        }
-    }
-    catch {
-        $RestoredPlansConfig = $false
-    }
-    if (-not $RestoredPlansConfig) {
-        Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
-        Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
-    }
+    Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
+    Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
 }
 
 if (Test-Path -LiteralPath $BuildDir) {

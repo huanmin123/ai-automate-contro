@@ -142,11 +142,7 @@ def _api_key_env_example() -> str:
 def resolve_response_format(service_config: dict[str, Any]) -> str:
     raw_response_format = service_config.get("response_format")
     if raw_response_format is None:
-        legacy_response_formats = service_config.get("response_formats")
-        if isinstance(legacy_response_formats, list) and legacy_response_formats:
-            raw_response_format = legacy_response_formats[0]
-        else:
-            raw_response_format = "json_schema"
+        raw_response_format = "json_schema"
     if not isinstance(raw_response_format, str) or not raw_response_format.strip():
         raise ValueError("AI 服务 response_format 必须是非空字符串。")
     response_format = raw_response_format.strip()

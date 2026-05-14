@@ -86,16 +86,6 @@ def _backup_plan(plan_path: Path) -> Path:
 
 def _normalize_preset(preset: str) -> str:
     value = preset.strip().lower()
-    aliases = {
-        "var": "variables",
-        "vars": "variables",
-        "variable": "variables",
-        "confirm": "manual_confirm",
-        "manual": "manual_confirm",
-        "screen": "screenshot",
-        "capture": "screenshot",
-    }
-    value = aliases.get(value, value)
     supported = {"print", "variables", "manual_confirm", "screenshot", "html"}
     if value not in supported:
         raise ValueError(f"Unsupported debug injection preset: {preset}")

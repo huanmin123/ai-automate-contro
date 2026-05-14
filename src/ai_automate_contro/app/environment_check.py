@@ -110,8 +110,8 @@ def _check_imports() -> dict[str, Any]:
         "langchain_openai": "langchain-openai",
         "pydantic": "pydantic",
         "PIL": "Pillow",
-        "prompt_toolkit": "prompt_toolkit",
         "rich": "rich",
+        "textual": "textual",
     }
     missing = [module for module in modules if importlib.util.find_spec(module) is None]
     versions = {

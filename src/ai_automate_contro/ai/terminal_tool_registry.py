@@ -113,7 +113,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "inspect_web_page": ToolSpec(
         terminal_tools.inspect_web_page_tool,
         InspectWebPageArgs,
-        "用 Playwright 打开 URL 或本地 HTML，在创建浏览器 plan 步骤前返回受限 DOM、表单、按钮、链接、表格、登录和验证证据。",
+        "用一次性 Playwright 页面打开 URL 或本地 HTML，返回受限 DOM、表单、按钮、链接、表格、登录和验证证据；真实流程或需要用户操作时改用 open_browser.headed=true 探索 plan。",
         requires_project_root=True,
     ),
     "list_debug_workspaces": ToolSpec(

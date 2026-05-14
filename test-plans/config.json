@@ -10,11 +10,7 @@
       "stream": true,
       "timeout_seconds": 90,
       "strict_schema": true,
-      "response_formats": [
-        "json_schema",
-        "json_object",
-        "plain"
-      ],
+      "response_format": "json_schema",
       "note": "User-provided temporary AI test service. Keep this in test-plans/config.json for real AI scenario regression until the user removes or rotates it."
     }
   }

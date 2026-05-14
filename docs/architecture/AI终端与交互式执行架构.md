@@ -11,21 +11,25 @@
 - 生成修复补丁。
 - 产出报告。
 
-因此 CLI 是一个统一终端，里面分为 `plan>` 管理模式和 `ai>` AI 模式。默认进入 `plan>`，不加载 AI 服务；用户输入 `/ai`、`/ai <message>` 或直接运行 `python .\main.py ai` 时，才懒加载 AI 终端。
+因此交互入口改为 AI-first Textual 客户端。默认运行 `python .\main.py` 或 `python .\main.py ai` 都进入同一套对话式客户端；确定性 plan、tool、self-check 能力保留为一次性 CLI 子命令，服务脚本、回归和打包 smoke test。
 
 ## 总体分层
 
 ```text
 CLI
-├── 管理终端
-│   ├── 创建 plan 模板
-│   ├── 校验 plan
-│   ├── 运行 plan
-│   ├── 查看状态、日志、输出
-│   ├── 暂停、继续、停止
-│   └── 修改运行变量或环境
+├── Textual AI Client
+│   ├── 用户消息灰底块
+│   ├── AI 回复正文块
+│   ├── 工具进度块
+│   ├── 审批/错误块
+│   └── 多行 composer
 │
-└── AI 终端
+├── 一次性 plan/tool/self-check 命令
+│   ├── 创建、校验和运行 plan
+│   ├── 查看状态、日志和输出
+│   └── 调用结构化工具
+│
+└── AI Backend
     ├── 理解用户需求
     ├── 创建 plan 包
     ├── 管理 plan 文档和配置
@@ -43,28 +47,20 @@ CLI
 └── Output
 ```
 
-## 统一终端与管理模式
+## AI-first 客户端与确定性命令
 
-`plan>` 管理模式是确定性入口，不依赖 AI，也不会读取或初始化模型服务。
+Textual 客户端是面向自然语言的默认入口。它不再展示 `plan>`、`ai>`、`AI>` 或 `你>` 前缀，而是把用户消息、AI 回复、工具进度、审批和错误分别渲染成块。输入区是灰底无边框的多行 composer，Enter 发送，Ctrl+J 换行，高度随内容在有限范围内增长。
 
-当前交互 CLI 使用 `prompt_toolkit` 实现统一输入、命令提示、模式切换和 AI 图片输入。非交互命令仍保留在 `python .\main.py plan ...`、`python .\main.py tool ...` 和 `python .\main.py ai ask ...`，用于脚本、回归和打包 smoke test。
+客户端采用主流 agent CLI/TUI 的命令发现方式：在输入行输入 `/` 会打开命令候选，继续输入前缀实时过滤，Up / Down 选择候选，Tab 或 Enter 补全命令；带参数的命令继续由 Enter 发送。候选同时覆盖 plan 管理命令、AI 会话命令和纯客户端命令。纯客户端命令包括 `/details` 切换工具细节显示、`/export [path]` 导出当前可见对话为 Markdown，`/compact` 作为 `/compress` 的会话压缩别名。
 
-第一批命令：
+确定性入口不走交互 UI，直接使用 CLI 子命令：
 
-- `/create`: 创建 plan 包模板。
-- `/validate`: 校验 plan 结构、路径、组件字段和输出约束。
-- `/run`: 先校验再运行 plan。
-- `/status`: 查看当前运行状态。
-- `/continue`: 继续等待中的 plan。
-- `/stop`: 停止等待中的 plan。
-- `/var`: 修改运行变量。
-- `/logs`: 查看运行日志。
-- `/events`: 查看结构化事件。
-- `/output`: 查看输出目录。
-- `/report`: 查看运行报告。
-- `/ai`: 切换到 `ai>`，或用 `/ai <message>` 发送一条 AI 消息。
+- `python .\main.py plan create/validate/run/...`
+- `python .\main.py tool list/check/schema/call`
+- `python .\main.py self-check textual-client/ai-terminal/ai-tools/...`
+- `python .\main.py ai ask --message "<text>" --json`
 
-`plan>` 和 `ai>` 中的本地命令必须写在输入行最开头，格式是 `/command` 或 `/command <args>`。`/` 后面的命令名必须以英文字母开头；命令和参数之间至少一个空格。普通文字中间的 `/xxx` 不会被当作命令，也不会触发命令补全。管理模式不猜需求，只执行明确命令。
+这条边界避免旧交互模式和新 AI 客户端混在一起：自然语言进 Textual 客户端，脚本化和回归验证走一次性命令。
 
 ## AI 终端
 
@@ -92,20 +88,21 @@ AI 终端负责：
 
 AI 终端不直接绕过管理终端能力。它调用管理终端暴露的工具。
 
-第一版 AI 终端已经落地：
+当前 AI 客户端入口：
 
 ```powershell
+python .\main.py
 python .\main.py ai
 python .\main.py ai --thread login-debug
 ```
 
-当前版本使用 `prompt_toolkit` 提供统一终端输入体验和 AI 图片输入体验，并用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
+当前交互客户端使用 Textual 渲染消息块、工具进度和多行 composer，并用 `langchain.agents.create_agent` 编排模型与工具循环。项目工具通过 LangChain `StructuredTool` 暴露给模型，每个工具使用显式 Pydantic 参数模型定义输入 schema；CLI 的 `tool call` 入口也复用同一套 schema 校验。模型使用原生 `tool_calls`，工具执行由 LangChain/LangGraph agent 图处理，不再使用自定义 JSON 工具调用协议，也不再通过运行时动态拼装工具 schema。
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
 会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。终端内提供 `/status`、`/sessions [limit|all]`、`/resume <thread-id-or-index>`、`/history [limit]`、`/new` 和 `/compress` 管理当前线程。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；`/sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
-AI 终端回合由后台 worker 执行，输入行保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 输出到终端；期间继续发送的普通消息进入队列，底部状态展示运行中和排队数量。按 `Esc` 不会硬杀当前模型或工具调用，只会把下一条输入标记为安全介入：当前回合继续 drain 到安全边界，但后续流式输出被抑制，队首消息随后处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
+AI 客户端回合由后台 worker 执行，输入区保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 转成客户端事件；期间继续发送的普通消息进入队列，当前轮完成后继续处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
 真实回归中，线程 `real-tool-regression-validate-plan` 已确认模型生成 `tool_calls=validate_plan`，工具结果以 `ToolMessage` 返回 `ok=true`，并由 `SqliteSaver` 保存同一线程的消息与工具调用历史。
 
@@ -118,11 +115,11 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 - `latest_compression_messages_path`
 - `latest_compression_archive_dir`
 
-终端线程状态会在选择、运行、调试 plan 或结构化工具返回 plan、debug workspace、run output 时自动更新；`/new [thread-id]` 开新线程，`/status` 查看当前线程摘要，`/sessions` 查询已落盘会话，`/resume <id-or-index>` 恢复会话，`/compress [reason]` 手动压缩当前线程。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
+线程状态会在选择、运行、调试 plan 或结构化工具返回 plan、debug workspace、run output 时自动更新；Textual 客户端继续支持 AI 后端的 `/new`、`/status`、`/sessions`、`/resume` 和 `/compress` 等本地命令。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
-图片输入是终端侧能力，不进入普通 plan action。用户主路径是在 AI 终端输入行按 `Alt+V` 或 `Ctrl+V` 从剪贴板粘贴图片，终端把 `[图片 #n]` 占位插入当前文字；如果图片已经保存成文件，只保留 `/image <image-path>` 作为兜底。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片读取依赖 Pillow 和 prompt_toolkit。
+图片输入是客户端侧能力，不进入普通 plan action。如果图片已经保存成文件，可用 `/image <image-path>` 加入下一条消息。图片复制到 `.keygen/ai-terminal-sessions/<thread>/attachments/`，checkpoint 和压缩归档只保存附件 metadata，发送时临时转换成 LangChain `HumanMessage` 的多模态 content list，并移除内部 metadata。发送成功后清空 pending attachments；如果模型服务报错，错误直接显示给用户，附件保留以便重试。剪贴板图片粘贴会在 Textual 客户端内实现，不要求用户切到本机浏览器或其他入口。
 
 补丁应用审批使用 LangChain `HumanInTheLoopMiddleware`。当模型请求 `apply_debug_patch_after_approval` 时，Agent 图会在工具执行前中断并写入 checkpoint，终端显示 `[WAIT_APPROVAL]`、工具名、参数和说明。用户输入 `/approve` 后，终端用 `Command(resume=...)` 恢复图，并把 `approved: true` 注入工具参数；用户输入 `/reject <reason>` 则把拒绝结果作为 ToolMessage 返回给模型。
 
@@ -187,23 +184,23 @@ InteractivePlanRunner
 
 ### 人工交互
 
-账号密码输入、验证码、二次验证、人工确认等场景由用户完成。plan 中可以使用人工等待动作：
+用户明确同意并提供账号密码时，AI 可以协助填写登录字段或生成使用变量/资源的登录步骤。验证码、短信/邮箱验证、二次验证、权限确认等安全门槛只能按页面正常流程处理：能用用户提供的一次性信息就输入，不能破解、绕过或代解；自动化尝试失败、缺少外部信息或风险不明确时，plan 使用人工等待动作在同一个可见 Playwright 浏览器里交接：
 
 ```json
 {
   "action": "manual_confirm",
-  "prompt": "请在浏览器中完成账号密码输入，然后回到终端输入 continue。"
+  "prompt": "请在当前自动化浏览器窗口中完成验证码或二次验证，然后回到终端输入 continue。"
 }
 ```
 
 管理终端展示：
 
 ```text
-[WAIT_USER] 请在浏览器中完成账号密码输入，然后回到终端输入 continue。
+[WAIT_USER] 请在当前自动化浏览器窗口中完成验证码或二次验证，然后回到终端输入 continue。
 > continue
 ```
 
-这套 `continue` / `stop` 只属于 `plan>` 管理终端。AI 终端通过 `run_plan` 或 `run_debug_plan` 运行到 `manual_confirm` 或运行后检查时，会注入 AI 模式确认 handler：确认提示显示在 `ai>` 对话中，用户可以自然语言回复，终端用模型分类和本地兜底判断为继续、停止或不明确。不明确时不会恢复 plan，会继续要求用户澄清。
+这套 `continue` / `stop` 只属于 plan 运行等待态。AI 客户端通过 `run_plan` 或 `run_debug_plan` 运行到 `manual_confirm` 或运行后检查时，会注入确认 handler：确认提示显示在当前对话中，用户可以自然语言回复，后端用模型分类和本地兜底判断为继续、停止或不明确。不明确时不会恢复 plan，会继续要求用户澄清。
 
 ## LangGraph 落点
 
@@ -255,7 +252,7 @@ AI 终端只能通过工具操作项目。
 第一批工具：
 
 - `list_plan_packages`
-- `inspect_web_page`：使用 Playwright 真实打开 URL 或本地 HTML，返回受限 DOM 摘要、正文预览、表单、输入框、按钮、链接、表格以及登录/验证信号。AI 为真实网站创建 plan 前必须优先调用它，不能只根据用户文字猜 selector；如果页面需要登录、验证码、二次验证或权限确认，工具只报告证据和需要用户处理的状态。
+- `inspect_web_page`：使用 Playwright 真实打开 URL 或本地 HTML，返回受限 DOM 摘要、正文预览、表单、输入框、按钮、链接、表格以及登录/验证信号。AI 为真实网站创建最终 plan 前必须优先调用它，不能只根据用户文字猜 selector；如果页面需要登录、验证码、二次验证、后台菜单或动态页面，下一步应创建并运行 `open_browser.headed=true` 的探索 plan，必要时用 `manual_confirm` 让用户在同一个 Playwright 浏览器窗口里接手。
 - `read_plan_package`
 - `create_plan_package`
 - `write_plan_package_file`：已完成新建 plan 包阶段的受控写入，只能写 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`，拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径。

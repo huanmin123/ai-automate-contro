@@ -15,7 +15,7 @@ class AITerminalApprovalMixin:
         """查看等待人工审批的请求。"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.poutput("等待审批：<无>")
+            self._emit_terminal_output("等待审批：<无>")
             return
         self._print_interrupts(interrupts)
 
@@ -23,7 +23,7 @@ class AITerminalApprovalMixin:
         """批准等待中的补丁应用请求，并恢复 AI 终端图执行。"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.perror("当前没有等待审批的操作。")
+            self._emit_error("当前没有等待审批的操作。")
             return
         decisions = [approval_decision_for_request(request) for request in interrupt_action_requests(interrupts)]
         self._approval_resume_active = True
@@ -36,7 +36,7 @@ class AITerminalApprovalMixin:
         """拒绝等待中的补丁应用请求，并恢复 AI 终端图执行：reject [reason]"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self.perror("当前没有等待审批的操作。")
+            self._emit_error("当前没有等待审批的操作。")
             return
         message = arg.strip() or "用户拒绝应用补丁。"
         decisions = [{"type": "reject", "message": message} for _ in interrupt_action_requests(interrupts)]
@@ -46,7 +46,7 @@ class AITerminalApprovalMixin:
         try:
             final_state, streamed = self._invoke_graph_streaming(Command(resume=resume_payload))
         except Exception as error:
-            self.perror(error)
+            self._emit_error(error)
             return
         if self._print_pending_interrupt(final_state):
             return
@@ -55,4 +55,4 @@ class AITerminalApprovalMixin:
         messages = list(final_state["messages"])
         last_message = self._last_assistant_message(messages)
         if last_message:
-            self.poutput(f"AI> {last_message}")
+            self._emit_terminal_output(last_message)

@@ -206,20 +206,21 @@ def _normalize_diff_headers(diff_text: str, *, original_label: str, modified_lab
 
 def _run_git_apply(package_dir: Path, patch_path: Path, *, check_only: bool) -> None:
     repo_root = _git_repo_root(package_dir)
-    package_prefix = package_dir.resolve().relative_to(repo_root).as_posix()
+    apply_cwd = repo_root or package_dir.resolve()
+    package_prefix = package_dir.resolve().relative_to(repo_root).as_posix() if repo_root else ""
     args = ["git", "apply"]
     if check_only:
         args.append("--check")
     if package_prefix:
         args.append(f"--directory={package_prefix}")
     args.append(str(patch_path))
-    completed = subprocess.run(args, cwd=str(repo_root), capture_output=True, text=True, encoding="utf-8")
+    completed = subprocess.run(args, cwd=str(apply_cwd), capture_output=True, text=True, encoding="utf-8")
     if completed.returncode != 0:
         detail = completed.stderr.strip() or completed.stdout.strip() or "git apply failed"
         raise RuntimeError(detail)
 
 
-def _git_repo_root(path: Path) -> Path:
+def _git_repo_root(path: Path) -> Path | None:
     completed = subprocess.run(
         ["git", "rev-parse", "--show-toplevel"],
         cwd=str(path),
@@ -228,7 +229,7 @@ def _git_repo_root(path: Path) -> Path:
         encoding="utf-8",
     )
     if completed.returncode != 0:
-        raise RuntimeError(completed.stderr.strip() or "Unable to find git repository root.")
+        return None
     return Path(completed.stdout.strip()).resolve()
 
 

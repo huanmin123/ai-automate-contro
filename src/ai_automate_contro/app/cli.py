@@ -19,7 +19,6 @@ from ai_automate_contro.app.command_helpers import (
 )
 from ai_automate_contro.app.errors import print_cli_error
 from ai_automate_contro.app.parser import build_parser
-from ai_automate_contro.app.management_terminal import ManagementTerminal
 from ai_automate_contro.debug.workspace import (
     apply_debug_patch,
     create_debug_workspace,
@@ -45,16 +44,17 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command is None:
-        app = ManagementTerminal(project_root)
-        app.cmdloop()
+        from ai_automate_contro.client import run_textual_client
+
+        run_textual_client(project_root)
         return 0
 
     if args.command == "ai":
-        from ai_automate_contro.ai.terminal import AITerminal
+        if args.ai_command == "ask":
+            from ai_automate_contro.ai.terminal import AITerminal
 
-        app = AITerminal(project_root, service=args.service, thread_id=args.thread)
-        try:
-            if args.ai_command == "ask":
+            app = AITerminal(project_root, service=args.service, thread_id=args.thread)
+            try:
                 result = app.ask_once(args.message)
                 if args.json:
                     print_json(result, compact=args.compact)
@@ -65,17 +65,12 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                     if result.get("pending_approval"):
                         print("[等待审批] 当前需要人工审批。请进入交互终端后输入 approve，或输入 reject <原因>。")
                 return 0 if result.get("ok") else 1
-            terminal = ManagementTerminal(project_root)
-            terminal._ai_terminal = app
-            terminal.mode = "ai"
-            terminal.prompt = "ai> "
-            terminal.intro = "AI 自动化控制终端。当前已进入 AI 模式；输入 /help 查看 AI 命令，输入 /exit 或 /back 返回 plan 模式，输入 /quit 退出。"
-            terminal.cmdloop()
-            app = None
-            return 0
-        finally:
-            if app is not None:
+            finally:
                 app.close()
+        from ai_automate_contro.client import run_textual_client
+
+        run_textual_client(project_root, service=args.service, thread_id=args.thread)
+        return 0
 
     if args.command == "self-check":
         if args.self_check_command == "env":
@@ -94,6 +89,12 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.browser_component_check import self_check_browser_components
 
             result = self_check_browser_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "textual-client":
+            from ai_automate_contro.client.self_check import self_check_textual_client
+
+            result = self_check_textual_client(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-stream":

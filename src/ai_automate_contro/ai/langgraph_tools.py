@@ -23,6 +23,7 @@ def build_langchain_tools(
     project_root: Path,
     *,
     latest_user_approved: Callable[[], bool] | None = None,
+    before_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None = None,
     thread_id_provider: Callable[[], str] | None = None,
     manual_confirmation_handler: Callable[[str], bool] | None = None,
@@ -34,6 +35,7 @@ def build_langchain_tools(
             tool_name,
             project_root,
             latest_user_approved=latest_user_approved,
+            before_tool_call=before_tool_call,
             after_tool_call=after_tool_call,
             thread_id_provider=thread_id_provider,
             manual_confirmation_handler=manual_confirmation_handler,
@@ -54,6 +56,7 @@ def _build_structured_tool(
     project_root: Path,
     *,
     latest_user_approved: Callable[[], bool] | None,
+    before_tool_call: Callable[[str, dict[str, Any]], None] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
     thread_id_provider: Callable[[], str] | None,
     manual_confirmation_handler: Callable[[str], bool] | None,
@@ -65,6 +68,7 @@ def _build_structured_tool(
             tool_name,
             project_root,
             latest_user_approved=latest_user_approved,
+            before_tool_call=before_tool_call,
             after_tool_call=after_tool_call,
             thread_id_provider=thread_id_provider,
             manual_confirmation_handler=manual_confirmation_handler,
@@ -81,6 +85,7 @@ def _make_tool_function(
     project_root: Path,
     *,
     latest_user_approved: Callable[[], bool] | None,
+    before_tool_call: Callable[[str, dict[str, Any]], None] | None,
     after_tool_call: Callable[[str, dict[str, Any], dict[str, Any]], None] | None,
     thread_id_provider: Callable[[], str] | None,
     manual_confirmation_handler: Callable[[str], bool] | None,
@@ -102,12 +107,19 @@ def _make_tool_function(
                 kwargs["_manual_confirmation_handler"] = manual_confirmation_handler
             if inspection_confirmation_handler is not None:
                 kwargs["_inspection_confirmation_handler"] = inspection_confirmation_handler
-        result = call_ai_terminal_tool(
-            tool_name,
-            project_root,
-            kwargs,
-            allow_protected=tool_name == "apply_debug_patch_after_approval",
-        )
+        if before_tool_call is not None:
+            before_tool_call(tool_name, kwargs)
+        try:
+            result = call_ai_terminal_tool(
+                tool_name,
+                project_root,
+                kwargs,
+                allow_protected=tool_name == "apply_debug_patch_after_approval",
+            )
+        except Exception as error:
+            if after_tool_call is not None:
+                after_tool_call(tool_name, kwargs, {"ok": False, "error": str(error)})
+            raise
         if after_tool_call is not None:
             after_tool_call(tool_name, kwargs, result)
         return json.dumps(result, ensure_ascii=False, indent=2)

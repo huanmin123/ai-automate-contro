@@ -15,7 +15,6 @@ Options:
 
 Environment:
   PYTHON                  Python interpreter path, same as --python.
-  EXECUTABLE_NAME         Output executable file name. Defaults to "aic"; do not include a path.
   PIP_REQUIRE_VIRTUALENV  Set to false if local pip config requires a virtualenv.
   PIP_BREAK_SYSTEM_PACKAGES
                           Set to 1 for Homebrew Python user/global maintenance when pip enforces PEP 668.
@@ -85,13 +84,7 @@ if sys.version_info < (3, 11):
 PY
 
 platform_name="macos-arm64"
-default_executable_name="aic"
-legacy_executable_name="ai-automate-contro-$platform_name"
-executable_name="${EXECUTABLE_NAME:-$default_executable_name}"
-
-if [[ -z "$executable_name" || "$executable_name" == */* || "$executable_name" == "." || "$executable_name" == ".." || "$executable_name" =~ [[:space:]] ]]; then
-  die "EXECUTABLE_NAME 只能是普通文件名，不能包含路径、空白或特殊目录名：$executable_name"
-fi
+executable_name="aic"
 
 command -v rg >/dev/null 2>&1 || die "分发版 AI 终端依赖 ripgrep (rg)。macOS 可先执行：brew install ripgrep"
 
@@ -115,7 +108,6 @@ run_checked env PLAYWRIGHT_BROWSERS_PATH=0 "$python_bin" -m playwright install c
 out_dir="$repo_root/out"
 package_dir="$out_dir/ai-automate-contro"
 zip_path="$out_dir/ai-automate-contro-$platform_name.zip"
-legacy_executable_path="$out_dir/$legacy_executable_name"
 build_temp_root="${TMPDIR:-/tmp}/ai-automate-contro-pyinstaller"
 build_dir="$build_temp_root/$platform_name"
 pyinstaller_dist_dir="$build_dir/dist"
@@ -136,7 +128,7 @@ if [ -f "$package_plans_config_path" ]; then
 fi
 
 if [ "$clean" -eq 1 ]; then
-  rm -rf "$build_dir" "$package_dir" "$zip_path" "$legacy_executable_path"
+  rm -rf "$build_dir" "$package_dir" "$zip_path"
 fi
 
 rm -rf "$build_dir" "$package_dir" "$zip_path"
@@ -179,11 +171,13 @@ env PYINSTALLER_CONFIG_DIR="$pyinstaller_config_dir" "$python_bin" -m PyInstalle
   --specpath "$build_dir" \
   --paths "$source_dir" \
   --collect-data "playwright" \
+  --collect-data "textual" \
   --collect-submodules "langchain" \
   --collect-submodules "langchain_openai" \
   --collect-submodules "langgraph" \
   --collect-submodules "langgraph.checkpoint.sqlite" \
   --collect-submodules "rich" \
+  --collect-submodules "textual" \
   "$entry_point"
 
 restore_browsers
@@ -250,6 +244,7 @@ if [ "$smoke_test" -eq 1 ]; then
   (
     cd "$package_dir"
     run_checked "./$executable_name" self-check ai-stream
+    run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" self-check ai-terminal
     run_checked "./$executable_name" self-check runtime
     run_checked "./$executable_name" tool check
@@ -312,6 +307,7 @@ if [ "$smoke_test" -eq 1 ]; then
   (
     cd "$zip_smoke_dir/ai-automate-contro"
     run_checked "./$executable_name" self-check runtime
+    run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" tool check
     run_checked "./$executable_name" plan validate --file "./plans/demo/plan.json"
     run_checked "./$executable_name" plan run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"

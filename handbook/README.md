@@ -14,7 +14,7 @@
 - 真实网页流程不能凭描述猜 selector；先用页面证据，再写浏览器步骤。
 - 所有运行产物都写入当前 plan 包的 `output/`，输出动作的 `path` 不要以 `output/` 开头。
 - 主 `plan.json` 是唯一入口；复用流程时只调用同包 `sub-plans/*-plan.json`。
-- 需要人工登录、验证码、二次验证或权限确认时，使用人工确认流程，不要绕过安全机制。
+- 需要人工登录、验证码、二次验证或权限确认时，使用 `open_browser.headed=true` 的自动化浏览器加 `manual_confirm` 交接；用户必须在同一个 Playwright 浏览器窗口里操作，不要让用户另开本机浏览器。
 - 修改已有 plan 时优先做最小 JSON 路径修改；调试修复先进入调试工作区，再生成补丁。
 - 不要把完整日志、大型产物或整本手册塞进上下文；先看目录，再按 action 精确读取。
 
@@ -29,7 +29,6 @@
 - `actions/control-flow/`: 子计划、条件、循环和重试。
 - `actions/io/`: 读取和写入文件。
 - `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、coverage、trace 和睡眠。
-- `browser-capability-roadmap.md`: 浏览器能力已落地范围和后续 backlog。
 
 ## 写作约束
 
