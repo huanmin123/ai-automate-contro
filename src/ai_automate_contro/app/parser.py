@@ -74,6 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
     self_check_subparsers.add_parser("env", help="检查本地客户端环境依赖。")
     self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
+    self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
     self_check_subparsers.add_parser("ai-stream", help="检查本地 chat completions 流式解析。")
     self_check_subparsers.add_parser("ai-terminal", help="检查 AI 终端会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")

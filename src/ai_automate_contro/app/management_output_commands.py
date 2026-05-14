@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from collections import deque
+from pathlib import Path
+
 from ai_automate_contro.plans.artifacts import list_output_artifacts
 
 
@@ -43,8 +46,7 @@ class OutputCommandsMixin:
         if not log_path.exists():
             self.poutput(f"未找到日志：{log_path}")
             return
-        lines = log_path.read_text(encoding="utf-8").splitlines()
-        for line in lines[-line_count:]:
+        for line in _tail_text_lines(log_path, line_count):
             self.poutput(line)
 
     def do_events(self, arg: str) -> None:
@@ -66,8 +68,7 @@ class OutputCommandsMixin:
         if not events_path.exists():
             self.poutput(f"未找到事件文件：{events_path}")
             return
-        lines = events_path.read_text(encoding="utf-8").splitlines()
-        for line in lines[-line_count:]:
+        for line in _tail_text_lines(events_path, line_count):
             self.poutput(line)
 
     def do_artifacts(self, arg: str) -> None:
@@ -104,3 +105,11 @@ class OutputCommandsMixin:
             return
         for artifact in artifacts:
             self.poutput(f"{artifact.relative_path} | {artifact.size} 字节")
+
+
+def _tail_text_lines(path: Path, line_count: int) -> list[str]:
+    lines: deque[str] = deque(maxlen=line_count)
+    with path.open("r", encoding="utf-8", errors="replace") as file:
+        for raw_line in file:
+            lines.append(raw_line.rstrip("\r\n"))
+    return list(lines)

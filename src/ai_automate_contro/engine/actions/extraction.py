@@ -63,7 +63,7 @@ def _extract_table_value(executor: Any, step: dict[str, Any]) -> list[Any]:
     headers: list[str] = []
 
     if include_header and step.get("header_selector"):
-        header_locator = page.locator(step["header_selector"])
+        header_locator = executor._locator_for_selector(step, step["header_selector"], index_field="header_index")
         headers = [item.strip() for item in header_locator.all_inner_texts()]
 
     rows: list[Any] = []

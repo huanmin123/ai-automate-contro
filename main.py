@@ -16,10 +16,23 @@ def configure_terminal_encoding() -> None:
 def resolve_project_root(source_root: Path) -> Path:
     raw_project_root = os.environ.get("AI_AUTOMATE_PROJECT_ROOT")
     if raw_project_root:
-        return Path(raw_project_root).resolve()
+        return Path(normalize_startup_path_text(raw_project_root)).resolve()
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent
     return source_root
+
+
+def normalize_startup_path_text(raw_path: str) -> str:
+    text = raw_path.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {"'", '"'}:
+        text = text[1:-1]
+    if os.name != "nt" and "\\" in text and not _looks_like_windows_absolute_path(text):
+        text = text.replace("\\", "/")
+    return text
+
+
+def _looks_like_windows_absolute_path(text: str) -> bool:
+    return len(text) >= 3 and text[1] == ":" and text[2] in {"\\", "/"}
 
 
 configure_terminal_encoding()

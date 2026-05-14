@@ -48,6 +48,14 @@ test-plans/
 
 运行产物必须落在当前 plan 包的 `output/` 下。组件会自动进入固定分区，例如 `output/screenshots/`、`output/downloads/`、`output/html/`、`output/json/`、`output/text/`、`output/csv/`、`output/storage-states/`、`output/variables/`。
 
+浏览器组件的完整回归入口是：
+
+```powershell
+python .\main.py self-check browser-components
+```
+
+该命令会运行浏览器正向矩阵，并读取 `test-plans/regression/browser-validation-negative/resources/negative-cases.json` 做参数负向校验。
+
 `test-plans/config.json` 当前包含用户提供的临时 AI 测试服务，用于 `test-plans/ai/` 下的真实模型回归。除非用户明确要求，不要删除或迁移；如果密钥过期或需要更换，由用户更新或明确要求移除。
 
 ## 运行示例

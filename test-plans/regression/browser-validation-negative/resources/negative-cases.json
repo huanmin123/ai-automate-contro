@@ -1,0 +1,182 @@
+{
+  "cases": [
+    {
+      "name": "multiple-frame-locators",
+      "expected_message": "只能同时使用一种 frame 定位字段",
+      "plan": {
+        "name": "negative-multiple-frame-locators",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "element",
+            "type": "click",
+            "browser": "main",
+            "frame_selector": "#frame",
+            "frame_name": "details-frame",
+            "selector": "#submit"
+          }
+        ]
+      }
+    },
+    {
+      "name": "coverage-empty-targets",
+      "expected_message": "coverage.start 至少需要启用 js 或 css 之一",
+      "plan": {
+        "name": "negative-coverage-empty-targets",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "coverage",
+            "type": "start",
+            "browser": "main",
+            "js": false,
+            "css": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "websocket-close-code-too-low",
+      "expected_message": "close_code 必须大于或等于 1000",
+      "plan": {
+        "name": "negative-websocket-close-code-too-low",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "network",
+            "type": "route_web_socket",
+            "browser": "main",
+            "url": "wss://fixture.local/ws",
+            "close_code": 999
+          }
+        ]
+      }
+    },
+    {
+      "name": "websocket-server-messages-not-array",
+      "expected_message": "server_messages 必须是数组",
+      "plan": {
+        "name": "negative-websocket-server-messages-not-array",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "network",
+            "type": "route_web_socket",
+            "browser": "main",
+            "url": "wss://fixture.local/ws",
+            "server_messages": "ready"
+          }
+        ]
+      }
+    },
+    {
+      "name": "event-webrtc-not-bool",
+      "expected_message": "webrtc 必须是布尔值",
+      "plan": {
+        "name": "negative-event-webrtc-not-bool",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "event",
+            "type": "start",
+            "browser": "main",
+            "webrtc": "yes"
+          }
+        ]
+      }
+    },
+    {
+      "name": "swipe-steps-zero",
+      "expected_message": "steps 必须大于或等于 1",
+      "plan": {
+        "name": "negative-swipe-steps-zero",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "mouse",
+            "type": "swipe",
+            "browser": "main",
+            "start_x": 0,
+            "start_y": 0,
+            "end_x": 100,
+            "end_y": 0,
+            "steps": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "aria-snapshot-bad-mode",
+      "expected_message": "mode 不支持的取值",
+      "plan": {
+        "name": "negative-aria-snapshot-bad-mode",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "extract",
+            "type": "aria_snapshot",
+            "browser": "main",
+            "selector": "body",
+            "mode": "full",
+            "save_as": "snapshot"
+          }
+        ]
+      }
+    },
+    {
+      "name": "device-not-string",
+      "expected_message": "device 必须是非空字符串",
+      "plan": {
+        "name": "negative-device-not-string",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main",
+            "device": 12
+          }
+        ]
+      }
+    },
+    {
+      "name": "route-har-bad-scope",
+      "expected_message": "scope 不支持的取值",
+      "plan": {
+        "name": "negative-route-har-bad-scope",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "network",
+            "type": "route_from_har",
+            "browser": "main",
+            "path": "resources/replay.har",
+            "scope": "browser"
+          }
+        ]
+      }
+    }
+  ]
+}

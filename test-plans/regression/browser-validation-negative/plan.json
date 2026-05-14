@@ -1,0 +1,10 @@
+{
+  "name": "browser-validation-negative",
+  "variables": {},
+  "steps": [
+    {
+      "action": "print",
+      "message": "Browser validation negative fixtures are checked by self-check browser-components."
+    }
+  ]
+}

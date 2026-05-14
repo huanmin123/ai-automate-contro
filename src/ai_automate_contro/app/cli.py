@@ -90,6 +90,12 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_runtime_config(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "browser-components":
+            from ai_automate_contro.app.browser_component_check import self_check_browser_components
+
+            result = self_check_browser_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-stream":
             from ai_automate_contro.ai.response_parsing import self_check_chat_completion_stream_parser
 
