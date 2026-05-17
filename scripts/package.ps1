@@ -53,6 +53,100 @@ function Invoke-Checked {
     }
 }
 
+function Stop-ExistingPackageProcesses {
+    if ($IsWindows) {
+        $processes = Get-CimInstance Win32_Process | Where-Object {
+            $commandLine = [string]$_.CommandLine
+            $name = [string]$_.Name
+            $pidValue = [int]$_.ProcessId
+            if ($pidValue -eq $PID) {
+                return $false
+            }
+            return (
+                $name -ieq $ExecutableFileName -or
+                $commandLine.Contains($ExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $commandLine.Contains($PackageDir, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $commandLine.Contains("package.ps1", [System.StringComparison]::OrdinalIgnoreCase) -or
+                (
+                    $commandLine.Contains("PyInstaller", [System.StringComparison]::OrdinalIgnoreCase) -and
+                    $commandLine.Contains($BuildTempRoot, [System.StringComparison]::OrdinalIgnoreCase)
+                )
+            )
+        }
+        $ids = @($processes | ForEach-Object { [int]$_.ProcessId } | Sort-Object -Unique)
+        if ($ids.Count -eq 0) {
+            return
+        }
+        Write-Host ("停止旧打包/分发包进程：" + ($ids -join ", "))
+        foreach ($id in $ids) {
+            Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 1
+        return
+    }
+
+    $rows = & ps -axo pid=,command=
+    $ids = @()
+    foreach ($row in $rows) {
+        $line = ([string]$row).Trim()
+        if (-not $line) {
+            continue
+        }
+        $parts = $line -split "\s+", 2
+        if ($parts.Count -lt 2) {
+            continue
+        }
+        $pidValue = 0
+        if (-not [int]::TryParse($parts[0], [ref]$pidValue)) {
+            continue
+        }
+        if ($pidValue -eq $PID) {
+            continue
+        }
+        $commandLine = $parts[1]
+        if (
+            $commandLine.Contains($ExecutablePath, [System.StringComparison]::Ordinal) -or
+            $commandLine.Contains("$PackageDir/", [System.StringComparison]::Ordinal) -or
+            $commandLine.Contains("./$ExecutableFileName", [System.StringComparison]::Ordinal) -or
+            $commandLine.Contains("package.ps1", [System.StringComparison]::Ordinal) -or
+            (
+                $commandLine.Contains("PyInstaller", [System.StringComparison]::Ordinal) -and
+                $commandLine.Contains($BuildTempRoot, [System.StringComparison]::Ordinal)
+            )
+        ) {
+            $ids += $pidValue
+        }
+    }
+    $ids = @($ids | Sort-Object -Unique)
+    if ($ids.Count -eq 0) {
+        return
+    }
+    Write-Host ("停止旧打包/分发包进程：" + ($ids -join ", "))
+    foreach ($id in $ids) {
+        Stop-Process -Id $id -ErrorAction SilentlyContinue
+    }
+    Start-Sleep -Seconds 1
+    foreach ($id in $ids) {
+        Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Remove-PackagePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+    try {
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        return
+    }
+    catch {
+        Stop-ExistingPackageProcesses
+        Start-Sleep -Seconds 1
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+    }
+}
+
 $RepoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 Set-Location $RepoRoot
 
@@ -104,33 +198,15 @@ if (Test-Path -LiteralPath $ExistingPackagePlansConfigPath) {
     Copy-Item -LiteralPath $ExistingPackagePlansConfigPath -Destination $LocalPlansConfigBackupPath -Force
 }
 
-if ($Clean) {
-    if (Test-Path -LiteralPath $BuildDir) {
-        Assert-UnderBuildTemp $BuildDir
-        Remove-Item -LiteralPath $BuildDir -Recurse -Force
-    }
-    if (Test-Path -LiteralPath $PackageDir) {
-        Assert-UnderRepo $PackageDir
-        try {
-            Remove-Item -LiteralPath $PackageDir -Recurse -Force
-        }
-        catch {
-            Write-Warning "分发目录正在被占用，将改为清空目录内容：$PackageDir"
-            Clear-DirectoryContents $PackageDir
-        }
-    }
-    if (Test-Path -LiteralPath $PackageZipPath) {
-        Assert-UnderRepo $PackageZipPath
-        Remove-Item -LiteralPath $PackageZipPath -Force
-    }
-}
-
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+Stop-ExistingPackageProcesses
+Assert-UnderBuildTemp $BuildDir
+Assert-UnderRepo $PackageDir
+Assert-UnderRepo $PackageZipPath
+Remove-PackagePath $BuildDir
+Remove-PackagePath $PackageDir
+Remove-PackagePath $PackageZipPath
 New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
-if (Test-Path -LiteralPath $BuildDir) {
-    Assert-UnderBuildTemp $BuildDir
-    Remove-Item -LiteralPath $BuildDir -Recurse -Force
-}
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
 
 if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
@@ -147,6 +223,10 @@ if ($InstallDependencies) {
 python -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "未安装 PyInstaller。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
+}
+python -c "import textual" 2>$null
+if ($LASTEXITCODE -ne 0) {
+    throw "当前 Python 解释器缺少 textual。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
 }
 
 $previousBrowsersPath = [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "Process")
@@ -175,6 +255,13 @@ try {
         "--collect-submodules", "langgraph.checkpoint.sqlite",
         "--collect-submodules", "rich",
         "--collect-submodules", "textual",
+        "--hidden-import", "ai_automate_contro.client.self_check",
+        "--hidden-import", "ai_automate_contro.client.textual_app",
+        "--hidden-import", "textual.app",
+        "--hidden-import", "textual.containers",
+        "--hidden-import", "textual.css.query",
+        "--hidden-import", "textual.events",
+        "--hidden-import", "textual.widgets",
         $EntryPoint
     )
     Invoke-Checked "python" $pyinstallerArgs
@@ -192,7 +279,8 @@ if (-not (Test-Path -LiteralPath $PyInstallerExecutablePath)) {
     throw "打包已完成，但没有找到可执行文件：$PyInstallerExecutablePath"
 }
 
-Clear-DirectoryContents $PackageDir
+Remove-PackagePath $PackageDir
+New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
 Get-ChildItem -LiteralPath $PyInstallerPackageDir -Force | ForEach-Object {
     Copy-Item -LiteralPath $_.FullName -Destination $PackageDir -Recurse -Force
 }
@@ -270,7 +358,7 @@ if (Test-Path -LiteralPath $PackageDemoOutputDir) {
 }
 
 if (Test-Path -LiteralPath $PackageZipPath) {
-    Remove-Item -LiteralPath $PackageZipPath -Force
+    Remove-PackagePath $PackageZipPath
 }
 Compress-Archive -LiteralPath $PackageDir -DestinationPath $PackageZipPath -Force
 
@@ -307,7 +395,7 @@ if ($null -ne $LocalPlansConfigBackupPath -and (Test-Path -LiteralPath $LocalPla
 
 if (Test-Path -LiteralPath $BuildDir) {
     Assert-UnderBuildTemp $BuildDir
-    Remove-Item -LiteralPath $BuildDir -Recurse -Force
+    Remove-PackagePath $BuildDir
 }
 $BuildRoot = Split-Path -Parent $BuildDir
 if ((Test-Path -LiteralPath $BuildRoot) -and -not (Get-ChildItem -LiteralPath $BuildRoot -Force)) {

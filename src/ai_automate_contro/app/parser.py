@@ -49,7 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser = subparsers.add_parser("plan", help="管理 plan 包。")
     plan_subparsers = plan_parser.add_subparsers(dest="plan_command")
 
-    tool_parser = subparsers.add_parser("tool", help="调用结构化 AI 终端工具。")
+    tool_parser = subparsers.add_parser("tool", help="调用结构化 AI 工具。")
     tool_subparsers = tool_parser.add_subparsers(dest="tool_command")
     tool_subparsers.add_parser("list", help="列出可用的结构化工具。")
     tool_subparsers.add_parser("check", help="检查结构化工具注册表。")
@@ -61,13 +61,22 @@ def build_parser() -> argparse.ArgumentParser:
     tool_call_parser.add_argument("--args-file", help="从 JSON 文件读取工具参数。")
     tool_call_parser.add_argument("--compact", action="store_true", help="输出紧凑 JSON。")
 
-    ai_parser = subparsers.add_parser("ai", help="启动持久化 AI 终端。")
+    ai_parser = subparsers.add_parser("ai", help="启动 Textual AI 客户端。")
     ai_parser.add_argument("--service", default="default", help="配置中的 AI 服务名称。")
-    ai_parser.add_argument("--thread", default="default", help="持久化 AI 终端线程 id。")
+    ai_parser.add_argument("--thread", default="default", help="持久化 AI 会话线程 id。")
     ai_subparsers = ai_parser.add_subparsers(dest="ai_command")
-    ai_ask_parser = ai_subparsers.add_parser("ask", help="发送一条 AI 终端消息并等待结果。")
-    ai_ask_parser.add_argument("--message", required=True, help="要发送给 AI 终端的用户消息。")
+    ai_check_parser = ai_subparsers.add_parser("check", help="发送真实模型请求，诊断 AI 服务连通性。")
+    ai_check_parser.add_argument("--message", default="只回复 ok", help="用于诊断的测试消息。")
+    ai_check_parser.add_argument("--json", action="store_true", help="以 JSON 输出诊断结果。")
+    ai_check_parser.add_argument("--compact", action="store_true", help="配合 --json 输出紧凑 JSON。")
+    ai_ask_parser = ai_subparsers.add_parser("ask", help="发送一条 AI 消息并等待结果。")
+    ai_ask_parser.add_argument("--message", required=True, help="要发送给 AI 的用户消息。")
     ai_ask_parser.add_argument("--json", action="store_true", help="以 JSON 输出完整结果。")
+    ai_ask_parser.add_argument(
+        "--events",
+        action="store_true",
+        help="以 JSONL 实时输出结构化事件，适合真实网站、工具调用和人工确认回归。",
+    )
     ai_ask_parser.add_argument("--compact", action="store_true", help="配合 --json 输出紧凑 JSON。")
 
     self_check_parser = subparsers.add_parser("self-check", help="运行本地确定性自检。")
@@ -77,7 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
     self_check_subparsers.add_parser("textual-client", help="检查 Textual AI 客户端渲染、队列和工具进度。")
     self_check_subparsers.add_parser("ai-stream", help="检查本地 chat completions 流式解析。")
-    self_check_subparsers.add_parser("ai-terminal", help="检查 AI 终端会话、压缩和图片状态。")
+    self_check_subparsers.add_parser("ai-terminal", help="检查 AI 会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")
 
     list_parser = plan_subparsers.add_parser("list", help="列出 plan 包。")

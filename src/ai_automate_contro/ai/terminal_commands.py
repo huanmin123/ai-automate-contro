@@ -29,7 +29,7 @@ from ai_automate_contro.ai.session_store import (
     update_ai_terminal_session_index,
 )
 from ai_automate_contro.ai.terminal_message_utils import message_content_to_text
-from ai_automate_contro.ai.terminal_markdown import normalize_response_render_mode
+from ai_automate_contro.ai.work_plan import format_work_plan_for_terminal
 
 
 COMMAND_SYNTAX_HELP = (
@@ -45,31 +45,37 @@ def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> st
     is_windows = normalized_system == "windows"
     if is_macos:
         send_key = "Enter"
-        newline_ctrl = "Control+J"
+        newline_key = "行尾 \\ 后 Enter"
         close_key = "Control+Q / Control+C"
-        system_note = "当前系统：macOS。下列按键按 macOS 终端习惯显示。"
+        system_note = "当前系统：macOS。下列按键按 Textual 客户端习惯显示。"
+        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
     elif is_windows:
         send_key = "Enter"
-        newline_ctrl = "Ctrl+J"
+        newline_key = "行尾 \\ 后 Enter"
         close_key = "Ctrl+Q / Ctrl+C"
         system_note = "当前系统：Windows。"
+        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
     else:
         send_key = "Enter"
-        newline_ctrl = "Ctrl+J"
+        newline_key = "行尾 \\ 后 Enter"
         close_key = "Ctrl+Q / Ctrl+C"
-        system_note = f"当前系统：{system_name or platform.system() or '未知'}。终端快捷键可能受终端模拟器配置影响。"
+        system_note = f"当前系统：{system_name or platform.system() or '未知'}。客户端快捷键可能受终端模拟器配置影响。"
+        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
 
     return "\n".join(
         [
-            "AI 终端键盘快捷键：",
+            "Textual 客户端键盘快捷键：",
             f"  {system_note}",
             f"  {send_key:<25} 发送当前消息。",
-            f"  {newline_ctrl:<25} 插入换行，跨平台最稳定。",
+            f"  {newline_key:<25} 插入换行。",
+            f"  {'Esc':<25} 中断当前 AI/plan；已有排队消息时立即介入并优先处理。",
             f"  {close_key:<25} 关闭 Textual 客户端。",
             "",
             "输入说明：",
             "  普通 Enter 始终发送消息。",
-            "  需要稳定换行时请用 Ctrl+J。",
+            f"  {newline_note}",
+            "  多行文本从剪贴板粘贴时会保留换行。",
+            "  AI 忙碌时继续发送会进入队列；按 Esc 会把排队内容合并为下一轮介入消息。",
             "  已保存成文件的图片可用 /image <image-path> 添加。",
         ]
     )
@@ -77,11 +83,11 @@ def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> st
 
 class AITerminalCommandsMixin:
     def do_help(self, arg: str) -> None:
-        """查看 AI 终端命令：/help"""
-        self._emit_terminal_output(
+        """查看 AI 会话命令：/help"""
+        self._emit_system_output(
             "\n".join(
                 [
-                    "AI 终端命令：",
+                    "AI 会话命令：",
                     "  /status                         查看当前线程、上下文、checkpoint 和待发送图片。",
                     "  /sessions [limit|all] [--json]  列出已保存会话，不打印完整历史。",
                     "  /resume <thread-id-or-index>    从 sessions 列表恢复会话。",
@@ -89,11 +95,11 @@ class AITerminalCommandsMixin:
                     "  /compress [reason]              压缩并归档当前会话。",
                     "  /history [limit]                只查看最近几条消息。",
                     "  /keyboard                       查看当前系统的键盘快捷键和输入说明。",
-                    "  /render [markdown|plain]        查看或切换 AI 回复显示方式。",
+                    "  /plan 或 /todo                  查看当前 AI 工作计划。",
                     "  /image <image-path>             兜底：把本地图片文件加入下一条消息。",
                     "  /pending | /approve | /reject <reason>  处理受保护补丁审批。",
                     "  /exit 或 /back                  退出当前客户端。",
-                    "  /quit                           退出终端。",
+                    "  /quit                           关闭客户端。",
                     COMMAND_SYNTAX_HELP,
                     "上下文会在选择、运行和调试 plan 时自动更新，通常不需要手动设置。",
                 ]
@@ -101,7 +107,7 @@ class AITerminalCommandsMixin:
         )
 
     def do_status(self, _: str) -> None:
-        """查看当前 AI 终端状态。"""
+        """查看当前 AI 会话状态。"""
         messages = self._current_messages()
         self._sync_current_session_index()
         session = current_ai_terminal_session(self.checkpointer, self.thread_id, project_root=self.project_root)
@@ -116,7 +122,6 @@ class AITerminalCommandsMixin:
             "busy": self._is_agent_busy(),
             "current_turn_text": self._current_turn_text or "",
             "last_error": self._last_error,
-            "response_render_mode": getattr(self, "response_render_mode", "plain"),
             "checkpoint_path": str(self.checkpoint_path),
             "session_index_path": str(session_index_path(self.project_root)),
             "checkpoint": session.to_dict() if session is not None else None,
@@ -134,11 +139,19 @@ class AITerminalCommandsMixin:
             "pending_attachments": [attachment.to_dict() for attachment in self._pending_attachments],
             "context_state": self._context_state(),
         }
-        self._emit_terminal_output(json.dumps(payload, ensure_ascii=False, indent=2))
+        self._emit_system_output(json.dumps(payload, ensure_ascii=False, indent=2))
 
     def do_keyboard(self, _: str) -> None:
-        """查看 AI 终端键盘快捷键。"""
-        self._emit_terminal_output(format_keyboard_shortcuts_for_terminal())
+        """查看 Textual 客户端键盘快捷键。"""
+        self._emit_system_output(format_keyboard_shortcuts_for_terminal())
+
+    def do_plan(self, _: str) -> None:
+        """查看当前 AI 工作计划。"""
+        state_provider = getattr(self, "_work_plan_state", None)
+        state = state_provider() if callable(state_provider) else {}
+        items = state.get("items") if isinstance(state, dict) else []
+        summary = state.get("summary") if isinstance(state, dict) else ""
+        self._emit_system_output(format_work_plan_for_terminal(items, summary=summary))
 
     def do_sessions(self, arg: str) -> None:
         """列出已保存的 AI 会话：/sessions [limit|all] [--json]"""
@@ -164,9 +177,9 @@ class AITerminalCommandsMixin:
             self._emit_error(error)
             return
         if as_json:
-            self._emit_terminal_output(json.dumps([session.to_dict() for session in sessions], ensure_ascii=False, indent=2))
+            self._emit_system_output(json.dumps([session.to_dict() for session in sessions], ensure_ascii=False, indent=2))
             return
-        self._emit_terminal_output(format_sessions_table(sessions))
+        self._emit_system_output(format_sessions_table(sessions))
 
     def do_resume(self, arg: str) -> None:
         """恢复已保存的 AI 会话：/resume <thread-id-or-index>"""
@@ -181,37 +194,25 @@ class AITerminalCommandsMixin:
         self._last_error = ""
         self._clear_pending_attachments()
         session = current_ai_terminal_session(self.checkpointer, self.thread_id, project_root=self.project_root)
-        self._emit_terminal_output(f"AI 终端线程：{self.thread_id}")
+        self._emit_system_output(f"AI 会话线程：{self.thread_id}")
         if session is not None:
-            self._emit_terminal_output(
+            self._emit_system_output(
                 f"消息数={session.message_count} checkpoint 数={session.checkpoint_count} "
                 f"最后时间={session.last_timestamp or '<未知>'}"
             )
 
-    def do_render(self, arg: str) -> None:
-        """查看或设置 AI 回复显示方式：/render [markdown|plain]"""
-        raw = arg.strip().lower()
-        if not raw or raw == "status":
-            self._emit_terminal_output(f"AI 回复显示方式：{getattr(self, 'response_render_mode', 'plain')}")
-            return
-        if raw not in {"markdown", "md", "rich", "plain", "raw", "text"}:
-            self._emit_error("用法：/render [markdown|plain]")
-            return
-        self.response_render_mode = normalize_response_render_mode(raw)
-        self._emit_terminal_output(f"AI 回复显示方式：{self.response_render_mode}")
-
     def do_new(self, arg: str) -> None:
-        """新建 AI 终端线程：/new [thread-id]"""
+        """新建 AI 会话线程：/new [thread-id]"""
         next_thread_id = arg.strip() or make_thread_id("thread")
         self.thread_id = next_thread_id
         self._current_turn_text = None
         self._approval_resume_active = False
         self._last_error = ""
         self._clear_pending_attachments()
-        self._emit_terminal_output(f"AI 终端线程：{self.thread_id}")
+        self._emit_system_output(f"AI 会话线程：{self.thread_id}")
 
     def do_compress(self, arg: str) -> None:
-        """压缩当前 AI 终端会话历史：/compress [reason]"""
+        """压缩当前 AI 会话历史：/compress [reason]"""
         reason = arg.strip() or "manual"
         try:
             result = self._compress_current_thread(reason=reason)
@@ -219,7 +220,7 @@ class AITerminalCommandsMixin:
             self._emit_error(error)
             return
         self._sync_current_session_index()
-        self._emit_terminal_output(json.dumps(result, ensure_ascii=False, indent=2))
+        self._emit_system_output(json.dumps(result, ensure_ascii=False, indent=2))
 
     def do_history(self, arg: str) -> None:
         """查看最近的会话消息：/history [limit]"""
@@ -233,7 +234,7 @@ class AITerminalCommandsMixin:
             return
         messages = self._current_messages()[-limit:]
         if not messages:
-            self._emit_terminal_output("历史记录：<空>")
+            self._emit_system_output("历史记录：<空>")
             return
         for index, message in enumerate(messages, start=1):
             role = type(message).__name__
@@ -243,7 +244,7 @@ class AITerminalCommandsMixin:
                 content = f"tool_calls={calls}"
             if len(content) > 500:
                 content = content[:497] + "..."
-            self._emit_terminal_output(f"{index:02d}. {role}: {content}")
+            self._emit_system_output(f"{index:02d}. {role}: {content}")
 
     def _add_image_file(self, arg: str) -> None:
         command = arg.strip()
@@ -263,7 +264,7 @@ class AITerminalCommandsMixin:
         self._pending_attachments.append(attachment)
         self._pending_attachment_placeholder_required.append(False)
         placeholder = image_attachment_placeholder(len(self._pending_attachments))
-        self._emit_terminal_output(f"已添加图片：{placeholder}。可以继续输入文字。")
+        self._emit_system_output(f"已添加图片：{placeholder}。可以继续输入文字。")
 
     def do_image(self, arg: str) -> None:
         """把图片文件加入下一条 AI 消息：/image <image-path>"""

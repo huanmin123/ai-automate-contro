@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import sys
 import threading
 import warnings
 import re
@@ -53,36 +52,34 @@ from ai_automate_contro.ai.terminal_message_utils import (
     interrupt_action_requests,
     message_content_to_text,
 )
-from ai_automate_contro.ai.terminal_markdown import (
-    normalize_response_render_mode,
-    render_markdown_to_ansi,
-    terminal_supports_rich_markdown,
-)
+from ai_automate_contro.ai.response_parsing import parse_json_response
 from ai_automate_contro.ai.prompts.terminal import build_system_prompt
 from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
-from ai_automate_contro.app.errors import format_error_for_terminal
+from ai_automate_contro.app.errors import format_error_for_terminal, is_external_ai_service_error
 
 
 SLASH_COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.*))?$")
-BUSY_ALLOWED_COMMANDS = {"help", "keyboard", "pending", "status"}
+BUSY_ALLOWED_COMMANDS = {"help", "keyboard", "pending", "plan", "status", "todo"}
+ASK_ONCE_CONFIRMATION_TIMEOUT_SECONDS = 1.5
 SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "approve": {"method": "do_approve", "description": "批准当前等待的受保护补丁操作"},
     "back": {"method": "", "description": "退出当前客户端"},
     "compact": {"method": "do_compress", "description": "压缩并归档当前会话"},
     "compress": {"method": "do_compress", "description": "压缩并归档当前会话"},
     "exit": {"method": "", "description": "退出当前客户端"},
-    "help": {"method": "do_help", "description": "查看 AI 终端命令"},
+    "help": {"method": "do_help", "description": "查看 AI 会话命令"},
     "history": {"method": "do_history", "description": "查看最近几条会话消息"},
     "image": {"method": "do_image", "description": "把图片文件加入下一条消息"},
     "keyboard": {"method": "do_keyboard", "description": "查看键盘快捷键和输入说明"},
     "new": {"method": "do_new", "description": "新建一个会话"},
     "pending": {"method": "do_pending", "description": "查看等待审批的受保护操作"},
-    "quit": {"method": "", "description": "退出终端"},
+    "plan": {"method": "do_plan", "description": "查看当前 AI 工作计划"},
+    "quit": {"method": "", "description": "关闭客户端"},
     "reject": {"method": "do_reject", "description": "拒绝当前等待审批的操作"},
-    "render": {"method": "do_render", "description": "查看或切换 AI 回复渲染方式"},
     "resume": {"method": "do_resume", "description": "恢复已保存的会话"},
     "sessions": {"method": "do_sessions", "description": "列出已保存会话"},
     "status": {"method": "do_status", "description": "查看当前线程、上下文、checkpoint 和待发送图片"},
+    "todo": {"method": "do_plan", "description": "查看当前 AI 工作计划"},
 }
 IMAGE_PLACEHOLDER_RE = re.compile(r"\[(?:图片|Image) #(\d+)\]")
 
@@ -103,17 +100,15 @@ class AITerminal(
         self._current_turn_id: int = 0
         self._cancelled_turn_ids: set[int] = set()
         self._turn_lock = threading.Lock()
-        self._output_lock = threading.Lock()
         self._ai_confirmation_lock = threading.Lock()
         self._ai_confirmation: AIConfirmationWait | None = None
+        self._ask_once_mode = False
+        self._client_event_sink_local = threading.local()
         self._client_event_sink: AITerminalEventSink | None = None
         self._approval_resume_active = False
         self._last_error: str = ""
         self._pending_attachments: list[ImageAttachment] = []
         self._pending_attachment_placeholder_required: list[bool] = []
-        self.response_render_mode = normalize_response_render_mode(
-            self.config.service_config.get("terminal_render_mode", "markdown")
-        )
         self.checkpoint_path = self.project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
@@ -126,6 +121,7 @@ class AITerminal(
             thread_id_provider=lambda: self.thread_id,
             manual_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="manual_confirm"),
             inspection_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="post_run_inspection"),
+            run_event_handler=self._handle_plan_run_event,
         )
         self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(
@@ -153,44 +149,100 @@ class AITerminal(
             ],
             checkpointer=self.checkpointer,
         )
-    def _emit_terminal_output(self, value: Any) -> None:
-        sink = getattr(self, "_client_event_sink", None)
-        if sink is not None:
-            sink(AITerminalEvent("terminal_output", text=str(value)))
-            return
-        print(str(value))
+    def _emit_system_output(self, value: Any) -> None:
+        self._emit_event(AITerminalEvent("system_output", text=str(value)))
 
     def _emit_error(self, msg: object) -> None:
+        text = self.format_error_message(msg)
+        self._last_error = text
+        self._emit_activity("遇到错误，准备停止或等待处理", category="review", phase="failed", source_kind="error")
+        self._emit_event(AITerminalEvent("error", text=text))
+
+    def format_error_message(self, msg: object) -> str:
         text = format_error_for_terminal(msg, project_root=self.project_root)
-        sink = getattr(self, "_client_event_sink", None)
-        if sink is not None:
-            sink(AITerminalEvent("error", text=text))
-            return
-        print(text)
+        if isinstance(msg, BaseException) and is_external_ai_service_error(msg):
+            text = self._format_ai_service_error(text)
+        return text
+
+    def _format_ai_service_error(self, text: str) -> str:
+        service = getattr(self.config, "service_name", "default")
+        service_config = getattr(self.config, "service_config", {})
+        model = service_config.get("model", self.model_name) if isinstance(service_config, dict) else self.model_name
+        base_url = service_config.get("base_url", "") if isinstance(service_config, dict) else ""
+        lines = [text, "", "AI service:"]
+        lines.append(f"  service={service}")
+        lines.append(f"  model={model}")
+        if base_url:
+            lines.append(f"  base_url={base_url}")
+        lines.extend(
+            [
+                "",
+                "这表示请求已经发到配置的 OpenAI-compatible 服务，但服务返回了错误或超时。",
+                "项目不会自动降级、换模型或改协议；请检查服务额度、模型名、base_url、网络和服务状态。",
+            ]
+        )
+        return "\n".join(lines)
 
     @contextmanager
     def client_event_sink(self, sink: AITerminalEventSink) -> Iterator[None]:
-        previous_sink = getattr(self, "_client_event_sink", None)
+        local = getattr(self, "_client_event_sink_local", None)
+        if local is None:
+            local = threading.local()
+            self._client_event_sink_local = local
+        previous_sink = getattr(local, "sink", None)
+        previous_fallback_sink = getattr(self, "_client_event_sink", None)
+        local.sink = sink
         self._client_event_sink = sink
         try:
             yield
         finally:
-            self._client_event_sink = previous_sink
+            if previous_sink is None:
+                try:
+                    del local.sink
+                except AttributeError:
+                    pass
+            else:
+                local.sink = previous_sink
+            self._client_event_sink = previous_fallback_sink
 
-    def run_client_turn(self, line: str, sink: AITerminalEventSink) -> bool:
+    def run_event_turn(self, line: str, sink: AITerminalEventSink) -> bool:
+        """Run one UI client turn and emit structured events to the supplied sink."""
         with self.client_event_sink(sink):
-            original_response_render_mode = self.response_render_mode
-            self.response_render_mode = "plain"
-            try:
-                should_exit = self.handle_input(line)
-            finally:
-                self.response_render_mode = original_response_render_mode
+            self.emit_client_status_snapshot()
+            self._emit_activity("开始处理用户请求", category="thinking", phase="start", source_kind="turn")
+            should_exit = self.handle_input(line)
             if should_exit:
                 self._emit_event(AITerminalEvent("exit_requested", text="已收到退出命令。"))
+            self._emit_activity("本轮事件处理完成", category="review", phase="done", source_kind="turn")
+            self.emit_client_status_snapshot()
             return bool(should_exit)
 
+    def client_status_snapshot(self) -> dict[str, Any]:
+        """Return a small UI-safe status snapshot for agent clients."""
+        try:
+            pending_approval = bool(self._current_interrupts())
+        except Exception:
+            pending_approval = False
+        return {
+            "project_root": str(self.project_root),
+            "service": self.config.service_name,
+            "model": self.model_name,
+            "thread_id": self.thread_id,
+            "busy": self._is_agent_busy(),
+            "pending_approval": pending_approval,
+            "pending_attachments": len(self._pending_attachments),
+            "context_state": self._context_state(),
+            "last_error": self._last_error,
+        }
+
+    def emit_client_status_snapshot(self) -> None:
+        self._emit_event(AITerminalEvent("context_updated", data=self.client_status_snapshot()))
+
     def _emit_event(self, event: AITerminalEvent) -> bool:
-        sink = getattr(self, "_client_event_sink", None)
+        local = getattr(self, "_client_event_sink_local", None)
+        sink = getattr(local, "sink", None) if local is not None else None
+        if sink is None:
+            sink = getattr(self, "_client_event_sink", None)
         if sink is None:
             return False
         sink(event)
@@ -210,14 +262,14 @@ class AITerminal(
                 self._emit_error("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
                 return False
             if self._is_agent_busy():
-                self._emit_error("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+                self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
                 return False
             self.handle_user_request(text)
             return False
         command, arg = parsed_command
         normalized = command.lower().replace("-", "_")
         if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
-            self._emit_error("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+            self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return False
         if normalized in {"exit", "back"}:
             return True
@@ -249,8 +301,22 @@ class AITerminal(
         with self._ai_confirmation_lock:
             if self._ai_confirmation is not None:
                 raise RuntimeError("AI 模式已有一个等待确认的 plan。")
-            self._ai_confirmation = wait
-        self._emit_terminal_output(_format_ai_confirmation_prompt(wait))
+        self._ai_confirmation = wait
+        self._emit_activity("等待用户确认", category="run", phase="start", source_kind="approval_requested")
+        self._emit_event(AITerminalEvent("approval_requested", text=_format_ai_confirmation_prompt(wait)))
+        if self._ask_once_mode:
+            wait.event.wait(timeout=ASK_ONCE_CONFIRMATION_TIMEOUT_SECONDS)
+            if not wait.event.is_set():
+                wait.accepted = False
+                with self._ai_confirmation_lock:
+                    if self._ai_confirmation is wait:
+                        self._ai_confirmation = None
+                raise RuntimeError(
+                    "当前 AI 请求已经启动需要人工确认的可见 Playwright 浏览器流程。"
+                    "脚本化 ai ask 不会等待人工操作，也不能在进程结束后保留可继续接管的浏览器。"
+                    "请在 Textual 客户端里重新发起这类需要人工介入的任务，"
+                    "并在同一个正在运行的客户端和 Playwright 浏览器窗口中完成操作后回复“继续”。"
+                )
         wait.event.wait()
         with self._ai_confirmation_lock:
             if self._ai_confirmation is wait:
@@ -265,14 +331,14 @@ class AITerminal(
         if decision == "approve":
             wait.accepted = True
             wait.event.set()
-            self._emit_terminal_output("确认：已理解为继续。")
+            self._emit_system_output("确认：已理解为继续。")
             return True
         if decision == "reject":
             wait.accepted = False
             wait.event.set()
-            self._emit_terminal_output("确认：已理解为停止。")
+            self._emit_system_output("确认：已理解为停止。")
             return True
-        self._emit_terminal_output("确认：我还不能确定你的意思。请直接说明是继续还是停止。")
+        self._emit_system_output("确认：我还不能确定你的意思。请直接说明是继续还是停止。")
         return True
 
     def _classify_ai_confirmation_reply(self, text: str, wait: "AIConfirmationWait") -> str:
@@ -294,7 +360,7 @@ class AITerminal(
             ]
             response = self.model.invoke(messages)
             raw = message_content_to_text(getattr(response, "content", response))
-            parsed = json.loads(raw)
+            parsed = parse_json_response(raw)
             decision = str(parsed.get("decision", "")).strip().lower()
             if decision in {"approve", "reject", "unclear"}:
                 return decision
@@ -326,16 +392,16 @@ class AITerminal(
         method_name = command_spec["method"] if command_spec else None
         if method_name:
             if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
-                self._emit_error("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+                self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
                 return True
             getattr(self, method_name)(arg)
             return True
-        self._emit_error(f"未知 AI 终端命令：/{command}")
+        self._emit_error(f"未知 AI 会话命令：/{command}")
         return True
 
     def _run_agent_turn(self, text: str) -> None:
         if self._is_agent_busy():
-            self._emit_error("AI 终端正在处理上一轮请求；请等待当前回复完成。")
+            self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return
         text, attachments = self._prepare_input_attachments(text)
         with self._turn_lock:
@@ -344,7 +410,7 @@ class AITerminal(
             self._current_turn_text = text
         self._emit_user_message(text)
         try:
-            final_state, streamed = self._invoke_agent_text_streaming(text, attachments)
+            final_state, streamed = self._invoke_agent_text_streaming(text, attachments, turn_id=turn_id)
         except KeyboardInterrupt:
             self._finish_agent_turn(turn_id, error="AI 回复已被用户中断。")
             self._emit_error("AI 回复已被用户中断。")
@@ -370,23 +436,31 @@ class AITerminal(
         if last_message:
             self._emit_assistant_message(last_message)
 
-    def ask_once(self, text: str) -> dict[str, Any]:
+    def ask_once(self, text: str, event_sink: AITerminalEventSink | None = None) -> dict[str, Any]:
         """发送一条消息并等待 LangGraph agent 完成。"""
         normalized = text.strip()
         if not normalized:
             raise ValueError("ai ask 需要一条非空消息。")
         if self._is_agent_busy():
-            raise RuntimeError("AI 终端正在处理上一轮请求；请等待当前轮次结束后再使用 ai ask。")
+            raise RuntimeError("AI 正在处理上一轮请求；请等待当前轮次结束后再使用 ai ask。")
         if self._current_interrupts():
-            raise RuntimeError("AI 终端有等待审批的操作；请进入交互式线程后 approve 或 reject。")
+            raise RuntimeError("AI 会话有等待审批的操作；请进入 Textual 客户端后输入 /approve 或 /reject。")
 
+        previous_ask_once_mode = self._ask_once_mode
+        self._ask_once_mode = True
         normalized, attachments = self._prepare_input_attachments(normalized)
-        try:
-            final_state = self._invoke_agent_text(normalized, attachments)
-        except Exception as error:
-            self._last_error = str(error)
-            self._sync_current_session_index()
-            raise
+        with self.client_event_sink(event_sink) if event_sink is not None else _null_event_sink():
+            self.emit_client_status_snapshot()
+            self._emit_activity("开始处理脚本化 AI 请求", category="thinking", phase="start", source_kind="turn")
+            try:
+                final_state = self._invoke_agent_text(normalized, attachments)
+            except Exception as error:
+                self._last_error = str(error)
+                self._sync_current_session_index()
+                self._emit_error(error)
+                raise
+            finally:
+                self._ask_once_mode = previous_ask_once_mode
 
         if attachments:
             self._clear_pending_attachments()
@@ -421,27 +495,30 @@ class AITerminal(
         self,
         text: str,
         attachments: list[ImageAttachment],
+        *,
+        turn_id: int,
     ) -> tuple[dict[str, Any], bool]:
         message = HumanMessage(
             content=build_human_message_content(text, attachments),
             additional_kwargs=build_human_message_additional_kwargs(attachments),
         )
-        return self._invoke_graph_streaming({"messages": [message]})
+        return self._invoke_graph_streaming({"messages": [message]}, turn_id=turn_id)
 
-    def _invoke_graph_streaming(self, graph_input: Any) -> tuple[dict[str, Any], bool]:
+    def _invoke_graph_streaming(self, graph_input: Any, *, turn_id: int | None = None) -> tuple[dict[str, Any], bool]:
         final_state: dict[str, Any] | None = None
         streamed = False
         suppress_stream_output = False
         indicator = self._start_thinking_indicator()
-        markdown_chunks: list[str] | None = [] if self._should_render_final_markdown() else None
         try:
             for event in self.graph.stream(
                 graph_input,
                 config=self._graph_config(),
                 stream_mode=["messages", "values"],
             ):
-                if self._current_agent_turn_cancelled():
+                if self._stream_turn_cancelled(turn_id):
                     suppress_stream_output = True
+                    if turn_id is not None:
+                        break
                 mode, payload = _split_stream_event(event)
                 if mode == "values" and isinstance(payload, dict):
                     final_state = payload
@@ -460,16 +537,11 @@ class AITerminal(
                     self._stop_thinking_indicator(indicator)
                     indicator = None
                     streamed = True
-                if markdown_chunks is not None:
-                    markdown_chunks.append(chunk_text)
-                else:
-                    self._stream_response_text(chunk_text)
+                self._stream_response_text(chunk_text)
         finally:
             if indicator is not None:
                 self._stop_thinking_indicator(indicator)
-        if streamed and markdown_chunks is not None and not suppress_stream_output:
-            self._emit_assistant_message("".join(markdown_chunks))
-        elif streamed and markdown_chunks is None:
+        if streamed and not suppress_stream_output:
             self._stream_response_newline()
         if final_state is None:
             state = self.graph.get_state(self._graph_config())
@@ -493,24 +565,11 @@ class AITerminal(
         self._pending_attachment_placeholder_required.clear()
 
     def _emit_user_message(self, text: str) -> None:
-        if getattr(self, "_client_event_sink", None) is not None:
-            return
-        self._emit_terminal_output(str(text))
+        return
 
     def _emit_assistant_message(self, text: str) -> None:
         if self._emit_event(AITerminalEvent("assistant_delta", text=str(text))):
             self._emit_event(AITerminalEvent("assistant_done"))
-            return
-        if self._should_render_final_markdown():
-            print(render_markdown_to_ansi(text), end="")
-            return
-        self._emit_terminal_output(text)
-
-    def _should_render_final_markdown(self) -> bool:
-        return (
-            getattr(self, "response_render_mode", "plain") == "markdown"
-            and terminal_supports_rich_markdown()
-        )
 
     def close(self) -> None:
         wait: AIConfirmationWait | None = None
@@ -550,11 +609,22 @@ class AITerminal(
         return True
 
     def _current_agent_turn_cancelled(self) -> bool:
+        return self._agent_turn_cancelled(None)
+
+    def _stream_turn_cancelled(self, turn_id: int | None) -> bool:
+        if turn_id is None:
+            checker = getattr(self, "_current_agent_turn_cancelled", None)
+            if callable(checker):
+                return bool(checker())
+        return self._agent_turn_cancelled(turn_id)
+
+    def _agent_turn_cancelled(self, turn_id: int | None) -> bool:
         lock = getattr(self, "_turn_lock", None)
         if lock is None:
             return False
         with lock:
-            return self._current_turn_id in self._cancelled_turn_ids
+            target_turn_id = self._current_turn_id if turn_id is None else turn_id
+            return target_turn_id in self._cancelled_turn_ids
 
     def _command_allowed_while_busy(self, line: str) -> bool:
         text = str(line).rstrip()
@@ -572,37 +642,75 @@ class AITerminal(
         return self._command_allowed_while_busy(line)
 
     def _stream_response_text(self, text: str) -> None:
-        if self._emit_event(AITerminalEvent("assistant_delta", text=str(text))):
-            return
-        lock = getattr(self, "_output_lock", None)
-        if lock is None:
-            print(text, end="", flush=True)
-            return
-        with lock:
-            print(text, end="", flush=True)
+        self._emit_event(AITerminalEvent("assistant_delta", text=str(text)))
 
     def _stream_response_newline(self) -> None:
-        if self._emit_event(AITerminalEvent("assistant_done")):
-            return
-        lock = getattr(self, "_output_lock", None)
-        if lock is None:
-            print("", flush=True)
-            return
-        with lock:
-            print("", flush=True)
+        self._emit_event(AITerminalEvent("assistant_done"))
 
     def _start_thinking_indicator(self) -> Any:
-        if self._emit_event(AITerminalEvent("status", text="正在思考")):
-            return None
-        if not sys.stdout.isatty():
-            return None
-        indicator = _ThinkingIndicator(lock=getattr(self, "_output_lock", threading.Lock()))
-        indicator.start()
-        return indicator
+        self._emit_event(AITerminalEvent("status", text="正在思考"))
+        return None
 
     def _stop_thinking_indicator(self, indicator: Any) -> None:
         if indicator is not None:
             indicator.stop()
+
+
+def check_ai_terminal_service(
+    project_root: Path,
+    *,
+    service: str = "default",
+    thread_id: str = "ai-check",
+    message: str = "只回复 ok",
+) -> dict[str, Any]:
+    """Send one real AI request through the same terminal path used by the Textual client."""
+    terminal: AITerminal | None = None
+    try:
+        terminal = AITerminal(project_root, service=service, thread_id=thread_id)
+        result = terminal.ask_once(message)
+        return {
+            "ok": True,
+            "check": "ai_terminal_service",
+            "service": terminal.config.service_name,
+            "model": terminal.model_name,
+            "thread_id": terminal.thread_id,
+            "assistant_message": result.get("assistant_message", ""),
+            "pending_approval": bool(result.get("pending_approval")),
+            "checkpoint_path": result.get("checkpoint_path", ""),
+            "context_state": result.get("context_state", {}),
+        }
+    except Exception as error:
+        if terminal is not None:
+            formatted_error = terminal.format_error_message(error)
+            model = terminal.model_name
+            resolved_service = terminal.config.service_name
+            service_config = terminal.config.service_config
+        else:
+            formatted_error = format_error_for_terminal(error, project_root=project_root)
+            model = ""
+            resolved_service = service
+            service_config = {}
+        base_url = service_config.get("base_url", "") if isinstance(service_config, dict) else ""
+        return {
+            "ok": False,
+            "check": "ai_terminal_service",
+            "service": resolved_service,
+            "model": model,
+            "base_url": base_url,
+            "thread_id": thread_id,
+            "error_type": type(error).__name__,
+            "error": str(error),
+            "formatted_error": formatted_error,
+        }
+    finally:
+        if terminal is not None:
+            terminal.close()
+
+
+@contextmanager
+def _null_event_sink() -> Iterator[None]:
+    yield
+
 
 @dataclass
 class AIConfirmationWait:
@@ -620,7 +728,12 @@ class AIConfirmationWait:
 
 def _format_ai_confirmation_prompt(wait: AIConfirmationWait) -> str:
     label = "运行后检查" if wait.wait_type == "post_run_inspection" else "人工确认"
-    return f"[{label}] {wait.prompt}\n你可以直接用自然语言回复，我会判断是继续还是停止。"
+    guidance = "你可以直接用自然语言回复，我会判断是继续还是停止。"
+    if wait.wait_type == "manual_confirm":
+        guidance = "请在当前已经打开的 Playwright 浏览器窗口完成操作；完成后回到这里输入“继续”，要停止就输入“停止”。"
+    elif wait.wait_type == "post_run_inspection":
+        guidance = "请检查当前 Playwright 浏览器窗口和运行产物；确认通过后输入“继续”，要停止就输入“停止”。"
+    return f"[{label}] {wait.prompt}\n{guidance}"
 
 
 def classify_ai_confirmation_reply(text: str) -> str:
@@ -700,38 +813,6 @@ def classify_ai_confirmation_reply(text: str) -> str:
     if any(token in normalized for token in approve_tokens):
         return "approve"
     return "unclear"
-
-
-class _ThinkingIndicator:
-    frames = ("正在思考", "正在思考.", "正在思考..", "正在思考...")
-
-    def __init__(self, *, lock: threading.Lock) -> None:
-        self.lock = lock
-        self.stop_event = threading.Event()
-        self.thread = threading.Thread(target=self._run, name="ai-terminal-thinking-indicator", daemon=True)
-        self.started = False
-
-    def start(self) -> None:
-        self.thread.start()
-
-    def stop(self) -> None:
-        self.stop_event.set()
-        self.thread.join(timeout=1)
-        if self.started:
-            self._clear_line()
-
-    def _run(self) -> None:
-        frame_index = 0
-        while not self.stop_event.is_set():
-            with self.lock:
-                print(f"\r{self.frames[frame_index % len(self.frames)]:<32}", end="", flush=True)
-            self.started = True
-            frame_index += 1
-            self.stop_event.wait(0.35)
-
-    def _clear_line(self) -> None:
-        with self.lock:
-            print("\r" + " " * 32 + "\r", end="", flush=True)
 
 
 def _parse_slash_command(text: str) -> tuple[str, str] | None:

@@ -26,6 +26,9 @@ def execute_plan(
     manual_confirmation_handler: Callable[[str], bool] | None = None,
     inspection_confirmation_handler: Callable[[str], bool] | None = None,
     run_context_handler: Callable[[Path, RunLogger], None] | None = None,
+    interrupt_checker: Callable[[], bool] | None = None,
+    run_event_handler: Callable[[dict[str, Any]], None] | None = None,
+    log_echo: bool = True,
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
     resolved_plan_path = path_from_text(plan_path).resolve() if plan_path else None
@@ -45,7 +48,7 @@ def execute_plan(
     if not _is_relative_to(resolved_output_dir, package_output_dir):
         raise ValueError(f"运行输出目录必须位于当前 plan 包 output 目录内：{package_output_dir}")
     ensure_directory(resolved_output_dir)
-    logger = RunLogger(resolved_output_dir)
+    logger = RunLogger(resolved_output_dir, echo=log_echo, event_callback=run_event_handler)
     if run_context_handler is not None:
         run_context_handler(resolved_output_dir, logger)
     state_writer = RunStateWriter(
@@ -82,12 +85,17 @@ def execute_plan(
             package_dir=plan_dir,
             variables=variables,
             manual_confirmation_handler=manual_confirmation_handler,
+            interrupt_checker=interrupt_checker,
         )
         state.state_writer.mark_started()
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
         executor = ActionExecutor(state)
         try:
             executor.run(plan.get("steps", []))
+        except KeyboardInterrupt as error:
+            status = "stopped"
+            error_message = str(error) or "用户中断。"
+            caught_error = None
         except BaseException as error:
             status = "failed"
             error_message = str(error)

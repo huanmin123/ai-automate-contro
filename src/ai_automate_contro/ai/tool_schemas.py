@@ -25,7 +25,7 @@ class InspectWebPageArgs(ToolArgsModel):
 
 class GrepProjectTextArgs(ToolArgsModel):
     pattern: str = Field(..., description="要用 ripgrep 搜索的文本或正则表达式。")
-    root_path: str = Field(default=".", description="要搜索的项目相对目录或文件。")
+    root_path: str = Field(default=".", description="要搜索的项目相对目录或文件；查 handbook action 时先用 handbook/actions 或 handbook/README.md 定位，不要猜 handbook/actions/<action>。")
     literal: bool = Field(default=True, description="使用固定字符串搜索，而不是正则表达式。")
     include_output: bool = Field(default=False, description="只有明确需要时才包含 plan output/ 目录。")
     file_glob: str = Field(default="", description="可选 ripgrep glob，例如 *.md 或 **/*.json。")
@@ -56,6 +56,23 @@ class ReadCompressionArchiveArgs(ToolArgsModel):
     max_archives: int = Field(default=20, description="list 模式最多返回归档数；工具会限制到较小上限。")
 
 
+class WorkPlanItemArgs(ToolArgsModel):
+    title: str = Field(..., description="用户可见的短步骤标题，不写隐藏推理。")
+    status: Literal["pending", "in_progress", "completed"] = Field(
+        ...,
+        description="步骤状态；同一计划最多一个 in_progress。",
+    )
+    note: str = Field(default="", description="可选短说明，只写客观进展、阻塞或验收信息。")
+
+
+class UpdateWorkPlanArgs(ToolArgsModel):
+    items: list[WorkPlanItemArgs] = Field(
+        ...,
+        description="完整替换当前可见工作计划。简单任务可以不调用；复杂任务通常 3-7 步，最多一个 in_progress。",
+    )
+    summary: str = Field(default="", description="可选一句话概括当前目标或阶段。传空列表可清空计划。")
+
+
 class ReadPlanPackageArgs(ToolArgsModel):
     plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
@@ -70,7 +87,10 @@ class WritePlanPackageFileArgs(ToolArgsModel):
     plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
     relative_path: str = Field(..., description="plan 包内允许写入的路径：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。")
     content: str | None = Field(default=None, description="要写入的文本内容。")
-    json_value: Any = Field(default=None, description="写入 plan/config/sub-plan JSON 文件时可替代 content 的 JSON 值。")
+    json_value: Any = Field(
+        default=None,
+        description="写入 plan/config/sub-plan JSON 文件时可替代 content 的 JSON 值。浏览器 plan 必须使用当前 action 字段，例如 wait.type=time + seconds 表示固定等待，aria_snapshot.mode 只能是 default 或 ai。",
+    )
     mode: str = Field(default="overwrite", description="写入模式：overwrite 或 append。")
 
 

@@ -15,12 +15,12 @@ class AITerminalApprovalMixin:
         """查看等待人工审批的请求。"""
         interrupts = self._current_interrupts()
         if not interrupts:
-            self._emit_terminal_output("等待审批：<无>")
+            self._emit_system_output("approval queue empty")
             return
         self._print_interrupts(interrupts)
 
     def do_approve(self, _: str) -> None:
-        """批准等待中的补丁应用请求，并恢复 AI 终端图执行。"""
+        """批准等待中的补丁应用请求，并恢复 AI 图执行。"""
         interrupts = self._current_interrupts()
         if not interrupts:
             self._emit_error("当前没有等待审批的操作。")
@@ -33,7 +33,7 @@ class AITerminalApprovalMixin:
             self._approval_resume_active = False
 
     def do_reject(self, arg: str) -> None:
-        """拒绝等待中的补丁应用请求，并恢复 AI 终端图执行：reject [reason]"""
+        """拒绝等待中的补丁应用请求，并恢复 AI 图执行：reject [reason]"""
         interrupts = self._current_interrupts()
         if not interrupts:
             self._emit_error("当前没有等待审批的操作。")
@@ -55,4 +55,4 @@ class AITerminalApprovalMixin:
         messages = list(final_state["messages"])
         last_message = self._last_assistant_message(messages)
         if last_message:
-            self._emit_terminal_output(last_message)
+            self._emit_assistant_message(last_message)

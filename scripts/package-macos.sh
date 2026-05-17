@@ -30,6 +30,103 @@ run_checked() {
   "$@"
 }
 
+stop_existing_package_processes() {
+  "$python_bin" - "$repo_root" "$package_dir" "$executable_path" "$build_temp_root" "$executable_name" <<'PY'
+import os
+import signal
+import subprocess
+import sys
+import time
+
+repo_root = os.path.realpath(sys.argv[1])
+package_dir = os.path.realpath(sys.argv[2])
+executable_path = os.path.realpath(sys.argv[3])
+build_temp_root = os.path.realpath(sys.argv[4])
+executable_name = sys.argv[5]
+
+
+def ancestor_pids(pid: int) -> set[int]:
+    result = {pid}
+    while pid > 1:
+        try:
+            output = subprocess.check_output(["ps", "-o", "ppid=", "-p", str(pid)], text=True).strip()
+            parent = int(output or "0")
+        except Exception:
+            break
+        if parent <= 1 or parent in result:
+            break
+        result.add(parent)
+        pid = parent
+    return result
+
+
+current_tree = ancestor_pids(os.getpid())
+try:
+    rows = subprocess.check_output(["ps", "-axo", "pid=,comm=,command="], text=True)
+except Exception:
+    rows = ""
+
+pids: list[int] = []
+for row in rows.splitlines():
+    parts = row.strip().split(None, 2)
+    if len(parts) < 2:
+        continue
+    try:
+        pid = int(parts[0])
+    except ValueError:
+        continue
+    if pid in current_tree:
+        continue
+    comm = os.path.basename(parts[1])
+    command = parts[2] if len(parts) >= 3 else ""
+    matches_packaged_process = (
+        comm == executable_name
+        or executable_path in command
+        or f"{package_dir}/" in command
+        or command.startswith(f"./{executable_name} ")
+        or command == f"./{executable_name}"
+    )
+    matches_stale_packager = (
+        "package-macos.sh" in command
+        or ("PyInstaller" in command and build_temp_root in command)
+        or (repo_root in command and build_temp_root in command)
+    )
+    if matches_packaged_process or matches_stale_packager:
+        pids.append(pid)
+
+if not pids:
+    raise SystemExit(0)
+
+print("停止旧打包/分发包进程：" + ", ".join(str(pid) for pid in sorted(set(pids))))
+for pid in sorted(set(pids)):
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+time.sleep(1.0)
+for pid in sorted(set(pids)):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        continue
+    try:
+        os.kill(pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+PY
+}
+
+remove_existing_path() {
+  local target_path="$1"
+  [ -e "$target_path" ] || [ -L "$target_path" ] || return 0
+  if rm -rf "$target_path"; then
+    return 0
+  fi
+  stop_existing_package_processes
+  sleep 1
+  rm -rf "$target_path"
+}
+
 install_dependencies=0
 clean=0
 smoke_test=0
@@ -70,8 +167,13 @@ cd "$repo_root"
 [ "$(uname -m)" = "arm64" ] || die "macOS 打包目前只支持 Apple Silicon arm64，当前架构：$(uname -m)"
 
 if [ -z "$python_bin" ]; then
-  command -v python3 >/dev/null 2>&1 || die "PATH 中没有找到 python3。"
-  python_bin="$(command -v python3)"
+  if command -v python >/dev/null 2>&1; then
+    python_bin="$(command -v python)"
+  elif command -v python3 >/dev/null 2>&1; then
+    python_bin="$(command -v python3)"
+  else
+    die "PATH 中没有找到 python 或 python3。"
+  fi
 fi
 
 [ -x "$python_bin" ] || die "Python 不可执行：$python_bin"
@@ -95,12 +197,23 @@ if [ "$install_dependencies" -eq 1 ]; then
 fi
 
 run_checked "$python_bin" - <<'PY'
-try:
-    import PyInstaller  # noqa: F401
-except Exception as exc:
+from importlib.util import find_spec
+
+missing = []
+for name in ("PyInstaller", "textual"):
+    spec = find_spec(name)
+    if spec is None:
+        missing.append(name)
+        continue
+    if name == "textual" and not spec.submodule_search_locations:
+        missing.append(name)
+if missing:
     raise SystemExit(
-        "未安装 PyInstaller。请执行：./scripts/package-macos.sh --install-dependencies --clean --smoke-test"
-    ) from exc
+        "当前 Python 解释器缺少打包依赖："
+        + ", ".join(missing)
+        + "。请执行：./scripts/package-macos.sh --install-dependencies --clean --smoke-test，"
+        + "或用 --python 指向已安装项目依赖的解释器。"
+    )
 PY
 
 run_checked env PLAYWRIGHT_BROWSERS_PATH=0 "$python_bin" -m playwright install chromium
@@ -127,11 +240,10 @@ if [ -f "$package_plans_config_path" ]; then
   cp "$package_plans_config_path" "$local_plans_config_backup"
 fi
 
-if [ "$clean" -eq 1 ]; then
-  rm -rf "$build_dir" "$package_dir" "$zip_path"
-fi
-
-rm -rf "$build_dir" "$package_dir" "$zip_path"
+stop_existing_package_processes
+remove_existing_path "$build_dir"
+remove_existing_path "$package_dir"
+remove_existing_path "$zip_path"
 mkdir -p "$build_dir" "$package_dir"
 
 browser_dir="$("$python_bin" - <<'PY'
@@ -178,6 +290,13 @@ env PYINSTALLER_CONFIG_DIR="$pyinstaller_config_dir" "$python_bin" -m PyInstalle
   --collect-submodules "langgraph.checkpoint.sqlite" \
   --collect-submodules "rich" \
   --collect-submodules "textual" \
+  --hidden-import "ai_automate_contro.client.self_check" \
+  --hidden-import "ai_automate_contro.client.textual_app" \
+  --hidden-import "textual.app" \
+  --hidden-import "textual.containers" \
+  --hidden-import "textual.css.query" \
+  --hidden-import "textual.events" \
+  --hidden-import "textual.widgets" \
   "$entry_point"
 
 restore_browsers
@@ -186,7 +305,7 @@ trap - EXIT
 pyinstaller_package_dir="$pyinstaller_dist_dir/$executable_name"
 [ -d "$pyinstaller_package_dir" ] || die "打包已完成，但没有找到 PyInstaller 输出目录：$pyinstaller_package_dir"
 
-rm -rf "$package_dir"
+remove_existing_path "$package_dir"
 mkdir -p "$package_dir"
 cp -R "$pyinstaller_package_dir/." "$package_dir/"
 [ -f "$executable_path" ] || die "打包复制已完成，但没有找到可执行文件：$executable_path"
@@ -322,7 +441,7 @@ if [ -n "$local_plans_config_backup" ] && [ -f "$local_plans_config_backup" ]; t
   printf '已恢复 out/ai-automate-contro/plans/config.json 的本地配置；zip 内仍使用示例配置。\n'
 fi
 
-rm -rf "$build_dir"
+remove_existing_path "$build_dir"
 if [ -d "$build_temp_root" ] && [ -z "$(find "$build_temp_root" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
   rmdir "$build_temp_root"
 fi

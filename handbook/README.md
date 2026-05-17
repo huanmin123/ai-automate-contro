@@ -30,6 +30,17 @@
 - `actions/io/`: 读取和写入文件。
 - `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、coverage、trace 和睡眠。
 
+常用 action 精确路径：
+
+- `navigate`: `actions/navigation/navigate.md`
+- `element`: `actions/interaction/element.md`
+- `wait`: `actions/navigation/wait.md`
+- `assert`: `actions/navigation/assert.md`
+- `extract`: `actions/data/extract.md`
+- `read`: `actions/io/read.md`
+- `write`: `actions/io/write.md`
+- `manual_confirm`: `actions/utility/manual_confirm.md`
+
 ## 写作约束
 
 - 组件名就是 step 的 `action`。

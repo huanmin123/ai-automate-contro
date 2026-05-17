@@ -43,6 +43,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ReadRunLogArgs,
     RunDebugPlanArgs,
     RunPlanArgs,
+    UpdateWorkPlanArgs,
     ValidateDebugPlanArgs,
     ValidatePlanArgs,
     WriteDebugWorkspaceFileArgs,
@@ -86,7 +87,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "write_plan_package_file": ToolSpec(
         write_plan_package_file_tool,
         WritePlanPackageFileArgs,
-        "创建 plan 时写入受控文件：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。",
+        "创建 plan 时写入受控文件：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。写浏览器步骤时按当前 handbook 字段：固定等待使用 wait.type=time + seconds，不存在 wait.type=timeout；extract.type=aria_snapshot 的 mode 只能是 default 或 ai。页面里已有表格、列表、文本时优先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 做确定性提取，不要先用 ai action 重猜。写完 plan 后必须 validate_plan 通过再运行。",
         requires_project_root=True,
     ),
     "find_debug_workspace": ToolSpec(
@@ -102,7 +103,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "grep_project_text": ToolSpec(
         grep_project_text_tool,
         GrepProjectTextArgs,
-        "用 ripgrep 渐进式搜索项目文本，再按需读取文件片段。",
+        "用 ripgrep 渐进式搜索项目文本，再按需读取文件片段；路径不存在时会返回候选路径供继续修正。",
         requires_project_root=True,
     ),
     "inject_debug_steps": ToolSpec(
@@ -186,6 +187,11 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         ReadCompressionArchiveArgs,
         "受限读取当前 AI 终端线程的压缩归档：列出归档、读取摘要、搜索或读取 messages.jsonl 小片段。",
         requires_project_root=True,
+    ),
+    "update_work_plan": ToolSpec(
+        terminal_tools.update_work_plan_tool,
+        UpdateWorkPlanArgs,
+        "更新当前用户可见工作计划。复杂、多步骤、会修改文件或会运行 plan 的任务必须先维护计划；简单问答可以不调用。",
     ),
     "read_run_events": ToolSpec(
         terminal_tools.read_run_events_tool,
@@ -271,7 +277,7 @@ def call_ai_terminal_tool(
     raw_arguments = dict(arguments or {})
     injected_arguments: dict[str, Any] = {}
     if tool_name in {"run_plan", "run_debug_plan"}:
-        for key in ("_manual_confirmation_handler", "_inspection_confirmation_handler"):
+        for key in ("_manual_confirmation_handler", "_inspection_confirmation_handler", "_run_event_handler"):
             if key in raw_arguments:
                 injected_arguments[key] = raw_arguments.pop(key)
     tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, raw_arguments)

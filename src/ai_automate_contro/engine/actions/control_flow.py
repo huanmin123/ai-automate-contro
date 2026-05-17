@@ -65,7 +65,7 @@ def action_retry(executor: Any, step: dict[str, Any]) -> None:
             executor.state.logger.log("warning", "retry failed", attempt=attempt, error=str(error))
             if attempt < attempts:
                 for session in executor.state.sessions.values():
-                    session.require_page().wait_for_timeout(int(wait_seconds * 1000))
+                    executor._wait_for_timeout(session.require_page(), int(wait_seconds * 1000))
     if last_error is not None:
         raise last_error
 

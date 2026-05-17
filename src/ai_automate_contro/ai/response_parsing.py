@@ -24,6 +24,11 @@ def parse_json_response(raw_text: str) -> Any:
 
 
 def extract_chat_completion_stream_text(response: Any) -> tuple[str, dict[str, Any]]:
+    if isinstance(response, str):
+        raw_text = response
+        if not raw_text.strip():
+            raise ValueError("AI 服务返回了流式响应，但没有文本内容。")
+        return raw_text, {"stream": True, "chunks": [{"raw_text": raw_text}]}
     chunks: list[str] = []
     raw_chunks: list[Any] = []
     for event in response:
@@ -61,6 +66,11 @@ def extract_responses_text(raw_response: dict[str, Any]) -> str:
 
 
 def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
+    if isinstance(response, str):
+        raw_text = response
+        if not raw_text.strip():
+            raise ValueError("AI 服务响应消息没有文本内容。")
+        return raw_text, {"response_type": "raw_text", "content": raw_text}
     raw_response = model_dump(response)
     choices = _get_response_field(response, raw_response, "choices")
     if not isinstance(choices, list) or not choices:
@@ -116,6 +126,16 @@ def self_check_chat_completion_stream_parser() -> dict[str, Any]:
             passed=object_stream_text == '{"label":"valid"}'
             and parse_json_response(object_stream_text) == {"label": "valid"}
             and len(object_stream_raw["chunks"]) == 2,
+        )
+    )
+
+    raw_string_text, raw_string_raw = extract_chat_completion_text('{"mode":"raw-string"}')
+    checks.append(
+        _self_check_result(
+            name="raw_string_chat_completion_response",
+            passed=raw_string_text == '{"mode":"raw-string"}'
+            and parse_json_response(raw_string_text) == {"mode": "raw-string"}
+            and raw_string_raw.get("response_type") == "raw_text",
         )
     )
 

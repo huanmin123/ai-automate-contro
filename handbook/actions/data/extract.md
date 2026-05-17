@@ -41,6 +41,10 @@ frame 定位支持：
 | `css` | `property` | 元素计算样式属性值 |
 | `aria_snapshot` | 可选 `depth`、`mode`、`timeout` | 元素的 Playwright ARIA snapshot |
 
+`aria_snapshot.mode` 只能写 `default` 或 `ai`。需要更适合模型阅读的快照时用 `ai`，不要写旧示例或其他库里可能出现的 `interesting`。
+
+如果目标数据已经是页面里的可见列表、表格、文本块或一组同类元素，优先使用 `extract.table`、`extract.all_texts`、`extract.text` 或配合 `script.evaluate` 做确定性提取，不要先把整页文本扔给 `ai` action 重新猜一遍。
+
 ## 示例
 
 ```json

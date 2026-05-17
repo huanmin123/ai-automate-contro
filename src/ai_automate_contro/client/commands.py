@@ -18,9 +18,14 @@ class ClientCommandSpec:
 
 
 LOCAL_COMMANDS: dict[str, str] = {
+    "check": "检查当前 AI 服务真实连通性",
+    "clear": "清空当前屏幕对话",
+    "copy-last": "把最近一条 AI 回复写入本地剪贴板文件",
     "details": "切换工具调用细节显示",
     "export": "导出当前可见对话为 Markdown：/export [path]",
     "help": "查看客户端、plan 管理和 AI 会话命令",
+    "plan": "查看当前 AI 工作计划",
+    "todo": "查看当前 AI 工作计划",
 }
 
 AI_SESSION_COMMANDS: dict[str, str] = {
@@ -36,7 +41,6 @@ AI_SESSION_COMMANDS: dict[str, str] = {
     "pending": "查看等待审批的受保护操作",
     "quit": "关闭客户端",
     "reject": "拒绝当前等待审批的操作",
-    "render": "查看或切换 AI 回复渲染方式",
     "resume": "恢复已保存的 AI 会话",
     "sessions": "列出已保存 AI 会话",
 }
@@ -59,7 +63,7 @@ def all_client_commands() -> list[ClientCommandSpec]:
     return sorted(commands.values(), key=lambda command: (command.name != "help", command.name))
 
 
-def client_command_suggestions(text: str, *, limit: int = 8) -> list[ClientCommandSpec]:
+def client_command_suggestions(text: str, *, limit: int = 40) -> list[ClientCommandSpec]:
     raw = str(text)
     if not raw.startswith("/") or "\n" in raw:
         return []

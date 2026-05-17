@@ -83,6 +83,10 @@ def format_error_for_terminal(error: BaseException | object, *, project_root: Pa
     return f"错误：{text}"
 
 
+def is_external_ai_service_error(error: BaseException) -> bool:
+    return _is_external_ai_service_error(error)
+
+
 def _print_user_facing_error(error: UserFacingError) -> None:
     for line in _user_facing_error_lines(error):
         print(line, file=sys.stderr)
@@ -146,7 +150,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：当前没有等待审批的操作。",
             "处理办法：",
-            "  只有 AI 终端请求应用受保护补丁时，才需要 approve 或 reject。",
+            "  只有 AI 请求应用受保护补丁时，才需要 /approve 或 /reject。",
         ]
     if lowered == "limit must be greater than 0":
         return ["错误：数量必须大于 0。"]
@@ -154,7 +158,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return ["错误：行数必须大于 0。"]
     if lowered.startswith("unknown ai terminal command:"):
         return [
-            f"错误：未知 AI 终端命令：{text.split(':', 1)[1].strip()}",
+            f"错误：未知 AI 会话命令：{text.split(':', 1)[1].strip()}",
             "处理办法：",
             "  输入 /help 查看支持的命令。",
         ]
@@ -166,7 +170,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         ]
     if lowered.startswith("ai terminal is busy"):
         return [
-            "错误：AI 终端正在处理上一轮请求。",
+            "错误：AI 正在处理上一轮请求。",
             "处理办法：",
             "  等待当前回复完成后再输入下一句。",
             "  如果当前等待不想继续，按 Ctrl+C 中断。",
@@ -175,13 +179,13 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：当前运行正在等待浏览器检查结束。",
             "处理办法：",
-            "  输入 close 关闭浏览器并结束运行。",
+            "  在 Textual 客户端输入 /close 关闭浏览器并结束运行。",
         ]
     if lowered.startswith("pending approval"):
         return [
             "错误：当前有补丁审批等待处理。",
             "处理办法：",
-            "  输入 approve 应用补丁，或输入 reject <reason> 拒绝。",
+            "  输入 /approve 应用补丁，或输入 /reject <reason> 拒绝。",
         ]
     if lowered.startswith("debug workspace does not exist:"):
         return [
@@ -199,7 +203,15 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             f"错误：已有 plan 正在运行或等待：{text.split(':', 1)[1].strip()}",
             "处理办法：",
-            "  先等待当前 run 结束；如果在 manual_confirm 等待中，可用 continue 或 stop。",
+            "  先等待当前 run 结束；如果正在等待人工确认，可在 Textual 客户端输入 /continue 或 /stop。",
+        ]
+    if lowered.startswith("unsupported ai sdk response object:"):
+        object_type = text.split(":", 1)[1].strip() or "unknown"
+        return [
+            f"错误：AI 服务返回了当前协议不支持的响应对象：{object_type}",
+            "处理办法：",
+            "  检查 ai_services.* 的 base_url、api 和 response_format 是否真的兼容 OpenAI-compatible 接口。",
+            "  如果服务实际直接返回纯文本或 JSON 字符串，请升级到当前版本后重试；仍失败时查看 output/ai/ 下的原始响应产物。",
         ]
     if lowered.startswith("no current plan selected"):
         return [

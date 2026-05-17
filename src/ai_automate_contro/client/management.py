@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.ai.terminal_tool_registry import call_ai_terminal_tool
+from ai_automate_contro.ai.terminal_state import _format_plan_run_event
 from ai_automate_contro.app.errors import format_error_for_terminal
 from ai_automate_contro.client.events import ClientEvent
 from ai_automate_contro.debug.workspace import (
@@ -33,8 +34,8 @@ from ai_automate_contro.support.paths import resolve_path_text
 MANAGEMENT_COMMANDS: dict[str, str] = {
     "ai": "发送一条 AI 消息：/ai <message>",
     "artifacts": "列出当前 plan 输出产物",
-    "close": "关闭 post-run inspection 等待并结束运行",
-    "continue": "继续 manual_confirm 等待的运行",
+    "close": "关闭运行后检查并结束运行",
+    "continue": "继续当前等待的 plan 运行",
     "create": "创建 plan 包：/create <dir> [name]",
     "current": "查看当前 plan 和变量覆盖",
     "debug": "管理调试工作区：/debug create|prepare|list|fix|inject|patch|apply",
@@ -49,7 +50,7 @@ MANAGEMENT_COMMANDS: dict[str, str] = {
     "report": "查看最近 report.md",
     "run": "运行当前 plan",
     "status": "查看当前运行或最近运行状态",
-    "stop": "停止 manual_confirm 等待的运行",
+    "stop": "停止当前等待的 plan 运行",
     "use": "选择 plan 包：/use <plan.json-or-package-dir>",
     "validate": "校验当前或指定 plan",
     "var": "管理本轮变量覆盖",
@@ -76,12 +77,14 @@ class ClientManagementController:
     def is_management_input(self, message: str) -> bool:
         stripped = message.strip()
         if not stripped.startswith("/"):
-            return False
+            return self._waiting_confirmation_command(stripped) is not None
         command, _ = _parse_command(stripped)
         return command in MANAGEMENT_COMMANDS
 
     def handle(self, message: str) -> list[ClientEvent]:
-        command, arg = _parse_command(message.strip())
+        stripped = message.strip()
+        waiting_command = self._waiting_confirmation_command(stripped)
+        command, arg = (waiting_command, "") if waiting_command is not None else _parse_command(stripped)
         try:
             if command in {"exit", "quit"}:
                 return [ClientEvent("exit_requested", text="正在关闭")]
@@ -93,8 +96,22 @@ class ClientManagementController:
             return [self._error(error)]
 
     def can_handle_during_turn(self, message: str) -> bool:
-        command, _ = _parse_command(message.strip())
+        stripped = message.strip()
+        waiting_command = self._waiting_confirmation_command(stripped)
+        command, _ = (waiting_command, "") if waiting_command is not None else _parse_command(stripped)
         return command in {"status", "continue", "close", "stop"}
+
+    def interrupt_active_run(self) -> ClientEvent | None:
+        self._sync_active_run()
+        if self.active_run is None:
+            return None
+        self.active_run.request_interrupt()
+        return ClientEvent("interrupted", text=f"已请求中断当前 plan 运行：{self.active_run.status}")
+
+    def drain_progress_events(self) -> list[ClientEvent]:
+        if self.active_run is None:
+            return []
+        return _plan_progress_events(self.active_run.drain_events())
 
     def _command_help(self, _: str) -> list[ClientEvent]:
         lines = ["管理命令："]
@@ -430,11 +447,23 @@ class ClientManagementController:
         workspace = find_debug_workspace(plan_path, parts[0] if parts else None)
         self._capture_debug_workspace(workspace)
         result = generate_debug_patch(workspace["root"])
-        output = [_json(result.to_dict())]
+        payload = result.to_dict()
+        events = [self._output(_json(payload))]
         patch_text = Path(result.patch_path).read_text(encoding="utf-8")
         if patch_text.strip():
-            output.append(patch_text)
-        return [self._output("\n".join(output))]
+            events.append(
+                ClientEvent(
+                    "diff",
+                    title="debug patch",
+                    text=_format_debug_patch_event(payload, patch_text),
+                    data={
+                        "patch_path": str(result.patch_path),
+                        "changed_files": result.changed_files,
+                        "applied": result.applied,
+                    },
+                )
+            )
+        return events
 
     def _debug_apply(self, plan_path: Path, parts: list[str]) -> list[ClientEvent]:
         positionals, options = _parse_debug_options(
@@ -447,7 +476,24 @@ class ClientManagementController:
         workspace = find_debug_workspace(plan_path, positionals[0] if positionals else None)
         self._capture_debug_workspace(workspace)
         result = apply_debug_patch(workspace["root"], yes=True)
-        return [self._output(_json(result.to_dict()))]
+        payload = result.to_dict()
+        events = [self._output(_json(payload))]
+        for relative_path in result.changed_files:
+            events.append(
+                ClientEvent(
+                    "file_changed",
+                    title="debug apply",
+                    text=f"文件 应用 · {relative_path} · debug patch",
+                    data={
+                        "action": "applied",
+                        "relative_path": relative_path,
+                        "path": relative_path,
+                        "detail": "debug patch",
+                        "result": payload,
+                    },
+                )
+            )
+        return events
 
     def context_update(self) -> dict[str, str]:
         update: dict[str, str] = {}
@@ -459,6 +505,29 @@ class ClientManagementController:
         if output_dir is not None:
             update["latest_output_dir"] = str(output_dir)
         return update
+
+    def status_snapshot(self) -> dict[str, Any]:
+        self._sync_active_run()
+        active_status = ""
+        waiting_type = ""
+        if self.active_run is not None:
+            active_status = str(self.active_run.status)
+            waiting_type = str(getattr(self.active_run, "waiting_type", "") or "")
+        elif self.last_plan_result is not None:
+            active_status = str(self.last_plan_result.status)
+        elif self.last_run_error is not None:
+            active_status = "error"
+        return {
+            "current_plan_path": str(self.current_plan_path) if self.current_plan_path is not None else "",
+            "current_debug_workspace": (
+                str(self.current_debug_workspace) if self.current_debug_workspace is not None else ""
+            ),
+            "latest_output_dir": str(self._resolve_latest_output_dir() or ""),
+            "variables": len(self.variables),
+            "active_run_status": active_status,
+            "active_run_waiting_type": waiting_type,
+            "has_run_error": self.last_run_error is not None,
+        }
 
     def _capture_debug_workspace_from_result(self, result: dict[str, Any]) -> None:
         workspace = result.get("workspace") if isinstance(result, dict) else None
@@ -505,7 +574,7 @@ class ClientManagementController:
                 return [self._error(self.last_run_error)]
             return [self._output("运行状态：<无>")]
         if self.active_run.status == "waiting":
-            suffix = "输入 /close 关闭浏览器并结束。" if self.active_run.waiting_type == "post_run_inspection" else "输入 /continue 继续，或 /stop 停止。"
+            suffix = "直接回复“继续”关闭浏览器并结束，或回复“停止”。" if self.active_run.waiting_type == "post_run_inspection" else "直接回复“继续”继续，或回复“停止”。"
             return [
                 ClientEvent(
                     "approval_requested",
@@ -529,9 +598,14 @@ class ClientManagementController:
             return events
         while self.active_run.is_alive() and self.active_run.status == "running":
             self.active_run.join(timeout=0.1)
+            events.extend(_plan_progress_events(self.active_run.drain_events()))
             if self.active_run.is_alive() and self.active_run.status == "running":
                 events.append(ClientEvent("status", text="plan 正在运行"))
+        if self.active_run is not None:
+            events.extend(_plan_progress_events(self.active_run.drain_events()))
         self._sync_active_run()
+        if self.active_run is not None:
+            events.extend(_plan_progress_events(self.active_run.drain_events()))
         return events
 
     def _sync_active_run(self) -> None:
@@ -542,8 +616,19 @@ class ClientManagementController:
             self.last_run_error = None
         if self.active_run.error is not None:
             self.last_run_error = self.active_run.error
-        if self.active_run.status in {"passed", "failed"} and self.active_run.result is not None:
+        if self.active_run.status in {"passed", "failed", "stopped"} and self.active_run.result is not None:
             self.active_run = None
+
+    def _waiting_confirmation_command(self, text: str) -> str | None:
+        self._sync_active_run()
+        if self.active_run is None or self.active_run.status != "waiting":
+            return None
+        decision = _classify_confirmation_text(text)
+        if decision == "approve":
+            return "close" if self.active_run.waiting_type == "post_run_inspection" else "continue"
+        if decision == "reject":
+            return "stop"
+        return None
 
     def _read_latest_state(self) -> dict[str, Any] | None:
         output_dir = self._resolve_latest_output_dir()
@@ -552,8 +637,19 @@ class ClientManagementController:
         state_path = output_dir / "state.json"
         if not state_path.exists():
             return None
-        with state_path.open("r", encoding="utf-8") as file:
-            return json.load(file)
+        raw_text = state_path.read_text(encoding="utf-8")
+        try:
+            value = json.loads(raw_text)
+        except json.JSONDecodeError:
+            decoder = json.JSONDecoder()
+            text = raw_text.lstrip()
+            if not text:
+                return None
+            try:
+                value, _ = decoder.raw_decode(text)
+            except json.JSONDecodeError:
+                return None
+        return value if isinstance(value, dict) else None
 
     def _resolve_latest_output_dir(self) -> Path | None:
         self._sync_active_run()
@@ -583,7 +679,7 @@ class ClientManagementController:
         return self.current_plan_path
 
     def _output(self, text: str) -> ClientEvent:
-        return ClientEvent("terminal_output", text=text)
+        return ClientEvent("system_output", text=text)
 
     def _error(self, error: object) -> ClientEvent:
         return ClientEvent("error", text=format_error_for_terminal(error, project_root=self.project_root))
@@ -605,6 +701,90 @@ def _split_args(text: str) -> list[str]:
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def _format_debug_patch_event(payload: dict[str, Any], patch_text: str) -> str:
+    patch_path = payload.get("patch_path") or ""
+    changed_files = payload.get("changed_files") if isinstance(payload.get("changed_files"), list) else []
+    parts = ["diff"]
+    if patch_path:
+        parts.append(str(patch_path))
+    if changed_files:
+        parts.append("files=" + ", ".join(str(item) for item in changed_files[:6]))
+        if len(changed_files) > 6:
+            parts.append("...")
+    header = " · ".join(parts)
+    body = patch_text.rstrip()
+    return f"{header}\n{body}" if body else header
+
+
+def _plan_progress_events(events: list[dict[str, Any]]) -> list[ClientEvent]:
+    result: list[ClientEvent] = []
+    for event in events:
+        text = _format_plan_run_event(event)
+        if text:
+            result.append(ClientEvent("plan_progress", text=text, title="run_plan", data={"event": event}))
+    return result
+
+
+def _classify_confirmation_text(text: str) -> str:
+    normalized = "".join(str(text or "").strip().lower().split())
+    if not normalized:
+        return "unclear"
+    reject_tokens = (
+        "不要继续",
+        "别继续",
+        "不继续",
+        "不能继续",
+        "不要",
+        "不行",
+        "不可以",
+        "不同意",
+        "有问题",
+        "不对",
+        "停止",
+        "终止",
+        "取消",
+        "算了",
+        "停",
+        "退出",
+        "否",
+        "no",
+        "stop",
+        "cancel",
+        "abort",
+        "quit",
+        "exit",
+    )
+    approve_tokens = (
+        "继续",
+        "接着",
+        "下一步",
+        "确认",
+        "可以",
+        "没问题",
+        "通过",
+        "同意",
+        "好了",
+        "好",
+        "行",
+        "完成",
+        "完成了",
+        "开始",
+        "执行",
+        "yes",
+        "y",
+        "ok",
+        "go",
+        "continue",
+        "proceed",
+        "done",
+    )
+    if any(token in normalized for token in reject_tokens):
+        return "reject"
+    if any(token in normalized for token in approve_tokens):
+        return "approve"
+    return "unclear"
 
 
 def _parse_debug_options(

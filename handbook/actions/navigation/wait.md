@@ -22,6 +22,8 @@
 | `element_state` | `state` | 等待语义定位或 selector 对应元素状态 |
 | `function` | `js` | 等待页面 JS 条件返回真值 |
 
+没有 `type: timeout`。固定等 2 秒应写 `type: time` 加 `seconds: 2`，条件等待不要用固定等待代替。
+
 包含 `selector`、`url`、`text`、`expected`、`state` 或 `js` 的等待必须显式写非 `time` 的 `type`。这样可以避免把本来想写成条件等待的步骤静默执行成固定等待。
 
 ## 可选字段

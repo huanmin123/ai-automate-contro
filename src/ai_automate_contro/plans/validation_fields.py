@@ -36,6 +36,14 @@ def validate_type_field(
     if not allowed_types:
         return
     step_type = step.get("type")
+    if action == "wait" and step_type == "timeout":
+        issues.append(
+            ValidationIssue(
+                location,
+                "不支持的 wait.type：timeout。固定等待请写 type=time 并使用 seconds，例如 {\"action\":\"wait\",\"type\":\"time\",\"browser\":\"main\",\"seconds\":2}；条件等待请使用 selector、url、text、count、load_state、element_state 或 function。",
+            )
+        )
+        return
     if action == "wait" and (step_type is None or step_type == "time") and _has_non_time_wait_fields(step):
         issues.append(
             ValidationIssue(
@@ -430,6 +438,14 @@ def _validate_extract_fields(
     if step_type == "aria_snapshot":
         _validate_int(step, "timeout", location, issues, minimum=0)
         _validate_int(step, "depth", location, issues, minimum=0)
+        if step.get("mode") == "interesting":
+            issues.append(
+                ValidationIssue(
+                    location,
+                    "aria_snapshot.mode 不支持 interesting；只能使用 default 或 ai。需要模型友好的快照时请写 mode=ai，普通快照可省略或写 default。",
+                )
+            )
+            return
         _validate_enum(step, "mode", {"ai", "default"}, location, issues)
 
 

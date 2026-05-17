@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
@@ -79,8 +80,19 @@ class RunStateWriter:
 
     def _write_unlocked(self) -> None:
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        with self.state_path.open("w", encoding="utf-8") as file:
-            json.dump(self._state, file, ensure_ascii=False, indent=2)
+        serialized = json.dumps(self._state, ensure_ascii=False, indent=2)
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            delete=False,
+            dir=str(self.output_dir),
+            prefix=f".{self.state_path.name}.",
+            suffix=".tmp",
+        ) as tmp_file:
+            tmp_path = Path(tmp_file.name)
+            tmp_file.write(serialized)
+            tmp_file.flush()
+        tmp_path.replace(self.state_path)
 
 
 def _now() -> str:

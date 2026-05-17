@@ -134,6 +134,11 @@ def write_plan_package_file_tool(
         serialized = json.dumps(json_value, ensure_ascii=False, indent=2) + "\n"
     else:
         serialized = str(content)
+        if target_path.suffix.lower() == ".json":
+            try:
+                json.loads(serialized)
+            except json.JSONDecodeError as error:
+                raise ValueError(f"JSON 文件内容格式不正确：{error}") from error
 
     target_path.parent.mkdir(parents=True, exist_ok=True)
     if write_mode == "append":
@@ -174,6 +179,7 @@ def run_plan_tool(
     latest_state_reader: Any | None = None,
     manual_confirmation_handler: Any | None = None,
     inspection_confirmation_handler: Any | None = None,
+    run_event_handler: Any | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     document = load_plan(plan_path)
@@ -189,6 +195,8 @@ def run_plan_tool(
             variable_overrides=variable_overrides or {},
             manual_confirmation_handler=manual_confirmation_handler,
             inspection_confirmation_handler=inspection_confirmation_handler,
+            run_event_handler=run_event_handler,
+            log_echo=run_event_handler is None,
         )
     except Exception as error:
         payload: dict[str, Any] = {

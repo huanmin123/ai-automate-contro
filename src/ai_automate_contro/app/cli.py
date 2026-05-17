@@ -17,7 +17,7 @@ from ai_automate_contro.app.command_helpers import (
     print_validation_result,
     run_plan,
 )
-from ai_automate_contro.app.errors import print_cli_error
+from ai_automate_contro.app.errors import format_error_for_terminal, print_cli_error
 from ai_automate_contro.app.parser import build_parser
 from ai_automate_contro.debug.workspace import (
     apply_debug_patch,
@@ -50,12 +50,50 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "ai":
+        if args.ai_command == "check":
+            from ai_automate_contro.ai.terminal import check_ai_terminal_service
+
+            result = check_ai_terminal_service(
+                project_root,
+                service=args.service,
+                thread_id=f"{args.thread}-service-check",
+                message=args.message,
+            )
+            if args.json:
+                print_json(result, compact=args.compact)
+            elif result.get("ok"):
+                print(f"AI 服务可用：service={result.get('service')} model={result.get('model')}")
+                assistant_message = str(result.get("assistant_message") or "").strip()
+                if assistant_message:
+                    print(f"回复：{assistant_message}")
+            else:
+                print(str(result.get("formatted_error") or result.get("error") or "AI 服务检查失败。"))
+            return 0 if result.get("ok") else 1
         if args.ai_command == "ask":
             from ai_automate_contro.ai.terminal import AITerminal
 
-            app = AITerminal(project_root, service=args.service, thread_id=args.thread)
+            app: AITerminal | None = None
             try:
-                result = app.ask_once(args.message)
+                app = AITerminal(project_root, service=args.service, thread_id=args.thread)
+                event_sink = _print_ai_ask_event_jsonl if args.events else None
+                try:
+                    result = app.ask_once(args.message, event_sink=event_sink)
+                except Exception as error:
+                    if args.json:
+                        print_json(
+                            {
+                                "ok": False,
+                                "thread_id": args.thread,
+                                "error_type": type(error).__name__,
+                                "error": str(error),
+                                "formatted_error": app.format_error_message(error),
+                                "checkpoint_path": str(app.checkpoint_path),
+                                "context_state": app._context_state(),
+                            },
+                            compact=args.compact,
+                        )
+                        return 1
+                    raise
                 if args.json:
                     print_json(result, compact=args.compact)
                 else:
@@ -63,10 +101,30 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
                     if assistant_message:
                         print(assistant_message)
                     if result.get("pending_approval"):
-                        print("[等待审批] 当前需要人工审批。请进入交互终端后输入 approve，或输入 reject <原因>。")
+                        print("approval needed: 请进入 Textual 客户端后输入 /approve，或输入 /reject <原因>。")
                 return 0 if result.get("ok") else 1
+            except Exception as error:
+                if args.json:
+                    payload = {
+                        "ok": False,
+                        "thread_id": args.thread,
+                        "error_type": type(error).__name__,
+                        "error": str(error),
+                        "formatted_error": (
+                            app.format_error_message(error)
+                            if app is not None
+                            else format_error_for_terminal(error, project_root=project_root)
+                        ),
+                    }
+                    if app is not None:
+                        payload["checkpoint_path"] = str(app.checkpoint_path)
+                        payload["context_state"] = app._context_state()
+                    print_json(payload, compact=args.compact)
+                    return 1
+                raise
             finally:
-                app.close()
+                if app is not None:
+                    app.close()
         from ai_automate_contro.client import run_textual_client
 
         run_textual_client(project_root, service=args.service, thread_id=args.thread)
@@ -232,3 +290,13 @@ def _confirm_post_run_inspection(prompt: str) -> bool:
     print(prompt, end="", flush=True)
     input()
     return True
+
+
+def _print_ai_ask_event_jsonl(event: object) -> None:
+    payload = {
+        "event": getattr(event, "kind", ""),
+        "title": getattr(event, "title", ""),
+        "text": getattr(event, "text", ""),
+        "data": getattr(event, "data", {}),
+    }
+    print(json.dumps(payload, ensure_ascii=False), flush=True)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import tempfile
+import threading
 from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
@@ -17,6 +19,7 @@ SESSION_LIST_LIMIT_MAX = 200
 PREVIEW_CHARS = 140
 SESSION_INDEX_SCHEMA_VERSION = 1
 SESSION_INDEX_FILE_NAME = "index.json"
+_SESSION_INDEX_LOCK = threading.Lock()
 
 CONTEXT_STATE_KEYS = (
     "current_plan_path",
@@ -68,14 +71,15 @@ def list_ai_terminal_sessions(
     if project_root is None:
         return _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=resolved_limit)
 
-    indexed_sessions = _read_session_index(project_root)
-    checkpoint_sessions = _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=SESSION_LIST_LIMIT_MAX)
-    if indexed_sessions and not _has_missing_index_entries(indexed_sessions, checkpoint_sessions):
-        return _reindex_sessions(indexed_sessions[:resolved_limit])
-    if not checkpoint_sessions:
-        return _reindex_sessions(indexed_sessions[:resolved_limit])
-    _write_session_index(project_root, checkpoint_sessions)
-    merged_sessions = _merge_session_entries(indexed_sessions, checkpoint_sessions)
+    with _SESSION_INDEX_LOCK:
+        indexed_sessions = _read_session_index(project_root)
+        checkpoint_sessions = _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=SESSION_LIST_LIMIT_MAX)
+        if indexed_sessions and not _has_missing_index_entries(indexed_sessions, checkpoint_sessions):
+            return _reindex_sessions(indexed_sessions[:resolved_limit])
+        if not checkpoint_sessions:
+            return _reindex_sessions(indexed_sessions[:resolved_limit])
+        merged_sessions = _merge_session_entries(indexed_sessions, checkpoint_sessions)
+        _write_session_index(project_root, merged_sessions)
     return _reindex_sessions(merged_sessions[:resolved_limit])
 
 
@@ -91,7 +95,8 @@ def current_ai_terminal_session(
             return indexed
     summary = _current_ai_terminal_session_from_checkpoint(checkpointer, thread_id)
     if summary is not None and project_root is not None:
-        _write_session_index(project_root, _merge_session_entries(_read_session_index(project_root), [summary]))
+        with _SESSION_INDEX_LOCK:
+            _write_session_index(project_root, _merge_session_entries(_read_session_index(project_root), [summary]))
     return summary
 
 
@@ -148,14 +153,16 @@ def update_ai_terminal_session_index(
     summary = _current_ai_terminal_session_from_checkpoint(checkpointer, thread_id)
     if summary is None:
         return None
-    sessions = _merge_session_entries(_read_session_index(project_root), [summary])
-    _write_session_index(project_root, sessions)
+    with _SESSION_INDEX_LOCK:
+        sessions = _merge_session_entries(_read_session_index(project_root), [summary])
+        _write_session_index(project_root, sessions)
     return summary
 
 
 def remove_ai_terminal_session_from_index(project_root: str | Path, thread_id: str) -> None:
-    sessions = [summary for summary in _read_session_index(project_root) if summary.thread_id != thread_id]
-    _write_session_index(project_root, sessions)
+    with _SESSION_INDEX_LOCK:
+        sessions = [summary for summary in _read_session_index(project_root) if summary.thread_id != thread_id]
+        _write_session_index(project_root, sessions)
 
 
 def session_index_path(project_root: str | Path) -> Path:
@@ -278,8 +285,11 @@ def _read_session_index(project_root: str | Path) -> list[AITerminalSessionSumma
     index_path = session_index_path(project_root)
     if not index_path.exists():
         return []
-    with index_path.open("r", encoding="utf-8") as file:
-        payload = json.load(file)
+    try:
+        raw_text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    payload = _load_json_payload(raw_text)
     if not isinstance(payload, dict) or payload.get("version") != SESSION_INDEX_SCHEMA_VERSION:
         return []
     sessions = payload.get("sessions", [])
@@ -303,7 +313,12 @@ def _write_session_index(project_root: str | Path, sessions: list[AITerminalSess
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "sessions": [replace(summary, index=0).to_dict() for summary in _sort_sessions(sessions)],
     }
-    index_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2)
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, dir=str(index_path.parent), prefix=f".{SESSION_INDEX_FILE_NAME}.", suffix=".tmp") as tmp_file:
+        tmp_path = Path(tmp_file.name)
+        tmp_file.write(serialized)
+        tmp_file.flush()
+    tmp_path.replace(index_path)
 
 
 def _session_from_index(project_root: str | Path, thread_id: str) -> AITerminalSessionSummary | None:
@@ -358,6 +373,21 @@ def _summary_from_dict(value: dict[str, Any]) -> AITerminalSessionSummary | None
         latest_assistant_preview=str(value.get("latest_assistant_preview") or ""),
         context_state={str(key): str(item) for key, item in context_state.items() if item},
     )
+
+
+def _load_json_payload(raw_text: str) -> Any:
+    try:
+        return json.loads(raw_text)
+    except json.JSONDecodeError:
+        decoder = json.JSONDecoder()
+        text = raw_text.lstrip()
+        if not text:
+            return None
+        try:
+            value, _ = decoder.raw_decode(text)
+            return value
+        except json.JSONDecodeError:
+            return None
 
 
 def _safe_int(value: Any) -> int:

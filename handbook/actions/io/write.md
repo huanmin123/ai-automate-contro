@@ -17,7 +17,7 @@
 | type | 输出分区 | 数据字段 | 说明 |
 | --- | --- | --- | --- |
 | `json` | `output/json/` | `value` | 把任意 JSON 可序列化值写成 JSON |
-| `text` | `output/text/` | `value` | 把值转成文本写入 |
+| `text` | `output/text/` | `value` | 把值转成文本写入；如果 `value` 是字符串数组或元组，会按一行一个写出并在末尾补换行 |
 | `csv` | `output/csv/` | `value` | 把数组写成 CSV |
 | `variables` | `output/variables/` | 不需要 | 导出当前变量池 |
 
@@ -51,6 +51,17 @@
   "append": true,
   "path": "log.txt",
   "value": "second line\n"
+}
+```
+
+把字符串数组按一行一个写入 TXT：
+
+```json
+{
+  "action": "write",
+  "type": "text",
+  "path": "AI账户.txt",
+  "value": "{{account_names}}"
 }
 ```
 

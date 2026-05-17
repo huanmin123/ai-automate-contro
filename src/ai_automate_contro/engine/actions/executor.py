@@ -45,9 +45,12 @@ class ActionExecutor:
 
     def run(self, steps: list[dict[str, Any]]) -> None:
         for raw_step in steps:
+            self._raise_if_interrupted()
             self._run_step(raw_step)
+            self._raise_if_interrupted()
 
     def _run_step(self, raw_step: dict[str, Any]) -> None:
+        self._raise_if_interrupted()
         action = raw_step["action"]
         if action in {"if", "foreach", "retry"}:
             step = raw_step
@@ -55,12 +58,14 @@ class ActionExecutor:
             step = render_value(raw_step, self.state.variables)
         step_number = self.state.next_step_number()
         step_name = step.get("name", action)
+        step_summary = _step_progress_summary(action, step)
         self.state.logger.log(
             "info",
             f"step {step_number} start",
             step=step_number,
             action=action,
             step_name=step_name,
+            step_summary=step_summary,
         )
         self.state.state_writer.mark_step_started(step=step_number, action=action, step_name=step_name)
         handler = self._resolve_action_handler(action)
@@ -82,6 +87,7 @@ class ActionExecutor:
                 step=step_number,
                 action=action,
                 step_name=step_name,
+                step_summary=step_summary,
                 error=str(error),
             )
             raise
@@ -92,8 +98,23 @@ class ActionExecutor:
             step=step_number,
             action=action,
             step_name=step_name,
+            step_summary=step_summary,
         )
         self.state.state_writer.mark_step_finished(step=step_number, action=action, step_name=step_name)
+
+    def _raise_if_interrupted(self) -> None:
+        checker = getattr(self.state, "interrupt_requested", None)
+        if callable(checker) and checker():
+            raise KeyboardInterrupt("用户中断。")
+
+    def _wait_for_timeout(self, page: Page, milliseconds: int, *, chunk_ms: int = 200) -> None:
+        remaining = max(0, int(milliseconds))
+        while remaining > 0:
+            self._raise_if_interrupted()
+            step_ms = min(remaining, max(1, int(chunk_ms)))
+            page.wait_for_timeout(step_ms)
+            remaining -= step_ms
+        self._raise_if_interrupted()
 
     def _resolve_action_handler(self, action: str) -> Any | None:
         for module in EXTERNAL_ACTION_MODULES:
@@ -203,6 +224,67 @@ def _locator_options(step: dict[str, Any], *allowed_fields: str) -> dict[str, An
         if field in step:
             options[field] = step[field]
     return options
+
+
+def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
+    safe_fields_by_action = {
+        "open_browser": ("name", "headed", "browser_type", "device"),
+        "navigate": ("browser", "page", "type", "url", "wait_until"),
+        "page": ("browser", "type", "page", "url"),
+        "element": (
+            "browser",
+            "page",
+            "type",
+            "selector",
+            "role",
+            "name",
+            "text",
+            "label",
+            "placeholder",
+            "test_id",
+            "key",
+            "index",
+        ),
+        "wait": ("browser", "page", "type", "selector", "text", "url", "timeout_ms", "state"),
+        "capture": ("browser", "page", "type", "path", "full_page"),
+        "read": ("type", "path", "save_as"),
+        "write": ("type", "path"),
+        "assert": ("browser", "page", "type", "selector", "text", "url", "expected"),
+        "extract": ("browser", "page", "type", "selector", "save_as"),
+        "manual_confirm": ("prompt",),
+        "run_sub_plan": ("path",),
+        "sleep": ("seconds",),
+        "ai": ("type", "save_as"),
+    }
+    fields = safe_fields_by_action.get(action, ("type", "browser", "page", "path", "save_as"))
+    parts: list[str] = []
+    for field in fields:
+        if field not in step:
+            continue
+        value = step.get(field)
+        if value is None or value == "":
+            continue
+        if field == "prompt":
+            value = _compact_step_value(value, limit=96)
+        else:
+            value = _compact_step_value(value)
+        if value:
+            parts.append(f"{field}={value}")
+    return ", ".join(parts)
+
+
+def _compact_step_value(value: Any, *, limit: int = 72) -> str:
+    if isinstance(value, (list, tuple)):
+        text = "[" + ", ".join(_compact_step_value(item, limit=24) for item in list(value)[:3]) + "]"
+        if len(value) > 3:
+            text += "..."
+    elif isinstance(value, dict):
+        text = "{...}"
+    else:
+        text = str(value).replace("\n", " ").strip()
+    if len(text) > limit:
+        return text[: max(0, limit - 3)].rstrip() + "..."
+    return text
 
 
 def _frame_by_index(page: Page, index: int) -> Frame:

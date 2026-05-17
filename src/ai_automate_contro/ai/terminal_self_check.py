@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import tempfile
+import threading
+import time
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from typing import Any
 
@@ -187,17 +189,22 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         )
 
         checks.append(_check_terminal_prompt_strategy())
+        checks.append(_check_plan_generation_validation_hints())
         checks.append(_check_terminal_context_suffix_contract())
         checks.extend(_check_session_listing(human_message))
         checks.extend(_check_terminal_command_flow(storage_root, human_message))
         checks.extend(_check_terminal_input_widgets(attachment))
-        checks.append(_check_terminal_markdown_rendering())
         checks.append(_check_terminal_streaming_output())
         checks.append(_check_terminal_streaming_interrupt_drains_safely())
         checks.append(_check_terminal_structured_event_stream())
+        checks.append(_check_ai_ask_once_emits_jsonl_ready_events())
         checks.append(_check_terminal_busy_confirmation_route())
         checks.append(_check_ai_mode_manual_confirmation_dialog())
+        checks.append(_check_ai_ask_once_confirmation_times_out())
         checks.append(_check_terminal_tool_progress_output())
+        checks.append(_check_terminal_work_plan_events())
+        checks.append(_check_terminal_file_change_followup_events())
+        checks.append(_check_terminal_plan_run_progress_output())
         checks.append(_check_missing_ai_config_is_user_facing(temp_dir))
         checks.append(_check_terminal_error_formatting(storage_root))
 
@@ -222,12 +229,25 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "当前自动化浏览器停在哪一步、已有证据、缺口和用户需要在该浏览器里完成的动作",
         "浏览器本地页面优先使用 {{resources_file_url}}",
         "不要硬编码本机绝对 file URL",
+        "`write` 手册固定在 `handbook/actions/io/write.md`",
+        "页面里已经存在的表格、列表、文本块或同类元素",
+        "优先用 `extract.table`、`extract.all_texts`、`extract.text` 或 `script.evaluate` 做确定性提取",
+        "`write.type=text` 可以直接写字符串数组",
         "写最终 plan.json 前必须先跑通流程证据",
         "第一步用 inspect_web_page 获取入口页面证据",
         "open_browser.headed=true",
         "让用户在同一个 Playwright 浏览器窗口里完成操作",
         "不要让用户去自己浏览器打开页面",
         "用户提供的截图或 HTML 只能作为辅助证据",
+        "没有 `wait.type=timeout`",
+        "`extract.type=aria_snapshot`",
+        "`mode` 只能是 `default` 或 `ai`",
+        "必须先调用 validate_plan",
+        "工作计划：",
+        "复杂、多步骤、会创建/修改/运行/debug plan",
+        "执行前必须先调用 update_work_plan",
+        "简单问答、短状态查询、单个只读命令",
+        "同一时间最多一个步骤是 in_progress",
     ]
     missing = [fragment for fragment in required_fragments if fragment not in prompt]
     section_order = [
@@ -260,6 +280,62 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
     )
 
 
+def _check_plan_generation_validation_hints() -> dict[str, Any]:
+    from ai_automate_contro.plans.validator import validate_plan_file
+
+    with TemporaryDirectory(prefix="ai-terminal-plan-hints-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir)
+        package_dir = project_root / "plans" / "guardrail"
+        package_dir.mkdir(parents=True)
+        (package_dir / "config.json").write_text("{}\n", encoding="utf-8")
+        plan_path = package_dir / "plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "guardrail",
+                    "variables": {},
+                    "steps": [
+                        {"action": "open_browser", "name": "main"},
+                        {
+                            "action": "wait",
+                            "type": "timeout",
+                            "browser": "main",
+                            "timeout": 2000,
+                        },
+                        {
+                            "action": "extract",
+                            "type": "aria_snapshot",
+                            "browser": "main",
+                            "selector": "body",
+                            "mode": "interesting",
+                            "save_as": "snapshot",
+                        },
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        result = validate_plan_file(plan_path, project_root)
+
+    messages = [issue.message for issue in result.errors]
+    joined = "\n".join(messages)
+    return _self_check_result(
+        name="plan_generation_validation_hints_are_actionable",
+        passed=(
+            not result.ok
+            and "wait.type：timeout" in joined
+            and "type=time" in joined
+            and "seconds" in joined
+            and "aria_snapshot.mode" in joined
+            and "mode=ai" in joined
+        ),
+        detail={"messages": messages},
+    )
+
+
 def _check_terminal_context_suffix_contract() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal_context import format_ai_terminal_context
 
@@ -272,6 +348,12 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
         "latest_compression_messages_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/messages.jsonl",
         "current_plan_path": "plans/demo/plan.json",
         "latest_compression_summary_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/summary.md",
+        "work_plan_summary": "修复登录计划",
+        "work_plan_items": [
+            {"title": "读取失败证据", "status": "completed"},
+            {"title": "注入调试步骤", "status": "in_progress"},
+            {"title": "生成补丁", "status": "pending"},
+        ],
     }
     context = format_ai_terminal_context(state)
     repeated_context = format_ai_terminal_context(dict(state))
@@ -287,14 +369,35 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
     order_ok = all(position >= 0 for position in positions.values()) and list(positions.values()) == sorted(positions.values())
     ignored_unknown = "ignored_dynamic_noise" not in context and "should not appear" not in context
     guidance_ok = "优先使用这些上下文" in context and "先读取压缩摘要" in context
+    work_plan_ok = (
+        "当前可见工作计划" in context
+        and "修复登录计划" in context
+        and "[in_progress] 注入调试步骤" in context
+    )
+    plan_only_context = format_ai_terminal_context(
+        {
+            "work_plan_items": [{"title": "确认需求", "status": "in_progress"}],
+            "work_plan_summary": "只有计划",
+        }
+    )
     return _self_check_result(
         name="terminal_context_suffix_is_stable_and_bounded",
-        passed=empty_context == "" and context == repeated_context and order_ok and ignored_unknown and guidance_ok,
+        passed=(
+            empty_context == ""
+            and context == repeated_context
+            and order_ok
+            and ignored_unknown
+            and guidance_ok
+            and work_plan_ok
+            and "只有计划" in plan_only_context
+        ),
         detail={
             "empty_context": empty_context,
             "field_positions": positions,
             "ignored_unknown": ignored_unknown,
             "guidance_ok": guidance_ok,
+            "work_plan_ok": work_plan_ok,
+            "plan_only_context": plan_only_context,
         },
     )
 
@@ -338,6 +441,8 @@ def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
 
 
 def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal, check_ai_terminal_service
+
     formatted_usage = format_error_for_terminal("用法：/history [limit]", project_root=project_root)
     formatted_unknown_command = format_error_for_terminal(
         "unknown AI terminal command: /attach",
@@ -358,19 +463,56 @@ def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
         external_ai_error_type("Error code: 503 - upstream unavailable"),
         project_root=project_root,
     )
+    terminal = object.__new__(AITerminal)
+    terminal.project_root = project_root
+    terminal.config = SimpleNamespace(
+        service_name="default",
+        service_config={
+            "base_url": "https://example.test/v1",
+            "model": "demo-model",
+            "api_key": "sk-secret",
+        },
+    )
+    terminal.model_name = "demo-model"
+    terminal.events = []
+    terminal._client_event_sink = terminal.events.append
+    AITerminal._emit_error(terminal, external_ai_error_type("Error code: 502 - upstream bad gateway"))
+    enriched_external_ai_error = terminal.events[-1].text if terminal.events else ""
+    formatted_method_error = AITerminal.format_error_message(
+        terminal,
+        external_ai_error_type("Error code: 504 - upstream timeout"),
+    )
+    missing_service_check = check_ai_terminal_service(
+        project_root / "missing-live-check-project",
+        service="default",
+        thread_id="self-check-missing-service",
+    )
     outputs = {
         "usage": formatted_usage,
         "unknown_command": formatted_unknown_command,
         "no_run": formatted_no_run,
         "user_error": formatted_user_error,
         "external_ai_error": formatted_external_ai_error,
+        "enriched_external_ai_error": enriched_external_ai_error,
+        "formatted_method_error": formatted_method_error,
+        "missing_service_check": json.dumps(missing_service_check, ensure_ascii=False),
     }
     passed = (
         "命令用法不正确" in formatted_usage
-        and "未知 AI 终端命令：/attach" in formatted_unknown_command
+        and "未知 AI 会话命令：/attach" in formatted_unknown_command
         and "当前没有正在运行或等待的 plan" in formatted_no_run
         and "AI 终端服务未配置：default" in formatted_user_error
         and formatted_external_ai_error == "错误：Error code: 503 - upstream unavailable"
+        and "service=default" in enriched_external_ai_error
+        and "model=demo-model" in enriched_external_ai_error
+        and "base_url=https://example.test/v1" in enriched_external_ai_error
+        and "service=default" in formatted_method_error
+        and "model=demo-model" in formatted_method_error
+        and missing_service_check.get("ok") is False
+        and missing_service_check.get("check") == "ai_terminal_service"
+        and "AI 终端服务未配置" in str(missing_service_check.get("formatted_error", ""))
+        and "sk-secret" not in enriched_external_ai_error
+        and "sk-secret" not in formatted_method_error
         and "Traceback" not in "\n".join(outputs.values())
         and "self-check" not in formatted_external_ai_error
     )
@@ -416,6 +558,13 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
                 for session in index_after_remove_payload.get("sessions", [])
                 if isinstance(session, dict)
             ]
+            session_index_path(index_root).write_text(
+                '{"version":1,"updated_at":"broken","sessions":[]}'
+                '"latest_output_dir":"/tmp/stale"',
+                encoding="utf-8",
+            )
+            recovered_sessions = list_ai_terminal_sessions(checkpointer, project_root=index_root, limit=10)
+            recovered_threads = [session.thread_id for session in recovered_sessions]
         return [
             _self_check_result(
                 name="session_listing_summarizes_latest_checkpoints",
@@ -455,6 +604,11 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
                     "index_exists_after_remove": index_exists_after_remove,
                     "resolved": indexed_resolved,
                 },
+            ),
+            _self_check_result(
+                name="session_index_recovers_from_trailing_garbage",
+                passed="alpha" in recovered_threads and "image-thread" in recovered_threads,
+                detail={"threads": recovered_threads},
             ),
         ]
     finally:
@@ -516,46 +670,44 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         resume_ok = (
             terminal.thread_id == "image-thread"
             and terminal._last_error == ""
-            and terminal.outputs[-2] == "AI 终端线程：image-thread"
+            and terminal.outputs[-2] == "AI 会话线程：image-thread"
         )
 
         terminal.do_new("flow-thread")
-        new_ok = terminal.thread_id == "flow-thread" and terminal.outputs[-1] == "AI 终端线程：flow-thread"
+        new_ok = terminal.thread_id == "flow-thread" and terminal.outputs[-1] == "AI 会话线程：flow-thread"
 
         slash_ok = AITerminal._handle_slash_command(terminal, "/status") is True
         slash_status_payload = json.loads(terminal.outputs[-1])
         slash_ok = slash_ok and slash_status_payload["thread_id"] == "flow-thread"
         keyboard_command_ok = (
             AITerminal._handle_slash_command(terminal, "/keyboard") is True
-            and "AI 终端键盘快捷键：" in terminal.outputs[-1]
+            and "Textual 客户端键盘快捷键：" in terminal.outputs[-1]
         )
         mac_keyboard_text = format_keyboard_shortcuts_for_terminal("Darwin")
         windows_keyboard_text = format_keyboard_shortcuts_for_terminal("Windows")
         keyboard_platform_ok = (
             "Enter" in mac_keyboard_text
-            and "Control+J" in mac_keyboard_text
+            and "行尾 \\" in mac_keyboard_text
+            and "Option+Enter" not in mac_keyboard_text
+            and "Ctrl+J" not in mac_keyboard_text
+            and "Esc" in mac_keyboard_text
+            and "介入" in mac_keyboard_text
             and "Control+Q / Control+C" in mac_keyboard_text
             and "Textual 客户端" in mac_keyboard_text
             and "Windows" not in mac_keyboard_text
-            and "Ctrl+J" in windows_keyboard_text
+            and "行尾 \\" in windows_keyboard_text
+            and "Alt+Enter" not in windows_keyboard_text
+            and "Ctrl+J" not in windows_keyboard_text
+            and "Esc" in windows_keyboard_text
+            and "排队" in windows_keyboard_text
             and "Ctrl+Q / Ctrl+C" in windows_keyboard_text
             and "Control+Q" not in windows_keyboard_text
         )
 
         terminal.do_help("")
         help_text = terminal.outputs[-1]
-        terminal.do_render("")
-        render_status_ok = terminal.outputs[-1] == "AI 回复显示方式：plain"
-        terminal.do_render("markdown")
-        render_markdown_ok = (
-            terminal.response_render_mode == "markdown"
-            and terminal.outputs[-1] == "AI 回复显示方式：markdown"
-        )
-        terminal.do_render("plain")
-        render_plain_ok = (
-            terminal.response_render_mode == "plain"
-            and terminal.outputs[-1] == "AI 回复显示方式：plain"
-        )
+        terminal.do_plan("")
+        plan_empty_text = terminal.outputs[-1]
         terminal.forwarded_messages: list[str] = []
         terminal._run_agent_turn = lambda line: terminal.forwarded_messages.append(str(line))
         terminal.handle_user_request = lambda line: AITerminal.handle_user_request(terminal, line)
@@ -581,6 +733,10 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         slash_context_error = terminal.errors[-1] if terminal.errors else ""
         image_surface_ok = (
             "attach list" not in help_text
+            and "/plan" in help_text
+            and "/todo" in help_text
+            and "当前 AI 工作计划" in help_text
+            and "当前没有工作计划" in plan_empty_text
             and "attach remove" not in help_text
             and "attach clear" not in help_text
             and "/attach" not in help_text
@@ -597,13 +753,13 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             and bad_slash_format
             and "命令名必须以英文字母开头" in bad_slash_error
             and slash_attach_unknown
-            and "未知 AI 终端命令：/attach" in slash_attach_error
+            and "未知 AI 会话命令：/attach" in slash_attach_error
             and slash_paste_unknown
-            and "未知 AI 终端命令：/paste-image" in slash_paste_error
+            and "未知 AI 会话命令：/paste-image" in slash_paste_error
             and slash_run_context_unknown
-            and "未知 AI 终端命令：/run_context" in slash_run_context_error
+            and "未知 AI 会话命令：/run_context" in slash_run_context_error
             and slash_context_unknown
-            and "未知 AI 终端命令：/context" in slash_context_error
+            and "未知 AI 会话命令：/context" in slash_context_error
         )
 
         busy_guard_ok, busy_guard_detail = _check_busy_command_guard()
@@ -623,7 +779,7 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             AITerminal.ask_once(terminal, "continue")
         except Exception as error:
             ask_once_error = str(error)
-            ask_once_guard_ok = "pending approval" in ask_once_error or "等待审批" in ask_once_error
+            ask_once_guard_ok = "等待审批" in ask_once_error
         finally:
             terminal._has_interrupts = False
 
@@ -679,22 +835,14 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 passed=image_surface_ok,
                 detail={
                     "help_mentions_keyboard": "keyboard" in help_text,
+                    "help_mentions_plan": "/plan" in help_text,
+                    "plan_empty_text": plan_empty_text,
                     "plain_status_messages": terminal.forwarded_messages,
                     "bad_slash_error": bad_slash_error,
                     "slash_attach_error": slash_attach_error,
                     "slash_paste_error": slash_paste_error,
                     "slash_run_context_error": slash_run_context_error,
                     "slash_context_error": slash_context_error,
-                },
-            ),
-            _self_check_result(
-                name="terminal_render_command_switches_display_layer",
-                passed=render_status_ok and render_markdown_ok and render_plain_ok and "/render [markdown|plain]" in help_text,
-                detail={
-                    "render_status_ok": render_status_ok,
-                    "render_markdown_ok": render_markdown_ok,
-                    "render_plain_ok": render_plain_ok,
-                    "mode": terminal.response_render_mode,
                 },
             ),
             _self_check_result(
@@ -788,115 +936,6 @@ def _formatted_text_content(value: Any) -> str:
         return str(value)
 
 
-def _check_terminal_markdown_rendering() -> dict[str, Any]:
-    from ai_automate_contro.ai.terminal import AITerminal
-    from ai_automate_contro.ai.terminal_markdown import (
-        normalize_response_render_mode,
-        render_markdown_to_ansi,
-        terminal_supports_rich_markdown,
-    )
-
-    markdown_text = "# 标题\n\n**重点**\n\n```python\nprint('ok')\n```"
-    rendered = render_markdown_to_ansi(markdown_text, width=80)
-
-    terminal = object.__new__(AITerminal)
-    terminal.response_render_mode = "markdown"
-    captured: list[str] = []
-    import builtins
-
-    original_print = builtins.print
-    import ai_automate_contro.ai.terminal as terminal_module
-
-    original_supports_markdown = terminal_module.terminal_supports_rich_markdown
-    try:
-        terminal_module.terminal_supports_rich_markdown = lambda: True
-        builtins.print = lambda *args, **kwargs: captured.append(
-            "".join(str(arg) for arg in args) + ("" if kwargs.get("end") == "" else "\n")
-        )
-        AITerminal._emit_assistant_message(terminal, markdown_text)
-    finally:
-        terminal_module.terminal_supports_rich_markdown = original_supports_markdown
-        builtins.print = original_print
-
-    captured_text = "".join(captured)
-    plain_fallback_captured: list[str] = []
-    try:
-        terminal.response_render_mode = "markdown"
-        terminal_module.terminal_supports_rich_markdown = lambda: False
-        builtins.print = lambda *args, **kwargs: plain_fallback_captured.append(
-            "".join(str(arg) for arg in args) + ("" if kwargs.get("end") == "" else "\n")
-        )
-        AITerminal._emit_assistant_message(terminal, markdown_text)
-    finally:
-        terminal_module.terminal_supports_rich_markdown = original_supports_markdown
-        builtins.print = original_print
-    plain_fallback_text = "".join(plain_fallback_captured)
-
-    import io
-
-    class FakeTTY(io.StringIO):
-        def isatty(self) -> bool:
-            return True
-
-    env_keys = ["NO_COLOR", "TERM", "CLICOLOR", "CLICOLOR_FORCE"]
-    original_env = {key: os.environ.get(key) for key in env_keys}
-    try:
-        os.environ["NO_COLOR"] = "1"
-        os.environ["TERM"] = "xterm-256color"
-        os.environ.pop("CLICOLOR", None)
-        os.environ.pop("CLICOLOR_FORCE", None)
-        no_color_disables_markdown = terminal_supports_rich_markdown(FakeTTY()) is False
-    finally:
-        for key, value in original_env.items():
-            if value is None:
-                os.environ.pop(key, None)
-            else:
-                os.environ[key] = value
-
-    terminal.response_render_mode = "plain"
-    plain_should_not_render = AITerminal._should_render_final_markdown(terminal) is False
-    old_ai_prefix = "› " + "AI"
-    plain_fallback_ok = (
-        plain_fallback_text == f"{markdown_text}\n"
-        and "\x1b[" not in plain_fallback_text
-        and old_ai_prefix not in plain_fallback_text
-    )
-    passed = (
-        normalize_response_render_mode("md") == "markdown"
-        and normalize_response_render_mode("raw") == "plain"
-        and no_color_disables_markdown
-        and "标题" in rendered
-        and "重点" in rendered
-        and "print" in rendered
-        and "\x1b[48;" not in rendered
-        and "\x1b[40m" not in rendered
-        and "\x1b[47m" not in rendered
-        and "\x1b[100m" not in rendered
-        and "\x1b[107m" not in rendered
-        and "\x1b[7m" not in rendered
-        and "\x1b[27m" not in rendered
-        and old_ai_prefix not in captured_text
-        and "标题" in captured_text
-        and markdown_text not in captured_text
-        and plain_should_not_render
-        and plain_fallback_ok
-    )
-    return _self_check_result(
-        name="terminal_markdown_rendering_is_display_only",
-        passed=passed,
-        detail={
-            "rendered_chars": len(rendered),
-            "captured_prefix": captured_text[:80],
-            "plain_fallback_prefix": plain_fallback_text[:80],
-            "plain_fallback_ok": plain_fallback_ok,
-            "no_color_disables_markdown": no_color_disables_markdown,
-            "mode_md": normalize_response_render_mode("md"),
-            "mode_raw": normalize_response_render_mode("raw"),
-            "plain_should_not_render": plain_should_not_render,
-        },
-    )
-
-
 def _check_terminal_streaming_output() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal
 
@@ -929,7 +968,6 @@ def _check_terminal_streaming_output() -> dict[str, Any]:
     terminal.graph = FakeGraph()
     terminal.graph_recursion_limit = 128
     terminal.thread_id = "stream-check"
-    terminal.response_render_mode = "plain"
     terminal.chunks: list[str] = []
     terminal.indicator_events: list[str] = []
     terminal._graph_config = lambda: {"configurable": {"thread_id": terminal.thread_id}}
@@ -990,7 +1028,6 @@ def _check_terminal_streaming_interrupt_drains_safely() -> dict[str, Any]:
     terminal = object.__new__(AITerminal)
     terminal.graph = FakeGraph()
     terminal.thread_id = "safe-interrupt-check"
-    terminal.response_render_mode = "plain"
     terminal.chunks: list[str] = []
     terminal.indicator_events: list[str] = []
     terminal._graph_config = lambda: {"configurable": {"thread_id": terminal.thread_id}}
@@ -1014,7 +1051,7 @@ def _check_terminal_streaming_interrupt_drains_safely() -> dict[str, Any]:
         name="terminal_safe_interrupt_drains_stream",
         passed=(
             streamed
-            and rendered == "前半\n"
+            and rendered == "前半"
             and terminal.graph.events_seen == 3
             and len(final_state.get("messages", [])) == 1
         ),
@@ -1032,14 +1069,20 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
 
     terminal = object.__new__(AITerminal)
     terminal.project_root = Path(".").resolve()
-    terminal.response_render_mode = "markdown"
+    terminal.config = type("Config", (), {"service_name": "self-check"})()
+    terminal.model_name = "fake-model"
+    terminal.thread_id = "event-thread"
+    terminal._pending_attachments = []
+    terminal._last_error = ""
     terminal.events = []
     terminal.commands: list[str] = []
     terminal.handle_input = lambda line: terminal.commands.append(str(line)) or (str(line).strip() == "/exit")
+    terminal._current_interrupts = lambda: ()
+    terminal._is_agent_busy = lambda: False
+    terminal._context_state = lambda: {"current_plan_path": "plans/demo/plan.json"}
     terminal._client_event_sink = None
 
-    AITerminal.run_client_turn(terminal, "创建 plan", terminal.events.append)
-    first_turn_mode_restored = terminal.response_render_mode == "markdown"
+    AITerminal.run_event_turn(terminal, "创建 plan", terminal.events.append)
 
     with AITerminal.client_event_sink(terminal, terminal.events.append):
         AITerminal._emit_user_message(terminal, "用户消息")
@@ -1055,20 +1098,38 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
             {"url": "https://example.com"},
             {"ok": True, "resolved_url": "https://example.com"},
         )
+        worker = threading.Thread(
+            target=lambda: AITerminal._print_tool_progress(
+                terminal,
+                "start",
+                "grep_project_text",
+                {"pattern": "selector", "root_path": "handbook/actions"},
+            )
+        )
+        worker.start()
+        worker.join()
 
-    AITerminal.run_client_turn(terminal, "/exit", terminal.events.append)
+    AITerminal.run_event_turn(terminal, "/exit", terminal.events.append)
 
     kinds = [event.kind for event in terminal.events]
     user_message_suppressed = all(event.text != "用户消息" for event in terminal.events)
+    context_events = [event for event in terminal.events if event.kind == "context_updated"]
+    activity_texts = [event.text for event in terminal.events if event.kind == "activity"]
     passed = (
         terminal.commands == ["创建 plan", "/exit"]
-        and first_turn_mode_restored
         and user_message_suppressed
         and kinds.count("assistant_delta") == 2
         and kinds.count("assistant_done") == 2
+        and len(context_events) >= 2
+        and context_events[0].data.get("thread_id") == "event-thread"
         and "status" in kinds
         and "tool_started" in kinds
         and "tool_finished" in kinds
+        and "开始处理用户请求" in activity_texts
+        and any("调用工具 inspect_web_page" == text for text in activity_texts)
+        and any("调用工具 grep_project_text" == text for text in activity_texts)
+        and any("工具完成 inspect_web_page" == text for text in activity_texts)
+        and "本轮事件处理完成" in activity_texts
         and "exit_requested" in kinds
     )
     return _self_check_result(
@@ -1078,7 +1139,54 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
             "commands": terminal.commands,
             "kinds": kinds,
             "texts": [event.text for event in terminal.events],
-            "mode_restored": first_turn_mode_restored,
+        },
+    )
+
+
+def _check_ai_ask_once_emits_jsonl_ready_events() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.thread_id = "ask-events"
+    terminal.model_name = "fake-model"
+    terminal.checkpoint_path = Path(".keygen") / "ai-terminal-checkpoints.sqlite"
+    terminal._ask_once_mode = False
+    terminal._pending_attachments = []
+    terminal._pending_attachment_placeholder_required = []
+    terminal._client_event_sink_local = __import__("threading").local()
+    terminal._client_event_sink = None
+    terminal._last_error = ""
+    terminal._is_agent_busy = lambda: False
+    terminal._current_interrupts = lambda: ()
+    terminal._prepare_input_attachments = lambda text: (text, [])
+    terminal._sync_current_session_index = lambda: None
+    terminal._context_state = lambda: {"current_plan_path": "plans/demo/plan.json"}
+    terminal.client_status_snapshot = lambda: {
+        "thread_id": terminal.thread_id,
+        "busy": False,
+        "pending_approval": False,
+        "context_state": terminal._context_state(),
+        "last_error": terminal._last_error,
+    }
+    terminal._invoke_agent_text = lambda text, attachments: {
+        "messages": [HumanMessage(content=text), AIMessage(content="完成")]
+    }
+
+    events = []
+    result = AITerminal.ask_once(terminal, "创建 plan", event_sink=events.append)
+    kinds = [event.kind for event in events]
+    passed = (
+        result.get("ok") is True
+        and result.get("assistant_message") == "完成"
+        and kinds[:2] == ["context_updated", "activity"]
+        and events[1].text == "开始处理脚本化 AI 请求"
+    )
+    return _self_check_result(
+        name="ai_ask_once_emits_script_events",
+        passed=passed,
+        detail={
+            "result": result,
+            "events": [{"kind": event.kind, "text": event.text, "data": event.data} for event in events],
         },
     )
 
@@ -1123,12 +1231,13 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
     )
 
     terminal = object.__new__(AITerminal)
-    terminal.outputs: list[str] = []
-    terminal._emit_terminal_output = lambda value: terminal.outputs.append(str(value))
+    terminal.events = []
+    terminal._client_event_sink = terminal.events.append
     terminal.project_root = Path(".").resolve()
     terminal.model = SimpleNamespace(invoke=lambda messages: AIMessage(content='{"decision":"approve"}'))
     terminal._ai_confirmation_lock = __import__("threading").Lock()
     terminal._ai_confirmation = None
+    terminal._ask_once_mode = False
 
     result: dict[str, Any] = {}
 
@@ -1169,7 +1278,51 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
             "accepted": result.get("accepted"),
             "classifier_ok": classifier_ok,
             "model_classifier_ok": model_classifier_ok,
-            "outputs": terminal.outputs,
+            "events": [
+                {"kind": event.kind, "text": event.text}
+                for event in terminal.events
+            ],
+        },
+    )
+
+
+def _check_ai_ask_once_confirmation_times_out() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.events = []
+    terminal._client_event_sink = terminal.events.append
+    terminal.project_root = Path(".").resolve()
+    terminal._ai_confirmation_lock = __import__("threading").Lock()
+    terminal._ai_confirmation = None
+    terminal._ask_once_mode = True
+
+    started = time.monotonic()
+    error = ""
+    try:
+        AITerminal._wait_for_ai_confirmation(
+            terminal,
+            "请在当前浏览器输入验证码。",
+            wait_type="manual_confirm",
+        )
+    except Exception as exc:
+        error = str(exc)
+    elapsed = time.monotonic() - started
+    return _self_check_result(
+        name="ai_ask_once_manual_confirmation_returns_quickly",
+        passed=(
+            "脚本化 ai ask 不会等待人工操作" in error
+            and "不能在进程结束后保留可继续接管的浏览器" in error
+            and elapsed < 5
+            and AITerminal._current_ai_confirmation(terminal) is None
+        ),
+        detail={
+            "elapsed": round(elapsed, 3),
+            "error": error,
+            "events": [
+                {"kind": event.kind, "text": event.text}
+                for event in terminal.events
+            ],
         },
     )
 
@@ -1178,14 +1331,19 @@ def _check_terminal_tool_progress_output() -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal
 
     terminal = object.__new__(AITerminal)
-    terminal.outputs: list[str] = []
-    terminal._emit_terminal_output = lambda value: terminal.outputs.append(str(value))
+    terminal.events = []
+    terminal._client_event_sink = terminal.events.append
 
     AITerminal._print_tool_progress(
         terminal,
         "start",
         "inspect_web_page",
-        {"url": "https://example.com/login", "headed": True, "_manual_confirmation_handler": object()},
+        {
+            "url": "https://example.com/login",
+            "headed": True,
+            "_manual_confirmation_handler": object(),
+            "_run_event_handler": object(),
+        },
     )
     AITerminal._print_tool_progress(
         terminal,
@@ -1219,20 +1377,276 @@ def _check_terminal_tool_progress_output() -> dict[str, Any]:
         {"plan_path": "plans/demo/plan.json"},
         {"ok": False, "error": "示例失败原因"},
     )
-    output = "\n".join(terminal.outputs)
+    started_events = [event for event in terminal.events if event.kind == "tool_started"]
+    finished_events = [event for event in terminal.events if event.kind == "tool_finished"]
+    activity_events = [event for event in terminal.events if event.kind == "activity"]
+    texts = "\n".join(event.text for event in terminal.events)
     return _self_check_result(
-        name="terminal_tool_progress_output",
+        name="terminal_tool_progress_events",
         passed=(
-            "调用工具 inspect_web_page" in output
-            and "url=https://example.com/login" in output
-            and "_manual_confirmation_handler" not in output
-            and "工具 inspect_web_page 完成" in output
-            and "title=登录页面" in output
-            and "发现登录字段/验证信号" in output
-            and "工具 grep_project_text 完成：matches=0" in output
-            and "工具 run_plan 失败：status=failed，error=示例失败原因" in output
+            len(started_events) == 1
+            and len(finished_events) == 3
+            and len(activity_events) == 4
+            and activity_events[0].text == "调用工具 inspect_web_page"
+            and activity_events[-1].data.get("phase") == "failed"
+            and started_events[0].title == "inspect_web_page"
+            and started_events[0].data.get("arguments", {}).get("url") == "https://example.com/login"
+            and "_manual_confirmation_handler" not in texts
+            and "_run_event_handler" not in texts
+            and finished_events[0].title == "inspect_web_page"
+            and finished_events[0].data.get("ok") is True
+            and finished_events[0].data.get("phase") == "done"
+            and "title=登录页面" in finished_events[0].text
+            and "发现登录字段/验证信号" in finished_events[0].text
+            and finished_events[1].title == "grep_project_text"
+            and finished_events[1].text == "matches=0"
+            and finished_events[2].title == "run_plan"
+            and finished_events[2].data.get("ok") is False
+            and finished_events[2].data.get("phase") == "failed"
+            and finished_events[2].text == "status=failed error=示例失败原因"
         ),
-        detail={"outputs": terminal.outputs},
+        detail={
+            "events": [
+                {"kind": event.kind, "title": event.title, "text": event.text, "data": event.data}
+                for event in terminal.events
+            ]
+        },
+    )
+
+
+def _check_terminal_work_plan_events() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.events = []
+    terminal.context_updates = []
+    terminal.synced = 0
+    terminal._client_event_sink = terminal.events.append
+    terminal._update_context_state = lambda update: terminal.context_updates.append(update)
+    terminal._sync_current_session_index = lambda: setattr(terminal, "synced", terminal.synced + 1)
+
+    result = {
+        "ok": True,
+        "summary": "创建真实网站 plan",
+        "items": [
+            {"title": "探测入口页面", "status": "completed"},
+            {"title": "运行可见浏览器探索", "status": "in_progress"},
+            {"title": "写入最终 plan", "status": "pending"},
+        ],
+        "total": 3,
+        "completed": 1,
+        "active": "运行可见浏览器探索",
+    }
+    AITerminal._after_tool_call(terminal, "update_work_plan", {"summary": "创建真实网站 plan"}, result)
+
+    tool_events = [event for event in terminal.events if event.kind in {"tool_started", "tool_finished"}]
+    plan_events = [event for event in terminal.events if event.kind == "work_plan_updated"]
+    activity_events = [event for event in terminal.events if event.kind == "activity"]
+    passed = (
+        not tool_events
+        and len(plan_events) == 1
+        and len(activity_events) == 1
+        and activity_events[0].text == "更新工作计划"
+        and activity_events[0].data.get("category") == "plan"
+        and plan_events[0].data.get("summary") == "创建真实网站 plan"
+        and plan_events[0].data.get("items", [])[1].get("status") == "in_progress"
+        and "当前工作计划：1/3 完成" in plan_events[0].text
+        and terminal.context_updates
+        and terminal.context_updates[-1]["work_plan_items"][1]["title"] == "运行可见浏览器探索"
+        and terminal.synced == 1
+    )
+    return _self_check_result(
+        name="terminal_work_plan_updates_are_structured_events",
+        passed=passed,
+        detail={
+            "events": [
+                {"kind": event.kind, "title": event.title, "text": event.text, "data": event.data}
+                for event in terminal.events
+            ],
+            "context_updates": terminal.context_updates,
+            "synced": terminal.synced,
+        },
+    )
+
+
+def _check_terminal_file_change_followup_events() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    with TemporaryDirectory(prefix="ai-terminal-file-events-") as raw_temp_dir:
+        temp_dir = Path(raw_temp_dir)
+        patch_path = temp_dir / "patch.diff"
+        patch_path.write_text(
+            "\n".join(
+                [
+                    "diff --git a/plan.json b/plan.json",
+                    "--- a/plan.json",
+                    "+++ b/plan.json",
+                    "@@ -1 +1 @@",
+                    "-old",
+                    "+new",
+                ]
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        terminal = object.__new__(AITerminal)
+        terminal.events = []
+        terminal._client_event_sink = terminal.events.append
+        AITerminal._emit_tool_followup_events(
+            terminal,
+            "write_plan_package_file",
+            {"plan_path": "plans/demo/plan.json", "relative_path": "docs/notes.md", "mode": "overwrite"},
+            {
+                "ok": True,
+                "plan_path": "plans/demo/plan.json",
+                "path": str(temp_dir / "plans" / "demo" / "docs" / "notes.md"),
+                "relative_path": "docs/notes.md",
+                "mode": "overwrite",
+                "bytes": 42,
+            },
+        )
+        AITerminal._emit_tool_followup_events(
+            terminal,
+            "generate_debug_patch",
+            {"workspace": "workspace"},
+            {
+                "ok": True,
+                "patch_path": str(patch_path),
+                "patch_size": patch_path.stat().st_size,
+                "result": {
+                    "workspace_root": str(temp_dir),
+                    "patch_path": str(patch_path),
+                    "changed_files": ["plan.json"],
+                    "applied": False,
+                },
+            },
+        )
+        AITerminal._emit_tool_followup_events(
+            terminal,
+            "run_plan",
+            {"plan_path": "plans/demo/plan.json"},
+            {"ok": True, "status": "passed", "output_dir": str(temp_dir / "output" / "run")},
+        )
+    file_events = [event for event in terminal.events if event.kind == "file_changed"]
+    diff_events = [event for event in terminal.events if event.kind == "diff"]
+    artifact_events = [event for event in terminal.events if event.kind == "artifact"]
+    activity_events = [event for event in terminal.events if event.kind == "activity"]
+    texts = "\n".join(event.text for event in terminal.events)
+    return _self_check_result(
+        name="terminal_file_change_diff_and_artifact_events",
+        passed=(
+            len(file_events) == 1
+            and file_events[0].data.get("relative_path") == "docs/notes.md"
+            and file_events[0].data.get("bytes") == 42
+            and len(diff_events) == 1
+            and "diff --git" in diff_events[0].text
+            and diff_events[0].data.get("changed_files") == ["plan.json"]
+            and len(artifact_events) == 2
+            and len(activity_events) == 4
+            and {event.data.get("source_kind") for event in activity_events} == {"file_changed", "diff", "artifact"}
+            and any(event.data.get("artifact_type") == "patch" for event in artifact_events)
+            and any(event.data.get("artifact_type") == "output_dir" for event in artifact_events)
+            and "文件 写入" in texts
+            and "输出目录" in texts
+        ),
+        detail={
+            "events": [
+                {"kind": event.kind, "title": event.title, "text": event.text, "data": event.data}
+                for event in terminal.events
+            ]
+        },
+    )
+
+
+def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.events = []
+    terminal._client_event_sink = terminal.events.append
+
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "plan started",
+            "fields": {"run_name": "login-smoke", "plan_path": "plans/demo/plan.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "step 1 start",
+            "fields": {
+                "step": 1,
+                "action": "open_browser",
+                "step_name": "open_browser",
+                "step_summary": "name=main, headed=True",
+            },
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "browser opened",
+            "fields": {"browser": "main", "headed": True},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "waiting for manual confirmation",
+            "fields": {"prompt": "请完成登录"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "ERROR",
+            "message": "step 2 failed",
+            "fields": {
+                "step": 2,
+                "action": "element",
+                "step_name": "fill account",
+                "step_summary": "browser=main, type=fill, selector=#account",
+                "error": "Timeout 15000ms exceeded",
+            },
+        },
+    )
+    events = list(terminal.events)
+    plan_events = [event for event in events if event.kind == "plan_progress"]
+    activity_events = [event for event in events if event.kind == "activity"]
+    texts = "\n".join(event.text for event in plan_events)
+    passed = (
+        len(plan_events) == 5
+        and len(activity_events) == 5
+        and all(event.data.get("source_kind") == "plan_progress" for event in activity_events)
+        and activity_events[-1].data.get("phase") == "failed"
+        and "plan 开始" in texts
+        and "步骤 1 开始" in texts
+        and "浏览器已打开" in texts
+        and "等待人工确认" in texts
+        and "当前 Playwright 浏览器" in texts
+        and "步骤 2 失败" in texts
+        and "Timeout 15000ms exceeded" in texts
+    )
+    return _self_check_result(
+        name="terminal_plan_run_progress_events",
+        passed=passed,
+        detail={
+            "events": [
+                {"kind": event.kind, "title": event.title, "text": event.text}
+                for event in events
+            ]
+        },
     )
 
 
@@ -1253,7 +1667,6 @@ class _FakeTerminal(AITerminalCommandsMixin):
         self.model_name = "fake-model"
         self.graph_recursion_limit = 128
         self.thread_id = "alpha"
-        self.response_render_mode = "plain"
         self.checkpoint_path = project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
         self.checkpointer = checkpointer
         self._messages_by_thread = messages_by_thread
@@ -1268,7 +1681,7 @@ class _FakeTerminal(AITerminalCommandsMixin):
         self.outputs: list[str] = []
         self.errors: list[str] = []
 
-    def _emit_terminal_output(self, value: Any) -> None:
+    def _emit_system_output(self, value: Any) -> None:
         self.outputs.append(str(value))
 
     def _emit_error(self, value: Any) -> None:
@@ -1290,8 +1703,11 @@ class _FakeTerminal(AITerminalCommandsMixin):
             return (object(),)
         return ()
 
-    def _context_state(self) -> dict[str, str]:
+    def _context_state(self) -> dict[str, Any]:
         return {"current_plan_path": "plans/minimal-browser-plan/plan.json"}
+
+    def _work_plan_state(self) -> dict[str, Any]:
+        return {"items": [], "summary": ""}
 
     def _compress_current_thread(self, *, reason: str = "manual") -> dict[str, Any]:
         return {
@@ -1337,6 +1753,8 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
         "/status": AITerminal._command_allowed_while_busy(terminal, "/status"),
         "help": AITerminal._command_allowed_while_busy(terminal, "help"),
         "/help": AITerminal._command_allowed_while_busy(terminal, "/help"),
+        "/plan": AITerminal._command_allowed_while_busy(terminal, "/plan"),
+        "/todo": AITerminal._command_allowed_while_busy(terminal, "/todo"),
         "/new": AITerminal._command_allowed_while_busy(terminal, "/new blocked-thread"),
         "/exit": AITerminal._command_allowed_while_busy(terminal, "/exit"),
     }
@@ -1350,6 +1768,8 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
         and allowed["/status"]
         and not allowed["help"]
         and allowed["/help"]
+        and allowed["/plan"]
+        and allowed["/todo"]
         and not allowed["/new"]
         and not allowed["/exit"]
     )

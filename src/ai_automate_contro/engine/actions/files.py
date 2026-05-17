@@ -13,12 +13,12 @@ def write_json_file(executor: Any, raw_path: str, value: Any, *, category: str =
     executor.state.logger.log("info", "json written", path=str(output_path))
 
 
-def write_text_file(executor: Any, raw_path: str, content: str, *, append: bool) -> None:
+def write_text_file(executor: Any, raw_path: str, content: Any, *, append: bool) -> None:
     output_path = executor._resolve_output_path(raw_path, category="text")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     mode = "a" if append else "w"
     with output_path.open(mode, encoding="utf-8") as file:
-        file.write(content)
+        file.write(_coerce_text_content(content))
     log_message = "text appended" if append else "text written"
     executor.state.logger.log("info", log_message, path=str(output_path))
 
@@ -67,3 +67,12 @@ def read_file(executor: Any, step: dict[str, Any]) -> Any:
     if file_type == "storage_state":
         return str(path)
     raise ValueError(f"Unsupported read type: {file_type}")
+
+
+def _coerce_text_content(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        lines = [str(item) for item in value]
+        return ("\n".join(lines) + "\n") if lines else ""
+    return str(value)

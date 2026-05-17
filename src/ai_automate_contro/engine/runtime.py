@@ -72,7 +72,14 @@ class RuntimeState:
     last_dialog_message: str | None = None
     pending_dialog: Dialog | None = None
     manual_confirmation_handler: Callable[[str], bool] | None = None
+    interrupt_checker: Callable[[], bool] | None = None
     sub_plan_stack: list[Path] = field(default_factory=list)
+
+    def interrupt_requested(self) -> bool:
+        checker = self.interrupt_checker
+        if checker is None:
+            return False
+        return bool(checker())
 
     def require_session(self, name: str) -> BrowserSession:
         if name not in self.sessions:

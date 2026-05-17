@@ -56,7 +56,7 @@ def action_write(executor: Any, step: dict[str, Any]) -> None:
         files.write_json_file(executor, step["path"], step["value"], indent=int(step.get("indent", 2)))
         return
     if file_type == "text":
-        files.write_text_file(executor, step["path"], str(step["value"]), append=bool(step.get("append", False)))
+        files.write_text_file(executor, step["path"], step["value"], append=bool(step.get("append", False)))
         return
     if file_type == "csv":
         files.write_csv_file(executor, step["path"], step["value"], step.get("headers"))
@@ -131,7 +131,7 @@ def action_assert(executor: Any, step: dict[str, Any]) -> None:
 def action_sleep(executor: Any, step: dict[str, Any]) -> None:
     if executor.state.sessions:
         first_session = next(iter(executor.state.sessions.values()))
-        first_session.require_page().wait_for_timeout(int(float(step.get("seconds", 1)) * 1000))
+        executor._wait_for_timeout(first_session.require_page(), int(float(step.get("seconds", 1)) * 1000))
         return
     raise RuntimeError("sleep 需要至少一个已打开的浏览器会话。")
 

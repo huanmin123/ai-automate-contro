@@ -22,6 +22,7 @@ from ai_automate_contro.ai.run_failure_analysis import (
     analyze_latest_run_failure_tool as _analyze_latest_run_failure_tool,
 )
 from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
+from ai_automate_contro.ai.work_plan import normalize_work_plan_items, normalize_work_plan_summary
 from ai_automate_contro.support.paths import path_from_text
 
 
@@ -33,6 +34,7 @@ def run_plan_tool(
     variable_overrides: dict[str, Any] | None = None,
     _manual_confirmation_handler: Any | None = None,
     _inspection_confirmation_handler: Any | None = None,
+    _run_event_handler: Any | None = None,
 ) -> dict[str, Any]:
     return _run_plan_tool(
         project_root,
@@ -42,6 +44,7 @@ def run_plan_tool(
         latest_state_reader=read_latest_run_state_tool,
         manual_confirmation_handler=_manual_confirmation_handler,
         inspection_confirmation_handler=_inspection_confirmation_handler,
+        run_event_handler=_run_event_handler,
     )
 
 
@@ -142,6 +145,25 @@ def inspect_web_page_tool(
         text_limit=text_limit,
         headed=headed,
     )
+
+
+def update_work_plan_tool(
+    *,
+    items: list[dict[str, Any]],
+    summary: str = "",
+) -> dict[str, Any]:
+    normalized_items = normalize_work_plan_items(items)
+    normalized_summary = normalize_work_plan_summary(summary)
+    completed = sum(1 for item in normalized_items if item["status"] == "completed")
+    active = next((item["title"] for item in normalized_items if item["status"] == "in_progress"), "")
+    return {
+        "ok": True,
+        "summary": normalized_summary,
+        "items": normalized_items,
+        "total": len(normalized_items),
+        "completed": completed,
+        "active": active,
+    }
 
 
 def create_debug_workspace_tool(
@@ -282,6 +304,7 @@ def run_debug_plan_tool(
     variable_overrides: dict[str, Any] | None = None,
     _manual_confirmation_handler: Any | None = None,
     _inspection_confirmation_handler: Any | None = None,
+    _run_event_handler: Any | None = None,
 ) -> dict[str, Any]:
     return debug_workspace_tools.run_debug_plan_tool(
         project_root,
@@ -291,6 +314,7 @@ def run_debug_plan_tool(
         variable_overrides=variable_overrides,
         _manual_confirmation_handler=_manual_confirmation_handler,
         _inspection_confirmation_handler=_inspection_confirmation_handler,
+        _run_event_handler=_run_event_handler,
     )
 
 

@@ -10,6 +10,11 @@ from typing_extensions import NotRequired
 
 from ai_automate_contro.plans.packages import resolve_plan_path
 from ai_automate_contro.support.paths import path_from_text
+from ai_automate_contro.ai.work_plan import (
+    format_work_plan_for_context,
+    normalize_work_plan_items,
+    normalize_work_plan_summary,
+)
 
 
 class AITerminalState(AgentState):
@@ -21,6 +26,8 @@ class AITerminalState(AgentState):
     latest_compression_summary_path: NotRequired[str]
     latest_compression_token_count: NotRequired[str]
     latest_compression_message_count: NotRequired[str]
+    work_plan_items: NotRequired[list[dict[str, str]]]
+    work_plan_summary: NotRequired[str]
 
 
 @wrap_model_call(state_schema=AITerminalState, name="AITerminalContextMiddleware")
@@ -66,7 +73,19 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
         lines.append(f"- latest_compression_archive_dir: {latest_compression_archive_dir}")
         added = True
     if not added:
-        return ""
+        plan_context = format_work_plan_for_context(
+            state.get("work_plan_items"),
+            summary=state.get("work_plan_summary", ""),
+        )
+        if not plan_context:
+            return ""
+        return plan_context
+    plan_context = format_work_plan_for_context(
+        state.get("work_plan_items"),
+        summary=state.get("work_plan_summary", ""),
+    )
+    if plan_context:
+        lines.extend(["", plan_context])
     lines.append("如果用户没有指定路径，优先使用这些上下文；如果上下文不足，再询问或调用工具确认。需要历史细节时，先读取压缩摘要，再按需读取归档消息文件的相关行段。")
     return "\n".join(lines)
 
@@ -77,6 +96,8 @@ def context_update_from_tool_result(
     result: dict[str, Any],
 ) -> dict[str, str]:
     update: dict[str, str] = {}
+    if tool_name == "update_work_plan":
+        return {}
     for key in ("plan_path", "output_dir", "workspace"):
         _capture_context_value(update, key, arguments.get(key))
         _capture_context_value(update, key, result.get(key))
@@ -125,6 +146,18 @@ def context_update_from_tool_result(
     }:
         _capture_context_value(update, "workspace", arguments.get("workspace"))
     return update
+
+
+def work_plan_update_from_tool_result(
+    tool_name: str,
+    result: dict[str, Any],
+) -> dict[str, Any]:
+    if tool_name != "update_work_plan" or not isinstance(result, dict) or result.get("ok") is False:
+        return {}
+    return {
+        "work_plan_items": normalize_work_plan_items(result.get("items")),
+        "work_plan_summary": normalize_work_plan_summary(result.get("summary", "")),
+    }
 
 
 def _capture_context_value(update: dict[str, str], key: str, value: Any) -> None:

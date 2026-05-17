@@ -194,7 +194,7 @@ output/ai/
 ```text
 用户选择 plan
   -> AI 读取 plan、docs、最近 output
-  -> 调用管理终端运行
+  -> 调用 Textual 客户端内的 plan 管理能力运行
   -> 调用 analyze_latest_run_failure 汇总失败证据
   -> 读取 events.jsonl / run.log / result.json / failure-html / failure-page-state
   -> 读取 DOM 摘要中的表单、按钮、链接和 selector 提示

@@ -222,6 +222,7 @@ def run_debug_plan_tool(
     variable_overrides: dict[str, Any] | None = None,
     _manual_confirmation_handler: Any | None = None,
     _inspection_confirmation_handler: Any | None = None,
+    _run_event_handler: Any | None = None,
 ) -> dict[str, Any]:
     manifest = read_debug_manifest(path_from_text(workspace).resolve())
     injected_plan_path = Path(manifest["injected_plan_dir"]) / "plan.json"
@@ -232,4 +233,5 @@ def run_debug_plan_tool(
         variable_overrides=variable_overrides,
         _manual_confirmation_handler=_manual_confirmation_handler,
         _inspection_confirmation_handler=_inspection_confirmation_handler,
+        _run_event_handler=_run_event_handler,
     )

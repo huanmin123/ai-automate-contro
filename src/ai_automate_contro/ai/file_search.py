@@ -54,6 +54,17 @@ def grep_project_text_tool(
     search_root = resolve_project_path(project_root_path, root_path)
     resolved_context_lines = clamp_int(context_lines, minimum=0, maximum=MAX_GREP_CONTEXT_LINES)
     resolved_max_matches = clamp_int(max_matches, minimum=1, maximum=MAX_GREP_MATCHES)
+    if not search_root.exists():
+        return _missing_search_root_result(
+            project_root_path,
+            search_root,
+            pattern=pattern,
+            literal=literal,
+            include_output=include_output,
+            file_glob=file_glob,
+            context_lines=resolved_context_lines,
+            requested_max_matches=max_matches,
+        )
 
     args = [
         "rg",
@@ -134,6 +145,95 @@ def grep_project_text_tool(
         "truncated": truncated,
         "matches": matches,
     }
+
+
+def _missing_search_root_result(
+    project_root: Path,
+    search_root: Path,
+    *,
+    pattern: str,
+    literal: bool,
+    include_output: bool,
+    file_glob: str,
+    context_lines: int,
+    requested_max_matches: int,
+) -> dict[str, Any]:
+    relative_root = relative_to_project(project_root, search_root)
+    suggestions = _suggest_existing_project_paths(project_root, search_root)
+    return {
+        "ok": False,
+        "tool": "rg",
+        "root": str(search_root),
+        "relative_root": relative_root,
+        "pattern": pattern,
+        "literal": literal,
+        "include_output": include_output,
+        "file_glob": file_glob,
+        "context_lines": context_lines,
+        "requested_max_matches": requested_max_matches,
+        "max_matches": MAX_GREP_MATCHES,
+        "match_count": 0,
+        "truncated": False,
+        "matches": [],
+        "error": f"搜索路径不存在：{relative_root}",
+        "hint": (
+            "先搜索上级目录或 handbook/README.md 确认真实路径；"
+            "handbook/actions 是分类目录，不要猜 handbook/actions/<action>。"
+        ),
+        "suggested_paths": suggestions,
+    }
+
+
+def _suggest_existing_project_paths(project_root: Path, missing_path: Path, *, limit: int = 8) -> list[str]:
+    suggestions: list[Path] = []
+    target_name = missing_path.stem or missing_path.name
+    handbook_actions = project_root / "handbook" / "actions"
+    if target_name and handbook_actions.exists():
+        suggestions.extend(sorted(handbook_actions.rglob(f"{target_name}.md")))
+        if not suggestions:
+            suggestions.extend(
+                sorted(
+                    path
+                    for path in handbook_actions.rglob("*.md")
+                    if target_name.lower() in path.stem.lower()
+                )
+            )
+
+    parent = _nearest_existing_parent(project_root, missing_path)
+    if parent is not None and parent.exists():
+        try:
+            siblings = sorted(parent.iterdir(), key=lambda path: path.name)
+        except OSError:
+            siblings = []
+        suggestions.extend(path for path in siblings if path.is_file() or path.is_dir())
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for path in suggestions:
+        if not is_relative_to(path.resolve(), project_root):
+            continue
+        relative_path = relative_to_project(project_root, path)
+        if relative_path in seen:
+            continue
+        seen.add(relative_path)
+        unique.append(relative_path)
+        if len(unique) >= limit:
+            break
+    return unique
+
+
+def _nearest_existing_parent(project_root: Path, path: Path) -> Path | None:
+    current = path
+    while is_relative_to(current, project_root):
+        if current.exists():
+            return current
+        if current == project_root:
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
 
 
 def assert_ripgrep_available() -> None:

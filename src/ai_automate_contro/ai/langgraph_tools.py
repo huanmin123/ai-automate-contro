@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import StructuredTool
+from pydantic import BaseModel
 
 from ai_automate_contro.app.runtime_config import plan_roots_for_project
 from ai_automate_contro.ai.terminal_tool_registry import (
@@ -28,6 +29,7 @@ def build_langchain_tools(
     thread_id_provider: Callable[[], str] | None = None,
     manual_confirmation_handler: Callable[[str], bool] | None = None,
     inspection_confirmation_handler: Callable[[str], bool] | None = None,
+    run_event_handler: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> list[StructuredTool]:
     _ensure_langchain_tool_registry_consistent()
     return [
@@ -40,6 +42,7 @@ def build_langchain_tools(
             thread_id_provider=thread_id_provider,
             manual_confirmation_handler=manual_confirmation_handler,
             inspection_confirmation_handler=inspection_confirmation_handler,
+            run_event_handler=run_event_handler,
         )
         for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
@@ -61,6 +64,7 @@ def _build_structured_tool(
     thread_id_provider: Callable[[], str] | None,
     manual_confirmation_handler: Callable[[str], bool] | None,
     inspection_confirmation_handler: Callable[[str], bool] | None,
+    run_event_handler: Callable[[str, dict[str, Any]], None] | None,
 ) -> StructuredTool:
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
@@ -73,6 +77,7 @@ def _build_structured_tool(
             thread_id_provider=thread_id_provider,
             manual_confirmation_handler=manual_confirmation_handler,
             inspection_confirmation_handler=inspection_confirmation_handler,
+            run_event_handler=run_event_handler,
         ),
         name=tool_name,
         description=spec.description,
@@ -90,8 +95,10 @@ def _make_tool_function(
     thread_id_provider: Callable[[], str] | None,
     manual_confirmation_handler: Callable[[str], bool] | None,
     inspection_confirmation_handler: Callable[[str], bool] | None,
+    run_event_handler: Callable[[str, dict[str, Any]], None] | None,
 ) -> Callable[..., str]:
     def _tool(**kwargs: Any) -> str:
+        kwargs = _json_safe_tool_payload(kwargs)
         if tool_name == "apply_debug_patch_after_approval":
             if not bool(kwargs.get("approved")):
                 raise ValueError("应用 debug patch 需要人工审批流程传入 approved=true。")
@@ -107,8 +114,13 @@ def _make_tool_function(
                 kwargs["_manual_confirmation_handler"] = manual_confirmation_handler
             if inspection_confirmation_handler is not None:
                 kwargs["_inspection_confirmation_handler"] = inspection_confirmation_handler
+            if run_event_handler is not None:
+                kwargs["_run_event_handler"] = lambda event: run_event_handler(tool_name, event)
         if before_tool_call is not None:
-            before_tool_call(tool_name, kwargs)
+            try:
+                before_tool_call(tool_name, kwargs)
+            except Exception:
+                pass
         try:
             result = call_ai_terminal_tool(
                 tool_name,
@@ -117,15 +129,30 @@ def _make_tool_function(
                 allow_protected=tool_name == "apply_debug_patch_after_approval",
             )
         except Exception as error:
-            if after_tool_call is not None:
-                after_tool_call(tool_name, kwargs, {"ok": False, "error": str(error)})
-            raise
+            result = {
+                "ok": False,
+                "error": str(error),
+                "error_type": type(error).__name__,
+            }
         if after_tool_call is not None:
-            after_tool_call(tool_name, kwargs, result)
+            try:
+                after_tool_call(tool_name, kwargs, result)
+            except Exception:
+                pass
         return json.dumps(result, ensure_ascii=False, indent=2)
 
     _tool.__name__ = tool_name
     return _tool
+
+
+def _json_safe_tool_payload(value: Any) -> Any:
+    if isinstance(value, BaseModel):
+        return _json_safe_tool_payload(value.model_dump())
+    if isinstance(value, dict):
+        return {str(key): _json_safe_tool_payload(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_tool_payload(item) for item in value]
+    return value
 
 
 def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
@@ -236,6 +263,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         inspect_web_page_tool = tool_by_name.get("inspect_web_page")
         read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
         write_plan_package_file_tool = tool_by_name.get("write_plan_package_file")
+        update_work_plan_tool = tool_by_name.get("update_work_plan")
         progressive_tools_ok = False
         progressive_tools_error = ""
         progressive_tools_detail: dict[str, Any] = {}
@@ -284,6 +312,36 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             except Exception as error:
                 progressive_tools_error = str(error)
 
+        missing_root_recoverable_ok = False
+        missing_root_recoverable_error = ""
+        missing_root_recoverable_detail: dict[str, Any] = {}
+        if grep_project_text_tool is not None:
+            try:
+                missing_root_result = json.loads(
+                    grep_project_text_tool.invoke(
+                        {
+                            "pattern": "selector",
+                            "root_path": "handbook/actions/element",
+                            "literal": True,
+                            "file_glob": "*.md",
+                            "max_matches": 5,
+                        }
+                    )
+                )
+                suggested_paths = missing_root_result.get("suggested_paths")
+                missing_root_recoverable_ok = (
+                    missing_root_result.get("ok") is False
+                    and "搜索路径不存在" in str(missing_root_result.get("error", ""))
+                    and isinstance(suggested_paths, list)
+                    and "handbook/actions/interaction/element.md" in suggested_paths
+                )
+                missing_root_recoverable_detail = {
+                    "error": missing_root_result.get("error"),
+                    "suggested_paths": suggested_paths,
+                }
+            except Exception as error:
+                missing_root_recoverable_error = str(error)
+
         write_plan_package_file_ok = False
         write_plan_package_file_error = ""
         write_plan_package_file_detail: dict[str, Any] = {}
@@ -300,7 +358,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 )
                 forbidden_rejected = False
                 forbidden_error = ""
-                try:
+                forbidden_result = json.loads(
                     write_plan_package_file_tool.invoke(
                         {
                             "plan_path": str(plan_path),
@@ -308,22 +366,102 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                             "content": "no",
                         }
                     )
-                except Exception as error:
-                    forbidden_error = str(error)
-                    forbidden_rejected = (
+                )
+                forbidden_error = str(forbidden_result)
+                forbidden_rejected = (
+                    not bool(forbidden_result.get("ok"))
+                    and (
                         "允许写入的目标" in forbidden_error
                         or "拒绝写入" in forbidden_error
                         or "Allowed write targets" in forbidden_error
                         or "Refusing to write" in forbidden_error
                     )
+                )
+                secret_literal_write_ok = False
+                secret_literal_error = ""
+                try:
+                    secret_literal_write_result = json.loads(
+                        write_plan_package_file_tool.invoke(
+                            {
+                                "plan_path": str(plan_path),
+                                "relative_path": "plan.json",
+                                "json_value": {
+                                    "name": "Secret Literal Check",
+                                    "steps": [
+                                        {
+                                            "action": "element",
+                                            "type": "fill",
+                                            "browser": "main",
+                                            "selector": "input[type=password]",
+                                            "value": "plain-secret-value",
+                                        }
+                                    ],
+                                },
+                            }
+                        )
+                    )
+                    secret_literal_write_ok = bool(secret_literal_write_result.get("ok"))
+                    secret_literal_error = str(secret_literal_write_result)
+                except Exception as error:
+                    secret_literal_error = str(error)
+                safe_secret_reference_ok = False
+                safe_secret_reference_error = ""
+                try:
+                    safe_write_result = json.loads(
+                        write_plan_package_file_tool.invoke(
+                            {
+                                "plan_path": str(plan_path),
+                                "relative_path": "sub-plans/secret-reference-plan.json",
+                                "json_value": {
+                                    "name": "Secret Reference Check",
+                                    "steps": [
+                                        {
+                                            "action": "element",
+                                            "type": "fill",
+                                            "browser": "main",
+                                            "selector": "input[type=password]",
+                                            "value": "{{password}}",
+                                        }
+                                    ],
+                                },
+                            }
+                        )
+                    )
+                    safe_secret_reference_ok = bool(safe_write_result.get("ok"))
+                except Exception as error:
+                    safe_secret_reference_error = str(error)
+                secret_resource_write_ok = False
+                secret_resource_error = ""
+                try:
+                    secret_resource_write_result = json.loads(
+                        write_plan_package_file_tool.invoke(
+                            {
+                                "plan_path": str(plan_path),
+                                "relative_path": "resources/credentials.json",
+                                "json_value": {
+                                    "username": "demo",
+                                    "password": "plain-secret-value",
+                                },
+                            }
+                        )
+                    )
+                    secret_resource_write_ok = bool(secret_resource_write_result.get("ok"))
+                except Exception as error:
+                    secret_resource_error = str(error)
                 write_plan_package_file_ok = (
                     bool(write_result.get("ok"))
                     and (package_dir / "docs" / "AI_TOOLS_SELF_CHECK.md").exists()
                     and forbidden_rejected
+                    and secret_literal_write_ok
+                    and safe_secret_reference_ok
+                    and secret_resource_write_ok
                 )
                 write_plan_package_file_detail = {
                     "relative_path": write_result.get("relative_path"),
                     "forbidden_error": forbidden_error,
+                    "secret_literal_error": secret_literal_error,
+                    "safe_secret_reference_error": safe_secret_reference_error,
+                    "secret_resource_error": secret_resource_error,
                 }
             except Exception as error:
                 write_plan_package_file_error = str(error)
@@ -388,11 +526,66 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 }
             except Exception as error:
                 web_inspection_error = str(error)
+
+        work_plan_tool_ok = False
+        work_plan_tool_error = ""
+        work_plan_tool_detail: dict[str, Any] = {}
+        if update_work_plan_tool is not None:
+            try:
+                plan_result = json.loads(
+                    update_work_plan_tool.invoke(
+                        {
+                            "summary": "self-check plan",
+                            "items": [
+                                {"title": "确认目标", "status": "completed"},
+                                {"title": "更新计划", "status": "in_progress"},
+                                {"title": "验证结果", "status": "pending"},
+                            ],
+                        }
+                    )
+                )
+                duplicate_active_rejected = False
+                duplicate_active_error = ""
+                duplicate_active_result = json.loads(
+                    update_work_plan_tool.invoke(
+                        {
+                            "items": [
+                                {"title": "one", "status": "in_progress"},
+                                {"title": "two", "status": "in_progress"},
+                            ],
+                        }
+                    )
+                )
+                duplicate_active_error = str(duplicate_active_result)
+                duplicate_active_rejected = not bool(duplicate_active_result.get("ok")) and "最多只能有一个" in duplicate_active_error
+                work_plan_tool_ok = (
+                    bool(plan_result.get("ok"))
+                    and plan_result.get("total") == 3
+                    and plan_result.get("completed") == 1
+                    and plan_result.get("active") == "更新计划"
+                    and captured_calls[-2]["name"] == "update_work_plan"
+                    and duplicate_active_rejected
+                )
+                work_plan_tool_detail = {
+                    "total": plan_result.get("total"),
+                    "completed": plan_result.get("completed"),
+                    "active": plan_result.get("active"),
+                    "duplicate_active_error": duplicate_active_error,
+                }
+            except Exception as error:
+                work_plan_tool_error = str(error)
     checks.append(
         _self_check_result(
             name="progressive_text_tools",
             passed=progressive_tools_ok,
             detail={**progressive_tools_detail, "error": progressive_tools_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="grep_missing_root_is_recoverable",
+            passed=missing_root_recoverable_ok,
+            detail={**missing_root_recoverable_detail, "error": missing_root_recoverable_error},
         )
     )
     checks.append(
@@ -407,6 +600,13 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="inspect_web_page_tool",
             passed=web_inspection_ok,
             detail={**web_inspection_detail, "error": web_inspection_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="update_work_plan_tool",
+            passed=work_plan_tool_ok,
+            detail={**work_plan_tool_detail, "error": work_plan_tool_error},
         )
     )
 

@@ -51,7 +51,7 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
     session.register_page("main", page, switch=True)
     executor.state.sessions[name] = session
     context.on("dialog", executor._handle_dialog)
-    executor.state.logger.log("info", "browser opened", browser=name)
+    executor.state.logger.log("info", "browser opened", browser=name, headed=config.headed)
 
 
 def page(executor: Any, step: dict[str, Any]) -> None:
