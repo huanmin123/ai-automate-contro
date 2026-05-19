@@ -2,7 +2,7 @@
 
 ## 项目定位
 
-这是一个基于 Python + Playwright 的 JSON 编排自动化内核。入口是 `main.py`，核心代码在 `src/ai_automate_contro/`，执行器读取 JSON plan 后按步骤驱动浏览器、变量、断言、文件读写、控制流组件和受控专项 AI 组件。
+这是一个基于 Python + Playwright 的 JSON 编排自动化内核。AI 入口是 `main.py`/`aic`，无 AI plan 控制入口是 `cplan.py`/`cplan`，核心代码在 `src/ai_automate_contro/`，执行器读取 JSON plan 后按步骤驱动浏览器、变量、断言、文件读写、控制流组件和受控专项 AI 组件。
 
 ## Windows Shell 默认约定
 
@@ -13,7 +13,8 @@
 
 ## 目录职责
 
-- `main.py`: 极薄 CLI 启动入口，负责把项目 `src/` 加入导入路径并交给应用层分发。
+- `main.py`: AI-first CLI 启动入口，负责把项目 `src/` 加入导入路径并交给应用层分发。
+- `cplan.py`: 无 AI plan 控制入口，负责创建、校验、运行和调试 plan。
 - `src/ai_automate_contro/app/`: CLI 参数解析和一次性命令分发。
 - `src/ai_automate_contro/client/`: Textual AI-first 交互客户端。
 - `src/ai_automate_contro/engine/`: plan 执行器、动作运行时、浏览器会话、条件和模板。
@@ -40,8 +41,10 @@ python .\main.py self-check textual-client
 python .\main.py self-check ai-stream
 python .\main.py self-check ai-terminal
 python .\main.py self-check ai-tools
-python .\main.py plan run --file .\plans\minimal-browser-plan\plan.json
-python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
+python .\cplan.py self-check cli
+python .\cplan.py self-check runtime
+python .\cplan.py run --file .\plans\minimal-browser-plan\plan.json
+python .\cplan.py run --file .\test-plans\basic\fill-system-account\plan.json
 ```
 
 项目采用 `src/` 布局。IDE 未识别导入时，优先把 `src` 标记为 Sources Root，或运行 `python -m pip install -e .` 安装为 editable 包。
@@ -56,13 +59,13 @@ python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.jso
 - `test-plans/` 下面直接按类别放 plan 包，不要再增加 `plans/`、`suites/`、`workspaces/` 中间层。
 - 集合级 plan 配置固定放在 `plans/config.json` 或 `test-plans/config.json`；局部 plan 配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。`config.json` 只保存运行配置，不保存 plan 变量；plan 变量写在 `plan.json.variables`。
 - 禁止让一个主 `plan.json` 引用另一个主 `plan.json`，不同需求包之间保持独立。
-- 运行产物必须写入当前 plan 包的 `output/` 目录；输出动作的配置路径是相对于 `output/` 的路径，不能以 `output/` 开头。截图、录屏、下载、HTML、JSON、CSV、TXT、storage state、失败截图、失败 HTML 和失败页面状态都不能写到源码、`resources/` 或仓库其他位置。
+- plan action 的运行证据和中间产物必须写入当前 plan 包的 `output/` 目录；输出动作的配置路径是相对于 `output/` 的路径，不能以 `output/` 开头。截图、录屏、下载、HTML、JSON、CSV、TXT、storage state、失败截图、失败 HTML 和失败页面状态都不能写到源码、`resources/` 或仓库其他位置。用户明确要求最终交付文件保存到 Downloads、桌面或绝对路径时，AI 终端应在运行成功后用 `export_local_file` 写入或从 `output/` 复制过去，不要求用户手动复制。
 - 参数级别一致的组件必须收敛为单个 action，并通过 `type` 区分具体操作，例如 `navigate`、`page`、`element`、`wait`、`extract`、`assert`、`capture`、`read`、`write`。
 - 只有参数结构或执行生命周期无法统一时才新增独立组件，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`。
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
 - `read` 统一使用 `path`、`type`、`save_as`，资源输入优先放在当前 plan 包 `resources/`。
 - AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。
-- AI 终端交互客户端使用 Textual AI-first UI，不再保留 `plan>`/`ai>` 交互模式或 `AI>`/`你>` 文本前缀；用户消息、AI 回复、工具进度、审批和错误必须分块显示。后端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后可用 `/sessions` 查询会话、`/resume <id-or-index>` 恢复会话、`/new` 开新会话、`/status` 查看状态、`/compress` 手动压缩会话。脚本化真实 AI 回归使用 `python .\main.py ai --thread <id> ask --message "<text>" --json`，不要用自定义请求协议绕过 AI 终端。
+- AI 终端交互客户端使用 Textual AI-first UI，不再保留 `plan>`/`ai>` 交互模式或 `AI>`/`你>` 文本前缀；用户消息、AI 回复、工具进度、审批和错误必须分块显示。后端使用 `langchain.agents.create_agent`、LangChain `StructuredTool`、显式 Pydantic 工具参数模型、`HumanInTheLoopMiddleware`、`SummarizationMiddleware` 和 LangGraph checkpoint；会话状态放在本地 `.keygen/ai-terminal-checkpoints.sqlite`，可通过 `python .\main.py ai --thread <id>` 恢复，进入后常用命令只展示 AI 会话入口，例如 `/status`、`/plan`、`/sessions`、`/resume <id-or-index>`、`/new`、`/image`、`/approve`、`/reject`、`/export`、`/copy-last`、`/clear` 和 `/exit`。无 AI 的 plan list/create/validate/run/debug 统一放到 `cplan`，不要放进 Textual 客户端。命令不提供重复别名，长会话默认自动压缩。脚本化真实 AI 回归使用 `python .\main.py ai --thread <id> ask --message "<text>" --json`，不要用自定义请求协议绕过 AI 终端。
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型，避免 CLI 与 AI 终端出现两套参数规则。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护，然后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
 - AI 新建 plan 包可使用 `create_plan_package` 和 `write_plan_package_file` 写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。该工具必须拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径；已有原始 plan 的修复仍走 debug workspace、patch 和 HITL approval。

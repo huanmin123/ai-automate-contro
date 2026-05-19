@@ -144,10 +144,14 @@ def read_output_artifact_tool(
         return payload
     resolved_max_bytes = max(0, min(int(max_bytes), MAX_TEXT_ARTIFACT_BYTES))
     content, truncated = read_text_preview(artifact_path, max_bytes=resolved_max_bytes)
+    lines = content.splitlines()
     payload["truncated"] = truncated
     payload["requested_max_bytes"] = max_bytes
     payload["max_bytes"] = MAX_TEXT_ARTIFACT_BYTES
     payload["content"] = content
+    payload["line_count"] = len(lines)
+    payload["non_empty_line_count"] = len([line for line in lines if line.strip()])
+    payload["content_complete"] = not truncated
     return payload
 
 

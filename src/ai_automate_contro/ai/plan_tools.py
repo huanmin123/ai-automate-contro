@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.runtime_config import plan_roots_for_project
 from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.loader import detect_document_type, load_plan
 from ai_automate_contro.plans.packages import (
@@ -81,7 +82,15 @@ def create_plan_package_tool(
     root = Path(project_root).resolve()
     if not package_path and not name:
         raise ValueError("create_plan_package 需要 package_path 或 name。")
-    resolved_package_path = package_path or default_plan_package_dir(root, name=name or "")
+    if package_path:
+        raw_package_path = path_from_text(package_path)
+        if raw_package_path.is_absolute():
+            resolved_package_path = raw_package_path.resolve()
+        else:
+            resolved_package_path = (root / raw_package_path).resolve()
+    else:
+        resolved_package_path = default_plan_package_dir(root, name=name or "").resolve()
+    _validate_create_plan_package_path(resolved_package_path, root)
     package_dir = create_plan_package(resolved_package_path, project_root=root, name=name, force=force)
     return {
         "ok": True,
@@ -234,6 +243,22 @@ def _validate_plan_package_write_path(relative_path: Path) -> None:
     if parts[0] in ALLOWED_PLAN_PACKAGE_WRITE_ROOTS and len(parts) >= 2:
         return
     raise ValueError("允许写入的目标只有 plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。")
+
+
+def _validate_create_plan_package_path(package_dir: Path, project_root: Path) -> None:
+    if not is_relative_to(package_dir, project_root):
+        raise ValueError("create_plan_package 只能在当前项目根目录内创建 plan 包。")
+    plan_roots = tuple(root.resolve() for root in plan_roots_for_project(project_root))
+    if not any(is_relative_to(package_dir, plan_root) for plan_root in plan_roots):
+        allowed = ", ".join(str(root) for root in plan_roots)
+        raise ValueError(f"create_plan_package 只能写入 plan.config.plan_roots：{allowed}")
+    relative_parts = package_dir.relative_to(project_root).parts
+    if not relative_parts or any(part in {"", ".", ".."} for part in relative_parts):
+        raise ValueError("package_path 必须是干净的 plan 包路径。")
+    if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in relative_parts):
+        raise ValueError("拒绝在 output、缓存、checkpoint、git 或 pycache 路径创建 plan 包。")
+    if package_dir.name.endswith((".pyc", ".pyo")) or ".egg-info" in relative_parts:
+        raise ValueError("拒绝在 pyc、pyo 或 egg-info 路径创建 plan 包。")
 
 
 def issue_to_dict(issue: ValidationIssue) -> dict[str, str]:

@@ -66,7 +66,7 @@ def self_check_browser_components(project_root: Path) -> dict[str, Any]:
             },
         ],
         "commands": {
-            "run": f"python {_main_script_path()} self-check browser-components",
+            "run": f"python {_cplan_script_path()} self-check browser-components",
             "playwright": "python -m playwright install chromium",
         },
     }
@@ -221,6 +221,9 @@ def _browser_parameter_coverage_evidence(project_root: Path) -> list[dict[str, A
     cookies = summary.get("cookies", [])
     events = summary.get("events", [])
     first_event = events[0] if isinstance(events, list) and events and isinstance(events[0], dict) else {}
+    download_path = str(summary.get("download_path", ""))
+    download_file = project_root / "test-plans/basic/browser-parameter-coverage/output/downloads/coverage-download.txt"
+    download_text = download_file.read_text(encoding="utf-8") if _file_nonempty(download_file) else ""
     return [
         _expect(
             "cookie_roundtrip",
@@ -232,6 +235,8 @@ def _browser_parameter_coverage_evidence(project_root: Path) -> list[dict[str, A
             "har_file",
             _file_nonempty(project_root / "test-plans/basic/browser-parameter-coverage/output/har/coverage.har"),
         ),
+        _expect("wait_for_download_saved", download_path.endswith("coverage-download.txt") and _file_nonempty(download_file)),
+        _expect("download_content", download_text == "coverage download ok\n"),
     ]
 
 
@@ -285,5 +290,5 @@ def _expect(name: str, ok: bool) -> dict[str, Any]:
     return {"name": name, "ok": bool(ok)}
 
 
-def _main_script_path() -> str:
-    return ".\\main.py" if platform.system() == "Windows" else "./main.py"
+def _cplan_script_path() -> str:
+    return ".\\cplan.py" if platform.system() == "Windows" else "./cplan.py"

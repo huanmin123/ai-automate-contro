@@ -203,6 +203,18 @@
       "selector": "#clear-event"
     },
     {
+      "action": "wait_for_download",
+      "browser": "coverage",
+      "path": "coverage-download.txt",
+      "save_as": "coverage_download_path",
+      "trigger": {
+        "action": "element",
+        "type": "click",
+        "browser": "coverage",
+        "selector": "#download-link"
+      }
+    },
+    {
       "action": "event",
       "type": "stop",
       "browser": "coverage",
@@ -221,7 +233,8 @@
       "path": "coverage-summary.json",
       "value": {
         "cookies": "{{cookies}}",
-        "events": "{{coverage_events}}"
+        "events": "{{coverage_events}}",
+        "download_path": "{{coverage_download_path}}"
       }
     }
   ]

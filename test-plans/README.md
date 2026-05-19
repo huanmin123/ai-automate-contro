@@ -51,7 +51,7 @@ test-plans/
 浏览器组件的完整回归入口是：
 
 ```powershell
-python .\main.py self-check browser-components
+python .\cplan.py self-check browser-components
 ```
 
 该命令会运行浏览器正向矩阵，并读取 `test-plans/regression/browser-validation-negative/resources/negative-cases.json` 做参数负向校验。
@@ -61,7 +61,7 @@ python .\main.py self-check browser-components
 ## 运行示例
 
 ```powershell
-python .\main.py plan run --file .\test-plans\basic\fill-system-account\plan.json
-python .\main.py plan run --file .\test-plans\ai\controlled-text\plan.json --run-name ai-controlled-text
-python .\main.py plan run --file .\test-plans\ai\text-processing\plan.json --run-name ai-text-processing
+python .\cplan.py run --file .\test-plans\basic\fill-system-account\plan.json
+python .\cplan.py run --file .\test-plans\ai\controlled-text\plan.json --run-name ai-controlled-text
+python .\cplan.py run --file .\test-plans\ai\text-processing\plan.json --run-name ai-text-processing
 ```

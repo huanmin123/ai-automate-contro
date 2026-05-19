@@ -10,11 +10,16 @@
 
 ## 决策规则
 
+- 交互入口分成两端，不要混用：
+  - AI 端是 `main.py`/`aic` 的 Textual 客户端，用户用自然语言对话；它显示 AI 工作计划、工具进度、审批、错误和队列。这里的 `/plan` 只查看 AI 当前工作计划，不是 plan 包管理命令。
+  - 管理端是 `cplan.py`/`cplan`，没有 AI 对话，只接受固定命令：`list`、`create`、`validate`、`run`、`debug-create`、`debug-prepare`、`debug-inject`、`debug-patch`、`debug-apply`、`self-check`。
+  - 不存在 Textual 里的 `/run`、`/validate`、`/debug`、`/continue`、`/stop` plan 管理命令；不要把这些写进 plan 文档、提示或用户指引。
 - 创建或修改 plan 前，先确认目标 plan 包位置；未指定目录时使用当前运行根的第一个 `plan_roots`。
 - 真实网页流程不能凭描述猜 selector；先用页面证据，再写浏览器步骤。
 - 所有运行产物都写入当前 plan 包的 `output/`，输出动作的 `path` 不要以 `output/` 开头。
 - 主 `plan.json` 是唯一入口；复用流程时只调用同包 `sub-plans/*-plan.json`。
 - 需要人工登录、验证码、二次验证或权限确认时，使用 `open_browser.headed=true` 的自动化浏览器加 `manual_confirm` 交接；用户必须在同一个 Playwright 浏览器窗口里操作，不要让用户另开本机浏览器。
+- `manual_confirm` 的继续方式取决于入口：在 AI 端，用户回到同一个 Textual 对话用自然语言确认、停止或反馈问题；在 `cplan run` 管理端，用户回到同一个命令行只输入 `y` 继续、`n` 停止。不要让管理端接受一串自然语言确认词。
 - 修改已有 plan 时优先做最小 JSON 路径修改；调试修复先进入调试工作区，再生成补丁。
 - 不要把完整日志、大型产物或整本手册塞进上下文；先看目录，再按 action 精确读取。
 

@@ -15,7 +15,7 @@ python -m playwright install chromium
 ## 运行方式
 
 ```powershell
-python .\main.py plan run --file .\test-plans\basic\browser-observability\plan.json
+python .\cplan.py run --file .\test-plans\basic\browser-observability\plan.json
 ```
 
 ## 预期产物

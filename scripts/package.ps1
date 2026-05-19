@@ -53,6 +53,55 @@ function Invoke-Checked {
     }
 }
 
+function Invoke-PackagedBrowserSmoke {
+    param([Parameter(Mandatory = $true)][string]$FilePath)
+    $browserSmokeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-browser-smoke-{0}" -f [System.Guid]::NewGuid().ToString("N"))
+    $resourcesDir = Join-Path $browserSmokeDir "resources"
+    try {
+        New-Item -ItemType Directory -Force -Path $resourcesDir | Out-Null
+        @"
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Packaged Browser Smoke</title></head>
+<body><h1 id="title">Packaged Browser Smoke</h1></body></html>
+"@ | Set-Content -LiteralPath (Join-Path $resourcesDir "demo.html") -Encoding UTF8
+        @"
+{
+  "name": "packaged-browser-smoke",
+  "variables": {
+    "expected_title": "Packaged Browser Smoke"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{resources_file_url}}/demo.html",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "#title",
+      "expected": "{{expected_title}}",
+      "type": "text"
+    }
+  ]
+}
+"@ | Set-Content -LiteralPath (Join-Path $browserSmokeDir "plan.json") -Encoding UTF8
+        Invoke-Checked $FilePath @("validate", "--file", (Join-Path $browserSmokeDir "plan.json"))
+        Invoke-Checked $FilePath @("run", "--file", (Join-Path $browserSmokeDir "plan.json"), "--run-name", "browser-smoke")
+    }
+    finally {
+        if (Test-Path -LiteralPath $browserSmokeDir) {
+            Remove-Item -LiteralPath $browserSmokeDir -Recurse -Force
+        }
+    }
+}
+
 function Stop-ExistingPackageProcesses {
     if ($IsWindows) {
         $processes = Get-CimInstance Win32_Process | Where-Object {
@@ -64,9 +113,14 @@ function Stop-ExistingPackageProcesses {
             }
             return (
                 $name -ieq $ExecutableFileName -or
+                $name -ieq $CPlanExecutableFileName -or
                 $commandLine.Contains($ExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $commandLine.Contains($CPlanExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $commandLine.Contains($PackageDir, [System.StringComparison]::OrdinalIgnoreCase) -or
-                $commandLine.Contains("package.ps1", [System.StringComparison]::OrdinalIgnoreCase) -or
+                (
+                    $commandLine.Contains("package.ps1", [System.StringComparison]::OrdinalIgnoreCase) -and
+                    $commandLine.Contains($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)
+                ) -or
                 (
                     $commandLine.Contains("PyInstaller", [System.StringComparison]::OrdinalIgnoreCase) -and
                     $commandLine.Contains($BuildTempRoot, [System.StringComparison]::OrdinalIgnoreCase)
@@ -106,9 +160,14 @@ function Stop-ExistingPackageProcesses {
         $commandLine = $parts[1]
         if (
             $commandLine.Contains($ExecutablePath, [System.StringComparison]::Ordinal) -or
+            $commandLine.Contains($CPlanExecutablePath, [System.StringComparison]::Ordinal) -or
             $commandLine.Contains("$PackageDir/", [System.StringComparison]::Ordinal) -or
             $commandLine.Contains("./$ExecutableFileName", [System.StringComparison]::Ordinal) -or
-            $commandLine.Contains("package.ps1", [System.StringComparison]::Ordinal) -or
+            $commandLine.Contains("./$CPlanExecutableFileName", [System.StringComparison]::Ordinal) -or
+            (
+                $commandLine.Contains("package.ps1", [System.StringComparison]::Ordinal) -and
+                $commandLine.Contains($RepoRoot, [System.StringComparison]::Ordinal)
+            ) -or
             (
                 $commandLine.Contains("PyInstaller", [System.StringComparison]::Ordinal) -and
                 $commandLine.Contains($BuildTempRoot, [System.StringComparison]::Ordinal)
@@ -164,8 +223,11 @@ if ($IsMacOS -and $osArchitecture -ne "arm64") {
 
 $PlatformName = if ($IsWindows) { "windows-$osArchitecture" } else { "macos-arm64" }
 $ExecutableBaseName = "aic"
+$CPlanExecutableBaseName = "cplan"
 $ExecutableFileName = if ($IsWindows) { "$ExecutableBaseName.exe" } else { $ExecutableBaseName }
+$CPlanExecutableFileName = if ($IsWindows) { "$CPlanExecutableBaseName.exe" } else { $CPlanExecutableBaseName }
 $ExecutableCommandForDocs = if ($IsWindows) { ".\$ExecutableFileName" } else { "./$ExecutableFileName" }
+$CPlanExecutableCommandForDocs = if ($IsWindows) { ".\$CPlanExecutableFileName" } else { "./$CPlanExecutableFileName" }
 $OutDir = Resolve-RepoPath "out"
 $PackageDir = Join-Path $OutDir "ai-automate-contro"
 $BuildTempRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) "ai-automate-contro-pyinstaller"))
@@ -176,11 +238,10 @@ $PyInstallerExecutablePath = Join-Path $PyInstallerPackageDir $ExecutableFileNam
 $SourceDir = Resolve-RepoPath "src"
 $EntryPoint = Resolve-RepoPath "main.py"
 $ExecutablePath = Join-Path $PackageDir $ExecutableFileName
+$CPlanExecutablePath = Join-Path $PackageDir $CPlanExecutableFileName
 $HandbookSourceDir = Resolve-RepoPath "handbook"
 $PlanConfigPath = Join-Path $PackageDir "plan.config"
 $PackageZipPath = Join-Path $OutDir "ai-automate-contro-$PlatformName.zip"
-$ExistingPackagePlansConfigPath = Join-Path $PackageDir "plans\config.json"
-$LocalPlansConfigBackupPath = $null
 
 Assert-UnderRepo $OutDir
 Assert-UnderRepo $PackageDir
@@ -189,14 +250,6 @@ Assert-UnderRepo $EntryPoint
 Assert-UnderRepo $HandbookSourceDir
 Assert-UnderRepo $PlanConfigPath
 Assert-UnderRepo $PackageZipPath
-
-if (Test-Path -LiteralPath $ExistingPackagePlansConfigPath) {
-    Assert-UnderRepo $ExistingPackagePlansConfigPath
-    $LocalPlansConfigBackupPath = [System.IO.Path]::GetFullPath(
-        (Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-out-config-{0}.json" -f [System.Guid]::NewGuid().ToString("N")))
-    )
-    Copy-Item -LiteralPath $ExistingPackagePlansConfigPath -Destination $LocalPlansConfigBackupPath -Force
-}
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 Stop-ExistingPackageProcesses
@@ -288,9 +341,11 @@ Get-ChildItem -LiteralPath $PyInstallerPackageDir -Force | ForEach-Object {
 if (-not (Test-Path -LiteralPath $ExecutablePath)) {
     throw "打包复制已完成，但没有找到可执行文件：$ExecutablePath"
 }
+Copy-Item -LiteralPath $ExecutablePath -Destination $CPlanExecutablePath -Force
 
 if (-not $IsWindows) {
     chmod +x $ExecutablePath
+    chmod +x $CPlanExecutablePath
 }
 
 $PackageHandbookDir = Join-Path $PackageDir "handbook"
@@ -330,8 +385,8 @@ $demoReadme = @"
 这个 plan 用于验证分发包是否可以正常校验和运行。
 
 ```powershell
-$ExecutableCommandForDocs plan validate --file .\plans\demo\plan.json
-$ExecutableCommandForDocs plan run --file .\plans\demo\plan.json --run-name demo-smoke
+$CPlanExecutableCommandForDocs validate --file .\plans\demo\plan.json
+$CPlanExecutableCommandForDocs run --file .\plans\demo\plan.json --run-name demo-smoke
 ```
 "@
 $demoReadme | Set-Content -LiteralPath (Join-Path $PackageDemoDocsDir "README.md") -Encoding UTF8
@@ -342,10 +397,13 @@ if ($SmokeTest) {
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
-        Invoke-Checked $ExecutablePath @("self-check", "runtime")
+        Invoke-Checked $ExecutablePath @("self-check", "ai-tools")
+        Invoke-Checked $CPlanExecutablePath @("self-check", "cli")
+        Invoke-Checked $CPlanExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExecutablePath @("tool", "check")
-        Invoke-Checked $ExecutablePath @("plan", "validate", "--file", ".\plans\demo\plan.json")
-        Invoke-Checked $ExecutablePath @("plan", "run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
+        Invoke-Checked $CPlanExecutablePath @("validate", "--file", ".\plans\demo\plan.json")
+        Invoke-Checked $CPlanExecutablePath @("run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
+        Invoke-PackagedBrowserSmoke $CPlanExecutablePath
     }
     finally {
         Pop-Location
@@ -371,26 +429,24 @@ if ($SmokeTest) {
     Expand-Archive -LiteralPath $PackageZipPath -DestinationPath $ZipSmokeDir -Force
     $ExtractedPackageDir = Join-Path $ZipSmokeDir "ai-automate-contro"
     $ExtractedExecutablePath = Join-Path $ExtractedPackageDir $ExecutableFileName
+    $ExtractedCPlanExecutablePath = Join-Path $ExtractedPackageDir $CPlanExecutableFileName
     Push-Location $ExtractedPackageDir
     try {
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
-        Invoke-Checked $ExtractedExecutablePath @("self-check", "runtime")
+        Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-tools")
+        Invoke-Checked $ExtractedCPlanExecutablePath @("self-check", "cli")
+        Invoke-Checked $ExtractedCPlanExecutablePath @("self-check", "runtime")
         Invoke-Checked $ExtractedExecutablePath @("tool", "check")
-        Invoke-Checked $ExtractedExecutablePath @("plan", "validate", "--file", ".\plans\demo\plan.json")
-        Invoke-Checked $ExtractedExecutablePath @("plan", "run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
+        Invoke-Checked $ExtractedCPlanExecutablePath @("validate", "--file", ".\plans\demo\plan.json")
+        Invoke-Checked $ExtractedCPlanExecutablePath @("run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
+        Invoke-PackagedBrowserSmoke $ExtractedCPlanExecutablePath
     }
     finally {
         Pop-Location
         Remove-Item -LiteralPath $ZipSmokeDir -Recurse -Force
     }
-}
-
-if ($null -ne $LocalPlansConfigBackupPath -and (Test-Path -LiteralPath $LocalPlansConfigBackupPath)) {
-    New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackagePlansConfigPath) | Out-Null
-    Copy-Item -LiteralPath $LocalPlansConfigBackupPath -Destination $PackagePlansConfigPath -Force
-    Write-Host "已恢复 out\\ai-automate-contro\\plans\\config.json 的本地配置；zip 内仍使用示例配置。"
 }
 
 if (Test-Path -LiteralPath $BuildDir) {
@@ -405,6 +461,8 @@ if ((Test-Path -LiteralPath $BuildRoot) -and -not (Get-ChildItem -LiteralPath $B
 
 Write-Host "分发包可执行文件："
 Write-Host $ExecutablePath
+Write-Host "分发包 plan 控制 CLI："
+Write-Host $CPlanExecutablePath
 Write-Host "分发包 zip："
 Write-Host $PackageZipPath
 Write-Host "请从 out\ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。"

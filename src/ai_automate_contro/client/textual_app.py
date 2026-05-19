@@ -23,7 +23,10 @@ from textual.timer import Timer
 from textual.widgets import Static, TextArea
 
 from ai_automate_contro.client.backend import AITerminalBackend, AgentClientBackend
+from ai_automate_contro.client.backend import CONFIRM_CURRENT_WAIT, FEEDBACK_OR_CORRECTION
 from ai_automate_contro.client.commands import (
+    APPROVAL_COMMANDS,
+    CONTEXTUAL_COMMANDS,
     ClientCommandSpec,
     SCOPE_LABELS,
     client_command_suggestions,
@@ -287,9 +290,36 @@ class WorkPlanPanel(Static):
         return "\n".join(lines)
 
 
+class PendingQueuePanel(Static):
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+        super().__init__("", id="pending_queue_panel")
+        self.display = False
+
+    def update_queue(self, messages: list[str]) -> None:
+        self.messages = [message for message in messages if message.strip()]
+        if not self.messages:
+            self.display = False
+            self.update("")
+            return
+        self.display = True
+        self.update(self._render_text())
+
+    def _render_text(self) -> str:
+        lines = [f"待处理 {len(self.messages)} 条"]
+        for index, message in enumerate(self.messages[:5], start=1):
+            lines.append(f"{index}. {_single_line_preview(message, limit=120)}")
+        hidden = len(self.messages) - 5
+        if hidden > 0:
+            lines.append(f"+ {hidden} 条")
+        return "\n".join(lines)
+
+
 class Composer(TextArea):
     BINDINGS = [
         Binding("enter", "submit", "发送", show=False),
+        Binding("up", "cursor_up", "上一项", show=False),
+        Binding("down", "cursor_down", "下一项", show=False),
     ]
 
     @dataclass
@@ -322,10 +352,30 @@ class Composer(TextArea):
         self._log_input_debug("action_paste", before_text=self.text)
         self.post_message(self.PaletteRequested(self, "paste").set_sender(self))
 
+    def action_cursor_up(self, select: bool = False) -> None:
+        if not select and _is_palette_input(self.text):
+            self._move_palette_selection("up")
+            return
+        super().action_cursor_up(select=select)
+
+    def action_cursor_down(self, select: bool = False) -> None:
+        if not select and _is_palette_input(self.text):
+            self._move_palette_selection("down")
+            return
+        super().action_cursor_down(select=select)
+
+    def _move_palette_selection(self, direction: str) -> None:
+        try:
+            palette = self.app.query_one("#command_palette", CommandPalette)
+        except NoMatches:
+            self.post_message(self.PaletteRequested(self, direction).set_sender(self))
+            return
+        palette.move_selection(-1 if direction == "up" else 1)
+
     async def _on_key(self, event: Any) -> None:
         self._log_input_debug("key", event=event, before_text=self.text)
         aliases = set(getattr(event, "aliases", []))
-        if event.key == "newline" or "newline" in aliases:
+        if _is_newline_key_event(event):
             event.stop()
             event.prevent_default()
             self.action_newline()
@@ -347,10 +397,11 @@ class Composer(TextArea):
             self.post_message(self.PaletteRequested(self, "complete").set_sender(self))
             self._log_input_debug("key_handled_palette_complete", event=event, after_text=self.text)
             return
-        if event.key in {"up", "down"} and _is_palette_input(self.text):
+        palette_direction = _palette_move_direction(event)
+        if palette_direction is not None and _is_palette_input(self.text):
             event.stop()
             event.prevent_default()
-            self.post_message(self.PaletteRequested(self, event.key).set_sender(self))
+            self.post_message(self.PaletteRequested(self, palette_direction).set_sender(self))
             self._log_input_debug("key_handled_palette_move", event=event, after_text=self.text)
             return
         if event.key == "escape":
@@ -421,42 +472,20 @@ class AICTextualApp(App[None]):
 
     #transcript {
         height: 1fr;
-        padding: 1 6 0 6;
+        padding: 1 0 0 0;
         background: #101214;
     }
 
     #input_panel {
         height: auto;
-        padding: 1 6 1 6;
+        padding: 0 0 1 0;
         background: #101214;
-    }
-
-    #top_bar {
-        height: 1;
-        padding: 0 6;
-        background: #15181b;
-        color: #8f96a0;
-    }
-
-    #brand {
-        width: auto;
-        min-width: 12;
-        background: #15181b;
-        color: #f0c674;
-        text-style: bold;
-    }
-
-    #top_status {
-        width: 1fr;
-        background: #15181b;
-        color: #8f96a0;
-        content-align: right middle;
     }
 
     #command_palette {
         max-height: 10;
         margin: 0 0 1 0;
-        padding: 1 2;
+        padding: 1 1;
         color: #b8b2a7;
         background: #1a1d20;
         border-left: tall #3a4047;
@@ -465,17 +494,26 @@ class AICTextualApp(App[None]):
     #work_plan_panel {
         max-height: 8;
         margin: 0 0 1 0;
-        padding: 1 2;
+        padding: 1 1;
         color: #d3cab8;
         background: #171a1d;
         border-left: tall #d9a441;
+    }
+
+    #pending_queue_panel {
+        max-height: 7;
+        margin: 0 0 1 0;
+        padding: 1 1;
+        color: #c8d0dc;
+        background: #15191e;
+        border-left: tall #6f7a86;
     }
 
     #composer_row {
         height: auto;
         min-height: 7;
         background: #2d3035;
-        padding: 1 2 2 2;
+        padding: 1 1 2 1;
     }
 
     #prompt_marker {
@@ -542,7 +580,7 @@ class AICTextualApp(App[None]):
         background: #2a2e33;
         color: #f3efe7;
         min-height: 1;
-        padding: 1 2;
+        padding: 1 1;
     }
 
     .assistant {
@@ -565,7 +603,7 @@ class AICTextualApp(App[None]):
         height: auto;
         max-height: 12;
         margin: 0 0 1 0;
-        padding: 1 2;
+        padding: 1 1;
         background: #16191c;
     }
 
@@ -627,28 +665,28 @@ class AICTextualApp(App[None]):
     .summary {
         color: #cbd7c5;
         background: #111812;
-        padding: 1 2;
+        padding: 1 1;
         border-left: tall #7fb069;
     }
 
     .diff {
         color: #d6d0c4;
         background: #121416;
-        padding: 1 2;
+        padding: 1 1;
         border-left: tall #7a6f55;
     }
 
     .approval {
         color: #9ccfd8;
         background: #142329;
-        padding: 1 2;
+        padding: 1 1;
         border-left: tall #2f8f9d;
     }
 
     .error {
         color: #ffb4ab;
         background: #2b1718;
-        padding: 1 2;
+        padding: 1 1;
         border-left: tall #ff6b6b;
     }
 
@@ -672,6 +710,7 @@ class AICTextualApp(App[None]):
         self.title = title
         self._queue: deque[str] = deque()
         self._busy = False
+        self._drain_scheduled = False
         self._current_assistant: MessageBlock | None = None
         self._current_assistant_record_index: int | None = None
         self._active_tools: dict[str, ToolBlock] = {}
@@ -689,6 +728,7 @@ class AICTextualApp(App[None]):
         self._turn_sequence = 0
         self._suppressed_turn_ids: set[int] = set()
         self._active_summary: TurnSummary | None = None
+        self._pre_echoed_queue_messages: deque[str] = deque()
         self._input_debug_enabled = os.environ.get("AIC_TEXTUAL_INPUT_DEBUG", "1").lower() not in {
             "0",
             "false",
@@ -698,13 +738,11 @@ class AICTextualApp(App[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="root"):
-            with Horizontal(id="top_bar"):
-                yield Static("AIC", id="brand")
-                yield Static("", id="top_status")
             yield VerticalScroll(id="transcript")
             with Vertical(id="input_panel"):
                 yield CommandPalette()
                 yield WorkPlanPanel()
+                yield PendingQueuePanel()
                 with Horizontal(id="composer_row"):
                     yield PromptMarker("›", id="prompt_marker")
                     yield Composer(
@@ -713,7 +751,7 @@ class AICTextualApp(App[None]):
                         tab_behavior="focus",
                         show_line_numbers=False,
                         highlight_cursor_line=False,
-                        placeholder="Enter 发送；行尾 \\ 后 Enter 换行；多行粘贴保留换行；/help 查看命令",
+                        placeholder="Enter 发送；Shift/Alt+Enter 或行尾 \\ 后 Enter 换行；/help 查看命令",
                         compact=True,
                         id="composer",
                     )
@@ -741,6 +779,18 @@ class AICTextualApp(App[None]):
 
     async def on_key(self, event: Any) -> None:
         if event.key != "escape":
+            palette_direction = _palette_move_direction(event)
+            if palette_direction is None:
+                return
+            try:
+                composer = self.query_one("#composer", Composer)
+            except NoMatches:
+                return
+            if not _is_palette_input(composer.text):
+                return
+            event.stop()
+            event.prevent_default()
+            self._palette().move_selection(-1 if palette_direction == "up" else 1)
             return
         event.stop()
         event.prevent_default()
@@ -757,14 +807,16 @@ class AICTextualApp(App[None]):
             return
         if await self._handle_local_command(text):
             return
-        await self._add_message(text, role="user")
-        if self._busy and await self.backend.submit_during_turn(text):
+        if self._has_active_wait():
+            await self._add_message(text, role="user")
+            self._set_status("已收到输入，正在判断")
+            self.run_worker(self._route_active_turn_input(text, pre_echoed=True), name="active-turn-input", exclusive=False)
             return
-        self._queue.append(text)
-        if not self._busy:
-            self.run_worker(self._drain_queue(), name="agent-turns", exclusive=True)
-        else:
-            self._set_status(f"排队 {len(self._queue)} 条")
+        if self._busy and await self.backend.submit_during_turn(text):
+            await self._add_message(text, role="user")
+            return
+        self._enqueue_user_message(text)
+        self._schedule_queue_drain()
 
     def on_composer_palette_requested(self, event: Composer.PaletteRequested) -> None:
         event.stop()
@@ -809,12 +861,89 @@ class AICTextualApp(App[None]):
             return
         self.run_worker(self._interrupt_active_turn(), name="interrupt-active-turn", exclusive=False)
 
+    async def _route_active_turn_input(self, text: str, *, pre_echoed: bool = False) -> None:
+        try:
+            intent = await self.backend.classify_active_turn_input(text)
+        except Exception as error:
+            await self._add_message(_format_error_text(str(error)), role="error")
+            intent = FEEDBACK_OR_CORRECTION
+        if intent == CONFIRM_CURRENT_WAIT:
+            self._set_status("已收到输入，正在继续")
+            await self._confirm_active_wait(text)
+            return
+        self._set_status("已收到反馈，正在介入")
+        if pre_echoed:
+            await self._intervene_with_pre_echoed_input(text)
+        else:
+            self._enqueue_user_message(text)
+            self._handle_escape_key() if self._busy else self._schedule_queue_drain()
+
+    async def _submit_during_active_turn(self, text: str) -> None:
+        try:
+            handled = await self.backend.submit_during_turn(text)
+        except Exception as error:
+            await self._add_message(_format_error_text(str(error)), role="error")
+            self._set_status("输入处理失败")
+            return
+        if not handled:
+            await self._add_message("当前等待没有接收这条输入，请重新发送或按 Esc 介入。", role="error")
+            self._set_status("输入未被接收")
+
+    async def _confirm_active_wait(self, text: str) -> None:
+        saw_error = False
+        try:
+            async for event in self.backend.confirm_active_wait(text):
+                if event.kind == "error":
+                    saw_error = True
+                await self._handle_client_event(event)
+        except Exception as error:
+            await self._add_message(_format_error_text(str(error)), role="error")
+            self._set_status("输入处理失败")
+            return
+        if saw_error:
+            self._set_status("输入未被接收")
+            return
+        await self._refresh_backend_status()
+
+    async def _intervene_with_pre_echoed_input(self, text: str) -> None:
+        self._pre_echoed_queue_messages.append(text)
+        self._queue.appendleft(text)
+        self._sync_queue_panel()
+        self._set_status("正在介入")
+        if self._busy:
+            await self._interrupt_active_turn()
+            return
+        try:
+            event = await self.backend.interrupt()
+            wait_for_idle = getattr(self.backend, "wait_for_idle_after_interrupt", None)
+            if callable(wait_for_idle):
+                await wait_for_idle()
+        except Exception as error:
+            await self._add_message(_format_error_text(str(error)), role="error")
+            self._set_status("中断失败")
+            return
+        if event.kind == "interrupted":
+            await self._add_message(
+                _format_interruption_text(event.text, queued_count=1, intervention_text=text),
+                role="meta",
+            )
+        else:
+            await self._handle_client_event(event)
+        await self._refresh_backend_status()
+        self._schedule_queue_drain()
+
     async def _drain_queue(self) -> None:
+        self._drain_scheduled = False
         self._busy = True
         drain_task = asyncio.current_task()
         try:
             while self._queue:
-                message = self._queue.popleft()
+                messages = self._take_queued_messages()
+                if not messages:
+                    continue
+                message = "\n\n".join(messages)
+                if not self._consume_pre_echoed_queue_message(message):
+                    await self._add_message(message, role="user")
                 turn_task = asyncio.create_task(self._run_turn(message), name="agent-turn")
                 self._active_turn_task = turn_task
                 try:
@@ -831,13 +960,15 @@ class AICTextualApp(App[None]):
                         self._active_turn_task = None
         finally:
             self._busy = False
-            if not self._queue and self._backend_status.get("pending_approval"):
-                self._backend_status["pending_approval"] = False
+            self._drain_scheduled = False
+            self._sync_queue_panel()
+            if not self._queue:
+                await self._refresh_backend_status()
             self._current_assistant = None
             self._current_assistant_record_index = None
             self._active_turn_task = None
             self._stop_thinking_indicator()
-            self._set_status("就绪")
+            self._set_status("等待人工确认" if self._backend_status.get("pending_approval") else "就绪")
 
     async def _interrupt_active_turn(self) -> None:
         self._interrupting = True
@@ -934,9 +1065,6 @@ class AICTextualApp(App[None]):
             self._current_assistant = None
             self._current_assistant_record_index = None
             self._stop_thinking_indicator()
-            if self._backend_status.get("pending_approval") and not self._busy:
-                self._backend_status["pending_approval"] = False
-                self._render_status()
             await self._scroll_end()
             return
         if event.kind == "tool_started":
@@ -1111,10 +1239,51 @@ class AICTextualApp(App[None]):
         messages = [message.strip() for message in self._queue if message.strip()]
         self._queue.clear()
         if not messages:
+            self._sync_queue_panel()
             return 0, ""
         intervention_text = "\n\n".join(messages)
         self._queue.appendleft(intervention_text)
+        self._sync_queue_panel()
         return len(messages), intervention_text
+
+    def _enqueue_user_message(self, text: str) -> None:
+        self._queue.append(text)
+        self._sync_queue_panel()
+        self._set_status(f"排队 {len(self._queue)} 条")
+
+    def _take_queued_messages(self) -> list[str]:
+        messages: list[str] = []
+        while self._queue and not messages:
+            first = self._queue.popleft().strip()
+            if not first:
+                continue
+            messages.append(first)
+            if _is_command_input(first):
+                break
+            while self._queue and not _is_command_input(self._queue[0]):
+                next_message = self._queue.popleft().strip()
+                if next_message:
+                    messages.append(next_message)
+        self._sync_queue_panel()
+        return messages
+
+    def _consume_pre_echoed_queue_message(self, message: str) -> bool:
+        if not self._pre_echoed_queue_messages:
+            return False
+        if self._pre_echoed_queue_messages[0] == message:
+            self._pre_echoed_queue_messages.popleft()
+            return True
+        try:
+            self._pre_echoed_queue_messages.remove(message)
+            return True
+        except ValueError:
+            return False
+
+    def _schedule_queue_drain(self) -> None:
+        if self._busy or self._drain_scheduled:
+            return
+        self._drain_scheduled = True
+        self.run_worker(self._drain_queue(), name="agent-turns", exclusive=True)
 
     async def _scroll_end(self) -> None:
         transcript = self.query_one("#transcript", VerticalScroll)
@@ -1162,10 +1331,6 @@ class AICTextualApp(App[None]):
             self.query_one("#status", Static).update(self._format_status_line())
         except NoMatches:
             pass
-        try:
-            self.query_one("#top_status", Static).update(self._format_top_status_line())
-        except NoMatches:
-            return
 
     def _sync_work_plan_from_status(self) -> None:
         data = self._backend_status
@@ -1182,6 +1347,12 @@ class AICTextualApp(App[None]):
     def _update_work_plan(self, items: Any, *, summary: Any = "") -> None:
         try:
             self.query_one("#work_plan_panel", WorkPlanPanel).update_plan(items, summary=summary)
+        except NoMatches:
+            return
+
+    def _sync_queue_panel(self) -> None:
+        try:
+            self.query_one("#pending_queue_panel", PendingQueuePanel).update_queue(list(self._queue))
         except NoMatches:
             return
 
@@ -1215,8 +1386,30 @@ class AICTextualApp(App[None]):
             composer = self.query_one("#composer", Composer)
         except NoMatches:
             return
-        commands = client_command_suggestions(composer.text)
+        commands = self._filter_contextual_commands(client_command_suggestions(composer.text))
         self._palette().show_commands(commands)
+
+    def _filter_contextual_commands(self, commands: list[ClientCommandSpec]) -> list[ClientCommandSpec]:
+        if not commands:
+            return []
+        if not self._is_palette_contextual():
+            return [command for command in commands if command.name not in CONTEXTUAL_COMMANDS]
+        return [
+            command
+            for command in commands
+            if command.name not in CONTEXTUAL_COMMANDS or self._contextual_command_available(command.name)
+        ]
+
+    def _is_palette_contextual(self) -> bool:
+        return bool(self._backend_status.get("pending_approval"))
+
+    def _has_active_wait(self) -> bool:
+        return bool(self._backend_status.get("pending_approval")) and self._busy
+
+    def _contextual_command_available(self, name: str) -> bool:
+        if name in APPROVAL_COMMANDS:
+            return bool(self._backend_status.get("pending_approval"))
+        return True
 
     def _hide_command_palette(self) -> None:
         try:
@@ -1234,7 +1427,7 @@ class AICTextualApp(App[None]):
         selected = palette.selected_command()
         if selected is None:
             return False
-        prefix = text.strip()[1:].lower().replace("-", "_")
+        prefix = text.strip()[1:].lower()
         if selected.name == prefix:
             return False
         composer = self.query_one("#composer", Composer)
@@ -1254,13 +1447,27 @@ class AICTextualApp(App[None]):
         if command == "help":
             await self._add_message(format_client_command_help(), role="meta")
             return True
-        if command in {"plan", "todo"}:
+        if command == "status":
+            if arg:
+                await self._add_message("用法：/status", role="error")
+                return True
+            await self._refresh_backend_status()
+            await self._add_message(
+                _format_client_status_snapshot(
+                    self._backend_status,
+                    queued_count=len(self._queue),
+                    busy=self._busy,
+                ),
+                role="meta",
+            )
+            return True
+        if command == "plan":
             await self._add_message(self._current_work_plan_text(), role="meta")
             return True
         if command == "clear":
             await self._clear_transcript()
             return True
-        if command == "copy_last":
+        if command == "copy-last":
             try:
                 path = self._write_last_assistant_message(arg)
             except Exception as error:
@@ -1277,6 +1484,12 @@ class AICTextualApp(App[None]):
         if command == "export":
             path = self._export_transcript(arg)
             await self._add_message(f"已导出当前对话：{path}", role="meta")
+            return True
+        if command == "exit":
+            self._stop_thinking_indicator()
+            self._set_status("正在关闭")
+            await self.backend.close()
+            self.exit()
             return True
         return False
 
@@ -1303,6 +1516,10 @@ class AICTextualApp(App[None]):
 
     async def _paste_from_clipboard(self, composer: Composer) -> None:
         self._log_composer_input_debug("clipboard_image_probe_start", composer_text=_text_debug_payload(composer.text))
+        if self._busy:
+            self._set_status("AI 正在处理，图片请在当前回复结束后粘贴")
+            await self._add_message("当前 AI 正在处理，图片请在回复结束后再粘贴。", role="meta")
+            return
         try:
             placeholders = await self.backend.attach_clipboard_images()
         except Exception as error:
@@ -1348,22 +1565,25 @@ class AICTextualApp(App[None]):
         self._current_assistant = None
         self._active_tools.clear()
         self._transcript_records.clear()
+        self._pre_echoed_queue_messages.clear()
         self._set_status("已清空")
 
     def _format_status_line(self) -> str:
         data = self._backend_status
         if not isinstance(data, dict):
             data = {}
-        management = data.get("management") if isinstance(data.get("management"), dict) else {}
         context_state = data.get("context_state") if isinstance(data.get("context_state"), dict) else {}
-        plan = management.get("current_plan_path") or context_state.get("current_plan_path") or ""
-        debug_workspace = management.get("current_debug_workspace") or context_state.get("current_debug_workspace") or ""
-        output_dir = management.get("latest_output_dir") or context_state.get("latest_output_dir") or ""
-        active_run_status = str(management.get("active_run_status") or "").strip()
+        plan = context_state.get("current_plan_path") or ""
+        debug_workspace = context_state.get("current_debug_workspace") or ""
+        output_dir = context_state.get("latest_output_dir") or ""
         thread_id = str(data.get("thread_id") or "").strip()
         service = str(data.get("service") or "").strip()
         pending_attachments = data.get("pending_attachments") or 0
-        status_message = "等待人工确认" if data.get("pending_approval") else self._display_status_message()
+        display_status = self._display_status_message()
+        if data.get("pending_approval") and not _is_active_input_status(display_status):
+            status_message = "等待人工确认"
+        else:
+            status_message = display_status
         parts = [status_message]
         if service:
             parts.append(service)
@@ -1383,8 +1603,6 @@ class AICTextualApp(App[None]):
             parts.append(f"debug {_short_path(debug_workspace, self.project_root)}")
         if output_dir:
             parts.append(f"output {_short_path(output_dir, self.project_root)}")
-        if active_run_status:
-            parts.append(f"run {active_run_status}")
         if self._queue:
             parts.append(f"queued {len(self._queue)}")
         if data.get("busy") or self._busy:
@@ -1394,37 +1612,6 @@ class AICTextualApp(App[None]):
         if pending_attachments:
             parts.append(f"images {pending_attachments}")
         return " | ".join(parts)
-
-    def _format_top_status_line(self) -> str:
-        data = self._backend_status
-        if not isinstance(data, dict):
-            data = {}
-        management = data.get("management") if isinstance(data.get("management"), dict) else {}
-        context_state = data.get("context_state") if isinstance(data.get("context_state"), dict) else {}
-        plan = management.get("current_plan_path") or context_state.get("current_plan_path") or ""
-        thread_id = str(data.get("thread_id") or "").strip()
-        service = str(data.get("service") or "").strip()
-        pending_attachments = data.get("pending_attachments") or 0
-        parts = []
-        if service:
-            parts.append(service)
-        if thread_id:
-            parts.append(f"thread {thread_id}")
-        if plan:
-            parts.append(_short_path(plan, self.project_root))
-        work_items = context_state.get("work_plan_items")
-        if isinstance(work_items, list) and work_items:
-            completed = sum(1 for item in work_items if isinstance(item, dict) and item.get("status") == "completed")
-            parts.append(f"todo {completed}/{len(work_items)}")
-        if self._queue:
-            parts.append(f"queued {len(self._queue)}")
-        if data.get("busy") or self._busy:
-            parts.append("working")
-        if data.get("pending_approval"):
-            parts.append("approval")
-        if pending_attachments:
-            parts.append(f"images {pending_attachments}")
-        return "  ".join(part for part in parts if part) or "ready"
 
     def _display_status_message(self) -> str:
         if not self._thinking:
@@ -1584,6 +1771,11 @@ def _thinking_base_text(text: str) -> str:
     return stripped.rstrip(".。…")
 
 
+def _is_active_input_status(text: str) -> bool:
+    value = str(text or "").strip()
+    return value.startswith("已收到输入") or value.startswith("输入处理失败") or value.startswith("输入未被接收")
+
+
 def _message_block_type(role: str) -> type[MessageBlock]:
     if role == "meta":
         return MetaBlock
@@ -1632,6 +1824,35 @@ def _short_path(value: Any, project_root: Path) -> str:
         return str(path)
     except Exception:
         return text
+
+
+def _format_client_status_snapshot(data: dict[str, Any], *, queued_count: int, busy: bool) -> str:
+    if not isinstance(data, dict):
+        data = {}
+    context_state = data.get("context_state") if isinstance(data.get("context_state"), dict) else {}
+    service = str(data.get("service") or "").strip() or "<未初始化>"
+    model = str(data.get("model") or "").strip() or "<未知模型>"
+    thread_id = str(data.get("thread_id") or "").strip() or "<无>"
+    plan = context_state.get("current_plan_path") or ""
+    debug_workspace = context_state.get("current_debug_workspace") or ""
+    output_dir = context_state.get("latest_output_dir") or ""
+    pending_attachments = data.get("pending_attachments") or 0
+    pending_approval = bool(data.get("pending_approval"))
+    ai_busy = bool(data.get("busy") or busy)
+    lines = [
+        "状态：",
+        f"  AI      {'忙碌' if ai_busy else '就绪'} | service={service} | model={model} | thread={thread_id}",
+        f"  plan    {plan or '<无>'}",
+        f"  debug   {debug_workspace or '<无>'}",
+        f"  output  {output_dir or '<无>'}",
+        f"  queue   {queued_count}",
+        f"  approval {'pending' if pending_approval else 'none'}",
+        f"  images  {pending_attachments}",
+    ]
+    last_error = str(data.get("last_error") or "").strip()
+    if last_error:
+        lines.append(f"  error   {_single_line_preview(last_error, limit=140)}")
+    return "\n".join(lines)
 
 
 def _format_tool_event(event: ClientEvent, *, show_details: bool) -> str:
@@ -1814,14 +2035,18 @@ def _summarize_plan_events(events: list[str]) -> str:
     waits = [event for event in events if "等待" in event]
     finished = [event for event in events if "plan 结束" in event]
     parts = []
-    if starts:
-        parts.append(f"步骤 {starts} 个")
     if waits:
+        if starts:
+            parts.append(f"最近步骤进度 {starts} 条")
         parts.append(_single_line_preview(waits[-1], limit=100))
     if failures:
+        if starts and not waits:
+            parts.append(f"最近步骤进度 {starts} 条")
         parts.append(_single_line_preview(failures[-1], limit=100))
     elif finished:
         parts.append(_single_line_preview(finished[-1], limit=80))
+    elif starts and not waits:
+        parts.append(f"最近步骤进度 {starts} 条")
     if not parts:
         parts.append(_single_line_preview(events[-1], limit=100))
     return "；".join(parts)
@@ -1970,9 +2195,30 @@ def _is_single_line_slash_input(text: str) -> bool:
     return stripped.startswith("/") and "\n" not in stripped
 
 
+def _is_command_input(text: str) -> bool:
+    return str(text).lstrip().startswith("/")
+
+
 def _is_palette_input(text: str) -> bool:
     raw = str(text)
     return raw.startswith("/") and "\n" not in raw and " " not in raw and "\t" not in raw
+
+
+def _palette_move_direction(event: Any) -> str | None:
+    key = str(getattr(event, "key", "")).lower()
+    aliases = {str(alias).lower() for alias in getattr(event, "aliases", []) or []}
+    if key in {"up", "cursor_up"} or {"up", "cursor_up"} & aliases:
+        return "up"
+    if key in {"down", "cursor_down"} or {"down", "cursor_down"} & aliases:
+        return "down"
+    return None
+
+
+def _is_newline_key_event(event: Any) -> bool:
+    key = str(getattr(event, "key", "")).lower()
+    aliases = {str(alias).lower() for alias in getattr(event, "aliases", []) or []}
+    newline_keys = {"newline", "shift+enter", "alt+enter", "option+enter", "meta+enter"}
+    return key in newline_keys or bool(newline_keys & aliases)
 
 
 def _parse_local_command(text: str) -> tuple[str | None, str]:
@@ -1980,15 +2226,22 @@ def _parse_local_command(text: str) -> tuple[str | None, str]:
     if not stripped.startswith("/"):
         return None, ""
     command, _, arg = stripped[1:].partition(" ")
-    normalized = command.lower().replace("-", "_")
-    if normalized in {"check", "help", "clear", "copy_last", "details", "export", "plan", "todo"}:
+    normalized = command.lower()
+    if normalized in {"check", "help", "clear", "copy-last", "details", "exit", "export", "plan", "status"}:
         return normalized, arg.strip()
     return None, ""
 
 
+GROUPABLE_TRANSCRIPT_ROLES = frozenset(
+    {"activity", "approval", "artifact", "diff", "error", "file", "meta", "plan", "summary", "tool"}
+)
+
+
 def _format_transcript_markdown(records: list[tuple[str, str]]) -> str:
     lines = ["# AI Client Transcript", ""]
-    for role, text in records:
+    index = 0
+    while index < len(records):
+        role, text = records[index]
         title = {
             "user": "User",
             "assistant": "Assistant",
@@ -2000,7 +2253,17 @@ def _format_transcript_markdown(records: list[tuple[str, str]]) -> str:
             "summary": "Summary",
             "error": "Error",
         }.get(role, role.title())
+        if role in GROUPABLE_TRANSCRIPT_ROLES:
+            group = [text.rstrip()]
+            index += 1
+            while index < len(records) and records[index][0] == role:
+                group.append(records[index][1].rstrip())
+                index += 1
+            body = "\n".join(item for item in group if item)
+            lines.extend([f"## {title}", "", body, ""])
+            continue
         lines.extend([f"## {title}", "", text.rstrip(), ""])
+        index += 1
     return "\n".join(lines).rstrip() + "\n"
 
 

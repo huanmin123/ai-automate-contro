@@ -16,5 +16,5 @@
 ## 运行
 
 ```powershell
-python .\main.py plan run --file .\plans\minimal-browser-plan\plan.json
+python .\cplan.py run --file .\plans\minimal-browser-plan\plan.json
 ```

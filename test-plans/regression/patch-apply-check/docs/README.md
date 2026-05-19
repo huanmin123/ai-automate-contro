@@ -7,6 +7,6 @@
 ## 运行方式
 
 ```powershell
-python .\main.py plan validate --file .\test-plans\regression\patch-apply-check\plan.json
-python .\main.py plan run --file .\test-plans\regression\patch-apply-check\plan.json --run-name patch-apply-check
+python .\cplan.py validate --file .\test-plans\regression\patch-apply-check\plan.json
+python .\cplan.py run --file .\test-plans\regression\patch-apply-check\plan.json --run-name patch-apply-check
 ```

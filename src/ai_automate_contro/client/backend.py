@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any, Protocol
@@ -8,7 +9,12 @@ from typing import Any, Protocol
 from ai_automate_contro.ai.terminal_events import AITerminalEvent
 from ai_automate_contro.app.errors import format_error_for_terminal
 from ai_automate_contro.client.events import ClientEvent
-from ai_automate_contro.client.management import ClientManagementController
+
+
+INTERRUPT_GRACE_SECONDS = 1.0
+CONFIRM_CURRENT_WAIT = "confirm_current_wait"
+FEEDBACK_OR_CORRECTION = "feedback_or_correction"
+ACTIVE_TURN_INPUT_INTENTS = {CONFIRM_CURRENT_WAIT, FEEDBACK_OR_CORRECTION}
 
 
 class AgentClientBackend(Protocol):
@@ -17,6 +23,12 @@ class AgentClientBackend(Protocol):
 
     async def submit_during_turn(self, message: str) -> bool:
         """Handle input that belongs to the active turn, such as manual confirmation."""
+
+    async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
+        """Confirm, stop, or close the current visible wait and yield any resulting events."""
+
+    async def classify_active_turn_input(self, message: str) -> str:
+        """Classify whether busy-turn input confirms the wait or corrects the task."""
 
     async def attach_clipboard_images(self) -> list[str]:
         """Attach images from the clipboard and return placeholders to insert in the composer."""
@@ -28,7 +40,7 @@ class AgentClientBackend(Protocol):
         """Send one real AI request for connectivity diagnostics."""
 
     async def interrupt(self) -> ClientEvent:
-        """Request cancellation of the active AI turn or managed plan run."""
+        """Request cancellation of the active AI turn."""
 
     async def close(self) -> None:
         """Release backend resources."""
@@ -80,6 +92,14 @@ class FakeAgentBackend:
     async def submit_during_turn(self, message: str) -> bool:
         return False
 
+    async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
+        if False:
+            yield ClientEvent("status", text="")
+        return
+
+    async def classify_active_turn_input(self, message: str) -> str:
+        return FEEDBACK_OR_CORRECTION
+
     async def attach_clipboard_images(self) -> list[str]:
         return []
 
@@ -89,7 +109,6 @@ class FakeAgentBackend:
             "busy": False,
             "pending_approval": False,
             "context_state": {},
-            "management": {},
         }
 
     async def check_service(self, message: str = "只回复 ok") -> dict[str, Any]:
@@ -112,25 +131,21 @@ class AITerminalBackend:
     def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
         self.project_root = project_root
         self.service = service
+        self._base_thread_id = thread_id
         self.thread_id = thread_id
         self._terminal: Any | None = None
-        self._management = ClientManagementController(project_root)
         self._active_queue: asyncio.Queue[ClientEvent | None] | None = None
         self._active_worker: asyncio.Task[None] | None = None
         self._turn_interrupted = False
         self._retired_terminals: set[int] = set()
+        self._retired_workers: set[asyncio.Task[Any]] = set()
+        self._needs_intervention_fork = False
+        self._thread_fork_count = 0
+        self._last_stable_state: dict[str, Any] | None = None
+        self._fork_seed_state: dict[str, Any] | None = None
 
     async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
-        management_message = _management_payload(message, self._management)
-        if management_message is not None:
-            async for event in self._stream_management_message(management_message):
-                yield event
-            await self._sync_management_context_to_terminal(create=False)
-            yield self._context_event()
-            return
-        if message.strip().startswith("/ai "):
-            message = message.strip()[4:].lstrip()
-        await self._sync_management_context_to_terminal(create=True)
+        await self._prepare_interrupted_terminal_for_next_turn()
 
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[ClientEvent | None] = asyncio.Queue()
@@ -144,6 +159,7 @@ class AITerminalBackend:
             terminal: Any | None = None
             try:
                 terminal = self._require_terminal()
+                self._last_stable_state = _terminal_state_snapshot(terminal)
                 terminal.run_event_turn(message, lambda event: emit(_client_event_from_terminal_event(event)))
             except SystemExit:
                 emit(ClientEvent("exit_requested", text="已收到退出命令。"))
@@ -166,13 +182,14 @@ class AITerminalBackend:
                     break
                 yield event
         finally:
-            self._active_queue = None
-            self._active_worker = None
             if self._turn_interrupted and not worker.done():
-                self._retire_active_terminal()
+                self._retire_active_terminal(worker)
                 worker.add_done_callback(_consume_task_exception)
             else:
                 await worker
+            self._active_queue = None
+            if self._active_worker is worker:
+                self._active_worker = None
             self._turn_interrupted = False
 
     async def close(self) -> None:
@@ -181,13 +198,49 @@ class AITerminalBackend:
             self._terminal = None
 
     async def submit_during_turn(self, message: str) -> bool:
-        if self._management.is_management_input(message) and self._management.can_handle_during_turn(message):
-            return False
         terminal = self._terminal
         if terminal is None or not terminal.can_handle_input_during_turn(message):
             return False
+        if hasattr(terminal, "submit_ai_confirmation_reply"):
+            confirmation = getattr(terminal, "_current_ai_confirmation", lambda: None)()
+            if confirmation is not None:
+                classifier = getattr(terminal, "classify_active_turn_input", None)
+                if callable(classifier):
+                    intent = await asyncio.to_thread(terminal.classify_active_turn_input, message)
+                    if intent != CONFIRM_CURRENT_WAIT:
+                        return False
+                return bool(await asyncio.to_thread(terminal.submit_ai_confirmation_reply, message))
         await asyncio.to_thread(terminal.handle_input, message)
         return True
+
+    async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
+        terminal = self._terminal
+        if terminal is not None and hasattr(terminal, "submit_ai_confirmation_reply"):
+            handled = await asyncio.to_thread(terminal.submit_ai_confirmation_reply, message)
+            if handled:
+                yield ClientEvent("status", text="确认已发送")
+                return
+        yield ClientEvent("error", text="当前等待没有接收这条输入，请重新发送或按 Esc 介入。")
+
+    async def classify_active_turn_input(self, message: str) -> str:
+        wait_prompt = ""
+        wait_type = ""
+        terminal = self._terminal
+        if terminal is None and wait_type:
+            try:
+                terminal = await asyncio.to_thread(self._try_require_terminal)
+            except Exception:
+                terminal = None
+        if terminal is not None and hasattr(terminal, "classify_active_turn_input"):
+            intent = await asyncio.to_thread(
+                terminal.classify_active_turn_input,
+                message,
+                prompt=wait_prompt,
+                wait_type=wait_type,
+            )
+            if intent in ACTIVE_TURN_INPUT_INTENTS:
+                return intent
+        return _fallback_active_turn_input_intent(message)
 
     async def attach_clipboard_images(self) -> list[str]:
         def attach() -> list[str]:
@@ -211,7 +264,6 @@ class AITerminalBackend:
         )
 
     async def interrupt(self) -> ClientEvent:
-        management_event = await asyncio.to_thread(self._management.interrupt_active_run)
         terminal_cancelled = False
         terminal = self._terminal
         if terminal is not None:
@@ -222,11 +274,10 @@ class AITerminalBackend:
             queue.put_nowait(None)
         worker = self._active_worker
         if worker is not None and not worker.done():
-            self._retire_active_terminal()
-        if management_event is not None:
-            return management_event
+            self._retire_active_terminal(worker)
+            self._needs_intervention_fork = True
         if terminal_cancelled:
-            return ClientEvent("interrupted", text="已中断当前 AI 回复。")
+            return ClientEvent("interrupted", text="已中断当前 AI 回复。旧请求如果稍后返回，会被隔离，避免污染新会话。")
         return ClientEvent("interrupted", text="已请求中断当前任务。")
 
     def _require_terminal(self) -> Any:
@@ -234,9 +285,13 @@ class AITerminalBackend:
             from ai_automate_contro.ai.terminal import AITerminal
 
             self._terminal = AITerminal(self.project_root, service=self.service, thread_id=self.thread_id)
+            seed_state = self._fork_seed_state
+            self._fork_seed_state = None
+            if seed_state is not None:
+                self._terminal.graph.update_state(self._terminal._graph_config(), copy.deepcopy(seed_state))
         return self._terminal
 
-    def _retire_active_terminal(self) -> None:
+    def _retire_active_terminal(self, worker: asyncio.Task[Any] | None = None) -> None:
         terminal = self._terminal
         if terminal is None:
             return
@@ -245,11 +300,11 @@ class AITerminalBackend:
             return
         self._retired_terminals.add(terminal_id)
         self._terminal = None
-        worker = self._active_worker
         if worker is None:
             _close_terminal_quietly(terminal)
             self._retired_terminals.discard(terminal_id)
             return
+        self._retired_workers.add(worker)
 
         def close_when_done(task: asyncio.Task[Any]) -> None:
             try:
@@ -258,22 +313,27 @@ class AITerminalBackend:
                 pass
             _close_terminal_quietly(terminal)
             self._retired_terminals.discard(terminal_id)
+            self._retired_workers.discard(task)
 
         worker.add_done_callback(close_when_done)
 
-    async def _sync_management_context_to_terminal(self, *, create: bool) -> None:
-        update = self._management.context_update()
-        if not update:
+    async def _prepare_interrupted_terminal_for_next_turn(self) -> None:
+        if not self._needs_intervention_fork:
             return
+        alive_workers = {worker for worker in self._retired_workers if not worker.done()}
+        if alive_workers:
+            _, pending_workers = await asyncio.wait(alive_workers, timeout=INTERRUPT_GRACE_SECONDS)
+        else:
+            pending_workers = set()
+        if pending_workers:
+            self._fork_thread_for_intervention()
+        self._needs_intervention_fork = False
 
-        def sync() -> None:
-            if self._terminal is None and not create:
-                return
-            terminal = self._require_terminal()
-            terminal._update_context_state(update)
-            terminal._sync_current_session_index()
-
-        await asyncio.to_thread(sync)
+    def _fork_thread_for_intervention(self) -> None:
+        self._thread_fork_count += 1
+        self.thread_id = f"{self._base_thread_id}-intervention-{self._thread_fork_count}"
+        self._fork_seed_state = copy.deepcopy(self._last_stable_state or {})
+        self._terminal = None
 
     def _status_snapshot_sync(self) -> dict[str, Any]:
         terminal_data: dict[str, Any] = {}
@@ -281,37 +341,16 @@ class AITerminalBackend:
             terminal_data = dict(self._terminal.client_status_snapshot())
         elif self.thread_id:
             terminal_data = {"thread_id": self.thread_id, "service": self.service}
-        terminal_data["management"] = self._management.status_snapshot()
         return terminal_data
+
+    def _try_require_terminal(self) -> Any | None:
+        try:
+            return self._require_terminal()
+        except Exception:
+            return None
 
     def _context_event(self) -> ClientEvent:
         return ClientEvent("context_updated", data=self._status_snapshot_sync())
-
-    async def _stream_management_message(self, message: str) -> AsyncIterator[ClientEvent]:
-        worker = asyncio.create_task(asyncio.to_thread(self._management.handle, message))
-        try:
-            yield ClientEvent("activity", text=f"执行管理命令 {message.split()[0]}", data={"category": "run", "phase": "start"})
-            while not worker.done():
-                for event in await asyncio.to_thread(self._management.drain_progress_events):
-                    activity = _activity_from_client_event(event)
-                    if activity is not None:
-                        yield activity
-                    yield event
-                await asyncio.sleep(0.1)
-            for event in await worker:
-                activity = _activity_from_client_event(event)
-                if activity is not None:
-                    yield activity
-                yield event
-            for event in await asyncio.to_thread(self._management.drain_progress_events):
-                activity = _activity_from_client_event(event)
-                if activity is not None:
-                    yield activity
-                yield event
-            yield ClientEvent("activity", text=f"管理命令完成 {message.split()[0]}", data={"category": "run", "phase": "done"})
-        finally:
-            if not worker.done():
-                worker.cancel()
 
 
 def _client_event_from_terminal_event(event: AITerminalEvent) -> ClientEvent:
@@ -414,22 +453,27 @@ def _close_terminal_quietly(terminal: Any) -> None:
         return
 
 
+def _terminal_state_snapshot(terminal: Any) -> dict[str, Any] | None:
+    try:
+        state = terminal.graph.get_state(terminal._graph_config())
+        values = getattr(state, "values", {})
+    except BaseException:
+        return None
+    if not isinstance(values, dict):
+        return None
+    return dict(values)
+
+
 def _chunk_text(text: str, *, size: int) -> list[str]:
     return [text[index : index + size] for index in range(0, len(text), size)]
 
 
-def _management_payload(message: str, management: ClientManagementController) -> str | None:
-    stripped = message.strip()
-    if not stripped:
-        return None
-    if not stripped.startswith("/"):
-        if management.is_management_input(stripped):
-            return stripped
-        return None
-    if stripped.startswith("/ai "):
-        return None
-    if stripped.startswith("/compact"):
-        return None
-    if management.is_management_input(stripped):
-        return stripped
-    return None
+def _fallback_active_turn_input_intent(message: str) -> str:
+    try:
+        from ai_automate_contro.ai.terminal import classify_ai_confirmation_reply
+
+        if classify_ai_confirmation_reply(message) in {"approve", "reject"}:
+            return CONFIRM_CURRENT_WAIT
+    except Exception:
+        pass
+    return FEEDBACK_OR_CORRECTION

@@ -47,6 +47,7 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
         name=name,
         browser=browser,
         context=context,
+        headed=config.headed,
     )
     session.register_page("main", page, switch=True)
     executor.state.sessions[name] = session

@@ -32,6 +32,7 @@ def action_variable(executor: Any, step: dict[str, Any]) -> None:
 
 def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
     prompt = step.get("prompt", "Continue? Input y to proceed: ")
+    _ensure_manual_confirm_has_visible_browser_if_needed(executor)
     if executor.state.manual_confirmation_handler is not None:
         executor.state.logger.log("info", "waiting for manual confirmation", prompt=str(prompt))
         executor.state.state_writer.mark_waiting(prompt=str(prompt))
@@ -44,6 +45,20 @@ def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
     answer = input(prompt).strip().lower()
     if answer != "y":
         raise RuntimeError("人工确认未通过。")
+
+
+def _ensure_manual_confirm_has_visible_browser_if_needed(executor: Any) -> None:
+    sessions = getattr(getattr(executor, "state", None), "sessions", {})
+    if not sessions:
+        return
+    if any(bool(getattr(session, "headed", False)) for session in sessions.values()):
+        return
+    session_names = ", ".join(str(name) for name in sessions.keys())
+    raise RuntimeError(
+        "manual_confirm 需要同一个可见 Playwright 浏览器窗口。"
+        f"当前已有浏览器会话但都不是 headed=true：{session_names}。"
+        "请把对应 open_browser.headed 设置为 true，或在没有浏览器会话的纯命令行确认流程中使用 manual_confirm。"
+    )
 
 
 def action_print(executor: Any, step: dict[str, Any]) -> None:

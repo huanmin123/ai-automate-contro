@@ -37,6 +37,7 @@ from ai_automate_contro.ai.image_attachments import (
 )
 from ai_automate_contro.ai.langgraph_tools import build_langchain_tools
 from ai_automate_contro.ai.file_search import assert_ripgrep_available
+from ai_automate_contro.ai.session_store import current_ai_terminal_session
 from ai_automate_contro.ai.terminal_approval import AITerminalApprovalMixin
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
 from ai_automate_contro.ai.terminal_config import build_chat_model, load_ai_terminal_config
@@ -44,7 +45,7 @@ from ai_automate_contro.ai.terminal_events import AITerminalEvent, AITerminalEve
 from ai_automate_contro.ai.session_compression import build_summarization_middleware
 from ai_automate_contro.ai.terminal_context import (
     AITerminalState,
-    inject_ai_terminal_context,
+    build_ai_terminal_context_middleware,
 )
 from ai_automate_contro.ai.terminal_message_utils import (
     extract_interrupts,
@@ -59,27 +60,17 @@ from ai_automate_contro.app.errors import format_error_for_terminal, is_external
 
 
 SLASH_COMMAND_RE = re.compile(r"^/([A-Za-z][A-Za-z0-9_-]*)(?:\s+(.*))?$")
-BUSY_ALLOWED_COMMANDS = {"help", "keyboard", "pending", "plan", "status", "todo"}
+BUSY_ALLOWED_COMMANDS = {"plan", "status"}
 ASK_ONCE_CONFIRMATION_TIMEOUT_SECONDS = 1.5
 SLASH_COMMANDS: dict[str, dict[str, str]] = {
     "approve": {"method": "do_approve", "description": "批准当前等待的受保护补丁操作"},
-    "back": {"method": "", "description": "退出当前客户端"},
-    "compact": {"method": "do_compress", "description": "压缩并归档当前会话"},
-    "compress": {"method": "do_compress", "description": "压缩并归档当前会话"},
-    "exit": {"method": "", "description": "退出当前客户端"},
-    "help": {"method": "do_help", "description": "查看 AI 会话命令"},
-    "history": {"method": "do_history", "description": "查看最近几条会话消息"},
     "image": {"method": "do_image", "description": "把图片文件加入下一条消息"},
-    "keyboard": {"method": "do_keyboard", "description": "查看键盘快捷键和输入说明"},
     "new": {"method": "do_new", "description": "新建一个会话"},
-    "pending": {"method": "do_pending", "description": "查看等待审批的受保护操作"},
     "plan": {"method": "do_plan", "description": "查看当前 AI 工作计划"},
-    "quit": {"method": "", "description": "关闭客户端"},
     "reject": {"method": "do_reject", "description": "拒绝当前等待审批的操作"},
     "resume": {"method": "do_resume", "description": "恢复已保存的会话"},
     "sessions": {"method": "do_sessions", "description": "列出已保存会话"},
     "status": {"method": "do_status", "description": "查看当前线程、上下文、checkpoint 和待发送图片"},
-    "todo": {"method": "do_plan", "description": "查看当前 AI 工作计划"},
 }
 IMAGE_PLACEHOLDER_RE = re.compile(r"\[(?:图片|Image) #(\d+)\]")
 
@@ -113,6 +104,12 @@ class AITerminal(
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
         self.checkpointer = SqliteSaver(self._checkpoint_connection)
+        session_summary = current_ai_terminal_session(
+            self.checkpointer,
+            self.thread_id,
+            project_root=self.project_root,
+        )
+        self._runtime_context_state = dict(session_summary.context_state) if session_summary is not None else {}
         self.tools = build_langchain_tools(
             self.project_root,
             latest_user_approved=self._latest_user_approved,
@@ -122,6 +119,7 @@ class AITerminal(
             manual_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="manual_confirm"),
             inspection_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="post_run_inspection"),
             run_event_handler=self._handle_plan_run_event,
+            quality_gate_provider=self._context_state,
         )
         self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(
@@ -135,7 +133,7 @@ class AITerminal(
             system_prompt=build_system_prompt(),
             state_schema=AITerminalState,
             middleware=[
-                inject_ai_terminal_context,
+                build_ai_terminal_context_middleware(lambda: dict(self._runtime_context_state)),
                 inject_image_attachments_for_model,
                 self.summary_middleware,
                 HumanInTheLoopMiddleware(
@@ -220,7 +218,7 @@ class AITerminal(
     def client_status_snapshot(self) -> dict[str, Any]:
         """Return a small UI-safe status snapshot for agent clients."""
         try:
-            pending_approval = bool(self._current_interrupts())
+            pending_approval = bool(self._current_interrupts()) or self._current_ai_confirmation() is not None
         except Exception:
             pending_approval = False
         return {
@@ -267,14 +265,10 @@ class AITerminal(
             self.handle_user_request(text)
             return False
         command, arg = parsed_command
-        normalized = command.lower().replace("-", "_")
+        normalized = command.lower()
         if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
             self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return False
-        if normalized in {"exit", "back"}:
-            return True
-        if normalized == "quit":
-            raise SystemExit(0)
         command_spec = SLASH_COMMANDS.get(normalized)
         method_name = command_spec["method"] if command_spec else None
         if method_name:
@@ -301,7 +295,7 @@ class AITerminal(
         with self._ai_confirmation_lock:
             if self._ai_confirmation is not None:
                 raise RuntimeError("AI 模式已有一个等待确认的 plan。")
-        self._ai_confirmation = wait
+            self._ai_confirmation = wait
         self._emit_activity("等待用户确认", category="run", phase="start", source_kind="approval_requested")
         self._emit_event(AITerminalEvent("approval_requested", text=_format_ai_confirmation_prompt(wait)))
         if self._ask_once_mode:
@@ -324,6 +318,14 @@ class AITerminal(
         return bool(wait.accepted)
 
     def _handle_ai_confirmation_reply(self, text: str) -> bool:
+        if self._current_ai_confirmation() is None:
+            return False
+        handled = self.submit_ai_confirmation_reply(text)
+        if not handled:
+            self._emit_system_output("确认：这句话不是明确的继续或停止，已保留给主 agent 作为反馈处理。")
+        return True
+
+    def submit_ai_confirmation_reply(self, text: str) -> bool:
         wait = self._current_ai_confirmation()
         if wait is None:
             return False
@@ -338,24 +340,23 @@ class AITerminal(
             wait.event.set()
             self._emit_system_output("确认：已理解为停止。")
             return True
-        self._emit_system_output("确认：我还不能确定你的意思。请直接说明是继续还是停止。")
-        return True
+        return False
 
     def _classify_ai_confirmation_reply(self, text: str, wait: "AIConfirmationWait") -> str:
+        return self.classify_wait_confirmation_reply(text, prompt=wait.prompt, wait_type=wait.wait_type)
+
+    def classify_wait_confirmation_reply(self, text: str, *, prompt: str = "", wait_type: str = "") -> str:
         try:
             messages = [
                 (
                     "system",
-                    "你是确认意图分类器。只判断用户是否同意继续一个正在等待人工确认的自动化 plan。"
-                    "只能返回 JSON：{\"decision\":\"approve|reject|unclear\"}。"
-                    "approve 表示用户同意继续、确认完成、允许下一步；"
-                    "reject 表示用户要求停止、取消、不同意继续；"
-                    "unclear 表示用户只是在提问、描述状态、犹豫或意图不明确。"
-                    "不要执行任务，不要解释。",
+                    "你是 agent CLI 的等待判定器。只判断用户这句话是在继续当前等待、停止当前等待，还是反馈/纠正任务；不能执行任务，不能解释。"
+                    "只返回 JSON：{\"decision\":\"approve|reject|unclear\"}。"
+                    "approve 表示明确继续，reject 表示明确停止，unclear 表示提问、补充、纠正或混有其他内容；不确定就选 unclear。",
                 ),
                 (
                     "user",
-                    f"等待类型：{wait.wait_type}\n确认提示：{wait.prompt}\n用户回复：{text}",
+                    f"等待类型：{wait_type or '<unknown>'}\n确认提示：{prompt or '<empty>'}\n用户回复：{text}",
                 ),
             ]
             response = self.model.invoke(messages)
@@ -366,7 +367,43 @@ class AITerminal(
                 return decision
         except Exception:
             pass
-        return classify_ai_confirmation_reply(text)
+        explicit_decision = classify_ai_confirmation_reply(text)
+        if explicit_decision in {"approve", "reject"}:
+            return explicit_decision
+        return "unclear"
+
+    def classify_active_turn_input(self, text: str, *, prompt: str = "", wait_type: str = "") -> str:
+        wait = self._current_ai_confirmation()
+        if wait is not None:
+            prompt = wait.prompt
+            wait_type = wait.wait_type
+        try:
+            messages = [
+                (
+                    "system",
+                    "你是 agent CLI 的输入意图判定器。只判断用户这句话是在确认当前等待，还是在反馈/纠正任务；不能执行任务，不能解释。"
+                    "只返回 JSON：{\"intent\":\"confirm_current_wait|feedback_or_correction\"}。"
+                    "confirm_current_wait 只用于短促、明确、没有额外信息的继续/停止控制；其他都算 feedback_or_correction。"
+                    "不确定就选 feedback_or_correction。",
+                ),
+                (
+                    "user",
+                    f"等待类型：{wait_type or '<unknown>'}\n"
+                    f"等待提示：{prompt or '<empty>'}\n"
+                    f"用户输入：{text}",
+                ),
+            ]
+            response = self.model.invoke(messages)
+            raw = message_content_to_text(getattr(response, "content", response))
+            parsed = parse_json_response(raw)
+            intent = str(parsed.get("intent", "")).strip().lower()
+            if intent in {"confirm_current_wait", "feedback_or_correction"}:
+                return intent
+        except Exception:
+            pass
+        if classify_ai_confirmation_reply(text) in {"approve", "reject"}:
+            return "confirm_current_wait"
+        return "feedback_or_correction"
 
     def _current_ai_confirmation(self) -> "AIConfirmationWait | None":
         lock = getattr(self, "_ai_confirmation_lock", None)
@@ -383,11 +420,7 @@ class AITerminal(
                 return True
             return False
         command, arg = parsed_command
-        normalized = command.lower().replace("-", "_")
-        if normalized in {"exit", "back"}:
-            return True
-        if normalized == "quit":
-            raise SystemExit(0)
+        normalized = command.lower()
         command_spec = SLASH_COMMANDS.get(normalized)
         method_name = command_spec["method"] if command_spec else None
         if method_name:
@@ -633,7 +666,7 @@ class AITerminal(
         parsed_command = _parse_slash_command(text)
         if parsed_command is None:
             return False
-        command = parsed_command[0].lower().replace("-", "_")
+        command = parsed_command[0].lower()
         return command in BUSY_ALLOWED_COMMANDS
 
     def can_handle_input_during_turn(self, line: str) -> bool:
@@ -728,89 +761,29 @@ class AIConfirmationWait:
 
 def _format_ai_confirmation_prompt(wait: AIConfirmationWait) -> str:
     label = "运行后检查" if wait.wait_type == "post_run_inspection" else "人工确认"
-    guidance = "你可以直接用自然语言回复，我会判断是继续还是停止。"
+    guidance = "要继续请输入“继续”，要停止请输入“停止”；其他输入会作为反馈交给 AI。"
     if wait.wait_type == "manual_confirm":
-        guidance = "请在当前已经打开的 Playwright 浏览器窗口完成操作；完成后回到这里输入“继续”，要停止就输入“停止”。"
+        guidance = "请在当前已打开的 Playwright 浏览器窗口完成操作；完成后回到这里输入“继续”，要停止输入“停止”。"
     elif wait.wait_type == "post_run_inspection":
-        guidance = "请检查当前 Playwright 浏览器窗口和运行产物；确认通过后输入“继续”，要停止就输入“停止”。"
+        guidance = "请检查当前 Playwright 浏览器窗口和运行产物；确认通过后输入“继续”，要停止输入“停止”。"
     return f"[{label}] {wait.prompt}\n{guidance}"
 
 
 def classify_ai_confirmation_reply(text: str) -> str:
-    normalized = re.sub(r"\s+", "", str(text).strip().lower())
+    normalized = re.sub(r"[\s。！？!?,，；;：:]+", "", str(text).strip().lower())
     if not normalized:
         return "unclear"
     reject_tokens = (
-        "不要继续",
-        "别继续",
-        "不继续",
-        "不能继续",
-        "别导入",
-        "不要导入",
-        "不导入",
-        "不要",
-        "不行",
-        "不可以",
-        "不确认",
-        "不同意",
-        "有问题",
-        "不对",
         "停止",
-        "终止",
-        "取消",
-        "算了",
-        "停",
-        "退出",
-        "否",
-        "no",
         "stop",
-        "cancel",
-        "reject",
-        "abort",
-        "quit",
-        "exit",
     )
     approve_tokens = (
         "继续",
-        "接着",
-        "接下来",
-        "下一步",
-        "确认",
-        "可以",
-        "可",
-        "没问题",
-        "没毛病",
-        "通过",
-        "同意",
-        "批准",
-        "好了",
-        "好啦",
-        "好",
-        "行",
-        "对",
-        "看到了",
-        "完成",
-        "完成了",
-        "弄吧",
-        "去做",
-        "导入",
-        "追加导入",
-        "开始",
-        "执行",
-        "yes",
-        "y",
-        "ok",
-        "okay",
-        "go",
         "continue",
-        "proceed",
-        "approve",
-        "approved",
-        "done",
     )
-    if any(token in normalized for token in reject_tokens):
+    if normalized in reject_tokens:
         return "reject"
-    if any(token in normalized for token in approve_tokens):
+    if normalized in approve_tokens:
         return "approve"
     return "unclear"
 

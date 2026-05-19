@@ -42,12 +42,10 @@ class UserFacingArgumentParser(argparse.ArgumentParser):
 
 def build_parser() -> argparse.ArgumentParser:
     parser = UserFacingArgumentParser(
-        description="管理并运行 JSON 自动化 plan 包。",
+        description="启动 AI-first Textual 客户端，或运行 AI 相关诊断。",
     )
 
     subparsers = parser.add_subparsers(dest="command")
-    plan_parser = subparsers.add_parser("plan", help="管理 plan 包。")
-    plan_subparsers = plan_parser.add_subparsers(dest="plan_command")
 
     tool_parser = subparsers.add_parser("tool", help="调用结构化 AI 工具。")
     tool_subparsers = tool_parser.add_subparsers(dest="tool_command")
@@ -82,25 +80,37 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_parser = subparsers.add_parser("self-check", help="运行本地确定性自检。")
     self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
     self_check_subparsers.add_parser("env", help="检查本地客户端环境依赖。")
-    self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
-    self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
     self_check_subparsers.add_parser("textual-client", help="检查 Textual AI 客户端渲染、队列和工具进度。")
     self_check_subparsers.add_parser("ai-stream", help="检查本地 chat completions 流式解析。")
     self_check_subparsers.add_parser("ai-terminal", help="检查 AI 会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")
 
-    list_parser = plan_subparsers.add_parser("list", help="列出 plan 包。")
+    return parser
+
+
+def build_cplan_parser() -> argparse.ArgumentParser:
+    parser = UserFacingArgumentParser(
+        prog="cplan",
+        description="无 AI 环境下控制 JSON 自动化 plan：创建、校验、运行和调试。",
+    )
+    subparsers = parser.add_subparsers(dest="cplan_command")
+    _add_cplan_subcommands(subparsers)
+    return parser
+
+
+def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    list_parser = subparsers.add_parser("list", help="列出 plan 包。")
     list_parser.add_argument("filter", nargs="?", help="可选文本过滤条件。")
 
-    create_parser = plan_subparsers.add_parser("create", help="创建 plan 包模板。")
+    create_parser = subparsers.add_parser("create", help="创建 plan 包模板。")
     create_parser.add_argument("--path", required=True, help="要创建的 plan 包目录。")
     create_parser.add_argument("--name", help="写入 plan.json 的 plan 名称。")
     create_parser.add_argument("--force", action="store_true", help="允许使用已有的非空包目录。")
 
-    validate_parser = plan_subparsers.add_parser("validate", help="校验 plan 包。")
+    validate_parser = subparsers.add_parser("validate", help="校验 plan 包。")
     validate_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
 
-    run_parser = plan_subparsers.add_parser("run", help="运行 plan 包。")
+    run_parser = subparsers.add_parser("run", help="运行 plan 包。")
     run_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
     run_parser.add_argument("--run-name", help="覆盖用于输出目录命名的运行名称。")
     run_parser.add_argument(
@@ -108,24 +118,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="覆盖运行输出目录；必须位于当前 plan 包的 output/ 目录内。",
     )
 
-    debug_parser = plan_subparsers.add_parser("debug-create", help="为 plan 包创建隔离调试工作区。")
+    debug_parser = subparsers.add_parser("debug-create", help="为 plan 包创建隔离调试工作区。")
     debug_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
     debug_parser.add_argument("--name", help="调试工作区名称后缀。")
 
-    prepare_parser = plan_subparsers.add_parser("debug-prepare", help="从最近失败运行创建调试工作区并注入诊断。")
+    prepare_parser = subparsers.add_parser("debug-prepare", help="从最近失败运行创建调试工作区并注入诊断。")
     prepare_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")
     prepare_parser.add_argument("--output-dir", help="指定失败运行输出目录；默认使用最近一次运行。")
     prepare_parser.add_argument("--name", help="调试工作区名称后缀。")
     prepare_parser.add_argument("--manual-confirm", action="store_true", help="在失败步骤前注入人工确认点。")
 
-    fix_parser = plan_subparsers.add_parser("debug-fix", help="在调试工作区中生成或应用干净修复候选。")
-    fix_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
-    fix_parser.add_argument("--hint", default="", help="可选用户提示，用于排序修复候选。")
-    fix_parser.add_argument("--apply", action="store_true", help="把选中的修复候选写入 injected-plan/。")
-    fix_parser.add_argument("--run", action="store_true", help="应用候选后运行调试 plan。")
-    fix_parser.add_argument("--run-name", help="配合 --run 使用时覆盖调试运行名称。")
-
-    inject_parser = plan_subparsers.add_parser("debug-inject", help="向已有调试工作区注入诊断步骤。")
+    inject_parser = subparsers.add_parser("debug-inject", help="向已有调试工作区注入诊断步骤。")
     inject_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
     inject_parser.add_argument(
         "--preset",
@@ -140,14 +143,18 @@ def build_parser() -> argparse.ArgumentParser:
     inject_parser.add_argument("--position", choices=["start", "end", "before_step", "after_step"], default="end", help="步骤注入位置。")
     inject_parser.add_argument("--step", type=int, help="before_step 或 after_step 使用的 1-based 锚点步骤。")
 
-    patch_parser = plan_subparsers.add_parser("debug-patch", help="从调试工作区生成 patch.diff。")
+    patch_parser = subparsers.add_parser("debug-patch", help="从调试工作区生成 patch.diff。")
     patch_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
 
-    apply_parser = plan_subparsers.add_parser("debug-apply", help="把调试工作区的 patch.diff 应用回原始 plan 包。")
+    apply_parser = subparsers.add_parser("debug-apply", help="把调试工作区的 patch.diff 应用回原始 plan 包。")
     apply_parser.add_argument("--workspace", required=True, help="output/debug/<run> 调试工作区路径。")
     apply_parser.add_argument("--yes", action="store_true", help="必填确认参数，用于允许修改原始 plan 包。")
 
-    return parser
+    self_check_parser = subparsers.add_parser("self-check", help="运行 plan 相关确定性自检。")
+    self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
+    self_check_subparsers.add_parser("cli", help="检查 aic/main.py 与 cplan 的命令边界。")
+    self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
+    self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
 
 
 def _friendly_argparse_message(message: str) -> str:

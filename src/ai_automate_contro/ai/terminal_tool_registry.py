@@ -7,6 +7,7 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from ai_automate_contro.ai import terminal_tools
+from ai_automate_contro.ai.plan_quality import review_plan_quality_tool
 from ai_automate_contro.ai.compression_recall import read_compression_archive_tool
 from ai_automate_contro.ai.file_search import grep_project_text_tool, read_project_file_slice_tool
 from ai_automate_contro.ai.plan_tools import (
@@ -21,6 +22,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ApplyDebugPatchAfterApprovalArgs,
     CreateDebugWorkspaceArgs,
     CreatePlanPackageArgs,
+    ExportLocalFileArgs,
     FindDebugWorkspaceArgs,
     GenerateDebugPatchArgs,
     GrepProjectTextArgs,
@@ -41,6 +43,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ReadProjectFileSliceArgs,
     ReadRunEventsArgs,
     ReadRunLogArgs,
+    ReviewPlanQualityArgs,
     RunDebugPlanArgs,
     RunPlanArgs,
     UpdateWorkPlanArgs,
@@ -84,10 +87,16 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         "创建新的 plan 包模板。",
         requires_project_root=True,
     ),
+    "export_local_file": ToolSpec(
+        terminal_tools.export_local_file_tool,
+        ExportLocalFileArgs,
+        "把最终交付物写到用户指定本机路径，或从当前 plan output/ 复制过去；Downloads、桌面、绝对路径必须用它交付。",
+        requires_project_root=True,
+    ),
     "write_plan_package_file": ToolSpec(
         write_plan_package_file_tool,
         WritePlanPackageFileArgs,
-        "创建 plan 时写入受控文件：plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。写浏览器步骤时按当前 handbook 字段：固定等待使用 wait.type=time + seconds，不存在 wait.type=timeout；extract.type=aria_snapshot 的 mode 只能是 default 或 ai。页面里已有表格、列表、文本时优先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 做确定性提取，不要先用 ai action 重猜。写完 plan 后必须 validate_plan 通过再运行。",
+        "写受控 plan 文件：plan.json、config.json、docs/**、resources/**、sub-plans/*-plan.json。字段按当前 handbook；写后先 validate_plan，再 review_plan_quality。",
         requires_project_root=True,
     ),
     "find_debug_workspace": ToolSpec(
@@ -114,7 +123,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "inspect_web_page": ToolSpec(
         terminal_tools.inspect_web_page_tool,
         InspectWebPageArgs,
-        "用一次性 Playwright 页面打开 URL 或本地 HTML，返回受限 DOM、表单、按钮、链接、表格、登录和验证证据；真实流程或需要用户操作时改用 open_browser.headed=true 探索 plan。",
+        "一次性打开 URL/本地 HTML，返回受限 DOM、表单、按钮、链接、表格和登录/验证证据；真实流程用 headed 探索 plan。",
         requires_project_root=True,
     ),
     "list_debug_workspaces": ToolSpec(
@@ -176,6 +185,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         "读取 plan 包结构和元数据，不加载完整文档或资源正文。",
         requires_project_root=True,
     ),
+    "review_plan_quality": ToolSpec(
+        review_plan_quality_tool,
+        ReviewPlanQualityArgs,
+        "运行前语义门禁：核对关键事实、真实网站证据、账号密码、输出路径和 manual_confirm 后续是否落到步骤里。",
+        requires_project_root=True,
+    ),
     "read_project_file_slice": ToolSpec(
         read_project_file_slice_tool,
         ReadProjectFileSliceArgs,
@@ -191,7 +206,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "update_work_plan": ToolSpec(
         terminal_tools.update_work_plan_tool,
         UpdateWorkPlanArgs,
-        "更新当前用户可见工作计划。复杂、多步骤、会修改文件或会运行 plan 的任务必须先维护计划；简单问答可以不调用。",
+        "更新当前用户可见工作计划；复杂、多步骤、改文件或运行 plan 前使用，简单问答可省略。",
     ),
     "read_run_events": ToolSpec(
         terminal_tools.read_run_events_tool,
@@ -212,7 +227,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "run_plan": ToolSpec(
         terminal_tools.run_plan_tool,
         RunPlanArgs,
-        "运行 plan 包。",
+        "运行 plan 包；前置必须通过 validate_plan 和 review_plan_quality，尤其是真实网站、登录、人工介入和本机导出。",
         requires_project_root=True,
     ),
     "validate_debug_plan": ToolSpec(

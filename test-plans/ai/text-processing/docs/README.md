@@ -13,8 +13,8 @@
 ## 运行方式
 
 ```powershell
-python .\main.py plan validate --file .\test-plans\ai\text-processing\plan.json
-python .\main.py plan run --file .\test-plans\ai\text-processing\plan.json --run-name ai-text-processing
+python .\cplan.py validate --file .\test-plans\ai\text-processing\plan.json
+python .\cplan.py run --file .\test-plans\ai\text-processing\plan.json --run-name ai-text-processing
 ```
 
 ## 输出

@@ -8,7 +8,7 @@ Usage:
 
 Options:
   --install-dependencies  Install editable project dependencies with package extras.
-  --clean                 Remove previous package output before building.
+  --clean                 Accepted for compatibility; package output is always removed before building.
   --smoke-test            Run packaged executable self-checks and a browser smoke plan.
   --python PATH           Use a specific Python interpreter.
   -h, --help              Show this help.
@@ -43,6 +43,7 @@ package_dir = os.path.realpath(sys.argv[2])
 executable_path = os.path.realpath(sys.argv[3])
 build_temp_root = os.path.realpath(sys.argv[4])
 executable_name = sys.argv[5]
+executable_names = {executable_name, "cplan"}
 
 
 def ancestor_pids(pid: int) -> set[int]:
@@ -80,14 +81,13 @@ for row in rows.splitlines():
     comm = os.path.basename(parts[1])
     command = parts[2] if len(parts) >= 3 else ""
     matches_packaged_process = (
-        comm == executable_name
+        comm in executable_names
         or executable_path in command
         or f"{package_dir}/" in command
-        or command.startswith(f"./{executable_name} ")
-        or command == f"./{executable_name}"
+        or any(command.startswith(f"./{name} ") or command == f"./{name}" for name in executable_names)
     )
     matches_stale_packager = (
-        "package-macos.sh" in command
+        ("package-macos.sh" in command and repo_root in command)
         or ("PyInstaller" in command and build_temp_root in command)
         or (repo_root in command and build_temp_root in command)
     )
@@ -187,6 +187,7 @@ PY
 
 platform_name="macos-arm64"
 executable_name="aic"
+cplan_executable_name="cplan"
 
 command -v rg >/dev/null 2>&1 || die "分发版 AI 终端依赖 ripgrep (rg)。macOS 可先执行：brew install ripgrep"
 
@@ -228,17 +229,10 @@ pyinstaller_config_dir="$build_dir/pyinstaller-config"
 source_dir="$repo_root/src"
 entry_point="$repo_root/main.py"
 executable_path="$package_dir/$executable_name"
+cplan_executable_path="$package_dir/$cplan_executable_name"
 package_plans_config_path="$package_dir/plans/config.json"
-local_plans_config_backup=""
-local_plans_config_backup_dir=""
 
 mkdir -p "$out_dir"
-
-if [ -f "$package_plans_config_path" ]; then
-  local_plans_config_backup_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-out-config.XXXXXX")"
-  local_plans_config_backup="$local_plans_config_backup_dir/config.json"
-  cp "$package_plans_config_path" "$local_plans_config_backup"
-fi
 
 stop_existing_package_processes
 remove_existing_path "$build_dir"
@@ -310,6 +304,8 @@ mkdir -p "$package_dir"
 cp -R "$pyinstaller_package_dir/." "$package_dir/"
 [ -f "$executable_path" ] || die "打包复制已完成，但没有找到可执行文件：$executable_path"
 chmod +x "$executable_path"
+cp "$executable_path" "$cplan_executable_path"
+chmod +x "$cplan_executable_path"
 
 mkdir -p "$package_dir/_internal/playwright/driver/package"
 cp -R "$browser_dir" "$package_dir/_internal/playwright/driver/package/.local-browsers"
@@ -354,8 +350,8 @@ cat > "$package_dir/plans/demo/docs/README.md" <<EOF
 这个 plan 用于验证分发包是否可以正常校验和运行。
 
 \`\`\`bash
-./$executable_name plan validate --file ./plans/demo/plan.json
-./$executable_name plan run --file ./plans/demo/plan.json --run-name demo-smoke
+./$cplan_executable_name validate --file ./plans/demo/plan.json
+./$cplan_executable_name run --file ./plans/demo/plan.json --run-name demo-smoke
 \`\`\`
 EOF
 
@@ -365,11 +361,12 @@ if [ "$smoke_test" -eq 1 ]; then
     run_checked "./$executable_name" self-check ai-stream
     run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" self-check ai-terminal
-    run_checked "./$executable_name" self-check runtime
+    run_checked "./$cplan_executable_name" self-check cli
+    run_checked "./$cplan_executable_name" self-check runtime
     run_checked "./$executable_name" tool check
     run_checked "./$executable_name" self-check ai-tools
-    run_checked "./$executable_name" plan validate --file "./plans/demo/plan.json"
-    run_checked "./$executable_name" plan run --file "./plans/demo/plan.json" --run-name "demo-smoke"
+    run_checked "./$cplan_executable_name" validate --file "./plans/demo/plan.json"
+    run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "demo-smoke"
   )
 
   browser_smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-browser-smoke.XXXXXX")"
@@ -409,8 +406,8 @@ HTML
   ]
 }
 JSON
-  run_checked "$executable_path" plan validate --file "$browser_smoke_dir/plan.json"
-  run_checked "$executable_path" plan run --file "$browser_smoke_dir/plan.json" --run-name "browser-smoke"
+  run_checked "$cplan_executable_path" validate --file "$browser_smoke_dir/plan.json"
+  run_checked "$cplan_executable_path" run --file "$browser_smoke_dir/plan.json" --run-name "browser-smoke"
   rm -rf "$browser_smoke_dir"
   rm -rf "$package_dir/plans/demo/output"
 fi
@@ -425,20 +422,17 @@ if [ "$smoke_test" -eq 1 ]; then
   unzip -q "$zip_path" -d "$zip_smoke_dir"
   (
     cd "$zip_smoke_dir/ai-automate-contro"
-    run_checked "./$executable_name" self-check runtime
+    run_checked "./$executable_name" self-check ai-stream
+    run_checked "./$cplan_executable_name" self-check cli
+    run_checked "./$cplan_executable_name" self-check runtime
     run_checked "./$executable_name" self-check textual-client
+    run_checked "./$executable_name" self-check ai-terminal
+    run_checked "./$executable_name" self-check ai-tools
     run_checked "./$executable_name" tool check
-    run_checked "./$executable_name" plan validate --file "./plans/demo/plan.json"
-    run_checked "./$executable_name" plan run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"
+    run_checked "./$cplan_executable_name" validate --file "./plans/demo/plan.json"
+    run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"
   )
   rm -rf "$zip_smoke_dir"
-fi
-
-if [ -n "$local_plans_config_backup" ] && [ -f "$local_plans_config_backup" ]; then
-  mkdir -p "$(dirname "$package_plans_config_path")"
-  cp "$local_plans_config_backup" "$package_plans_config_path"
-  rm -rf "$local_plans_config_backup_dir"
-  printf '已恢复 out/ai-automate-contro/plans/config.json 的本地配置；zip 内仍使用示例配置。\n'
 fi
 
 remove_existing_path "$build_dir"
@@ -447,5 +441,6 @@ if [ -d "$build_temp_root" ] && [ -z "$(find "$build_temp_root" -mindepth 1 -max
 fi
 
 printf '分发包可执行文件：\n%s\n' "$executable_path"
+printf '分发包 plan 控制 CLI：\n%s\n' "$cplan_executable_path"
 printf '分发包 zip：\n%s\n' "$zip_path"
 printf '请从 out/ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。\n'

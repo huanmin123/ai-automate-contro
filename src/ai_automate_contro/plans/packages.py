@@ -53,7 +53,7 @@ def create_plan_package(
     if not readme_path.exists():
         plan_path_for_command = _display_path(package_dir / "plan.json", project_root)
         readme_path.write_text(
-            f"# {plan_name}\n\n## 目标\n\n## 前置条件\n\n## 运行方式\n\n```powershell\npython .\\main.py plan run --file {plan_path_for_command}\n```\n",
+            f"# {plan_name}\n\n## 目标\n\n## 前置条件\n\n## 运行方式\n\n```powershell\npython .\\cplan.py run --file {plan_path_for_command}\n```\n",
             encoding="utf-8",
         )
     return package_dir

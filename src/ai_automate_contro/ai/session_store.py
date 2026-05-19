@@ -30,6 +30,11 @@ CONTEXT_STATE_KEYS = (
     "latest_compression_summary_path",
     "latest_compression_token_count",
     "latest_compression_message_count",
+    "latest_plan_quality_review_plan_path",
+    "latest_plan_quality_review_signature",
+    "latest_plan_quality_review_ok",
+    "latest_plan_quality_review_severity",
+    "latest_plan_quality_review_next_action",
 )
 
 
@@ -149,10 +154,23 @@ def update_ai_terminal_session_index(
     project_root: str | Path,
     checkpointer: Any,
     thread_id: str,
+    *,
+    context_state: dict[str, str] | None = None,
 ) -> AITerminalSessionSummary | None:
     summary = _current_ai_terminal_session_from_checkpoint(checkpointer, thread_id)
     if summary is None:
         return None
+    if context_state:
+        preserved_context = {
+            key: str(value)
+            for key, value in context_state.items()
+            if key in CONTEXT_STATE_KEYS and value
+        }
+        if preserved_context:
+            summary = replace(
+                summary,
+                context_state={**summary.context_state, **preserved_context},
+            )
     with _SESSION_INDEX_LOCK:
         sessions = _merge_session_entries(_read_session_index(project_root), [summary])
         _write_session_index(project_root, sessions)
@@ -334,6 +352,12 @@ def _merge_session_entries(
 ) -> list[AITerminalSessionSummary]:
     sessions_by_thread = {summary.thread_id: replace(summary, index=0) for summary in existing}
     for summary in updates:
+        previous = sessions_by_thread.get(summary.thread_id)
+        if previous is not None and previous.context_state:
+            summary = replace(
+                summary,
+                context_state={**previous.context_state, **summary.context_state},
+            )
         sessions_by_thread[summary.thread_id] = replace(summary, index=0)
     return _sort_sessions(list(sessions_by_thread.values()))
 

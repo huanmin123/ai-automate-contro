@@ -116,7 +116,7 @@ def _generic_fix_for(error: BaseException, *, project_root: Path | None) -> str:
     if isinstance(error, PermissionError):
         return "检查文件是否被占用、是否有读写权限，或换到有权限的工作目录后重试。"
     if isinstance(error, (ValueError, KeyError)):
-        return "检查命令参数、plan.json、config.json 或 plan.config。可以先运行 self-check runtime 和 self-check env。"
+        return "检查命令参数、plan.json、config.json 或 plan.config。plan 侧先运行 cplan self-check runtime，AI 侧先运行 self-check env。"
     return ""
 
 
@@ -144,7 +144,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：当前没有正在运行或等待的 plan。",
             "处理办法：",
-            "  先用 use <plan.json-or-package-dir> 选择 plan，再执行 run。",
+            "  无 AI 环境请用 cplan run --file <plan.json>；AI 客户端里请直接说明要运行或继续哪个 plan。",
         ]
     if lowered == "no pending approval":
         return [
@@ -179,7 +179,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：当前运行正在等待浏览器检查结束。",
             "处理办法：",
-            "  在 Textual 客户端输入 /close 关闭浏览器并结束运行。",
+            "  在可见 Playwright 浏览器窗口里完成检查后回到当前命令继续。",
         ]
     if lowered.startswith("pending approval"):
         return [
@@ -203,7 +203,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             f"错误：已有 plan 正在运行或等待：{text.split(':', 1)[1].strip()}",
             "处理办法：",
-            "  先等待当前 run 结束；如果正在等待人工确认，可在 Textual 客户端输入 /continue 或 /stop。",
+            "  先等待当前 run 结束；如果是 cplan 手动确认，请在当前命令行按提示继续或用 Ctrl+C 停止。",
         ]
     if lowered.startswith("unsupported ai sdk response object:"):
         object_type = text.split(":", 1)[1].strip() or "unknown"
@@ -217,7 +217,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
         return [
             "错误：当前没有选择 plan。",
             "处理办法：",
-            "  先执行 use <plan.json-or-package-dir>。",
+            "  无 AI 环境请用 cplan validate/run --file <plan.json>；AI 客户端里请直接告诉 AI 目标 plan 路径。",
         ]
     return None
 

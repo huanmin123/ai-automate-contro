@@ -12,7 +12,7 @@ from ai_automate_contro.ai.session_compression import (
     archive_messages,
     count_ai_terminal_tokens,
 )
-from ai_automate_contro.ai.session_store import update_ai_terminal_session_index
+from ai_automate_contro.ai.session_store import CONTEXT_STATE_KEYS, update_ai_terminal_session_index
 from ai_automate_contro.ai.terminal_context import context_update_from_tool_result
 from ai_automate_contro.ai.terminal_context import work_plan_update_from_tool_result
 from ai_automate_contro.ai.terminal_events import AITerminalEvent
@@ -69,6 +69,11 @@ class AITerminalStateMixin:
             "latest_compression_summary_path",
             "latest_compression_token_count",
             "latest_compression_message_count",
+            "latest_plan_quality_review_plan_path",
+            "latest_plan_quality_review_signature",
+            "latest_plan_quality_review_ok",
+            "latest_plan_quality_review_severity",
+            "latest_plan_quality_review_next_action",
         ):
             value = values.get(key)
             if isinstance(value, str) and value:
@@ -79,9 +84,29 @@ class AITerminalStateMixin:
         work_plan_summary = values.get("work_plan_summary")
         if isinstance(work_plan_summary, str) and work_plan_summary:
             result["work_plan_summary"] = work_plan_summary
+        runtime_context = getattr(self, "_runtime_context_state", {})
+        if isinstance(runtime_context, dict):
+            result.update(
+                {
+                    str(key): str(value)
+                    for key, value in runtime_context.items()
+                    if key in CONTEXT_STATE_KEYS and value
+                }
+            )
         return result
 
     def _update_context_state(self, update: dict[str, Any]) -> None:
+        runtime_update = {
+            str(key): str(value)
+            for key, value in update.items()
+            if key in CONTEXT_STATE_KEYS and isinstance(value, str) and value
+        }
+        if runtime_update:
+            runtime_context = getattr(self, "_runtime_context_state", None)
+            if not isinstance(runtime_context, dict):
+                runtime_context = {}
+                self._runtime_context_state = runtime_context
+            runtime_context.update(runtime_update)
         self.graph.update_state(self._graph_config(), update)
 
     def _before_tool_call(self, tool_name: str, arguments: dict[str, Any]) -> None:
@@ -206,7 +231,12 @@ class AITerminalStateMixin:
         )
 
     def _sync_current_session_index(self) -> None:
-        update_ai_terminal_session_index(self.project_root, self.checkpointer, self.thread_id)
+        update_ai_terminal_session_index(
+            self.project_root,
+            self.checkpointer,
+            self.thread_id,
+            context_state=self._context_state(),
+        )
 
     def _current_interrupts(self) -> tuple[Interrupt, ...]:
         return self.graph.get_state(self._graph_config()).interrupts
@@ -336,8 +366,10 @@ def _tool_argument_summary(tool_name: str, arguments: dict[str, Any]) -> str:
         "read_project_file_slice": ("path", "start_line", "line_count"),
         "read_plan_package": ("plan_path",),
         "create_plan_package": ("package_path", "name"),
+        "export_local_file": ("target_path", "source_output_path", "mode"),
         "write_plan_package_file": ("plan_path", "relative_path", "mode"),
         "validate_plan": ("plan_path",),
+        "review_plan_quality": ("plan_path", "planned_output_path"),
         "run_plan": ("plan_path", "run_name"),
         "read_latest_run_state": ("plan_path",),
         "read_latest_run_report": ("plan_path",),
@@ -420,16 +452,38 @@ def _tool_result_summary(tool_name: str, result: dict[str, Any]) -> str:
             summary_parts.append(f"error={_compact_tool_value(result.get('error'), limit=120)}")
     elif tool_name in {"validate_plan", "validate_debug_plan"}:
         summary_parts.append("通过" if result.get("ok") else "未通过")
+    elif tool_name == "review_plan_quality":
+        summary_parts.append("通过" if result.get("ok") else "未通过")
+        if result.get("severity"):
+            summary_parts.append(f"severity={result.get('severity')}")
+        if result.get("issue_count") is not None:
+            summary_parts.append(f"issues={result.get('issue_count', 0)}")
+        if result.get("next_action"):
+            summary_parts.append(f"next={_compact_tool_value(result.get('next_action'))}")
     elif tool_name == "list_plan_packages":
         plans = result.get("plans") if isinstance(result.get("plans"), list) else []
         summary_parts.append(f"plans={len(plans)}")
     elif tool_name == "list_output_artifacts":
         artifacts = result.get("artifacts") if isinstance(result.get("artifacts"), list) else []
         summary_parts.append(f"artifacts={len(artifacts)}")
+    elif tool_name == "read_output_artifact":
+        if result.get("relative_path"):
+            summary_parts.append(f"path={_compact_tool_value(result.get('relative_path'))}")
+        if result.get("content") is not None:
+            line_count = result.get("non_empty_line_count", result.get("line_count", 0))
+            prefix = "lines" if result.get("content_complete", True) else "lines>="
+            summary_parts.append(f"{prefix}{line_count}")
+        if result.get("truncated"):
+            summary_parts.append("已截断")
     elif tool_name == "update_work_plan":
         summary_parts.append(f"items={result.get('total', 0)}")
         if result.get("active"):
             summary_parts.append(f"active={_compact_tool_value(result.get('active'))}")
+    elif tool_name == "export_local_file":
+        if result.get("path") or result.get("target_path"):
+            summary_parts.append(f"path={_compact_path(result.get('path') or result.get('target_path'))}")
+        if result.get("source_path"):
+            summary_parts.append(f"source={_compact_path(result.get('source_path'))}")
     elif tool_name in {"create_plan_package", "write_plan_package_file", "read_plan_package"}:
         if result.get("plan_path"):
             summary_parts.append(f"plan={_compact_path(result.get('plan_path'))}")
@@ -542,6 +596,19 @@ def _file_change_events_from_tool_result(
                 action="appended" if mode == "append" else "updated",
                 path=result.get("path"),
                 relative_path=result.get("relative_path"),
+                bytes_count=result.get("bytes"),
+                detail=f"mode={mode}",
+                result=result,
+            )
+        )
+    elif tool_name == "export_local_file":
+        mode = str(result.get("mode") or arguments.get("mode") or "overwrite")
+        events.append(
+            _file_change_event(
+                tool_name,
+                action="appended" if mode == "append" else "updated",
+                path=result.get("path") or result.get("target_path"),
+                relative_path=result.get("target_path") or result.get("path"),
                 bytes_count=result.get("bytes"),
                 detail=f"mode={mode}",
                 result=result,

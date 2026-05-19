@@ -17,6 +17,8 @@ from ai_automate_contro.ai.terminal_tool_registry import (
     call_ai_terminal_tool,
     check_ai_terminal_tool_registry,
 )
+from ai_automate_contro.ai.plan_quality import compute_plan_signature
+from ai_automate_contro.ai.plan_tools import resolve_plan_path
 from ai_automate_contro.plans.packages import create_plan_package
 
 
@@ -30,6 +32,7 @@ def build_langchain_tools(
     manual_confirmation_handler: Callable[[str], bool] | None = None,
     inspection_confirmation_handler: Callable[[str], bool] | None = None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None = None,
+    quality_gate_provider: Callable[[], dict[str, Any]] | None = None,
 ) -> list[StructuredTool]:
     _ensure_langchain_tool_registry_consistent()
     return [
@@ -43,6 +46,7 @@ def build_langchain_tools(
             manual_confirmation_handler=manual_confirmation_handler,
             inspection_confirmation_handler=inspection_confirmation_handler,
             run_event_handler=run_event_handler,
+            quality_gate_provider=quality_gate_provider,
         )
         for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
@@ -65,6 +69,7 @@ def _build_structured_tool(
     manual_confirmation_handler: Callable[[str], bool] | None,
     inspection_confirmation_handler: Callable[[str], bool] | None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None,
+    quality_gate_provider: Callable[[], dict[str, Any]] | None,
 ) -> StructuredTool:
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
@@ -78,6 +83,7 @@ def _build_structured_tool(
             manual_confirmation_handler=manual_confirmation_handler,
             inspection_confirmation_handler=inspection_confirmation_handler,
             run_event_handler=run_event_handler,
+            quality_gate_provider=quality_gate_provider,
         ),
         name=tool_name,
         description=spec.description,
@@ -96,6 +102,7 @@ def _make_tool_function(
     manual_confirmation_handler: Callable[[str], bool] | None,
     inspection_confirmation_handler: Callable[[str], bool] | None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None,
+    quality_gate_provider: Callable[[], dict[str, Any]] | None,
 ) -> Callable[..., str]:
     def _tool(**kwargs: Any) -> str:
         kwargs = _json_safe_tool_payload(kwargs)
@@ -122,6 +129,8 @@ def _make_tool_function(
             except Exception:
                 pass
         try:
+            if tool_name == "run_plan":
+                _enforce_run_plan_quality_gate(project_root, kwargs, quality_gate_provider)
             result = call_ai_terminal_tool(
                 tool_name,
                 project_root,
@@ -143,6 +152,31 @@ def _make_tool_function(
 
     _tool.__name__ = tool_name
     return _tool
+
+
+def _enforce_run_plan_quality_gate(
+    project_root: Path,
+    kwargs: dict[str, Any],
+    quality_gate_provider: Callable[[], dict[str, Any]] | None,
+) -> None:
+    if quality_gate_provider is None:
+        return
+    review = quality_gate_provider()
+    if not isinstance(review, dict) or not review:
+        raise ValueError("运行前缺少 review_plan_quality 质量复查。请先调用 review_plan_quality，并修复所有 fail 后再运行。")
+    if str(review.get("latest_plan_quality_review_ok", "")).lower() != "true":
+        raise ValueError("最近一次 review_plan_quality 未通过，不能运行 plan。请先修复问题并重新复查。")
+    plan_path = str(kwargs.get("plan_path") or "")
+    reviewed_plan_path = str(review.get("latest_plan_quality_review_plan_path") or "")
+    if not plan_path:
+        raise ValueError("run_plan 缺少 plan_path。")
+    resolved_plan_path = str(resolve_plan_path(plan_path))
+    if reviewed_plan_path and str(resolve_plan_path(reviewed_plan_path)) != resolved_plan_path:
+        raise ValueError("最近一次 review_plan_quality 针对的是另一个 plan，不能复用。请对当前 plan 重新复查。")
+    expected_signature = str(review.get("latest_plan_quality_review_signature") or "")
+    current_signature = compute_plan_signature(plan_path)
+    if not expected_signature or expected_signature != current_signature:
+        raise ValueError("plan 在最近一次 review_plan_quality 后发生变化，质量复查已失效。请重新调用 review_plan_quality。")
 
 
 def _json_safe_tool_payload(value: Any) -> Any:
@@ -264,11 +298,24 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
         write_plan_package_file_tool = tool_by_name.get("write_plan_package_file")
         update_work_plan_tool = tool_by_name.get("update_work_plan")
+        export_local_file_tool = tool_by_name.get("export_local_file")
+        read_output_artifact_tool = tool_by_name.get("read_output_artifact")
+        review_plan_quality_tool = tool_by_name.get("review_plan_quality")
+        run_plan_tool = tool_by_name.get("run_plan")
         progressive_tools_ok = False
         progressive_tools_error = ""
         progressive_tools_detail: dict[str, Any] = {}
-        if read_plan_package_tool is not None and grep_project_text_tool is not None and read_project_file_slice_tool is not None:
+        if (
+            read_plan_package_tool is not None
+            and grep_project_text_tool is not None
+            and read_project_file_slice_tool is not None
+            and read_output_artifact_tool is not None
+        ):
             try:
+                artifact_relative = "text/accounts.txt"
+                artifact_path = package_dir / "output" / artifact_relative
+                artifact_path.parent.mkdir(parents=True, exist_ok=True)
+                artifact_path.write_text("alpha\n\nbeta\ngamma\n", encoding="utf-8")
                 package_result = json.loads(read_plan_package_tool.invoke({"plan_path": str(plan_path)}))
                 plan = package_result.get("plan", {})
                 sub_plans = package_result.get("sub_plans", [])
@@ -292,6 +339,14 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                artifact_result = json.loads(
+                    read_output_artifact_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": artifact_relative,
+                        }
+                    )
+                )
                 package_is_metadata = (
                     isinstance(plan, dict)
                     and "steps_preview" in plan
@@ -303,11 +358,16 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and package_is_metadata
                     and int(grep_result.get("match_count", 0)) >= 1
                     and int(slice_result.get("line_count", 0)) <= 3
+                    and artifact_result.get("line_count") == 4
+                    and artifact_result.get("non_empty_line_count") == 3
+                    and artifact_result.get("content_complete") is True
                 )
                 progressive_tools_detail = {
                     "package_is_metadata": package_is_metadata,
                     "grep_matches": grep_result.get("match_count", 0),
                     "slice_lines": slice_result.get("line_count", 0),
+                    "artifact_lines": artifact_result.get("line_count", 0),
+                    "artifact_non_empty_lines": artifact_result.get("non_empty_line_count", 0),
                 }
             except Exception as error:
                 progressive_tools_error = str(error)
@@ -574,6 +634,335 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 }
             except Exception as error:
                 work_plan_tool_error = str(error)
+
+        export_local_file_ok = False
+        export_local_file_error = ""
+        export_local_file_detail: dict[str, Any] = {}
+        if export_local_file_tool is not None:
+            try:
+                with tempfile.TemporaryDirectory(prefix="ai-tools-export-") as raw_export_dir:
+                    export_dir = Path(raw_export_dir)
+                    direct_target = export_dir / "direct.txt"
+                    append_target = export_dir / "append.txt"
+                    copied_target = export_dir / "copied.txt"
+                    source_relative = "text/source.txt"
+                    source_path = package_dir / "output" / source_relative
+                    source_path.parent.mkdir(parents=True, exist_ok=True)
+                    source_path.write_text("copied artifact\n", encoding="utf-8")
+
+                    direct_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(direct_target),
+                                "content": "final delivery\n",
+                            }
+                        )
+                    )
+                    append_first_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(append_target),
+                                "content": "first\n",
+                                "mode": "append",
+                            }
+                        )
+                    )
+                    append_second_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(append_target),
+                                "content": "second\n",
+                                "mode": "append",
+                            }
+                        )
+                    )
+                    copy_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(copied_target),
+                                "plan_path": str(plan_path),
+                                "source_output_path": source_relative,
+                            }
+                        )
+                    )
+                    traversal_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(export_dir / "bad.txt"),
+                                "plan_path": str(plan_path),
+                                "source_output_path": "../plan.json",
+                            }
+                        )
+                    )
+                    project_write_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(root / "src" / "bad-export.txt"),
+                                "content": "bad\n",
+                            }
+                        )
+                    )
+                    export_local_file_ok = (
+                        bool(direct_result.get("ok"))
+                        and direct_target.read_text(encoding="utf-8") == "final delivery\n"
+                        and bool(append_first_result.get("ok"))
+                        and bool(append_second_result.get("ok"))
+                        and append_target.read_text(encoding="utf-8") == "first\nsecond\n"
+                        and bool(copy_result.get("ok"))
+                        and copied_target.read_text(encoding="utf-8") == "copied artifact\n"
+                        and not bool(traversal_result.get("ok"))
+                        and "output" in str(traversal_result.get("error", ""))
+                        and not bool(project_write_result.get("ok"))
+                        and "项目外" in str(project_write_result.get("error", ""))
+                    )
+                    export_local_file_detail = {
+                        "direct_path": direct_result.get("path"),
+                        "copy_source": copy_result.get("source_path"),
+                        "copy_target": copy_result.get("path"),
+                        "traversal_error": traversal_result.get("error"),
+                        "project_write_error": project_write_result.get("error"),
+                    }
+            except Exception as error:
+                export_local_file_error = str(error)
+
+        review_plan_quality_ok = False
+        review_plan_quality_error = ""
+        review_plan_quality_detail: dict[str, Any] = {}
+        if review_plan_quality_tool is not None and write_plan_package_file_tool is not None:
+            try:
+                request = (
+                    "打开 https://example.com/login 登录后台，账户名称 huanmin，密码 hu123456，"
+                    "把全部账户名称写到 /Users/anminhu/Downloads/AI账户.txt，一行一个。"
+                )
+                incomplete_plan = {
+                    "name": "quality incomplete",
+                    "variables": {"login_url": "https://example.com/login"},
+                    "steps": [
+                        {"action": "open_browser", "name": "main", "headed": True},
+                        {"action": "navigate", "type": "goto", "browser": "main", "url": "{{login_url}}"},
+                        {"action": "manual_confirm", "prompt": "请完成登录。"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": incomplete_plan,
+                        }
+                    )
+                )
+                fail_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": request,
+                            "evidence_summary": "inspect_web_page 发现登录表单，headed 探索停在登录页。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                complete_plan = {
+                    "name": "quality complete",
+                    "variables": {
+                        "login_url": "https://example.com/login",
+                        "username": "huanmin",
+                        "password": "hu123456",
+                    },
+                    "steps": [
+                        {"action": "open_browser", "name": "main", "headed": True},
+                        {"action": "navigate", "type": "goto", "browser": "main", "url": "{{login_url}}"},
+                        {
+                            "action": "element",
+                            "type": "fill",
+                            "browser": "main",
+                            "selector": "input[autocomplete='username']",
+                            "value": "{{username}}",
+                        },
+                        {
+                            "action": "element",
+                            "type": "fill",
+                            "browser": "main",
+                            "selector": "input[type='password']",
+                            "value": "{{password}}",
+                        },
+                        {
+                            "action": "element",
+                            "type": "click",
+                            "browser": "main",
+                            "role": "button",
+                            "name": "登录",
+                        },
+                        {"action": "manual_confirm", "prompt": "如出现验证码，请在当前浏览器完成后继续。"},
+                        {
+                            "action": "extract",
+                            "type": "all_texts",
+                            "browser": "main",
+                            "selector": ".account-name",
+                            "save_as": "account_names",
+                        },
+                        {
+                            "action": "write",
+                            "type": "text",
+                            "path": "AI账户.txt",
+                            "value": "{{account_names}}",
+                        },
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": complete_plan,
+                        }
+                    )
+                )
+                pass_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": request,
+                            "evidence_summary": "inspect_web_page 发现登录表单；headed 探索已确认 AI 账户管理菜单和账户名称列表。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                headless_complete_plan = dict(complete_plan)
+                headless_complete_plan["steps"] = [
+                    dict(step, headed=False) if step.get("action") == "open_browser" else step
+                    for step in complete_plan["steps"]
+                    if step.get("action") != "manual_confirm"
+                ]
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": headless_complete_plan,
+                        }
+                    )
+                )
+                junk_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": request,
+                            "evidence_summary": "页面看起来差不多。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                review_plan_quality_ok = (
+                    fail_result.get("ok") is False
+                    and fail_result.get("severity") == "fail"
+                    and "missing_password_fill" in {issue.get("code") for issue in fail_result.get("issues", [])}
+                    and "missing_account_fill" in {issue.get("code") for issue in fail_result.get("issues", [])}
+                    and any("AI账户.txt" in str(fact) for fact in fail_result.get("missing_facts", []))
+                    and bool(pass_result.get("ok"))
+                    and pass_result.get("severity") == "warn"
+                    and pass_result.get("next_action") == "run_plan_then_export_local_file"
+                    and bool(pass_result.get("plan_signature"))
+                    and "已覆盖账号输入" in pass_result.get("covered_facts", [])
+                    and "已覆盖输出文件名 AI账户.txt" in pass_result.get("covered_facts", [])
+                    and junk_evidence_result.get("ok") is False
+                    and "missing_real_site_evidence" in {issue.get("code") for issue in junk_evidence_result.get("issues", [])}
+                )
+                review_plan_quality_detail = {
+                    "fail_codes": [issue.get("code") for issue in fail_result.get("issues", [])],
+                    "fail_missing_facts": fail_result.get("missing_facts", []),
+                    "pass_severity": pass_result.get("severity"),
+                    "pass_next_action": pass_result.get("next_action"),
+                    "pass_covered_facts": pass_result.get("covered_facts", []),
+                    "pass_signature": pass_result.get("plan_signature"),
+                    "junk_evidence_codes": [issue.get("code") for issue in junk_evidence_result.get("issues", [])],
+                }
+            except Exception as error:
+                review_plan_quality_error = str(error)
+
+        run_plan_quality_gate_ok = False
+        run_plan_quality_gate_error = ""
+        run_plan_quality_gate_detail: dict[str, Any] = {}
+        if run_plan_tool is not None:
+            try:
+                with tempfile.TemporaryDirectory(prefix="ai-tools-run-gate-") as raw_gate_dir:
+                    gate_root = Path(raw_gate_dir)
+                    (gate_root / "plans").mkdir(parents=True, exist_ok=True)
+                    gate_package = gate_root / "plans" / "gate"
+                    create_plan_package(gate_package, project_root=gate_root, name="gate")
+                    gate_plan_path = gate_package / "plan.json"
+                    gate_plan_path.write_text(
+                        json.dumps(
+                            {
+                                "name": "gate",
+                                "variables": {},
+                                "steps": [{"action": "print", "message": "gate ok"}],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    gated_calls: list[dict[str, Any]] = []
+                    gate_state: dict[str, Any] = {}
+                    gated_tools = build_langchain_tools(
+                        gate_root,
+                        after_tool_call=lambda name, args, result: gated_calls.append(
+                            {"name": name, "ok": result.get("ok"), "error": result.get("error")}
+                        ),
+                        quality_gate_provider=lambda: gate_state,
+                    )
+                    gated_by_name = {tool.name: tool for tool in gated_tools}
+                    no_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
+                    review_result = json.loads(
+                        gated_by_name["review_plan_quality"].invoke(
+                            {
+                                "plan_path": str(gate_plan_path),
+                                "user_request": "运行一个简单打印 plan",
+                            }
+                        )
+                    )
+                    gate_state.update(
+                        {
+                            "latest_plan_quality_review_plan_path": review_result.get("plan_path"),
+                            "latest_plan_quality_review_signature": review_result.get("plan_signature"),
+                            "latest_plan_quality_review_ok": "true" if review_result.get("ok") else "false",
+                            "latest_plan_quality_review_severity": review_result.get("severity"),
+                            "latest_plan_quality_review_next_action": review_result.get("next_action"),
+                        }
+                    )
+                    run_after_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
+                    gate_plan_path.write_text(
+                        json.dumps(
+                            {
+                                "name": "gate changed",
+                                "variables": {},
+                                "steps": [{"action": "print", "message": "changed"}],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    stale_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
+                    run_plan_quality_gate_ok = (
+                        no_review_result.get("ok") is False
+                        and "review_plan_quality" in str(no_review_result.get("error", ""))
+                        and bool(review_result.get("ok"))
+                        and bool(run_after_review_result.get("ok"))
+                        and stale_review_result.get("ok") is False
+                        and "复查已失效" in str(stale_review_result.get("error", ""))
+                    )
+                    run_plan_quality_gate_detail = {
+                        "no_review_error": no_review_result.get("error"),
+                        "run_after_review_ok": run_after_review_result.get("ok"),
+                        "stale_review_error": stale_review_result.get("error"),
+                        "gated_calls": gated_calls,
+                    }
+            except Exception as error:
+                run_plan_quality_gate_error = str(error)
     checks.append(
         _self_check_result(
             name="progressive_text_tools",
@@ -607,6 +996,27 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="update_work_plan_tool",
             passed=work_plan_tool_ok,
             detail={**work_plan_tool_detail, "error": work_plan_tool_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="export_local_file_tool",
+            passed=export_local_file_ok,
+            detail={**export_local_file_detail, "error": export_local_file_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="review_plan_quality_tool",
+            passed=review_plan_quality_ok,
+            detail={**review_plan_quality_detail, "error": review_plan_quality_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="run_plan_requires_fresh_quality_review",
+            passed=run_plan_quality_gate_ok,
+            detail={**run_plan_quality_gate_detail, "error": run_plan_quality_gate_error},
         )
     )
 

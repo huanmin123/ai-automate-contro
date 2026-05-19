@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from langchain.agents import AgentState
@@ -26,6 +27,11 @@ class AITerminalState(AgentState):
     latest_compression_summary_path: NotRequired[str]
     latest_compression_token_count: NotRequired[str]
     latest_compression_message_count: NotRequired[str]
+    latest_plan_quality_review_plan_path: NotRequired[str]
+    latest_plan_quality_review_signature: NotRequired[str]
+    latest_plan_quality_review_ok: NotRequired[str]
+    latest_plan_quality_review_severity: NotRequired[str]
+    latest_plan_quality_review_next_action: NotRequired[str]
     work_plan_items: NotRequired[list[dict[str, str]]]
     work_plan_summary: NotRequired[str]
 
@@ -43,6 +49,31 @@ def inject_ai_terminal_context(
         base_content = "\n".join(str(item) for item in base_content)
     system_message = SystemMessage(content=f"{base_content}\n\n{context_text}".strip())
     return handler(request.override(system_message=system_message))
+
+
+def build_ai_terminal_context_middleware(
+    context_state_provider: Callable[[], dict[str, Any]],
+) -> Any:
+    @wrap_model_call(state_schema=AITerminalState, name="AITerminalContextMiddleware")
+    def _inject_runtime_ai_terminal_context(
+        request: ModelRequest[Any],
+        handler: Any,
+    ) -> ModelResponse[Any]:
+        state = dict(request.state)
+        try:
+            state.update(context_state_provider())
+        except Exception:
+            pass
+        context_text = format_ai_terminal_context(state)
+        if not context_text:
+            return handler(request)
+        base_content = request.system_message.content if request.system_message is not None else ""
+        if isinstance(base_content, list):
+            base_content = "\n".join(str(item) for item in base_content)
+        system_message = SystemMessage(content=f"{base_content}\n\n{context_text}".strip())
+        return handler(request.override(system_message=system_message))
+
+    return _inject_runtime_ai_terminal_context
 
 
 def format_ai_terminal_context(state: dict[str, Any]) -> str:
@@ -71,6 +102,26 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
         added = True
     if isinstance(latest_compression_archive_dir, str) and latest_compression_archive_dir:
         lines.append(f"- latest_compression_archive_dir: {latest_compression_archive_dir}")
+        added = True
+    quality_review_plan_path = state.get("latest_plan_quality_review_plan_path")
+    quality_review_ok = state.get("latest_plan_quality_review_ok")
+    quality_review_severity = state.get("latest_plan_quality_review_severity")
+    quality_review_next_action = state.get("latest_plan_quality_review_next_action")
+    quality_review_signature = state.get("latest_plan_quality_review_signature")
+    if isinstance(quality_review_plan_path, str) and quality_review_plan_path:
+        lines.append(f"- latest_plan_quality_review_plan_path: {quality_review_plan_path}")
+        added = True
+    if isinstance(quality_review_ok, str) and quality_review_ok:
+        lines.append(f"- latest_plan_quality_review_ok: {quality_review_ok}")
+        added = True
+    if isinstance(quality_review_severity, str) and quality_review_severity:
+        lines.append(f"- latest_plan_quality_review_severity: {quality_review_severity}")
+        added = True
+    if isinstance(quality_review_next_action, str) and quality_review_next_action:
+        lines.append(f"- latest_plan_quality_review_next_action: {quality_review_next_action}")
+        added = True
+    if isinstance(quality_review_signature, str) and quality_review_signature:
+        lines.append("- latest_plan_quality_review_signature: <recorded>")
         added = True
     if not added:
         plan_context = format_work_plan_for_context(
@@ -134,6 +185,15 @@ def context_update_from_tool_result(
 
     if tool_name in {"read_plan_package", "validate_plan", "run_plan"}:
         _capture_context_value(update, "plan_path", arguments.get("plan_path"))
+    if tool_name == "review_plan_quality":
+        _capture_context_value(update, "plan_path", result.get("plan_path"))
+        _capture_context_value(update, "plan_path", arguments.get("plan_path"))
+        _capture_context_value(update, "latest_plan_quality_review_plan_path", result.get("plan_path"))
+        _capture_context_value(update, "latest_plan_quality_review_signature", result.get("plan_signature"))
+        _capture_context_value(update, "latest_plan_quality_review_severity", result.get("severity"))
+        _capture_context_value(update, "latest_plan_quality_review_next_action", result.get("next_action"))
+        if "ok" in result:
+            update["latest_plan_quality_review_ok"] = "true" if bool(result.get("ok")) else "false"
     if tool_name in {
         "read_debug_workspace",
         "inject_debug_steps",
@@ -171,3 +231,6 @@ def _capture_context_value(update: dict[str, str], key: str, value: Any) -> None
         return
     if key == "output_dir":
         update["latest_output_dir"] = str(path_from_text(value).resolve())
+        return
+    if key.startswith("latest_plan_quality_review_"):
+        update[key] = str(value)

@@ -16,28 +16,12 @@ def assert_selector(executor: Any, step: dict[str, Any]) -> None:
 
 def assert_text(executor: Any, step: dict[str, Any]) -> None:
     actual = executor._locator(step).inner_text().strip()
-    expected = str(step["expected"])
-    mode = step.get("mode", "equals")
-    if mode == "equals" and actual == expected:
-        return
-    if mode == "contains" and expected in actual:
-        return
-    raise AssertionError(
-        f"Text assertion failed. mode={mode}, expected={expected!r}, actual={actual!r}"
-    )
+    _assert_string(actual, str(step["expected"]), step.get("mode", "equals"), "Text")
 
 
 def assert_value(executor: Any, step: dict[str, Any]) -> None:
     actual = executor._locator(step).input_value()
-    expected = str(step["expected"])
-    mode = step.get("mode", "equals")
-    if mode == "equals" and actual == expected:
-        return
-    if mode == "contains" and expected in actual:
-        return
-    raise AssertionError(
-        f"Value assertion failed. mode={mode}, expected={expected!r}, actual={actual!r}"
-    )
+    _assert_string(actual, str(step["expected"]), step.get("mode", "equals"), "Value")
 
 
 def assert_url(executor: Any, step: dict[str, Any]) -> None:

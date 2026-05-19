@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import shlex
 import subprocess
 from datetime import datetime
 from pathlib import Path
@@ -247,12 +248,35 @@ def _backup_original_files_before_patch(workspace_root: Path, package_dir: Path,
 def _changed_files_from_patch(patch_text: str) -> list[str]:
     files: list[str] = []
     for line in patch_text.splitlines():
-        if not line.startswith("+++ b/"):
+        if line.startswith("diff --git "):
+            parts = _split_patch_header(line)
+            for raw_path in parts[2:4]:
+                relative_path = _relative_path_from_patch_path(raw_path)
+                if relative_path is not None:
+                    files.append(relative_path)
             continue
-        relative_path = line.removeprefix("+++ b/")
-        if relative_path != "/dev/null":
-            files.append(relative_path)
+        if line.startswith("+++ b/"):
+            files.append(line.removeprefix("+++ b/"))
+            continue
+        if line.startswith("--- a/"):
+            files.append(line.removeprefix("--- a/"))
+    files = [path for path in files if path and path != "/dev/null"]
     return sorted(dict.fromkeys(files))
+
+
+def _split_patch_header(line: str) -> list[str]:
+    try:
+        return shlex.split(line)
+    except ValueError:
+        return line.split()
+
+
+def _relative_path_from_patch_path(path_text: str) -> str | None:
+    if path_text == "/dev/null":
+        return None
+    if path_text.startswith("a/") or path_text.startswith("b/"):
+        return path_text[2:]
+    return path_text or None
 
 
 def _append_patch_note(workspace_root: Path, changed_files: list[str]) -> None:

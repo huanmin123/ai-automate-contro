@@ -7,7 +7,7 @@
 ## 运行方式
 
 ```powershell
-python .\main.py self-check browser-components
+python .\cplan.py self-check browser-components
 ```
 
 ## 覆盖范围

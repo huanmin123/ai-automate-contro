@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 import json
-import platform
-
-from langchain_core.messages import AIMessage
 
 from ai_automate_contro.ai.image_attachments import (
     attach_clipboard_images,
@@ -28,84 +25,10 @@ from ai_automate_contro.ai.session_store import (
     session_index_path,
     update_ai_terminal_session_index,
 )
-from ai_automate_contro.ai.terminal_message_utils import message_content_to_text
 from ai_automate_contro.ai.work_plan import format_work_plan_for_terminal
 
 
-COMMAND_SYNTAX_HELP = (
-    "命令语法：命令必须写在输入行最开头，格式为 /command 或 /command <args>；"
-    "/ 后面的命令名必须以英文字母开头；命令和参数之间至少一个空格；"
-    "普通文字中间的 /xxx 不会被当作命令。"
-)
-
-
-def format_keyboard_shortcuts_for_terminal(system_name: str | None = None) -> str:
-    normalized_system = (system_name or platform.system()).strip().lower()
-    is_macos = normalized_system == "darwin"
-    is_windows = normalized_system == "windows"
-    if is_macos:
-        send_key = "Enter"
-        newline_key = "行尾 \\ 后 Enter"
-        close_key = "Control+Q / Control+C"
-        system_note = "当前系统：macOS。下列按键按 Textual 客户端习惯显示。"
-        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
-    elif is_windows:
-        send_key = "Enter"
-        newline_key = "行尾 \\ 后 Enter"
-        close_key = "Ctrl+Q / Ctrl+C"
-        system_note = "当前系统：Windows。"
-        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
-    else:
-        send_key = "Enter"
-        newline_key = "行尾 \\ 后 Enter"
-        close_key = "Ctrl+Q / Ctrl+C"
-        system_note = f"当前系统：{system_name or platform.system() or '未知'}。客户端快捷键可能受终端模拟器配置影响。"
-        newline_note = "换行用行尾 \\ 后 Enter；多行文本可以直接粘贴并保留换行。"
-
-    return "\n".join(
-        [
-            "Textual 客户端键盘快捷键：",
-            f"  {system_note}",
-            f"  {send_key:<25} 发送当前消息。",
-            f"  {newline_key:<25} 插入换行。",
-            f"  {'Esc':<25} 中断当前 AI/plan；已有排队消息时立即介入并优先处理。",
-            f"  {close_key:<25} 关闭 Textual 客户端。",
-            "",
-            "输入说明：",
-            "  普通 Enter 始终发送消息。",
-            f"  {newline_note}",
-            "  多行文本从剪贴板粘贴时会保留换行。",
-            "  AI 忙碌时继续发送会进入队列；按 Esc 会把排队内容合并为下一轮介入消息。",
-            "  已保存成文件的图片可用 /image <image-path> 添加。",
-        ]
-    )
-
-
 class AITerminalCommandsMixin:
-    def do_help(self, arg: str) -> None:
-        """查看 AI 会话命令：/help"""
-        self._emit_system_output(
-            "\n".join(
-                [
-                    "AI 会话命令：",
-                    "  /status                         查看当前线程、上下文、checkpoint 和待发送图片。",
-                    "  /sessions [limit|all] [--json]  列出已保存会话，不打印完整历史。",
-                    "  /resume <thread-id-or-index>    从 sessions 列表恢复会话。",
-                    "  /new [thread-id]                新建会话。",
-                    "  /compress [reason]              压缩并归档当前会话。",
-                    "  /history [limit]                只查看最近几条消息。",
-                    "  /keyboard                       查看当前系统的键盘快捷键和输入说明。",
-                    "  /plan 或 /todo                  查看当前 AI 工作计划。",
-                    "  /image <image-path>             兜底：把本地图片文件加入下一条消息。",
-                    "  /pending | /approve | /reject <reason>  处理受保护补丁审批。",
-                    "  /exit 或 /back                  退出当前客户端。",
-                    "  /quit                           关闭客户端。",
-                    COMMAND_SYNTAX_HELP,
-                    "上下文会在选择、运行和调试 plan 时自动更新，通常不需要手动设置。",
-                ]
-            )
-        )
-
     def do_status(self, _: str) -> None:
         """查看当前 AI 会话状态。"""
         messages = self._current_messages()
@@ -140,10 +63,6 @@ class AITerminalCommandsMixin:
             "context_state": self._context_state(),
         }
         self._emit_system_output(json.dumps(payload, ensure_ascii=False, indent=2))
-
-    def do_keyboard(self, _: str) -> None:
-        """查看 Textual 客户端键盘快捷键。"""
-        self._emit_system_output(format_keyboard_shortcuts_for_terminal())
 
     def do_plan(self, _: str) -> None:
         """查看当前 AI 工作计划。"""
@@ -210,41 +129,6 @@ class AITerminalCommandsMixin:
         self._last_error = ""
         self._clear_pending_attachments()
         self._emit_system_output(f"AI 会话线程：{self.thread_id}")
-
-    def do_compress(self, arg: str) -> None:
-        """压缩当前 AI 会话历史：/compress [reason]"""
-        reason = arg.strip() or "manual"
-        try:
-            result = self._compress_current_thread(reason=reason)
-        except Exception as error:
-            self._emit_error(error)
-            return
-        self._sync_current_session_index()
-        self._emit_system_output(json.dumps(result, ensure_ascii=False, indent=2))
-
-    def do_history(self, arg: str) -> None:
-        """查看最近的会话消息：/history [limit]"""
-        try:
-            limit = int(arg.strip()) if arg.strip() else 12
-        except ValueError:
-            self._emit_error("用法：/history [limit]")
-            return
-        if limit <= 0:
-            self._emit_error("数量必须大于 0。")
-            return
-        messages = self._current_messages()[-limit:]
-        if not messages:
-            self._emit_system_output("历史记录：<空>")
-            return
-        for index, message in enumerate(messages, start=1):
-            role = type(message).__name__
-            content = message_content_to_text(message.content).strip()
-            if isinstance(message, AIMessage) and message.tool_calls:
-                calls = ", ".join(str(call.get("name")) for call in message.tool_calls)
-                content = f"tool_calls={calls}"
-            if len(content) > 500:
-                content = content[:497] + "..."
-            self._emit_system_output(f"{index:02d}. {role}: {content}")
 
     def _add_image_file(self, arg: str) -> None:
         command = arg.strip()

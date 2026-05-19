@@ -101,8 +101,10 @@ def validate_type_specific_required_fields(
         required = ("state",)
     elif action == "wait" and step_type == "function":
         required = ("js",)
-    elif action == "extract" and step_type in {"text", "value", "html", "all_texts", "all_values"}:
+    elif action == "extract" and step_type in {"text", "value", "html"}:
         required = ()
+    elif action == "extract" and step_type in {"all_texts", "all_values"}:
+        required = ("selector",)
     elif action == "extract" and step_type == "attribute":
         required = ("attribute",)
     elif action == "extract" and step_type == "count":
@@ -298,6 +300,9 @@ def _validate_optional_field_values(
     if action == "extract":
         _validate_extract_fields(step, step_type, location, issues)
         return
+    if action == "assert":
+        _validate_assert_fields(step, step_type, location, issues)
+        return
     if action == "mouse":
         _validate_number(step, "x", location, issues)
         _validate_number(step, "y", location, issues)
@@ -447,6 +452,19 @@ def _validate_extract_fields(
             )
             return
         _validate_enum(step, "mode", {"ai", "default"}, location, issues)
+
+
+def _validate_assert_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type in {"text", "value", "attribute", "css", "title", "url"}:
+        _validate_enum(step, "mode", {"equals", "contains", "not_contains"}, location, issues)
+        return
+    if step_type == "count":
+        _validate_enum(step, "mode", {"equals", "gte", "lte"}, location, issues)
 
 
 def _validate_enum(

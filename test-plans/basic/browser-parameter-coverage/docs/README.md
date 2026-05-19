@@ -7,5 +7,5 @@
 ## 运行方式
 
 ```powershell
-python .\main.py plan run --file .\test-plans\basic\browser-parameter-coverage\plan.json
+python .\cplan.py run --file .\test-plans\basic\browser-parameter-coverage\plan.json
 ```

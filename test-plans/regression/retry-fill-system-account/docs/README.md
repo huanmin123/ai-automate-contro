@@ -15,5 +15,5 @@
 ## 运行
 
 ```powershell
-python .\main.py plan run --file .\test-plans\regression\retry-fill-system-account\plan.json
+python .\cplan.py run --file .\test-plans\regression\retry-fill-system-account\plan.json
 ```

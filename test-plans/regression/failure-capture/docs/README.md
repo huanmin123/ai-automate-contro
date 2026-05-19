@@ -15,5 +15,5 @@
 ## 运行
 
 ```powershell
-python .\main.py plan run --file .\test-plans\regression\failure-capture\plan.json
+python .\cplan.py run --file .\test-plans\regression\failure-capture\plan.json
 ```

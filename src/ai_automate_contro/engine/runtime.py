@@ -16,6 +16,7 @@ class BrowserSession:
     name: str
     browser: Browser
     context: BrowserContext
+    headed: bool = False
     pages: dict[str, Page] = field(default_factory=dict)
     current_page_name: str = "main"
 

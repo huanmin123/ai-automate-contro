@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 from collections.abc import AsyncIterator
@@ -10,8 +12,9 @@ from tempfile import TemporaryDirectory
 
 from textual.events import Paste
 
-from ai_automate_contro.client.backend import AITerminalBackend, FakeAgentBackend, _management_payload
-from ai_automate_contro.client.management import ClientManagementController
+import ai_automate_contro.client.backend as backend_module
+from ai_automate_contro.client.backend import AITerminalBackend, FakeAgentBackend
+from ai_automate_contro.client.backend import CONFIRM_CURRENT_WAIT, FEEDBACK_OR_CORRECTION
 from ai_automate_contro.client.events import ClientEvent
 from ai_automate_contro.client.textual_app import (
     AICTextualApp,
@@ -23,6 +26,7 @@ from ai_automate_contro.client.textual_app import (
     Composer,
     MessageBlock,
     MetaBlock,
+    PendingQueuePanel,
     THINKING_IDLE_TICKS,
     THINKING_TICK_SECONDS,
     ToolBlock,
@@ -30,6 +34,7 @@ from ai_automate_contro.client.textual_app import (
     ActivityBlock,
     _format_approval_text,
     _format_transcript_markdown,
+    _is_newline_key_event,
     _move_composer_cursor_to_end,
 )
 
@@ -55,6 +60,7 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
         composer.text = "第一行"
         _move_composer_cursor_to_end(composer)
         await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
         composer.clear()
         composer.text = (
             "这是一个很长的中文输入，用来检查宽度变化时 composer 高度会按终端单元宽度重新计算，"
@@ -69,13 +75,16 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
         css = AICTextualApp.CSS
         composer.text = "工具测试\n第二行"
         await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
         composer.text = "第二条排队消息"
         await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
         composer.text = "审批 错误"
         await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
         composer.text = "计划任务"
         await pilot.press("enter")
-        await pilot.pause(0.05)
+        await _wait_until_idle(app, pilot)
         plan_panel = app.query_one("#work_plan_panel", WorkPlanPanel)
         plan_panel_visible = bool(plan_panel.display)
         plan_panel_text = str(plan_panel.render())
@@ -97,8 +106,6 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             if message.has_class("meta") and "计划 1/3" in message.text and "检查工具输出" in message.text
         ]
         status_text = str(app.query_one("#status").content)
-        top_status_text = str(app.query_one("#top_status").content)
-        brand_text = str(app.query_one("#brand").content)
         tool_block_count = len(app.query(ToolBlock))
         tool_done_class_ok = any(block.has_class("tool-done") for block in app.query(ToolBlock))
 
@@ -135,6 +142,12 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
         and bool(work_plan_query_messages)
     )
     multiline_shortcut_ok = line_continuation_text == "续行\n"
+    modified_enter_newline_ok = (
+        _is_newline_key_event(SimpleNamespace(key="shift+enter", aliases=[]))
+        and _is_newline_key_event(SimpleNamespace(key="alt+enter", aliases=[]))
+        and _is_newline_key_event(SimpleNamespace(key="enter", aliases=["option+enter"]))
+        and not _is_newline_key_event(SimpleNamespace(key="enter", aliases=[]))
+    )
     enter_send_ok = any(message.text == "第一行" for message in user_messages)
     resize_ok = initial_height == COMPOSER_MIN_LINES and COMPOSER_MIN_LINES <= wide_height <= narrow_height <= COMPOSER_MAX_LINES
     no_legacy_prompt_ok = all(
@@ -150,20 +163,26 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
         and "min-height: 7" in css
         and "background: #2d3035" in css
     )
-    chrome_result = _check_textual_agent_chrome(brand_text=brand_text, top_status_text=top_status_text)
+    chrome_result = _check_textual_agent_chrome()
     thinking_result = await _check_textual_thinking_indicator()
     markdown_result = _check_textual_markdown_does_not_emit_terminal_hyperlinks()
     approval_guidance_result = _check_textual_approval_guidance_is_not_duplicated()
     transcript_export_result = _check_textual_transcript_export_keeps_raw_text()
     interrupt_result = await _check_textual_escape_interrupts_without_queue()
+    queued_batch_result = await _check_textual_busy_messages_stay_queued_until_batch_consumed()
     intervention_result = await _check_textual_escape_promotes_queue_to_intervention()
     stuck_intervention_result = await _check_textual_escape_intervention_survives_stuck_turn()
     active_confirmation_result = await _check_active_confirmation_input()
+    delayed_confirmation_echo_result = await _check_confirmation_input_echoes_before_backend_returns()
+    active_feedback_intervention_result = await _check_active_confirmation_feedback_becomes_intervention()
+    natural_language_feedback_result = await _check_natural_language_continue_becomes_feedback()
     command_palette_result = await _check_textual_command_palette_and_local_commands()
     clipboard_text_paste_result = await _check_textual_clipboard_text_paste_once()
     clipboard_paste_result = await _check_textual_clipboard_image_paste()
-    management_result = await _check_textual_management_commands()
-    management_confirmation_result = await _check_textual_management_confirmation_natural_language()
+    busy_clipboard_paste_result = await _check_textual_busy_clipboard_image_paste_is_deferred()
+    pending_approval_status_result = await _check_textual_pending_approval_status_survives_idle()
+    backend_interrupt_result = await _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root)
+    backend_confirmation_feedback_result = await _check_backend_confirmation_feedback_not_swallowed(project_root)
     activity_noise_result = await _check_textual_activity_stream_stays_high_level()
     snapshot_result = await _check_textual_ui_snapshot_layout()
     slash_routing_result = _check_textual_slash_command_routing(project_root)
@@ -179,6 +198,7 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             and queue_ok
             and work_plan_ok
             and multiline_shortcut_ok
+            and modified_enter_newline_ok
             and enter_send_ok
             and resize_ok
             and no_legacy_prompt_ok
@@ -190,14 +210,20 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             and approval_guidance_result["passed"]
             and transcript_export_result["passed"]
             and interrupt_result["passed"]
+            and queued_batch_result["passed"]
             and intervention_result["passed"]
             and stuck_intervention_result["passed"]
             and active_confirmation_result["passed"]
+            and delayed_confirmation_echo_result["passed"]
+            and active_feedback_intervention_result["passed"]
+            and natural_language_feedback_result["passed"]
             and command_palette_result["passed"]
             and clipboard_text_paste_result["passed"]
             and clipboard_paste_result["passed"]
-            and management_result["passed"]
-            and management_confirmation_result["passed"]
+            and busy_clipboard_paste_result["passed"]
+            and pending_approval_status_result["passed"]
+            and backend_interrupt_result["passed"]
+            and backend_confirmation_feedback_result["passed"]
             and activity_noise_result["passed"]
             and snapshot_result["passed"]
             and slash_routing_result["passed"]
@@ -265,9 +291,10 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             },
             {
                 "name": "textual_client_supports_line_continuation_newline",
-                "passed": multiline_shortcut_ok and enter_send_ok,
+                "passed": multiline_shortcut_ok and modified_enter_newline_ok and enter_send_ok,
                 "detail": {
                     "line_continuation_text": line_continuation_text,
+                    "modified_enter_newline": modified_enter_newline_ok,
                     "enter_sent_message": enter_send_ok,
                 },
             },
@@ -279,7 +306,7 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             {
                 "name": "textual_client_status_recovers",
                 "passed": status_ok,
-                "detail": {"status": status_text, "top_status": top_status_text},
+                "detail": {"status": status_text},
             },
             {
                 "name": "textual_client_composer_is_large_and_cursor_visible",
@@ -299,14 +326,20 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             approval_guidance_result,
             transcript_export_result,
             interrupt_result,
+            queued_batch_result,
             intervention_result,
             stuck_intervention_result,
             active_confirmation_result,
+            delayed_confirmation_echo_result,
+            active_feedback_intervention_result,
+            natural_language_feedback_result,
             command_palette_result,
             clipboard_text_paste_result,
             clipboard_paste_result,
-            management_result,
-            management_confirmation_result,
+            busy_clipboard_paste_result,
+            pending_approval_status_result,
+            backend_interrupt_result,
+            backend_confirmation_feedback_result,
             activity_noise_result,
             snapshot_result,
             slash_routing_result,
@@ -338,13 +371,10 @@ async def _check_textual_thinking_indicator() -> dict[str, Any]:
         await pilot.press("enter")
         await pilot.pause(THINKING_TICK_SECONDS * 1.5)
         early_status = str(app.query_one("#status").content)
-        early_top_status = str(app.query_one("#top_status").content)
         await pilot.pause(THINKING_TICK_SECONDS * (THINKING_IDLE_TICKS + 3))
         waiting_status = str(app.query_one("#status").content)
-        waiting_top_status = str(app.query_one("#top_status").content)
         await _wait_until_idle(app, pilot)
         final_status = str(app.query_one("#status").content)
-        final_top_status = str(app.query_one("#top_status").content)
         assistant_messages = [
             message.text
             for message in app.query(MessageBlock)
@@ -354,9 +384,6 @@ async def _check_textual_thinking_indicator() -> dict[str, Any]:
         "正在思考" in early_status
         and "." in early_status
         and "正在思考" in waiting_status
-        and "正在思考" not in early_top_status
-        and "正在思考" not in waiting_top_status
-        and "正在思考" not in final_top_status
         and final_status.startswith("就绪")
         and "正在思考" not in final_status
         and assistant_messages == ["第一段第二段"]
@@ -366,11 +393,8 @@ async def _check_textual_thinking_indicator() -> dict[str, Any]:
         "passed": passed,
         "detail": {
             "early_status": early_status,
-            "early_top_status": early_top_status,
             "waiting_status": waiting_status,
-            "waiting_top_status": waiting_top_status,
             "final_status": final_status,
-            "final_top_status": final_top_status,
             "assistant_messages": assistant_messages,
         },
     }
@@ -502,6 +526,88 @@ async def _check_textual_escape_interrupts_without_queue() -> dict[str, Any]:
     }
 
 
+class QueueBatchBackend(FakeAgentBackend):
+    def __init__(self) -> None:
+        super().__init__(response="")
+        self.messages: list[str] = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.messages.append(message)
+        if len(self.messages) == 1:
+            self.started.set()
+            yield ClientEvent("status", text="正在思考")
+            await self.release.wait()
+            yield ClientEvent("assistant_delta", text="第一条完成")
+            yield ClientEvent("assistant_done")
+            return
+        yield ClientEvent("assistant_delta", text=f"批量收到：{message}")
+        yield ClientEvent("assistant_done")
+
+
+async def _check_textual_busy_messages_stay_queued_until_batch_consumed() -> dict[str, Any]:
+    backend = QueueBatchBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(90, 26)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "第一条慢消息"
+        await pilot.press("enter")
+        for _ in range(100):
+            if backend.started.is_set():
+                break
+            await pilot.pause(0.01)
+        composer.text = "排队一"
+        await pilot.press("enter")
+        composer.text = "排队二"
+        await pilot.press("enter")
+        await pilot.pause(0.05)
+        queued_before_release = list(app._queue)
+        queue_panel = app.query_one("#pending_queue_panel", PendingQueuePanel)
+        queue_panel_visible_before = bool(queue_panel.display)
+        queue_panel_text_before = str(queue_panel.render())
+        messages_before_release = list(app.query(MessageBlock))
+        user_before_release = [message.text for message in messages_before_release if message.has_class("user")]
+        backend.release.set()
+        await _wait_until_idle(app, pilot)
+        queue_panel_visible_after = bool(queue_panel.display)
+        messages_after = list(app.query(MessageBlock))
+        user_after = [message.text for message in messages_after if message.has_class("user")]
+        assistant_after = [message.text for message in messages_after if message.has_class("assistant")]
+        status_text = str(app.query_one("#status").content)
+
+    expected_batch = "排队一\n\n排队二"
+    passed = (
+        queued_before_release == ["排队一", "排队二"]
+        and queue_panel_visible_before
+        and "待处理 2 条" in queue_panel_text_before
+        and "排队一" in queue_panel_text_before
+        and "排队二" in queue_panel_text_before
+        and backend.messages == ["第一条慢消息", expected_batch]
+        and user_before_release == ["第一条慢消息"]
+        and user_after == ["第一条慢消息", expected_batch]
+        and any(f"批量收到：{expected_batch}" == message for message in assistant_after)
+        and not queue_panel_visible_after
+        and status_text.startswith("就绪")
+    )
+    return {
+        "name": "textual_client_keeps_busy_messages_in_queue_panel_until_batched_consumption",
+        "passed": passed,
+        "detail": {
+            "queued_before_release": queued_before_release,
+            "queue_panel_visible_before": queue_panel_visible_before,
+            "queue_panel_text_before": queue_panel_text_before,
+            "backend_messages": backend.messages,
+            "user_before_release": user_before_release,
+            "user_after": user_after,
+            "assistant_after": assistant_after,
+            "queue_panel_visible_after": queue_panel_visible_after,
+            "status": status_text,
+        },
+    }
+
+
 async def _check_textual_escape_promotes_queue_to_intervention() -> dict[str, Any]:
     backend = InterruptibleBackend()
     app = AICTextualApp(backend)
@@ -522,6 +628,7 @@ async def _check_textual_escape_promotes_queue_to_intervention() -> dict[str, An
         user_messages = [message.text for message in messages if message.has_class("user")]
         assistant_messages = [message.text for message in messages if message.has_class("assistant")]
         meta_messages = [message.text for message in messages if message.has_class("meta")]
+        queue_panel_visible = bool(app.query_one("#pending_queue_panel", PendingQueuePanel).display)
         status_text = str(app.query_one("#status").content)
 
     expected_intervention = "第一条介入\n\n第二条介入"
@@ -529,9 +636,10 @@ async def _check_textual_escape_promotes_queue_to_intervention() -> dict[str, An
         queued_before_escape == ["第一条介入", "第二条介入"]
         and backend.messages == ["第一条慢消息", expected_intervention]
         and backend.interrupt_calls == 1
-        and user_messages == ["第一条慢消息", "第一条介入", "第二条介入"]
+        and user_messages == ["第一条慢消息", expected_intervention]
         and assistant_messages == [f"收到：{expected_intervention}"]
         and any("已介入排队消息 2 条" in message for message in meta_messages)
+        and not queue_panel_visible
         and status_text.startswith("就绪")
     )
     return {
@@ -544,6 +652,7 @@ async def _check_textual_escape_promotes_queue_to_intervention() -> dict[str, An
             "user_messages": user_messages,
             "assistant_messages": assistant_messages,
             "meta_messages": meta_messages,
+            "queue_panel_visible": queue_panel_visible,
             "status": status_text,
         },
     }
@@ -602,7 +711,7 @@ async def _check_textual_escape_intervention_survives_stuck_turn() -> dict[str, 
     }
 
 
-def _check_textual_agent_chrome(*, brand_text: str, top_status_text: str) -> dict[str, Any]:
+def _check_textual_agent_chrome() -> dict[str, Any]:
     css = AICTextualApp.CSS
     forbidden_light_fragments = [
         "background: #ffffff",
@@ -611,10 +720,12 @@ def _check_textual_agent_chrome(*, brand_text: str, top_status_text: str) -> dic
         "background: #eef6ff",
     ]
     passed = (
-        brand_text == "AIC"
-        and bool(top_status_text.strip())
-        and "#top_bar" in css
+        "#top_bar" not in css
+        and "#brand" not in css
+        and "#top_status" not in css
         and "#composer_row" in css
+        and "padding: 1 0 0 0" in css
+        and "padding: 0 0 1 0" in css
         and ".tool-running" in css
         and ".tool-done" in css
         and ".tool-failed" in css
@@ -629,9 +740,8 @@ def _check_textual_agent_chrome(*, brand_text: str, top_status_text: str) -> dic
         "name": "textual_client_uses_agent_tui_chrome",
         "passed": passed,
         "detail": {
-            "brand": brand_text,
-            "top_status": top_status_text,
             "has_top_bar_css": "#top_bar" in css,
+            "has_compact_page_padding": "padding: 1 0 0 0" in css and "padding: 0 0 1 0" in css,
             "has_tool_phase_css": all(fragment in css for fragment in (".tool-running", ".tool-done", ".tool-failed")),
             "tool_is_compact": "border-left: tall #4e5560" not in css and "height: 1;" in css,
         },
@@ -642,8 +752,19 @@ class ConfirmationBackend:
     def __init__(self) -> None:
         self.confirmation: asyncio.Future[str] | None = None
         self.handled_inputs: list[str] = []
+        self.submit_started = asyncio.Event()
+        self.submit_release = asyncio.Event()
+        self.delay_submit = False
+        self.feedback_inputs: set[str] = set()
+        self.classified_inputs: list[tuple[str, str]] = []
+        self.interrupt_calls = 0
+        self._interrupted = False
 
     async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        if self._interrupted:
+            yield ClientEvent("assistant_delta", text=f"反馈已处理：{message}")
+            yield ClientEvent("assistant_done")
+            return
         self.confirmation = asyncio.get_running_loop().create_future()
         yield ClientEvent("approval_requested", text=f"等待确认：{message}")
         accepted = await self.confirmation
@@ -654,9 +775,29 @@ class ConfirmationBackend:
     async def submit_during_turn(self, message: str) -> bool:
         if self.confirmation is None or self.confirmation.done():
             return False
+        self.submit_started.set()
+        if self.delay_submit:
+            await self.submit_release.wait()
         self.handled_inputs.append(message)
         self.confirmation.set_result(message)
         return True
+
+    async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
+        handled = await self.submit_during_turn(message)
+        if not handled:
+            yield ClientEvent("error", text="没有可确认的等待。")
+
+    async def classify_active_turn_input(self, message: str) -> str:
+        intent = FEEDBACK_OR_CORRECTION if message in self.feedback_inputs else CONFIRM_CURRENT_WAIT
+        self.classified_inputs.append((message, intent))
+        return intent
+
+    async def interrupt(self) -> ClientEvent:
+        self.interrupt_calls += 1
+        self._interrupted = True
+        if self.confirmation is not None and not self.confirmation.done():
+            self.confirmation.cancel()
+        return ClientEvent("interrupted", text="已中断当前等待。")
 
     async def attach_clipboard_images(self) -> list[str]:
         return []
@@ -667,7 +808,6 @@ class ConfirmationBackend:
             "busy": self.confirmation is not None and not self.confirmation.done(),
             "pending_approval": self.confirmation is not None and not self.confirmation.done(),
             "context_state": {},
-            "management": {},
         }
 
     async def close(self) -> None:
@@ -684,7 +824,7 @@ async def _check_active_confirmation_input() -> dict[str, Any]:
         composer.text = "需要人工确认的任务"
         await pilot.press("enter")
         await pilot.pause(0.05)
-        composer.text = "可以继续"
+        composer.text = "继续"
         await pilot.press("enter")
         await pilot.pause(0.1)
         messages = list(app.query(MessageBlock))
@@ -693,9 +833,9 @@ async def _check_active_confirmation_input() -> dict[str, Any]:
         approval_messages = [message.text for message in messages if message.has_class("approval")]
         assistant_messages = [message.text for message in messages if message.has_class("assistant")]
     passed = (
-        backend.handled_inputs == ["可以继续"]
-        and user_messages == ["需要人工确认的任务", "可以继续"]
-        and any("确认输入：可以继续" in text for text in meta_messages)
+        backend.handled_inputs == ["继续"]
+        and user_messages == ["需要人工确认的任务", "继续"]
+        and any("确认输入：继续" in text for text in meta_messages)
         and any("等待确认：需要人工确认的任务" in text for text in approval_messages)
         and assistant_messages == ["继续执行"]
     )
@@ -708,6 +848,152 @@ async def _check_active_confirmation_input() -> dict[str, Any]:
             "meta_messages": meta_messages,
             "approval_messages": approval_messages,
             "assistant_messages": assistant_messages,
+        },
+    }
+
+
+async def _check_confirmation_input_echoes_before_backend_returns() -> dict[str, Any]:
+    backend = ConfirmationBackend()
+    backend.delay_submit = True
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(80, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "需要人工确认的任务"
+        await pilot.press("enter")
+        for _ in range(100):
+            if bool(app._backend_status.get("pending_approval")):
+                break
+            await pilot.pause(0.01)
+        composer.text = "继续"
+        await pilot.press("enter")
+        await pilot.pause(0.05)
+        user_before_release = [message.text for message in app.query(MessageBlock) if message.has_class("user")]
+        status_before_release = str(app.query_one("#status").content)
+        submit_started_before_release = backend.submit_started.is_set()
+        handled_before_release = list(backend.handled_inputs)
+        backend.submit_release.set()
+        await _wait_until_idle(app, pilot)
+        user_after_release = [message.text for message in app.query(MessageBlock) if message.has_class("user")]
+        meta_after_release = [message.text for message in app.query(MessageBlock) if message.has_class("meta")]
+
+    passed = (
+        submit_started_before_release
+        and handled_before_release == []
+        and user_before_release == ["需要人工确认的任务", "继续"]
+        and "已收到输入" in status_before_release
+        and backend.handled_inputs == ["继续"]
+        and user_after_release == ["需要人工确认的任务", "继续"]
+        and any("确认输入：继续" in message for message in meta_after_release)
+    )
+    return {
+        "name": "textual_client_echoes_confirmation_input_before_backend_returns",
+        "passed": passed,
+        "detail": {
+            "submit_started_before_release": submit_started_before_release,
+            "handled_before_release": handled_before_release,
+            "user_before_release": user_before_release,
+            "status_before_release": status_before_release,
+            "handled_after_release": backend.handled_inputs,
+            "user_after_release": user_after_release,
+            "meta_after_release": meta_after_release,
+        },
+    }
+
+
+async def _check_active_confirmation_feedback_becomes_intervention() -> dict[str, Any]:
+    backend = ConfirmationBackend()
+    feedback = "账户密码没有填写上呢"
+    backend.feedback_inputs.add(feedback)
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(90, 26)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "需要人工确认的任务"
+        await pilot.press("enter")
+        for _ in range(100):
+            if bool(app._backend_status.get("pending_approval")):
+                break
+            await pilot.pause(0.01)
+        composer.text = feedback
+        await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
+        messages = list(app.query(MessageBlock))
+        user_messages = [message.text for message in messages if message.has_class("user")]
+        assistant_messages = [message.text for message in messages if message.has_class("assistant")]
+        meta_messages = [message.text for message in messages if message.has_class("meta")]
+        queue_panel_visible = bool(app.query_one("#pending_queue_panel", PendingQueuePanel).display)
+        status_text = str(app.query_one("#status").content)
+
+    passed = (
+        backend.classified_inputs == [(feedback, FEEDBACK_OR_CORRECTION)]
+        and backend.handled_inputs == []
+        and backend.interrupt_calls == 1
+        and user_messages == ["需要人工确认的任务", feedback]
+        and assistant_messages == [f"反馈已处理：{feedback}"]
+        and any("已中断当前等待" in message for message in meta_messages)
+        and not queue_panel_visible
+        and status_text.startswith("就绪")
+    )
+    return {
+        "name": "textual_client_routes_wait_feedback_to_intervention_not_confirmation",
+        "passed": passed,
+        "detail": {
+            "classified_inputs": backend.classified_inputs,
+            "handled_inputs": backend.handled_inputs,
+            "interrupt_calls": backend.interrupt_calls,
+            "user_messages": user_messages,
+            "assistant_messages": assistant_messages,
+            "meta_messages": meta_messages,
+            "queue_panel_visible": queue_panel_visible,
+            "status": status_text,
+        },
+    }
+
+
+async def _check_natural_language_continue_becomes_feedback() -> dict[str, Any]:
+    backend = ConfirmationBackend()
+    feedback = "可以继续，账户密码还是没有填写上"
+    backend.feedback_inputs.add(feedback)
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(90, 26)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "需要人工确认的任务"
+        await pilot.press("enter")
+        for _ in range(100):
+            if bool(app._backend_status.get("pending_approval")):
+                break
+            await pilot.pause(0.01)
+        composer.text = feedback
+        await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
+        messages = list(app.query(MessageBlock))
+        user_messages = [message.text for message in messages if message.has_class("user")]
+        assistant_messages = [message.text for message in messages if message.has_class("assistant")]
+        meta_messages = [message.text for message in messages if message.has_class("meta")]
+        error_messages = [message.text for message in messages if message.has_class("error")]
+
+    passed = (
+        backend.classified_inputs == [(feedback, FEEDBACK_OR_CORRECTION)]
+        and backend.handled_inputs == []
+        and backend.interrupt_calls == 1
+        and user_messages == ["需要人工确认的任务", feedback]
+        and assistant_messages == [f"反馈已处理：{feedback}"]
+        and any("已中断当前等待" in message for message in meta_messages)
+        and not error_messages
+    )
+    return {
+        "name": "textual_client_treats_natural_language_continue_as_feedback",
+        "passed": passed,
+        "detail": {
+            "classified_inputs": backend.classified_inputs,
+            "handled_inputs": backend.handled_inputs,
+            "interrupt_calls": backend.interrupt_calls,
+            "user_messages": user_messages,
+            "assistant_messages": assistant_messages,
+            "meta_messages": meta_messages,
+            "error_messages": error_messages,
         },
     }
 
@@ -725,26 +1011,43 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             await pilot.pause(0.05)
             palette = app.query_one("#command_palette", CommandPalette)
             palette_names = [command.name for command in palette.commands]
+            composer.text = "/se"
+            app._sync_command_palette()
+            await pilot.pause(0.05)
+            session_palette_names = [command.name for command in palette.commands]
+            composer.text = "/copy-"
+            app._sync_command_palette()
+            await pilot.pause(0.05)
+            hyphen_palette_names = [command.name for command in palette.commands]
+            composer.text = "/copy_"
+            app._sync_command_palette()
+            await pilot.pause(0.05)
+            underscore_palette_names = [command.name for command in palette.commands]
             composer.text = "/"
             app._sync_command_palette()
             slash_palette_total = len(palette.commands)
-            for _ in range(COMMAND_PALETTE_VISIBLE_ROWS + 3):
+            slash_palette_names = [command.name for command in palette.commands]
+            app._backend_status["pending_approval"] = True
+            app._sync_command_palette()
+            approval_palette_names = [command.name for command in palette.commands]
+            app._backend_status["pending_approval"] = False
+            app._sync_command_palette()
+            for _ in range(COMMAND_PALETTE_VISIBLE_ROWS):
                 await pilot.press("down")
+            await pilot.pause(0.05)
             palette_visible_names = [command.name for command in palette.visible_commands()]
             palette_selected = palette.selected_command()
             palette_selected_name = palette_selected.name if palette_selected is not None else ""
             palette_scroll_offset = palette.palette_offset
             palette_selection_visible = palette_selected_name in palette_visible_names
-            composer.text = "/s"
+            composer.text = "/se"
             app._sync_command_palette()
             await pilot.press("down")
             await pilot.press("up")
             await pilot.press("tab")
             completed_text = composer.text
-            composer.text = "/det"
-            app._sync_command_palette()
-            await pilot.press("enter")
-            details_completed_text = composer.text
+            composer.text = "/details"
+            details_visible_in_palette = "details" in slash_palette_names
             await pilot.press("enter")
             await pilot.pause(0.05)
             details_enabled = app._show_tool_details
@@ -766,6 +1069,9 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             composer.text = "/check"
             await pilot.press("enter")
             await pilot.pause(0.05)
+            composer.text = "/status"
+            await pilot.press("enter")
+            await pilot.pause(0.05)
             messages = list(app.query(MessageBlock))
             tool_messages = [message.text for message in messages if message.has_class("tool")]
             meta_messages = [message.text for message in messages if message.has_class("meta")]
@@ -779,15 +1085,46 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             cleared_message_count = len(list(app.query(MessageBlock)))
 
     passed = (
-        "sessions" in palette_names
+        "status" in palette_names
+        and "sessions" in session_palette_names
+        and "copy-last" in hyphen_palette_names
+        and "copy-last" not in underscore_palette_names
         and slash_palette_total > COMMAND_PALETTE_VISIBLE_ROWS
         and palette_scroll_offset > 0
         and palette_selection_visible
         and completed_text == "/sessions "
-        and details_completed_text == "/details "
+        and not details_visible_in_palette
         and details_enabled
+        and not any(
+            name in slash_palette_names
+            for name in (
+                "ai",
+                "approve",
+                "back",
+                "check",
+                "close",
+                "compact",
+                "continue",
+                "debug",
+                "details",
+                "list",
+                "logs",
+                "output",
+                "pending",
+                "quit",
+                "reject",
+                "report",
+                "run",
+                "stop",
+                "todo",
+                "use",
+                "validate",
+            )
+        )
+        and {"approve", "reject"}.issubset(set(approval_palette_names))
         and any("工具细节显示：开启" in message for message in meta_messages)
         and any("AI 服务可用" in message for message in meta_messages)
+        and any("状态：" in message and "thread=fake" in message for message in meta_messages)
         and any("工具 完成 inspect_web_page\n" in message and "x" * 500 in message for message in tool_messages)
         and bool(exports)
         and "## Meta" in export_text
@@ -800,12 +1137,17 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
         "passed": passed,
         "detail": {
             "palette_names": palette_names,
+            "session_palette_names": session_palette_names,
+            "hyphen_palette_names": hyphen_palette_names,
+            "underscore_palette_names": underscore_palette_names,
             "slash_palette_total": slash_palette_total,
+            "slash_palette_names": slash_palette_names,
+            "approval_palette_names": approval_palette_names,
             "palette_visible_names": palette_visible_names,
             "palette_selected_name": palette_selected_name,
             "palette_scroll_offset": palette_scroll_offset,
             "completed_text": completed_text,
-            "details_completed_text": details_completed_text,
+            "details_visible_in_palette": details_visible_in_palette,
             "details_enabled": details_enabled,
             "tool_messages": tool_messages,
             "meta_messages": meta_messages,
@@ -884,205 +1226,310 @@ async def _check_textual_clipboard_image_paste() -> dict[str, Any]:
     }
 
 
-async def _check_textual_management_commands() -> dict[str, Any]:
-    with TemporaryDirectory(prefix="textual-management-self-check-") as raw_temp_dir:
-        project_root = Path(raw_temp_dir).resolve()
-        plan_dir = project_root / "plans" / "demo"
-        plan_dir.mkdir(parents=True)
-        (project_root / "handbook").mkdir()
-        (project_root / "plan.config").write_text(
-            json.dumps(
-                {
-                    "handbook_path": "handbook",
-                    "plan_roots": ["plans"],
-                    "default_ai_config_dir": "plans",
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        (project_root / "plans" / "config.json").write_text("{}\n", encoding="utf-8")
-        (plan_dir / "config.json").write_text("{}\n", encoding="utf-8")
-        (plan_dir / "plan.json").write_text(
-            json.dumps(
-                {
-                    "name": "textual-management-demo",
-                    "variables": {},
-                    "steps": [
-                        {
-                            "action": "print",
-                            "message": "management ok",
-                        }
-                    ],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+class BusyClipboardImageBackend(FakeAgentBackend):
+    def __init__(self) -> None:
+        super().__init__(response="")
+        self.attach_calls = 0
+        self.started: asyncio.Event | None = None
+        self.release: asyncio.Event | None = None
 
-        backend = AITerminalBackend(project_root)
-        app = AICTextualApp(backend, project_root=project_root)
-        async with app.run_test(size=(100, 30)) as pilot:
-            composer = app.query_one("#composer", Composer)
-            composer.focus()
-            for command in (
-                "/list",
-                "/use plans/demo",
-                "/debug create textual-debug",
-                "/debug list",
-                '/debug inject print textual-debug --message "debug point"',
-                "/debug patch textual-debug",
-                "/debug apply --yes textual-debug",
-                "/current",
-                "/validate",
-                "/run textual-management-smoke",
-                "/status --short",
-                "/logs 10",
-                "/artifacts 20",
-            ):
-                composer.text = command
-                await pilot.press("enter")
-                await pilot.pause(0.2)
-            await _wait_until_idle(app, pilot)
-            messages = list(app.query(MessageBlock))
-            meta_messages = [message.text for message in messages if message.has_class("meta")]
-            plan_messages = [message.text for message in messages if message.has_class("plan")]
-            file_messages = [message.text for message in messages if message.has_class("file")]
-            diff_messages = [message.text for message in messages if message.has_class("diff")]
-            summary_messages = [message.text for message in messages if message.has_class("summary")]
-            approval_messages = [message.text for message in messages if message.has_class("approval")]
-            error_messages = [message.text for message in messages if message.has_class("error")]
-            status_text = str(app.query_one("#status").content)
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.started.set()
+        yield ClientEvent("status", text="正在思考")
+        await self.release.wait()
+        yield ClientEvent("assistant_delta", text="完成")
+        yield ClientEvent("assistant_done")
 
-    joined = "\n".join(meta_messages + plan_messages + approval_messages)
+    async def attach_clipboard_images(self) -> list[str]:
+        self.attach_calls += 1
+        return ["[图片 #1]"]
+
+
+async def _check_textual_busy_clipboard_image_paste_is_deferred() -> dict[str, Any]:
+    backend = BusyClipboardImageBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(80, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "慢消息"
+        await pilot.press("enter")
+        for _ in range(100):
+            if backend.started is not None and backend.started.is_set():
+                break
+            await pilot.pause(0.01)
+        await pilot.press("ctrl+v")
+        await pilot.pause(0.05)
+        text_after_busy_paste = composer.text
+        status_after_busy_paste = str(app.query_one("#status").content)
+        meta_messages = [message.text for message in app.query(MessageBlock) if message.has_class("meta")]
+        if backend.release is not None:
+            backend.release.set()
+        await _wait_until_idle(app, pilot)
     passed = (
-        not error_messages
-        and "textual-management-demo" in joined
-        and "当前 plan：" in joined
-        and "textual-debug" in joined
-        and "debug point" in joined
-        and '"applied": true' in joined
-        and any("files=plan.json" in message and "+      \"message\": \"debug point\"" in message for message in diff_messages)
-        and any("文件 应用" in message and "plan.json" in message for message in file_messages)
-        and any("本轮结果" in message and "Diff：" in message and "plan.json" in message for message in summary_messages)
-        and any("本轮结果" in message and "Plan：" in message and "plan 结束" in message for message in summary_messages)
-        and "计划校验通过" in joined
-        and "计划运行结果 passed" in joined
-        and "management ok" in joined
-        and "plan 开始" in joined
-        and "步骤 1 开始" in joined
-        and "plan 结束" in joined
-        and "run.log" in joined
-        and "plan plans/demo/plan.json" in status_text
+        backend.attach_calls == 0
+        and "[图片 #1]" not in text_after_busy_paste
+        and "图片请在当前回复结束后粘贴" in status_after_busy_paste
+        and any("图片请在回复结束后再粘贴" in message for message in meta_messages)
     )
     return {
-        "name": "textual_client_restores_management_commands",
+        "name": "textual_client_defers_image_paste_while_busy",
         "passed": passed,
         "detail": {
+            "attach_calls": backend.attach_calls,
+            "composer_text": text_after_busy_paste,
+            "status": status_after_busy_paste,
             "meta_messages": meta_messages,
-            "plan_messages": plan_messages,
-            "file_messages": file_messages,
-            "diff_messages": diff_messages,
-            "summary_messages": summary_messages,
-            "approval_messages": approval_messages,
-            "error_messages": error_messages,
-            "status": status_text,
         },
     }
 
 
-async def _check_textual_management_confirmation_natural_language() -> dict[str, Any]:
-    with TemporaryDirectory(prefix="textual-management-confirm-self-check-") as raw_temp_dir:
-        project_root = Path(raw_temp_dir).resolve()
-        plan_dir = project_root / "plans" / "confirm"
-        plan_dir.mkdir(parents=True)
-        (project_root / "handbook").mkdir()
-        (project_root / "plan.config").write_text(
-            json.dumps(
-                {
-                    "handbook_path": "handbook",
-                    "plan_roots": ["plans"],
-                    "default_ai_config_dir": "plans",
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
-        (project_root / "plans" / "config.json").write_text("{}\n", encoding="utf-8")
-        (plan_dir / "config.json").write_text("{}\n", encoding="utf-8")
-        (plan_dir / "plan.json").write_text(
-            json.dumps(
-                {
-                    "name": "textual-management-confirm",
-                    "variables": {},
-                    "steps": [
-                        {"action": "print", "message": "before confirm"},
-                        {"action": "manual_confirm", "prompt": "请确认后继续。"},
-                        {"action": "print", "message": "after confirm"},
-                    ],
-                },
-                ensure_ascii=False,
-                indent=2,
-            )
-            + "\n",
-            encoding="utf-8",
-        )
+class PendingApprovalEndingBackend(FakeAgentBackend):
+    def __init__(self) -> None:
+        super().__init__(response="")
+        self.pending_approval = False
 
-        backend = AITerminalBackend(project_root)
-        app = AICTextualApp(backend, project_root=project_root)
-        async with app.run_test(size=(100, 30)) as pilot:
-            composer = app.query_one("#composer", Composer)
-            composer.focus()
-            for command in ("/use plans/confirm", "/run confirm-natural-language"):
-                composer.text = command
-                await pilot.press("enter")
-                await pilot.pause(0.2)
-            composer.text = "继续"
-            await pilot.press("enter")
-            await _wait_until_idle(app, pilot)
-            messages = list(app.query(MessageBlock))
-            user_messages = [message.text for message in messages if message.has_class("user")]
-            meta_messages = [message.text for message in messages if message.has_class("meta")]
-            plan_messages = [message.text for message in messages if message.has_class("plan")]
-            approval_messages = [message.text for message in messages if message.has_class("approval")]
-            summary_messages = [message.text for message in messages if message.has_class("summary")]
-            error_messages = [message.text for message in messages if message.has_class("error")]
-            status_text = str(app.query_one("#status").content)
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.pending_approval = True
+        yield ClientEvent("approval_requested", text="等待用户确认。")
 
-    joined = "\n".join(meta_messages + plan_messages + approval_messages)
+    async def status_snapshot(self) -> dict[str, Any]:
+        return {
+            "thread_id": "approval-ending",
+            "busy": False,
+            "pending_approval": self.pending_approval,
+            "context_state": {},
+        }
+
+
+async def _check_textual_pending_approval_status_survives_idle() -> dict[str, Any]:
+    backend = PendingApprovalEndingBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(80, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "需要审批"
+        await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
+        status_text = str(app.query_one("#status").content)
+        approval_messages = [message.text for message in app.query(MessageBlock) if message.has_class("approval")]
+        pending_approval = bool(app._backend_status.get("pending_approval"))
     passed = (
-        not error_messages
-        and user_messages[-1:] == ["继续"]
-        and any("请确认后继续" in message and "直接回复“继续”" in message for message in approval_messages)
-        and "人工确认已继续" in joined
-        and "步骤 3 完成" in joined
-        and "plan 结束 · confirm-natural-language" in joined
-        and "计划运行结果 passed" in joined
-        and "run passed" in status_text
-        and any(
-            "plan 结束 · confirm-natural-language" in message and "等待确认：" not in message
-            for message in summary_messages
-        )
+        pending_approval
+        and "等待人工确认" in status_text
+        and any("等待用户确认" in message for message in approval_messages)
     )
     return {
-        "name": "textual_client_management_wait_accepts_natural_language_confirmation",
+        "name": "textual_client_keeps_pending_approval_status_after_turn_idle",
         "passed": passed,
         "detail": {
-            "user_messages": user_messages,
-            "meta_messages": meta_messages,
-            "plan_messages": plan_messages,
-            "approval_messages": approval_messages,
-            "summary_messages": summary_messages,
-            "error_messages": error_messages,
             "status": status_text,
+            "approval_messages": approval_messages,
+            "pending_approval": pending_approval,
         },
     }
+
+
+async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: Path) -> dict[str, Any]:
+    import ai_automate_contro.ai.terminal as terminal_module
+
+    class FakeGraph:
+        def __init__(self) -> None:
+            self.updated_states: list[dict[str, Any]] = []
+
+        def get_state(self, config: dict[str, Any]) -> Any:
+            return SimpleNamespace(
+                values={
+                    "messages": ["stable-before-interrupt"],
+                    "current_plan_path": "plans/demo/plan.json",
+                }
+            )
+
+        def update_state(self, config: dict[str, Any], values: dict[str, Any]) -> None:
+            self.updated_states.append(dict(values))
+
+    class FakeTerminal:
+        created: list["FakeTerminal"] = []
+        slow_started = threading.Event()
+        slow_release = threading.Event()
+
+        def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
+            self.project_root = project_root
+            self.service = service
+            self.thread_id = thread_id
+            self.graph = FakeGraph()
+            self.closed = False
+            FakeTerminal.created.append(self)
+
+        def _graph_config(self) -> dict[str, Any]:
+            return {"configurable": {"thread_id": self.thread_id}}
+
+        def run_event_turn(self, message: str, sink: Any) -> None:
+            if message == "slow":
+                FakeTerminal.slow_started.set()
+                sink(SimpleNamespace(kind="status", text="正在思考", title="", data={}))
+                FakeTerminal.slow_release.wait(timeout=2)
+                sink(SimpleNamespace(kind="assistant_delta", text="迟到的旧回复", title="", data={}))
+                sink(SimpleNamespace(kind="assistant_done", text="", title="", data={}))
+                return
+            sink(SimpleNamespace(kind="assistant_delta", text=f"介入 thread={self.thread_id}", title="", data={}))
+            sink(SimpleNamespace(kind="assistant_done", text="", title="", data={}))
+
+        def _cancel_agent_turn(self) -> bool:
+            return True
+
+        def can_handle_input_during_turn(self, message: str) -> bool:
+            return False
+
+        def handle_input(self, message: str) -> None:
+            return None
+
+        def attach_clipboard_images(self) -> list[str]:
+            return []
+
+        def client_status_snapshot(self) -> dict[str, Any]:
+            return {"thread_id": self.thread_id, "service": self.service, "pending_approval": False}
+
+        def _update_context_state(self, update: dict[str, Any]) -> None:
+            return None
+
+        def _sync_current_session_index(self) -> None:
+            return None
+
+        def format_error_message(self, error: BaseException) -> str:
+            return str(error)
+
+        def close(self) -> None:
+            self.closed = True
+
+    original_terminal = terminal_module.AITerminal
+    original_grace = backend_module.INTERRUPT_GRACE_SECONDS
+    terminal_module.AITerminal = FakeTerminal
+    backend_module.INTERRUPT_GRACE_SECONDS = 0.01
+    try:
+        backend = AITerminalBackend(project_root, thread_id="self-check")
+        slow_events: list[ClientEvent] = []
+
+        async def collect_slow() -> None:
+            async for event in backend.stream("slow"):
+                slow_events.append(event)
+
+        slow_task = asyncio.create_task(collect_slow())
+        await asyncio.to_thread(FakeTerminal.slow_started.wait, 1)
+        interrupt_event = await backend.interrupt()
+        intervention_events = [event async for event in backend.stream("intervene")]
+        FakeTerminal.slow_release.set()
+        await asyncio.wait_for(slow_task, timeout=1)
+        created_threads = [terminal.thread_id for terminal in FakeTerminal.created]
+        fork_terminal = FakeTerminal.created[-1] if FakeTerminal.created else None
+        fork_seeded = bool(fork_terminal and fork_terminal.graph.updated_states)
+        assistant_messages = [event.text for event in intervention_events if event.kind == "assistant_delta"]
+        passed = (
+            interrupt_event.kind == "interrupted"
+            and created_threads[:2] == ["self-check", "self-check-intervention-1"]
+            and backend.thread_id == "self-check-intervention-1"
+            and fork_seeded
+            and assistant_messages == ["介入 thread=self-check-intervention-1"]
+        )
+        return {
+            "name": "ai_terminal_backend_interrupt_forks_stuck_worker_checkpoint",
+            "passed": passed,
+            "detail": {
+                "interrupt_event": {"kind": interrupt_event.kind, "text": interrupt_event.text},
+                "created_threads": created_threads,
+                "backend_thread": backend.thread_id,
+                "fork_seeded": fork_seeded,
+                "slow_events": [{"kind": event.kind, "text": event.text} for event in slow_events],
+                "intervention_events": [{"kind": event.kind, "text": event.text} for event in intervention_events],
+            },
+        }
+    except Exception as error:
+        return {
+            "name": "ai_terminal_backend_interrupt_forks_stuck_worker_checkpoint",
+            "passed": False,
+            "detail": {"error": str(error)},
+        }
+    finally:
+        FakeTerminal.slow_release.set()
+        terminal_module.AITerminal = original_terminal
+        backend_module.INTERRUPT_GRACE_SECONDS = original_grace
+
+
+async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path) -> dict[str, Any]:
+    from ai_automate_contro.ai import terminal as terminal_module
+
+    class FakeTerminal:
+        def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
+            self.project_root = project_root
+            self.service = service
+            self.thread_id = thread_id
+            self.submitted: list[str] = []
+            self.classified: list[tuple[str, str]] = []
+            self._confirmation = object()
+
+        def _current_ai_confirmation(self) -> object | None:
+            return self._confirmation
+
+        def can_handle_input_during_turn(self, message: str) -> bool:
+            return self._confirmation is not None
+
+        def classify_active_turn_input(self, message: str, *, prompt: str = "", wait_type: str = "") -> str:
+            intent = FEEDBACK_OR_CORRECTION if "没有填写" in message else CONFIRM_CURRENT_WAIT
+            self.classified.append((message, intent))
+            return intent
+
+        def submit_ai_confirmation_reply(self, message: str) -> bool:
+            self.submitted.append(message)
+            self._confirmation = None
+            return True
+
+        def client_status_snapshot(self) -> dict[str, Any]:
+            return {"thread_id": self.thread_id, "service": self.service, "pending_approval": self._confirmation is not None}
+
+        def attach_clipboard_images(self) -> list[str]:
+            return []
+
+        def close(self) -> None:
+            return None
+
+    original_terminal = terminal_module.AITerminal
+    terminal_module.AITerminal = FakeTerminal
+    try:
+        backend = AITerminalBackend(project_root, thread_id="confirmation-feedback")
+        terminal = backend._require_terminal()
+        feedback_handled = await backend.submit_during_turn("账户密码没有填写上呢")
+        confirmation_still_pending = terminal._current_ai_confirmation() is not None
+        confirm_handled = await backend.submit_during_turn("继续")
+        passed = (
+            feedback_handled is False
+            and confirmation_still_pending
+            and confirm_handled is True
+            and terminal.classified == [
+                ("账户密码没有填写上呢", FEEDBACK_OR_CORRECTION),
+                ("继续", CONFIRM_CURRENT_WAIT),
+            ]
+            and terminal.submitted == ["继续"]
+        )
+        return {
+            "name": "ai_terminal_backend_keeps_confirmation_feedback_for_intervention",
+            "passed": passed,
+            "detail": {
+                "feedback_handled": feedback_handled,
+                "confirmation_still_pending": confirmation_still_pending,
+                "confirm_handled": confirm_handled,
+                "classified": terminal.classified,
+                "submitted": terminal.submitted,
+            },
+        }
+    except Exception as error:
+        return {
+            "name": "ai_terminal_backend_keeps_confirmation_feedback_for_intervention",
+            "passed": False,
+            "detail": {"error": str(error)},
+        }
+    finally:
+        terminal_module.AITerminal = original_terminal
 
 
 async def _check_textual_activity_stream_stays_high_level() -> dict[str, Any]:
@@ -1130,7 +1577,6 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
         messages = list(app.query(MessageBlock))
         svg = app.export_screenshot()
         status_text = str(app.query_one("#status").content)
-        top_status_text = str(app.query_one("#top_status").content)
         plan_panel = app.query_one("#work_plan_panel", WorkPlanPanel)
         plan_panel_visible = bool(plan_panel.display)
         role_counts = {
@@ -1140,7 +1586,6 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
         activity_messages = [message.text for message in messages if message.has_class("activity")]
         summary_messages = [message.text for message in messages if message.has_class("summary")]
     required_svg_tokens = [
-        "AIC",
         "需要你确认",
         "error",
         "计划",
@@ -1164,7 +1609,6 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
         and any("工具：完成 inspect_web_page" in message for message in summary_messages)
         and plan_panel_visible
         and status_text.startswith("就绪")
-        and "thread fake" in top_status_text
     )
     return {
         "name": "textual_client_ui_snapshot_layout",
@@ -1175,7 +1619,6 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
             "activity_messages": activity_messages,
             "summary_messages": summary_messages,
             "status": status_text,
-            "top_status": top_status_text,
             "plan_panel_visible": plan_panel_visible,
             "required_svg_tokens": {token: token in svg for token in required_svg_tokens},
             "forbidden_hits": [token for token in forbidden_tokens if token in svg],
@@ -1184,27 +1627,18 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
 
 
 def _check_textual_slash_command_routing(project_root: Path) -> dict[str, Any]:
-    controller = ClientManagementController(project_root)
-    cases = {
-        "/list": _management_payload("/list", controller),
-        "/debug list": _management_payload("/debug list", controller),
-        "/sessions": _management_payload("/sessions", controller),
-        "/approve": _management_payload("/approve", controller),
-        "/ai hello": _management_payload("/ai hello", controller),
-        "/compact": _management_payload("/compact", controller),
-    }
-    passed = (
-        cases["/list"] == "/list"
-        and cases["/debug list"] == "/debug list"
-        and cases["/sessions"] is None
-        and cases["/approve"] is None
-        and cases["/ai hello"] is None
-        and cases["/compact"] is None
-    )
+    from ai_automate_contro.client.commands import client_command_suggestions
+
+    slash_names = [command.name for command in client_command_suggestions("/")]
+    forbidden = {"list", "use", "run", "continue", "close", "stop", "validate", "debug"}
+    passed = not forbidden.intersection(slash_names)
     return {
-        "name": "textual_client_routes_only_management_slash_commands_to_management",
+        "name": "textual_client_has_no_plan_management_commands",
         "passed": passed,
-        "detail": cases,
+        "detail": {
+            "slash_names": slash_names,
+            "forbidden_hits": sorted(forbidden.intersection(slash_names)),
+        },
     }
 
 

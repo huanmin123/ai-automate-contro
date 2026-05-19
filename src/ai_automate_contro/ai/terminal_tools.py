@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.plans.packages import find_latest_run_output
+from ai_automate_contro.ai.debug_workspace_io import is_relative_to
 from ai_automate_contro.ai import debug_tools, debug_workspace_tools
 from ai_automate_contro.ai.plan_tools import (
     resolve_plan_path,
     run_plan_tool as _run_plan_tool,
 )
+from ai_automate_contro.ai.plan_quality import review_plan_quality_tool as _review_plan_quality_tool
 from ai_automate_contro.ai.run_artifacts import (
     MAX_TEXT_ARTIFACT_BYTES,
     list_output_artifacts_tool as _list_output_artifacts_tool,
@@ -122,6 +126,84 @@ def read_output_artifact_tool(
         relative_path,
         max_bytes=max_bytes,
     )
+
+
+def review_plan_quality_tool(
+    project_root: str | Path,
+    *,
+    plan_path: str | Path,
+    user_request: str,
+    evidence_summary: str = "",
+    planned_output_path: str = "",
+    strict: bool = True,
+) -> dict[str, Any]:
+    return _review_plan_quality_tool(
+        project_root,
+        plan_path=plan_path,
+        user_request=user_request,
+        evidence_summary=evidence_summary,
+        planned_output_path=planned_output_path,
+        strict=strict,
+    )
+
+
+def export_local_file_tool(
+    project_root: str | Path,
+    *,
+    target_path: str | Path,
+    content: str | None = None,
+    json_value: Any = None,
+    plan_path: str | Path | None = None,
+    source_output_path: str | Path = "",
+    mode: str = "overwrite",
+) -> dict[str, Any]:
+    write_mode = str(mode).strip().lower()
+    if write_mode not in {"overwrite", "append"}:
+        raise ValueError("mode 必须是 overwrite 或 append。")
+    if content is not None and json_value is not None:
+        raise ValueError("content 和 json_value 只能提供一个。")
+    if source_output_path and (content is not None or json_value is not None):
+        raise ValueError("source_output_path 不能和 content/json_value 同时提供。")
+    if not source_output_path and content is None and json_value is None:
+        raise ValueError("export_local_file 需要 content、json_value 或 source_output_path。")
+
+    resolved_target = _resolve_local_export_target(project_root, target_path)
+    if resolved_target.exists() and resolved_target.is_dir():
+        raise ValueError(f"目标路径是目录，不能写入文件：{resolved_target}")
+    resolved_target.parent.mkdir(parents=True, exist_ok=True)
+
+    source_path = ""
+    if source_output_path:
+        if write_mode != "overwrite":
+            raise ValueError("复制 source_output_path 时只支持 overwrite 模式。")
+        if not plan_path:
+            raise ValueError("复制 output 产物时必须提供 plan_path。")
+        resolved_plan_path = resolve_plan_path(plan_path)
+        output_root = (resolved_plan_path.parent / "output").resolve()
+        resolved_source = (output_root / path_from_text(source_output_path)).resolve()
+        if not is_relative_to(resolved_source, output_root):
+            raise ValueError("source_output_path 必须位于当前 plan output 目录内。")
+        if not resolved_source.exists() or not resolved_source.is_file():
+            raise FileNotFoundError(f"源产物不存在：{resolved_source}")
+        shutil.copyfile(resolved_source, resolved_target)
+        source_path = str(resolved_source)
+    else:
+        text = json.dumps(json_value, ensure_ascii=False, indent=2) + "\n" if json_value is not None else str(content)
+        if write_mode == "append":
+            with resolved_target.open("a", encoding="utf-8") as file:
+                file.write(text)
+        else:
+            resolved_target.write_text(text, encoding="utf-8")
+
+    stat = resolved_target.stat()
+    return {
+        "ok": True,
+        "path": str(resolved_target),
+        "target_path": str(resolved_target),
+        "source_path": source_path,
+        "mode": write_mode,
+        "bytes": stat.st_size,
+    }
 
 
 def inspect_web_page_tool(
@@ -326,3 +408,19 @@ def _resolve_run_output_dir(plan_path: str | Path, output_dir: str | Path | None
     if latest_output is None:
         return resolved_plan_path.parent / "output"
     return latest_output
+
+
+def _resolve_local_export_target(project_root: str | Path, target_path: str | Path) -> Path:
+    root = Path(project_root).resolve()
+    raw_path = path_from_text(target_path).expanduser()
+    if raw_path.is_absolute():
+        resolved = raw_path.resolve()
+    else:
+        resolved = (root / raw_path).resolve()
+    if is_relative_to(resolved, root):
+        raise ValueError(
+            "export_local_file 只用于项目外的最终本机交付路径。"
+            "项目内 plan/config/resources/debug/source 文件必须使用受控 plan 或 debug 工具写入；"
+            "运行证据写入当前 plan 包 output/。"
+        )
+    return resolved

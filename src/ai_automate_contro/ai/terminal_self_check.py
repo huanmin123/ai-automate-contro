@@ -38,7 +38,6 @@ from ai_automate_contro.ai.session_store import (
     update_ai_terminal_session_index,
 )
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
-from ai_automate_contro.ai.terminal_commands import format_keyboard_shortcuts_for_terminal
 from ai_automate_contro.app.errors import UserFacingError, format_error_for_terminal
 
 
@@ -190,7 +189,10 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
 
         checks.append(_check_terminal_prompt_strategy())
         checks.append(_check_plan_generation_validation_hints())
+        checks.append(_check_terminal_export_and_plan_creation_boundaries())
+        checks.append(_check_ai_confirmation_wait_lock_is_atomic())
         checks.append(_check_terminal_context_suffix_contract())
+        checks.append(_check_terminal_context_updates_from_quality_review())
         checks.extend(_check_session_listing(human_message))
         checks.extend(_check_terminal_command_flow(storage_root, human_message))
         checks.extend(_check_terminal_input_widgets(attachment))
@@ -200,6 +202,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(_check_ai_ask_once_emits_jsonl_ready_events())
         checks.append(_check_terminal_busy_confirmation_route())
         checks.append(_check_ai_mode_manual_confirmation_dialog())
+        checks.append(_check_ai_active_turn_input_classifier_routes_feedback())
         checks.append(_check_ai_ask_once_confirmation_times_out())
         checks.append(_check_terminal_tool_progress_output())
         checks.append(_check_terminal_work_plan_events())
@@ -233,6 +236,9 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "页面里已经存在的表格、列表、文本块或同类元素",
         "优先用 `extract.table`、`extract.all_texts`、`extract.text` 或 `script.evaluate` 做确定性提取",
         "`write.type=text` 可以直接写字符串数组",
+        "最终交付物写到 Downloads、桌面、绝对路径或其他本机路径",
+        "调用 export_local_file 写入或复制过去",
+        "不要让用户手动复制",
         "写最终 plan.json 前必须先跑通流程证据",
         "第一步用 inspect_web_page 获取入口页面证据",
         "open_browser.headed=true",
@@ -243,6 +249,13 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "`extract.type=aria_snapshot`",
         "`mode` 只能是 `default` 或 `ai`",
         "必须先调用 validate_plan",
+        "validate_plan 只检查结构，不等于质量复查",
+        "必须再调用 review_plan_quality",
+        "用户原始需求、探测/探索证据摘要和用户要求的最终本机输出路径",
+        "review_plan_quality 返回 fail",
+        "强制运行门禁",
+        "run_plan 会拒绝没有通过最新质量复查或复查后被修改过的 plan",
+        "validate_plan -> review_plan_quality -> 修复直到通过 -> run_plan",
         "工作计划：",
         "复杂、多步骤、会创建/修改/运行/debug plan",
         "执行前必须先调用 update_work_plan",
@@ -310,6 +323,20 @@ def _check_plan_generation_validation_hints() -> dict[str, Any]:
                             "mode": "interesting",
                             "save_as": "snapshot",
                         },
+                        {
+                            "action": "extract",
+                            "type": "all_texts",
+                            "browser": "main",
+                            "save_as": "items",
+                        },
+                        {
+                            "action": "assert",
+                            "type": "text",
+                            "browser": "main",
+                            "selector": "body",
+                            "expected": "error",
+                            "mode": "not_contains",
+                        },
                     ],
                 },
                 ensure_ascii=False,
@@ -331,8 +358,150 @@ def _check_plan_generation_validation_hints() -> dict[str, Any]:
             and "seconds" in joined
             and "aria_snapshot.mode" in joined
             and "mode=ai" in joined
+            and "extract.all_texts 缺少必填字段：selector" in joined
+            and "assert.text" not in joined
         ),
         detail={"messages": messages},
+    )
+
+
+def _check_terminal_export_and_plan_creation_boundaries() -> dict[str, Any]:
+    from ai_automate_contro.ai.plan_tools import create_plan_package_tool
+    from ai_automate_contro.ai.terminal_tools import export_local_file_tool
+
+    with TemporaryDirectory(prefix="ai-terminal-boundaries-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        (project_root / "plans").mkdir(parents=True)
+        (project_root / "test-plans").mkdir(parents=True)
+        (project_root / "plan.config").write_text(
+            json.dumps(
+                {
+                    "handbook_path": "handbook",
+                    "plan_roots": ["plans", "test-plans"],
+                    "default_ai_config_dir": "plans",
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        external_dir = project_root.parent / f"{project_root.name}-downloads"
+        external_target = external_dir / "AI账户.txt"
+        try:
+            export_result = export_local_file_tool(
+                project_root,
+                target_path=external_target,
+                content="account-a\n",
+            )
+            project_export_denied = False
+            project_export_error = ""
+            try:
+                export_local_file_tool(project_root, target_path=project_root / "src" / "bad.txt", content="bad")
+            except Exception as error:
+                project_export_denied = "项目外" in str(error)
+                project_export_error = str(error)
+
+            package_result = create_plan_package_tool(project_root, package_path="plans/new-demo", name="new demo")
+            output_plan_denied = False
+            output_plan_error = ""
+            try:
+                create_plan_package_tool(project_root, package_path="plans/new-demo/output/bad", name="bad")
+            except Exception as error:
+                output_plan_denied = "拒绝" in str(error) or "plan_roots" in str(error)
+                output_plan_error = str(error)
+
+            external_plan_denied = False
+            external_plan_error = ""
+            try:
+                create_plan_package_tool(project_root, package_path=external_dir / "bad-plan", name="bad")
+            except Exception as error:
+                external_plan_denied = "项目根目录内" in str(error)
+                external_plan_error = str(error)
+        finally:
+            if external_dir.exists():
+                for path in sorted(external_dir.rglob("*"), reverse=True):
+                    if path.is_file():
+                        path.unlink()
+                    elif path.is_dir():
+                        path.rmdir()
+                if external_dir.exists():
+                    external_dir.rmdir()
+
+    passed = (
+        bool(export_result.get("ok"))
+        and external_target.name == "AI账户.txt"
+        and project_export_denied
+        and bool(package_result.get("ok"))
+        and output_plan_denied
+        and external_plan_denied
+    )
+    return _self_check_result(
+        name="terminal_export_and_plan_creation_boundaries",
+        passed=passed,
+        detail={
+            "export_result": export_result,
+            "project_export_error": project_export_error,
+            "package_result": package_result,
+            "output_plan_error": output_plan_error,
+            "external_plan_error": external_plan_error,
+        },
+    )
+
+
+def _check_ai_confirmation_wait_lock_is_atomic() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal._ai_confirmation_lock = threading.Lock()
+    terminal._ai_confirmation = None
+    terminal._ask_once_mode = False
+    terminal._client_event_sink_local = threading.local()
+    terminal._client_event_sink = lambda event: None
+    result: dict[str, Any] = {}
+
+    def first_waiter() -> None:
+        try:
+            result["accepted"] = AITerminal._wait_for_ai_confirmation(
+                terminal,
+                "第一个确认",
+                wait_type="manual_confirm",
+            )
+        except Exception as error:
+            result["first_error"] = str(error)
+
+    thread = threading.Thread(target=first_waiter, daemon=True)
+    thread.start()
+    for _ in range(100):
+        if terminal._ai_confirmation is not None:
+            break
+        time.sleep(0.01)
+
+    duplicate_error = ""
+    try:
+        AITerminal._wait_for_ai_confirmation(terminal, "第二个确认", wait_type="manual_confirm")
+    except Exception as error:
+        duplicate_error = str(error)
+
+    wait = terminal._ai_confirmation
+    if wait is not None:
+        wait.accepted = False
+        wait.event.set()
+    thread.join(timeout=1)
+
+    passed = (
+        "已有一个等待确认" in duplicate_error
+        and result.get("accepted") is False
+        and not thread.is_alive()
+    )
+    return _self_check_result(
+        name="ai_confirmation_wait_lock_is_atomic",
+        passed=passed,
+        detail={
+            "duplicate_error": duplicate_error,
+            "first_result": result,
+            "thread_alive": thread.is_alive(),
+        },
     )
 
 
@@ -348,6 +517,11 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
         "latest_compression_messages_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/messages.jsonl",
         "current_plan_path": "plans/demo/plan.json",
         "latest_compression_summary_path": ".keygen/ai-terminal-sessions/thread/compressions/archive/summary.md",
+        "latest_plan_quality_review_plan_path": "plans/demo/plan.json",
+        "latest_plan_quality_review_signature": "abc123",
+        "latest_plan_quality_review_ok": "true",
+        "latest_plan_quality_review_severity": "warn",
+        "latest_plan_quality_review_next_action": "run_plan_then_export_local_file",
         "work_plan_summary": "修复登录计划",
         "work_plan_items": [
             {"title": "读取失败证据", "status": "completed"},
@@ -364,6 +538,11 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
         "- latest_compression_summary_path:",
         "- latest_compression_messages_path:",
         "- latest_compression_archive_dir:",
+        "- latest_plan_quality_review_plan_path:",
+        "- latest_plan_quality_review_ok:",
+        "- latest_plan_quality_review_severity:",
+        "- latest_plan_quality_review_next_action:",
+        "- latest_plan_quality_review_signature:",
     ]
     positions = {field: context.find(field) for field in expected_order}
     order_ok = all(position >= 0 for position in positions.values()) and list(positions.values()) == sorted(positions.values())
@@ -373,6 +552,14 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
         "当前可见工作计划" in context
         and "修复登录计划" in context
         and "[in_progress] 注入调试步骤" in context
+    )
+    quality_review_ok = (
+        "latest_plan_quality_review_plan_path: plans/demo/plan.json" in context
+        and "latest_plan_quality_review_ok: true" in context
+        and "latest_plan_quality_review_severity: warn" in context
+        and "latest_plan_quality_review_next_action: run_plan_then_export_local_file" in context
+        and "latest_plan_quality_review_signature: <recorded>" in context
+        and "abc123" not in context
     )
     plan_only_context = format_ai_terminal_context(
         {
@@ -389,6 +576,7 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
             and ignored_unknown
             and guidance_ok
             and work_plan_ok
+            and quality_review_ok
             and "只有计划" in plan_only_context
         ),
         detail={
@@ -397,7 +585,84 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
             "ignored_unknown": ignored_unknown,
             "guidance_ok": guidance_ok,
             "work_plan_ok": work_plan_ok,
+            "quality_review_ok": quality_review_ok,
             "plan_only_context": plan_only_context,
+        },
+    )
+
+
+def _check_terminal_context_updates_from_quality_review() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal_context import context_update_from_tool_result
+    from ai_automate_contro.ai.terminal_state import AITerminalStateMixin
+
+    update = context_update_from_tool_result(
+        "review_plan_quality",
+        {"plan_path": "plans/demo/plan.json"},
+        {
+            "ok": True,
+            "plan_path": "plans/demo/plan.json",
+            "plan_signature": "signature-123",
+            "severity": "warn",
+            "next_action": "run_plan_then_export_local_file",
+        },
+    )
+    failed_update = context_update_from_tool_result(
+        "review_plan_quality",
+        {"plan_path": "plans/demo/plan.json"},
+        {
+            "ok": False,
+            "plan_path": "plans/demo/plan.json",
+            "plan_signature": "signature-456",
+            "severity": "fail",
+            "next_action": "fix_plan",
+        },
+    )
+
+    class _FakeGraph:
+        def __init__(self) -> None:
+            self.values: dict[str, Any] = {}
+
+        def get_state(self, _config: dict[str, Any]) -> SimpleNamespace:
+            return SimpleNamespace(values=self.values)
+
+        def update_state(self, _config: dict[str, Any], update: dict[str, Any]) -> None:
+            self.values.update(update)
+
+    class _RuntimeContextTerminal(AITerminalStateMixin):
+        def __init__(self) -> None:
+            self.graph = _FakeGraph()
+            self.graph_recursion_limit = 128
+            self.thread_id = "quality-review-context"
+            self._runtime_context_state: dict[str, str] = {}
+
+    runtime_terminal = _RuntimeContextTerminal()
+    runtime_terminal._update_context_state(update)
+    runtime_context = runtime_terminal._context_state()
+
+    quality_keys_ok = (
+        update.get("current_plan_path", "").endswith("plans/demo/plan.json")
+        and update.get("latest_plan_quality_review_plan_path", "").endswith("plans/demo/plan.json")
+        and update.get("latest_plan_quality_review_signature") == "signature-123"
+        and update.get("latest_plan_quality_review_ok") == "true"
+        and update.get("latest_plan_quality_review_severity") == "warn"
+        and update.get("latest_plan_quality_review_next_action") == "run_plan_then_export_local_file"
+    )
+    runtime_context_ok = (
+        runtime_context.get("latest_plan_quality_review_ok") == "true"
+        and runtime_context.get("latest_plan_quality_review_signature") == "signature-123"
+    )
+    failed_review_ok = (
+        failed_update.get("latest_plan_quality_review_ok") == "false"
+        and failed_update.get("latest_plan_quality_review_signature") == "signature-456"
+        and failed_update.get("latest_plan_quality_review_next_action") == "fix_plan"
+    )
+    return _self_check_result(
+        name="quality_review_updates_terminal_context",
+        passed=quality_keys_ok and runtime_context_ok and failed_review_ok,
+        detail={
+            "update": update,
+            "runtime_context": runtime_context,
+            "failed_update": failed_update,
         },
     )
 
@@ -443,7 +708,7 @@ def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
 def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal, check_ai_terminal_service
 
-    formatted_usage = format_error_for_terminal("用法：/history [limit]", project_root=project_root)
+    formatted_usage = format_error_for_terminal("用法：/image <image-path>", project_root=project_root)
     formatted_unknown_command = format_error_for_terminal(
         "unknown AI terminal command: /attach",
         project_root=project_root,
@@ -547,9 +812,16 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
         image_summary = next((session for session in sessions if session.thread_id == "image-thread"), None)
         with tempfile.TemporaryDirectory(prefix="ai-terminal-index-self-check-") as raw_index_dir:
             index_root = Path(raw_index_dir)
+            quality_context = {
+                "latest_plan_quality_review_plan_path": "plans/minimal-browser-plan/plan.json",
+                "latest_plan_quality_review_ok": "true",
+                "latest_plan_quality_review_signature": "signature-123",
+            }
+            update_ai_terminal_session_index(index_root, checkpointer, "alpha", context_state=quality_context)
             update_ai_terminal_session_index(index_root, checkpointer, "alpha")
             indexed_sessions = list_ai_terminal_sessions(checkpointer, project_root=index_root, limit=10)
             indexed_resolved = resolve_ai_terminal_session(checkpointer, "alpha", project_root=index_root)
+            indexed_alpha = next((session for session in indexed_sessions if session.thread_id == "alpha"), None)
             remove_ai_terminal_session_from_index(index_root, "alpha")
             index_exists_after_remove = session_index_path(index_root).exists()
             index_after_remove_payload = json.loads(session_index_path(index_root).read_text(encoding="utf-8"))
@@ -595,11 +867,15 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
                     index_exists_after_remove
                     and indexed_resolved == "alpha"
                     and any(session.thread_id == "alpha" for session in indexed_sessions)
+                    and indexed_alpha is not None
+                    and indexed_alpha.context_state.get("latest_plan_quality_review_ok") == "true"
+                    and indexed_alpha.context_state.get("latest_plan_quality_review_signature") == "signature-123"
                     and all(thread_id != "alpha" for thread_id in index_after_remove_threads)
                 ),
                 detail={
                     "index_path": str(session_index_path(index_root)),
                     "indexed_threads": [session.thread_id for session in indexed_sessions],
+                    "indexed_context": indexed_alpha.context_state if indexed_alpha is not None else {},
                     "after_remove_threads": index_after_remove_threads,
                     "index_exists_after_remove": index_exists_after_remove,
                     "resolved": indexed_resolved,
@@ -616,7 +892,7 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
 
 
 def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage) -> list[dict[str, Any]]:
-    from ai_automate_contro.ai.terminal import AITerminal
+    from ai_automate_contro.ai.terminal import AITerminal, SLASH_COMMANDS
 
     connection = sqlite3.connect(":memory:", check_same_thread=False)
     checkpointer = SqliteSaver(connection)
@@ -679,33 +955,10 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         slash_ok = AITerminal._handle_slash_command(terminal, "/status") is True
         slash_status_payload = json.loads(terminal.outputs[-1])
         slash_ok = slash_ok and slash_status_payload["thread_id"] == "flow-thread"
-        keyboard_command_ok = (
-            AITerminal._handle_slash_command(terminal, "/keyboard") is True
-            and "Textual 客户端键盘快捷键：" in terminal.outputs[-1]
-        )
-        mac_keyboard_text = format_keyboard_shortcuts_for_terminal("Darwin")
-        windows_keyboard_text = format_keyboard_shortcuts_for_terminal("Windows")
-        keyboard_platform_ok = (
-            "Enter" in mac_keyboard_text
-            and "行尾 \\" in mac_keyboard_text
-            and "Option+Enter" not in mac_keyboard_text
-            and "Ctrl+J" not in mac_keyboard_text
-            and "Esc" in mac_keyboard_text
-            and "介入" in mac_keyboard_text
-            and "Control+Q / Control+C" in mac_keyboard_text
-            and "Textual 客户端" in mac_keyboard_text
-            and "Windows" not in mac_keyboard_text
-            and "行尾 \\" in windows_keyboard_text
-            and "Alt+Enter" not in windows_keyboard_text
-            and "Ctrl+J" not in windows_keyboard_text
-            and "Esc" in windows_keyboard_text
-            and "排队" in windows_keyboard_text
-            and "Ctrl+Q / Ctrl+C" in windows_keyboard_text
-            and "Control+Q" not in windows_keyboard_text
-        )
 
-        terminal.do_help("")
-        help_text = terminal.outputs[-1]
+        backend_command_names = set(SLASH_COMMANDS)
+        backend_command_text = "\n".join(f"/{name}" for name in sorted(backend_command_names))
+        help_shortcuts_ok = "help" not in backend_command_names and "exit" not in backend_command_names
         terminal.do_plan("")
         plan_empty_text = terminal.outputs[-1]
         terminal.forwarded_messages: list[str] = []
@@ -731,22 +984,49 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
         slash_run_context_error = terminal.errors[-1] if terminal.errors else ""
         slash_context_unknown = AITerminal._handle_slash_command(terminal, "/context") is True
         slash_context_error = terminal.errors[-1] if terminal.errors else ""
+        removed_command_errors: dict[str, str] = {}
+        removed_commands_unknown = True
+        removed_command_expectations = {
+            "/ai hello": "/ai",
+            "/compress": "/compress",
+            "/exit": "/exit",
+            "/help": "/help",
+            "/history": "/history",
+            "/keyboard": "/keyboard",
+            "/pending": "/pending",
+        }
+        for removed_command, expected_name in removed_command_expectations.items():
+            handled = AITerminal._handle_slash_command(terminal, removed_command)
+            removed_command_errors[removed_command] = terminal.errors[-1] if terminal.errors else ""
+            removed_commands_unknown = (
+                removed_commands_unknown
+                and handled is True
+                and f"未知 AI 会话命令：{expected_name}" in removed_command_errors[removed_command]
+            )
         image_surface_ok = (
-            "attach list" not in help_text
-            and "/plan" in help_text
-            and "/todo" in help_text
-            and "当前 AI 工作计划" in help_text
+            "attach list" not in backend_command_text
+            and "plan" in backend_command_names
+            and "help" not in backend_command_names
+            and "exit" not in backend_command_names
+            and "ai" not in backend_command_names
+            and "/todo" not in backend_command_text
+            and "/back" not in backend_command_text
+            and "/quit" not in backend_command_text
+            and "/compact" not in backend_command_text
+            and "/compress" not in backend_command_text
+            and "/history" not in backend_command_text
+            and "/keyboard" not in backend_command_text
+            and "/pending" not in backend_command_text
             and "当前没有工作计划" in plan_empty_text
-            and "attach remove" not in help_text
-            and "attach clear" not in help_text
-            and "/attach" not in help_text
-            and "/paste-image" not in help_text
-            and "paste_image" not in help_text
-            and "cancel" not in help_text
-            and "run_context" not in help_text
-            and "tools [name]" not in help_text
-            and "context" not in help_text
-            and "  status" not in help_text
+            and "attach remove" not in backend_command_text
+            and "attach clear" not in backend_command_text
+            and "/attach" not in backend_command_text
+            and "/paste-image" not in backend_command_text
+            and "paste_image" not in backend_command_text
+            and "cancel" not in backend_command_text
+            and "run_context" not in backend_command_text
+            and "tools [name]" not in backend_command_text
+            and "context" not in backend_command_text
             and plain_status_message_ok
             and mid_slash_message_ok
             and leading_space_message_ok
@@ -760,18 +1040,11 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             and "未知 AI 会话命令：/run_context" in slash_run_context_error
             and slash_context_unknown
             and "未知 AI 会话命令：/context" in slash_context_error
+            and removed_commands_unknown
         )
 
         busy_guard_ok, busy_guard_detail = _check_busy_command_guard()
 
-        terminal.do_compress("flow-check")
-        compress_payload = json.loads(terminal.outputs[-1])
-        compress_ok = compress_payload == {
-            "ok": True,
-            "compressed": False,
-            "reason": "flow-check",
-            "thread_id": "flow-thread",
-        }
         ask_once_guard_ok = False
         ask_once_error = ""
         terminal._has_interrupts = True
@@ -820,22 +1093,21 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                 },
             ),
             _self_check_result(
-                name="terminal_keyboard_command_describes_shortcuts",
-                passed=keyboard_command_ok and keyboard_platform_ok and "keyboard" in help_text and "Alt+V" not in help_text,
+                name="terminal_backend_keeps_ui_commands_out_of_session_commands",
+                passed=help_shortcuts_ok and "Alt+V" not in backend_command_text,
                 detail={
-                    "keyboard_command_ok": keyboard_command_ok,
-                    "mac_mentions_control": "Control+Q / Control+C" in mac_keyboard_text,
-                    "windows_mentions_ctrl": "Ctrl+Q / Ctrl+C" in windows_keyboard_text,
-                    "help_mentions_keyboard": "keyboard" in help_text,
-                    "help_mentions_inline_paste": "Alt+V" in help_text,
+                    "help_shortcuts_ok": help_shortcuts_ok,
+                    "backend_commands": sorted(backend_command_names),
+                    "backend_mentions_keyboard": "/keyboard" in backend_command_text,
+                    "backend_mentions_inline_paste": "Alt+V" in backend_command_text,
                 },
             ),
             _self_check_result(
                 name="terminal_image_command_surface_is_low_friction",
                 passed=image_surface_ok,
                 detail={
-                    "help_mentions_keyboard": "keyboard" in help_text,
-                    "help_mentions_plan": "/plan" in help_text,
+                    "backend_mentions_keyboard": "/keyboard" in backend_command_text,
+                    "backend_mentions_plan": "plan" in backend_command_names,
                     "plan_empty_text": plan_empty_text,
                     "plain_status_messages": terminal.forwarded_messages,
                     "bad_slash_error": bad_slash_error,
@@ -843,17 +1115,13 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                     "slash_paste_error": slash_paste_error,
                     "slash_run_context_error": slash_run_context_error,
                     "slash_context_error": slash_context_error,
+                    "removed_command_errors": removed_command_errors,
                 },
             ),
             _self_check_result(
                 name="terminal_busy_command_guard",
                 passed=busy_guard_ok,
                 detail=busy_guard_detail,
-            ),
-            _self_check_result(
-                name="terminal_compress_command_uses_current_thread",
-                passed=compress_ok,
-                detail=compress_payload,
             ),
             _self_check_result(
                 name="terminal_ask_once_requires_clear_thread",
@@ -1076,7 +1344,7 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
     terminal._last_error = ""
     terminal.events = []
     terminal.commands: list[str] = []
-    terminal.handle_input = lambda line: terminal.commands.append(str(line)) or (str(line).strip() == "/exit")
+    terminal.handle_input = lambda line: terminal.commands.append(str(line)) or False
     terminal._current_interrupts = lambda: ()
     terminal._is_agent_busy = lambda: False
     terminal._context_state = lambda: {"current_plan_path": "plans/demo/plan.json"}
@@ -1109,14 +1377,12 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
         worker.start()
         worker.join()
 
-    AITerminal.run_event_turn(terminal, "/exit", terminal.events.append)
-
     kinds = [event.kind for event in terminal.events]
     user_message_suppressed = all(event.text != "用户消息" for event in terminal.events)
     context_events = [event for event in terminal.events if event.kind == "context_updated"]
     activity_texts = [event.text for event in terminal.events if event.kind == "activity"]
     passed = (
-        terminal.commands == ["创建 plan", "/exit"]
+        terminal.commands == ["创建 plan"]
         and user_message_suppressed
         and kinds.count("assistant_delta") == 2
         and kinds.count("assistant_done") == 2
@@ -1130,7 +1396,7 @@ def _check_terminal_structured_event_stream() -> dict[str, Any]:
         and any("调用工具 grep_project_text" == text for text in activity_texts)
         and any("工具完成 inspect_web_page" == text for text in activity_texts)
         and "本轮事件处理完成" in activity_texts
-        and "exit_requested" in kinds
+        and "exit_requested" not in kinds
     )
     return _self_check_result(
         name="terminal_structured_event_stream_for_textual_client",
@@ -1208,9 +1474,9 @@ def _check_terminal_busy_confirmation_route() -> dict[str, Any]:
     with terminal._ai_confirmation_lock:
         terminal._ai_confirmation = None
     plain_blocked = AITerminal.can_handle_input_during_turn(terminal, "普通消息") is False
-    help_allowed = AITerminal.can_handle_input_during_turn(terminal, "/help") is True
+    help_blocked = AITerminal.can_handle_input_during_turn(terminal, "/help") is False
     new_blocked = AITerminal.can_handle_input_during_turn(terminal, "/new thread") is False
-    passed = confirmation_allowed and status_allowed and plain_blocked and help_allowed and new_blocked
+    passed = confirmation_allowed and status_allowed and plain_blocked and help_blocked and new_blocked
     return _self_check_result(
         name="terminal_busy_turn_accepts_manual_confirmation_input",
         passed=passed,
@@ -1218,7 +1484,7 @@ def _check_terminal_busy_confirmation_route() -> dict[str, Any]:
             "confirmation_allowed": confirmation_allowed,
             "status_allowed": status_allowed,
             "plain_blocked": plain_blocked,
-            "help_allowed": help_allowed,
+            "help_blocked": help_blocked,
             "new_blocked": new_blocked,
         },
     )
@@ -1259,10 +1525,12 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
     thread.join(timeout=2)
     continued_ok = result.get("accepted") is True and AITerminal._current_ai_confirmation(terminal) is None
     classifier_ok = (
-        classify_ai_confirmation_reply("别继续了，取消") == "reject"
-        and classify_ai_confirmation_reply("可以，继续") == "approve"
-        and classify_ai_confirmation_reply("页面没问题，你接着弄") == "approve"
-        and classify_ai_confirmation_reply("exit") == "reject"
+        classify_ai_confirmation_reply("停止") == "reject"
+        and classify_ai_confirmation_reply("继续") == "approve"
+        and classify_ai_confirmation_reply("可以，继续") == "unclear"
+        and classify_ai_confirmation_reply("页面没问题，你接着弄") == "unclear"
+        and classify_ai_confirmation_reply("账户密码没有填写上呢") == "unclear"
+        and classify_ai_confirmation_reply("exit") == "unclear"
         and classify_ai_confirmation_reply("我看一下") == "unclear"
     )
     model_classifier_ok = AITerminal._classify_ai_confirmation_reply(
@@ -1282,6 +1550,75 @@ def _check_ai_mode_manual_confirmation_dialog() -> dict[str, Any]:
                 {"kind": event.kind, "text": event.text}
                 for event in terminal.events
             ],
+        },
+    )
+
+
+def _check_ai_active_turn_input_classifier_routes_feedback() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import (
+        AITerminal,
+        AIConfirmationWait,
+        classify_ai_confirmation_reply,
+    )
+
+    responses = iter(
+        [
+            AIMessage(content='{"intent":"feedback_or_correction"}'),
+            AIMessage(content='{"intent":"confirm_current_wait"}'),
+            AIMessage(content='{"decision":"unclear"}'),
+            AIMessage(content='{"intent":"feedback_or_correction"}'),
+            AIMessage(content='{"decision":"unclear"}'),
+        ]
+    )
+    terminal = object.__new__(AITerminal)
+    terminal.model = SimpleNamespace(invoke=lambda messages: next(responses))
+    terminal._ai_confirmation_lock = threading.Lock()
+    terminal._ai_confirmation = AIConfirmationWait(prompt="请确认浏览器状态。", wait_type="manual_confirm")
+
+    feedback_intent = AITerminal.classify_active_turn_input(terminal, "账户密码没有填写上呢")
+    confirm_intent = AITerminal.classify_active_turn_input(terminal, "继续")
+    unclear_decision = AITerminal.classify_wait_confirmation_reply(
+        terminal,
+        "账户密码没有填写上呢",
+        prompt="请确认浏览器状态。",
+        wait_type="manual_confirm",
+    )
+    natural_language_intent = AITerminal.classify_active_turn_input(terminal, "可以继续，账户密码还是没有填写上")
+    natural_language_decision = AITerminal.classify_wait_confirmation_reply(
+        terminal,
+        "页面没问题，你接着弄",
+        prompt="请确认浏览器状态。",
+        wait_type="manual_confirm",
+    )
+    fallback_feedback = classify_ai_confirmation_reply("账户密码没有填写上呢")
+    fallback_simple_continue = classify_ai_confirmation_reply("继续")
+    fallback_mixed_continue = classify_ai_confirmation_reply("可以，继续")
+    fallback_rich_sentence = classify_ai_confirmation_reply("页面没问题，你接着弄")
+    fallback_problem_sentence = classify_ai_confirmation_reply("有问题，不对，账户密码没有填")
+    passed = (
+        feedback_intent == "feedback_or_correction"
+        and confirm_intent == "confirm_current_wait"
+        and unclear_decision == "unclear"
+        and natural_language_intent == "feedback_or_correction"
+        and natural_language_decision == "unclear"
+        and fallback_feedback == "unclear"
+        and fallback_simple_continue == "approve"
+        and fallback_mixed_continue == "unclear"
+        and fallback_rich_sentence == "unclear"
+        and fallback_problem_sentence == "unclear"
+    )
+    return _self_check_result(
+        name="ai_active_turn_input_classifier_routes_feedback",
+        passed=passed,
+        detail={
+            "feedback_intent": feedback_intent,
+            "confirm_intent": confirm_intent,
+            "unclear_decision": unclear_decision,
+            "fallback_feedback": fallback_feedback,
+            "fallback_simple_continue": fallback_simple_continue,
+            "fallback_mixed_continue": fallback_mixed_continue,
+            "fallback_rich_sentence": fallback_rich_sentence,
+            "fallback_problem_sentence": fallback_problem_sentence,
         },
     )
 
@@ -1507,6 +1844,24 @@ def _check_terminal_file_change_followup_events() -> dict[str, Any]:
         )
         AITerminal._emit_tool_followup_events(
             terminal,
+            "export_local_file",
+            {
+                "target_path": str(temp_dir / "Downloads" / "AI账户.txt"),
+                "plan_path": "plans/demo/plan.json",
+                "source_output_path": "text/AI账户.txt",
+                "mode": "overwrite",
+            },
+            {
+                "ok": True,
+                "path": str(temp_dir / "Downloads" / "AI账户.txt"),
+                "target_path": str(temp_dir / "Downloads" / "AI账户.txt"),
+                "source_path": str(temp_dir / "plans" / "demo" / "output" / "text" / "AI账户.txt"),
+                "mode": "overwrite",
+                "bytes": 128,
+            },
+        )
+        AITerminal._emit_tool_followup_events(
+            terminal,
             "generate_debug_patch",
             {"workspace": "workspace"},
             {
@@ -1535,18 +1890,22 @@ def _check_terminal_file_change_followup_events() -> dict[str, Any]:
     return _self_check_result(
         name="terminal_file_change_diff_and_artifact_events",
         passed=(
-            len(file_events) == 1
+            len(file_events) == 2
             and file_events[0].data.get("relative_path") == "docs/notes.md"
             and file_events[0].data.get("bytes") == 42
+            and file_events[1].title == "export_local_file"
+            and file_events[1].data.get("path", "").endswith("AI账户.txt")
+            and file_events[1].data.get("bytes") == 128
             and len(diff_events) == 1
             and "diff --git" in diff_events[0].text
             and diff_events[0].data.get("changed_files") == ["plan.json"]
             and len(artifact_events) == 2
-            and len(activity_events) == 4
+            and len(activity_events) == 5
             and {event.data.get("source_kind") for event in activity_events} == {"file_changed", "diff", "artifact"}
             and any(event.data.get("artifact_type") == "patch" for event in artifact_events)
             and any(event.data.get("artifact_type") == "output_dir" for event in artifact_events)
             and "文件 写入" in texts
+            and "AI账户.txt" in texts
             and "输出目录" in texts
         ),
         detail={
@@ -1751,10 +2110,7 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
     allowed = {
         "status": AITerminal._command_allowed_while_busy(terminal, "status"),
         "/status": AITerminal._command_allowed_while_busy(terminal, "/status"),
-        "help": AITerminal._command_allowed_while_busy(terminal, "help"),
-        "/help": AITerminal._command_allowed_while_busy(terminal, "/help"),
         "/plan": AITerminal._command_allowed_while_busy(terminal, "/plan"),
-        "/todo": AITerminal._command_allowed_while_busy(terminal, "/todo"),
         "/new": AITerminal._command_allowed_while_busy(terminal, "/new blocked-thread"),
         "/exit": AITerminal._command_allowed_while_busy(terminal, "/exit"),
     }
@@ -1766,10 +2122,7 @@ def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:
         and terminal.forwarded_lines == ["/status"]
         and not allowed["status"]
         and allowed["/status"]
-        and not allowed["help"]
-        and allowed["/help"]
         and allowed["/plan"]
-        and allowed["/todo"]
         and not allowed["/new"]
         and not allowed["/exit"]
     )

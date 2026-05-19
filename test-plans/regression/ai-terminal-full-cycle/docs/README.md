@@ -11,5 +11,5 @@ Regression fixture for a full AI-terminal lifecycle: create a plan package throu
 ## Run
 
 ```powershell
-python .\main.py plan run --file .\test-plans\regression\ai-terminal-full-cycle\plan.json --run-name ai-terminal-full-cycle-final
+python .\cplan.py run --file .\test-plans\regression\ai-terminal-full-cycle\plan.json --run-name ai-terminal-full-cycle-final
 ```

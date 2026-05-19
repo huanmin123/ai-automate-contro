@@ -30,3 +30,7 @@ package = [
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[project.scripts]
+aic = "ai_automate_contro.app.entrypoints:main"
+cplan = "ai_automate_contro.app.entrypoints:cplan"

@@ -14,8 +14,8 @@
 ## 运行方式
 
 ```powershell
-python .\main.py plan validate --file .\test-plans\ai\controlled-text\plan.json
-python .\main.py plan run --file .\test-plans\ai\controlled-text\plan.json --run-name ai-controlled-text
+python .\cplan.py validate --file .\test-plans\ai\controlled-text\plan.json
+python .\cplan.py run --file .\test-plans\ai\controlled-text\plan.json --run-name ai-controlled-text
 ```
 
 ## 输出

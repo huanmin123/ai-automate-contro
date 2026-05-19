@@ -42,6 +42,14 @@ def validate_plan_document(
             issues=issues,
             stack=next_stack,
         )
+    validate_manual_confirm_visible_browser_flow(
+        steps,
+        location_prefix=f"{document_path}:steps",
+        package_root=package_root,
+        issues=issues,
+        stack=next_stack,
+        active_sessions={},
+    )
 
 
 def validate_step(
@@ -199,4 +207,112 @@ def validate_sub_plan(
         package_root=package_root,
         issues=issues,
         stack=stack,
+    )
+
+
+def validate_manual_confirm_visible_browser_flow(
+    steps: list[Any],
+    *,
+    location_prefix: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    stack: list[Path],
+    active_sessions: dict[str, bool],
+) -> dict[str, bool]:
+    sessions = dict(active_sessions)
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        location = f"{location_prefix}[{index}]"
+        if isinstance(step.get("trigger"), dict):
+            sessions = validate_manual_confirm_visible_browser_flow(
+                [step["trigger"]],
+                location_prefix=f"{location}.trigger",
+                package_root=package_root,
+                issues=issues,
+                stack=stack,
+                active_sessions=sessions,
+            )
+
+        action = step.get("action")
+        if action == "open_browser":
+            name = step.get("name")
+            if isinstance(name, str) and name:
+                sessions[name] = bool(step.get("headed", False))
+        elif action == "close_browser":
+            browser = step.get("browser")
+            if isinstance(browser, str):
+                sessions.pop(browser, None)
+        elif action == "manual_confirm" and sessions and not any(sessions.values()):
+            active = ", ".join(sorted(sessions))
+            issues.append(
+                ValidationIssue(
+                    location,
+                    "manual_confirm 前已有浏览器会话，但没有 headed=true 的可见浏览器。"
+                    f"当前会话：{active}。需要用户在页面里操作时，请把 open_browser.headed 设为 true。",
+                )
+            )
+        elif action == "run_sub_plan":
+            sessions = _validate_manual_confirm_visible_sub_plan(step, location, package_root, issues, stack, sessions)
+        elif action == "if":
+            for branch in ("then", "else"):
+                branch_steps = step.get(branch, [])
+                if isinstance(branch_steps, list):
+                    validate_manual_confirm_visible_browser_flow(
+                        branch_steps,
+                        location_prefix=f"{location}.{branch}",
+                        package_root=package_root,
+                        issues=issues,
+                        stack=stack,
+                        active_sessions=sessions,
+                    )
+        elif action in {"foreach", "retry"}:
+            child_steps = step.get("steps", [])
+            if isinstance(child_steps, list):
+                validate_manual_confirm_visible_browser_flow(
+                    child_steps,
+                    location_prefix=f"{location}.steps",
+                    package_root=package_root,
+                    issues=issues,
+                    stack=stack,
+                    active_sessions=sessions,
+                )
+    return sessions
+
+
+def _validate_manual_confirm_visible_sub_plan(
+    step: dict[str, Any],
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    stack: list[Path],
+    active_sessions: dict[str, bool],
+) -> dict[str, bool]:
+    raw_path = step.get("path")
+    if not isinstance(raw_path, str) or not raw_path or "{{" in raw_path or "}}" in raw_path:
+        return dict(active_sessions)
+    if is_absolute_path_text(raw_path):
+        return dict(active_sessions)
+    path = path_from_text(raw_path)
+    if not path.parts or path.parts[0] != "sub-plans" or path.name == "plan.json":
+        return dict(active_sessions)
+    resolved_path = (package_root / path).resolve()
+    sub_plans_dir = (package_root / "sub-plans").resolve()
+    if not is_relative_to(resolved_path, sub_plans_dir) or not resolved_path.exists():
+        return dict(active_sessions)
+    if resolved_path in stack:
+        return dict(active_sessions)
+    document = load_json_document(resolved_path, issues)
+    if document is None:
+        return dict(active_sessions)
+    child_steps = document.get("steps", [])
+    if not isinstance(child_steps, list):
+        return dict(active_sessions)
+    return validate_manual_confirm_visible_browser_flow(
+        child_steps,
+        location_prefix=f"{resolved_path}:steps",
+        package_root=package_root,
+        issues=issues,
+        stack=[*stack, resolved_path],
+        active_sessions=active_sessions,
     )
