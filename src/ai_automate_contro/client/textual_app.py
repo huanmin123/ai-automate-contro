@@ -33,6 +33,7 @@ from ai_automate_contro.client.commands import (
     format_client_command_help,
 )
 from ai_automate_contro.client.events import ClientEvent
+from ai_automate_contro.app.errors import format_error_for_terminal
 
 
 MAX_TOOL_DETAIL_CHARS = 420
@@ -89,17 +90,26 @@ class TurnSummary:
 
 
 class MessageBlock(Static):
-    def __init__(self, text: str = "", *, role: str, **kwargs: Any) -> None:
+    def __init__(self, text: str = "", *, role: str, streaming: bool = False, **kwargs: Any) -> None:
         self.role = role
         self.text = text
+        self.streaming = streaming
         super().__init__(self._renderable(), classes=f"message {role}", **kwargs)
 
     def append(self, text: str) -> None:
         self.text += text
         self.update(self._renderable())
 
+    def finalize(self) -> None:
+        if not self.streaming:
+            return
+        self.streaming = False
+        self.update(self._renderable())
+
     def _renderable(self) -> object:
         if self.role == "assistant" and self.text:
+            if self.streaming:
+                return Text(self.text)
             return Markdown(self.text, hyperlinks=False)
         if self.role == "user":
             return _prefix_lines(self.text, "› ")
@@ -341,7 +351,7 @@ class Composer(TextArea):
             return self.composer
 
     def action_submit(self) -> None:
-        self.post_message(self.Submitted(self, self.text.strip()).set_sender(self))
+        self.post_message(self.Submitted(self, self.text).set_sender(self))
 
     def action_newline(self) -> None:
         self.insert("\n")
@@ -713,7 +723,8 @@ class AICTextualApp(App[None]):
         self._drain_scheduled = False
         self._current_assistant: MessageBlock | None = None
         self._current_assistant_record_index: int | None = None
-        self._active_tools: dict[str, ToolBlock] = {}
+        self._active_tools: dict[str, deque[ToolBlock]] = {}
+        self._tool_record_indices: dict[int, int] = {}
         self._show_tool_details = False
         self._transcript_records: list[tuple[str, str]] = []
         self._status_message = "就绪"
@@ -729,7 +740,7 @@ class AICTextualApp(App[None]):
         self._suppressed_turn_ids: set[int] = set()
         self._active_summary: TurnSummary | None = None
         self._pre_echoed_queue_messages: deque[str] = deque()
-        self._input_debug_enabled = os.environ.get("AIC_TEXTUAL_INPUT_DEBUG", "1").lower() not in {
+        self._input_debug_enabled = os.environ.get("AIC_TEXTUAL_INPUT_DEBUG", "0").lower() not in {
             "0",
             "false",
             "no",
@@ -797,23 +808,25 @@ class AICTextualApp(App[None]):
         self._handle_escape_key()
 
     async def on_composer_submitted(self, event: Composer.Submitted) -> None:
-        text = event.value.strip()
-        if self._handle_palette_submit_completion(text):
+        text = event.value
+        command_text = text.strip()
+        if self._handle_palette_submit_completion(command_text):
             return
         event.composer.clear()
         self._sync_composer_height()
         self._hide_command_palette()
-        if not text:
+        if not text.strip():
             return
-        if await self._handle_local_command(text):
+        if await self._handle_local_command(command_text):
             return
         if self._has_active_wait():
             await self._add_message(text, role="user")
             self._set_status("已收到输入，正在判断")
             self.run_worker(self._route_active_turn_input(text, pre_echoed=True), name="active-turn-input", exclusive=False)
             return
-        if self._busy and await self.backend.submit_during_turn(text):
+        if self._busy and _is_busy_direct_command(text):
             await self._add_message(text, role="user")
+            await self._submit_during_active_turn(text)
             return
         self._enqueue_user_message(text)
         self._schedule_queue_drain()
@@ -853,7 +866,20 @@ class AICTextualApp(App[None]):
             self._hide_command_palette()
 
     def _handle_escape_key(self) -> None:
+        if self._has_active_wait() and not self._queue:
+            self.run_worker(self._cancel_active_wait_from_escape(), name="escape-cancel-active-wait", exclusive=False)
+            return
         if not self._busy:
+            if self._is_tool_approval_pending():
+                self.run_worker(
+                    self._reject_pending_approval_from_escape(),
+                    name="escape-reject-pending-approval",
+                    exclusive=False,
+                )
+                return
+            if self._backend_status.get("pending_approval"):
+                self._set_status("等待人工确认：请输入继续或停止")
+                return
             self._hide_command_palette()
             return
         if self._interrupting:
@@ -863,7 +889,10 @@ class AICTextualApp(App[None]):
 
     async def _route_active_turn_input(self, text: str, *, pre_echoed: bool = False) -> None:
         try:
-            intent = await self.backend.classify_active_turn_input(text)
+            intent = await self.backend.classify_active_turn_input(
+                text,
+                context=self._active_turn_input_context(),
+            )
         except Exception as error:
             await self._add_message(_format_error_text(str(error)), role="error")
             intent = FEEDBACK_OR_CORRECTION
@@ -888,6 +917,27 @@ class AICTextualApp(App[None]):
         if not handled:
             await self._add_message("当前等待没有接收这条输入，请重新发送或按 Esc 介入。", role="error")
             self._set_status("输入未被接收")
+
+    async def _reject_pending_approval_from_escape(self) -> None:
+        command = "/reject 用户按 Esc 取消当前等待。"
+        self._pre_echoed_queue_messages.append(command)
+        self._queue.appendleft(command)
+        self._sync_queue_panel()
+        await self._add_message("Esc 已请求取消当前等待。", role="meta")
+        self._set_status("正在取消等待")
+        self._schedule_queue_drain()
+
+    async def _cancel_active_wait_from_escape(self) -> None:
+        await self._add_message("Esc 已请求停止当前等待。", role="meta")
+        self._set_status("正在停止等待")
+        try:
+            async for event in self.backend.confirm_active_wait("停止"):
+                await self._handle_client_event(event)
+        except Exception as error:
+            await self._add_message(_format_error_text(str(error)), role="error")
+            self._set_status("停止等待失败")
+            return
+        await self._refresh_backend_status()
 
     async def _confirm_active_wait(self, text: str) -> None:
         saw_error = False
@@ -978,8 +1028,7 @@ class AICTextualApp(App[None]):
             self._suppressed_turn_ids.add(active_turn_id)
         active_turn_task = self._active_turn_task
         self._stop_thinking_indicator()
-        self._current_assistant = None
-        self._current_assistant_record_index = None
+        self._finalize_current_assistant()
         self._mark_active_tools_interrupted()
         self._set_status("正在介入" if intervention_text else "正在中断")
         try:
@@ -1019,6 +1068,14 @@ class AICTextualApp(App[None]):
                 await self._handle_client_event(client_event)
         except asyncio.CancelledError:
             raise
+        except Exception as error:
+            if turn_id not in self._suppressed_turn_ids:
+                await self._handle_client_event(
+                    ClientEvent(
+                        "error",
+                        text=format_error_for_terminal(error, project_root=self.project_root),
+                    )
+                )
         finally:
             summary = self._active_summary
             if summary is not None and turn_id not in self._suppressed_turn_ids:
@@ -1029,6 +1086,7 @@ class AICTextualApp(App[None]):
                 self._active_turn_id = None
             if self._active_turn_task is asyncio.current_task():
                 self._active_turn_task = None
+            self._finalize_current_assistant()
             self._stop_thinking_indicator()
 
     async def _handle_client_event(self, event: ClientEvent) -> None:
@@ -1054,7 +1112,7 @@ class AICTextualApp(App[None]):
             self._record_turn_event(event)
             self._pause_thinking_indicator()
             if self._current_assistant is None:
-                self._current_assistant = await self._add_message("", role="assistant")
+                self._current_assistant = await self._add_message("", role="assistant", streaming=True)
                 self._current_assistant_record_index = len(self._transcript_records) - 1
             self._current_assistant.append(event.text)
             self._append_current_assistant_record(event.text)
@@ -1062,6 +1120,8 @@ class AICTextualApp(App[None]):
             return
         if event.kind == "assistant_done":
             self._record_turn_event(event)
+            if self._current_assistant is not None:
+                self._current_assistant.finalize()
             self._current_assistant = None
             self._current_assistant_record_index = None
             self._stop_thinking_indicator()
@@ -1102,6 +1162,12 @@ class AICTextualApp(App[None]):
             self._set_status("等待人工确认")
             await self._add_message(_format_approval_text(event.text), role="approval")
             self._backend_status["pending_approval"] = True
+            self._backend_status["pending_approval_kind"] = str(event.data.get("approval_kind") or "")
+            if self._pending_approval_kind() == "active_wait":
+                self._backend_status["active_wait"] = {
+                    "wait_type": str(event.data.get("wait_type") or ""),
+                    "prompt": str(event.data.get("wait_prompt") or event.text or ""),
+                }
             self._render_status()
             return
         if event.kind == "error":
@@ -1119,9 +1185,9 @@ class AICTextualApp(App[None]):
             await self.backend.close()
             self.exit()
 
-    async def _add_message(self, text: str, *, role: str) -> MessageBlock:
+    async def _add_message(self, text: str, *, role: str, streaming: bool = False) -> MessageBlock:
         block_type = _message_block_type(role)
-        block = block_type(text, role=role)
+        block = block_type(text, role=role, streaming=streaming)
         transcript = self.query_one("#transcript", VerticalScroll)
         await transcript.mount(block)
         self._transcript_records.append((role, text))
@@ -1137,46 +1203,61 @@ class AICTextualApp(App[None]):
             return
         self._transcript_records[index] = (role, previous + text)
 
+    def _finalize_current_assistant(self) -> None:
+        if self._current_assistant is not None:
+            self._current_assistant.finalize()
+        self._current_assistant = None
+        self._current_assistant_record_index = None
+
     async def _handle_tool_event(self, event: ClientEvent) -> None:
         name = _tool_event_name(event)
         if event.kind == "tool_started":
             block = ToolBlock(event, show_details=self._show_tool_details)
             transcript = self.query_one("#transcript", VerticalScroll)
             await transcript.mount(block)
-            self._active_tools[name] = block
-            self._transcript_records.append(("tool", block.text))
+            self._active_tools.setdefault(name, deque()).append(block)
+            self._set_tool_transcript_record(block)
             await self._scroll_end()
             return
-        block = self._active_tools.pop(name, None)
+        queue = self._active_tools.get(name)
+        block = queue.popleft() if queue else None
+        if queue is not None and not queue:
+            self._active_tools.pop(name, None)
         if block is None:
             block = ToolBlock(event, show_details=self._show_tool_details)
             transcript = self.query_one("#transcript", VerticalScroll)
             await transcript.mount(block)
-            self._transcript_records.append(("tool", block.text))
+            self._set_tool_transcript_record(block)
             await self._scroll_end()
             return
         block.update_event(event, show_details=self._show_tool_details)
-        self._replace_transcript_tool_record(name, block.text)
+        self._set_tool_transcript_record(block)
         await self._scroll_end()
 
-    def _replace_transcript_tool_record(self, tool_name: str, text: str) -> None:
-        for index in range(len(self._transcript_records) - 1, -1, -1):
-            role, previous = self._transcript_records[index]
-            if role == "tool" and _transcript_tool_name(previous) == tool_name:
-                self._transcript_records[index] = (role, text)
-                return
-        self._transcript_records.append(("tool", text))
+    def _set_tool_transcript_record(self, block: ToolBlock) -> None:
+        record_key = id(block)
+        record_index = self._tool_record_indices.get(record_key)
+        if (
+            record_index is not None
+            and 0 <= record_index < len(self._transcript_records)
+            and self._transcript_records[record_index][0] == "tool"
+        ):
+            self._transcript_records[record_index] = ("tool", block.text)
+            return
+        self._tool_record_indices[record_key] = len(self._transcript_records)
+        self._transcript_records.append(("tool", block.text))
 
     def _mark_active_tools_interrupted(self) -> None:
-        for name, block in list(self._active_tools.items()):
-            event = ClientEvent(
-                "tool_finished",
-                title=name,
-                text="已中断",
-                data={"phase": "failed", "ok": False},
-            )
-            block.update_event(event, show_details=self._show_tool_details)
-            self._replace_transcript_tool_record(name, block.text)
+        for name, queue in list(self._active_tools.items()):
+            for block in list(queue):
+                event = ClientEvent(
+                    "tool_finished",
+                    title=name,
+                    text="已中断",
+                    data={"phase": "failed", "ok": False},
+                )
+                block.update_event(event, show_details=self._show_tool_details)
+                self._set_tool_transcript_record(block)
         self._active_tools.clear()
 
     def _record_turn_event(self, event: ClientEvent) -> None:
@@ -1254,15 +1335,15 @@ class AICTextualApp(App[None]):
     def _take_queued_messages(self) -> list[str]:
         messages: list[str] = []
         while self._queue and not messages:
-            first = self._queue.popleft().strip()
-            if not first:
+            first = self._queue.popleft()
+            if not first.strip():
                 continue
             messages.append(first)
             if _is_command_input(first):
                 break
             while self._queue and not _is_command_input(self._queue[0]):
-                next_message = self._queue.popleft().strip()
-                if next_message:
+                next_message = self._queue.popleft()
+                if next_message.strip():
                     messages.append(next_message)
         self._sync_queue_panel()
         return messages
@@ -1356,6 +1437,38 @@ class AICTextualApp(App[None]):
         except NoMatches:
             return
 
+    def _active_turn_input_context(self) -> dict[str, Any]:
+        data = self._backend_status if isinstance(self._backend_status, dict) else {}
+        context_state = data.get("context_state") if isinstance(data.get("context_state"), dict) else {}
+        active_wait = data.get("active_wait") if isinstance(data.get("active_wait"), dict) else {}
+        return {
+            "client": {
+                "busy": self._busy,
+                "status": self._status_message,
+                "queued_count": len(self._queue),
+                "queue_preview": list(self._queue)[:3],
+                "pending_approval": bool(data.get("pending_approval")),
+                "pending_approval_kind": self._pending_approval_kind(),
+            },
+            "active_wait": {
+                "wait_type": active_wait.get("wait_type", ""),
+                "prompt": active_wait.get("prompt", ""),
+            },
+            "context_state": {
+                key: context_state.get(key)
+                for key in (
+                    "current_plan_path",
+                    "current_debug_workspace",
+                    "latest_output_dir",
+                    "work_plan_summary",
+                    "latest_plan_quality_review_ok",
+                    "latest_plan_quality_review_next_action",
+                )
+                if context_state.get(key)
+            },
+            "work_plan": self._current_work_plan_text(),
+        }
+
     def _current_work_plan_text(self) -> str:
         try:
             panel = self.query_one("#work_plan_panel", WorkPlanPanel)
@@ -1401,15 +1514,24 @@ class AICTextualApp(App[None]):
         ]
 
     def _is_palette_contextual(self) -> bool:
-        return bool(self._backend_status.get("pending_approval"))
+        return self._is_tool_approval_pending()
 
     def _has_active_wait(self) -> bool:
-        return bool(self._backend_status.get("pending_approval")) and self._busy
+        if not self._backend_status.get("pending_approval"):
+            return False
+        kind = self._pending_approval_kind()
+        return kind == "active_wait" or (kind == "" and self._busy)
 
     def _contextual_command_available(self, name: str) -> bool:
         if name in APPROVAL_COMMANDS:
-            return bool(self._backend_status.get("pending_approval"))
+            return self._is_tool_approval_pending()
         return True
+
+    def _pending_approval_kind(self) -> str:
+        return str(self._backend_status.get("pending_approval_kind") or "").strip()
+
+    def _is_tool_approval_pending(self) -> bool:
+        return bool(self._backend_status.get("pending_approval")) and self._pending_approval_kind() == "tool_approval"
 
     def _hide_command_palette(self) -> None:
         try:
@@ -1441,9 +1563,6 @@ class AICTextualApp(App[None]):
         command, arg = _parse_local_command(text)
         if command is None:
             return False
-        if command == "check":
-            await self._run_service_check(arg)
-            return True
         if command == "help":
             await self._add_message(format_client_command_help(), role="meta")
             return True
@@ -1482,7 +1601,11 @@ class AICTextualApp(App[None]):
             await self._add_message(f"工具细节显示：{state}", role="meta")
             return True
         if command == "export":
-            path = self._export_transcript(arg)
+            try:
+                path = self._export_transcript(arg)
+            except Exception as error:
+                await self._add_message(str(error), role="error")
+                return True
             await self._add_message(f"已导出当前对话：{path}", role="meta")
             return True
         if command == "exit":
@@ -1492,27 +1615,6 @@ class AICTextualApp(App[None]):
             self.exit()
             return True
         return False
-
-    async def _run_service_check(self, arg: str) -> None:
-        await self._add_message("正在检查当前 AI 服务...", role="meta")
-        self._set_status("检查 AI 服务")
-        result = await self.backend.check_service(arg or "只回复 ok")
-        if result.get("ok"):
-            lines = [
-                "AI 服务可用",
-                f"service={result.get('service', '')}",
-                f"model={result.get('model', '')}",
-                f"thread={result.get('thread_id', '')}",
-            ]
-            assistant_message = str(result.get("assistant_message") or "").strip()
-            if assistant_message:
-                lines.extend(["", f"回复：{assistant_message}"])
-            await self._add_message("\n".join(lines), role="meta")
-            self._set_status("AI 服务可用")
-            return
-        error_text = str(result.get("formatted_error") or result.get("error") or "AI 服务检查失败。")
-        await self._add_message(error_text, role="error")
-        self._set_status("AI 服务检查失败")
 
     async def _paste_from_clipboard(self, composer: Composer) -> None:
         self._log_composer_input_debug("clipboard_image_probe_start", composer_text=_text_debug_payload(composer.text))
@@ -1564,6 +1666,7 @@ class AICTextualApp(App[None]):
             await child.remove()
         self._current_assistant = None
         self._active_tools.clear()
+        self._tool_record_indices.clear()
         self._transcript_records.clear()
         self._pre_echoed_queue_messages.clear()
         self._set_status("已清空")
@@ -1657,18 +1760,8 @@ class AICTextualApp(App[None]):
         self._sync_tool_transcript_records()
 
     def _sync_tool_transcript_records(self) -> None:
-        remaining: dict[str, str] = {block.tool_name: block.text for block in self.query(ToolBlock)}
-        next_records: list[tuple[str, str]] = []
-        for role, text in self._transcript_records:
-            if role != "tool":
-                next_records.append((role, text))
-                continue
-            tool_name = _transcript_tool_name(text)
-            if tool_name in remaining:
-                next_records.append((role, remaining.pop(tool_name)))
-            else:
-                next_records.append((role, text))
-        self._transcript_records = next_records
+        for block in self.query(ToolBlock):
+            self._set_tool_transcript_record(block)
 
     async def action_quit(self) -> None:
         await self.backend.close()
@@ -2132,18 +2225,6 @@ def _format_json_block(value: dict[str, Any]) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)
 
 
-def _transcript_tool_name(text: str) -> str:
-    first_line = text.splitlines()[0] if text else ""
-    parts = first_line.split()
-    if len(parts) >= 3 and parts[0] in {"tool", "工具"}:
-        return parts[2]
-    prefix = "tool "
-    if not first_line.startswith(prefix) or "：" not in first_line:
-        return parts[2] if len(parts) >= 3 and parts[0] == "tool" else ""
-    _, _, rest = first_line.partition("：")
-    return rest.split(" ", 1)[0].strip()
-
-
 def _format_approval_text(text: str) -> str:
     body = str(text or "").strip()
     body = _strip_bracketed_label(body)
@@ -2197,6 +2278,11 @@ def _is_single_line_slash_input(text: str) -> bool:
 
 def _is_command_input(text: str) -> bool:
     return str(text).lstrip().startswith("/")
+
+
+def _is_busy_direct_command(text: str) -> bool:
+    stripped = str(text or "").strip()
+    return stripped in {"/plan", "/status"}
 
 
 def _is_palette_input(text: str) -> bool:

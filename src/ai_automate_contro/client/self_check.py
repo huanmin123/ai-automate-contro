@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -168,11 +169,16 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
     markdown_result = _check_textual_markdown_does_not_emit_terminal_hyperlinks()
     approval_guidance_result = _check_textual_approval_guidance_is_not_duplicated()
     transcript_export_result = _check_textual_transcript_export_keeps_raw_text()
+    duplicate_tool_result = await _check_textual_duplicate_tool_transcript_records()
     interrupt_result = await _check_textual_escape_interrupts_without_queue()
     queued_batch_result = await _check_textual_busy_messages_stay_queued_until_batch_consumed()
     intervention_result = await _check_textual_escape_promotes_queue_to_intervention()
     stuck_intervention_result = await _check_textual_escape_intervention_survives_stuck_turn()
+    interrupted_markdown_result = await _check_textual_interrupted_assistant_markdown_is_finalized()
+    backend_exception_result = await _check_textual_backend_stream_exception_renders_error()
     active_confirmation_result = await _check_active_confirmation_input()
+    natural_completion_confirmation_result = await _check_active_confirmation_natural_completion_input()
+    idle_active_wait_result = await _check_idle_active_wait_routes_to_confirmation()
     delayed_confirmation_echo_result = await _check_confirmation_input_echoes_before_backend_returns()
     active_feedback_intervention_result = await _check_active_confirmation_feedback_becomes_intervention()
     natural_language_feedback_result = await _check_natural_language_continue_becomes_feedback()
@@ -209,11 +215,16 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             and markdown_result["passed"]
             and approval_guidance_result["passed"]
             and transcript_export_result["passed"]
+            and duplicate_tool_result["passed"]
             and interrupt_result["passed"]
             and queued_batch_result["passed"]
             and intervention_result["passed"]
             and stuck_intervention_result["passed"]
+            and interrupted_markdown_result["passed"]
+            and backend_exception_result["passed"]
             and active_confirmation_result["passed"]
+            and natural_completion_confirmation_result["passed"]
+            and idle_active_wait_result["passed"]
             and delayed_confirmation_echo_result["passed"]
             and active_feedback_intervention_result["passed"]
             and natural_language_feedback_result["passed"]
@@ -325,11 +336,16 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             markdown_result,
             approval_guidance_result,
             transcript_export_result,
+            duplicate_tool_result,
             interrupt_result,
             queued_batch_result,
             intervention_result,
             stuck_intervention_result,
+            interrupted_markdown_result,
+            backend_exception_result,
             active_confirmation_result,
+            natural_completion_confirmation_result,
+            idle_active_wait_result,
             delayed_confirmation_echo_result,
             active_feedback_intervention_result,
             natural_language_feedback_result,
@@ -404,11 +420,20 @@ def _check_textual_markdown_does_not_emit_terminal_hyperlinks() -> dict[str, Any
     block = MessageBlock("https://example.com\n\n[link](https://example.com)", role="assistant")
     renderable = block._renderable()
     hyperlinks = getattr(renderable, "hyperlinks", None)
-    passed = hyperlinks is False
+    streaming_block = MessageBlock("", role="assistant", streaming=True)
+    streaming_block.text = "https://example.com\n\n[link](https://example.com)"
+    streaming_renderable_type = type(streaming_block._renderable()).__name__
+    streaming_block.streaming = False
+    finalized_hyperlinks = getattr(streaming_block._renderable(), "hyperlinks", None)
+    passed = hyperlinks is False and streaming_renderable_type == "Text" and finalized_hyperlinks is False
     return {
         "name": "textual_client_disables_terminal_hyperlinks_in_assistant_markdown",
         "passed": passed,
-        "detail": {"hyperlinks": hyperlinks},
+        "detail": {
+            "hyperlinks": hyperlinks,
+            "streaming_renderable_type": streaming_renderable_type,
+            "finalized_hyperlinks": finalized_hyperlinks,
+        },
     }
 
 
@@ -436,6 +461,49 @@ def _check_textual_transcript_export_keeps_raw_text() -> dict[str, Any]:
         "name": "textual_client_export_keeps_raw_inline_text",
         "passed": passed,
         "detail": {"export_text": export_text},
+    }
+
+
+async def _check_textual_duplicate_tool_transcript_records() -> dict[str, Any]:
+    app = AICTextualApp(FakeAgentBackend(response=""))
+    async with app.run_test(size=(90, 24)) as pilot:
+        await app._handle_client_event(ClientEvent("tool_started", title="inspect_web_page", text="same args"))
+        await app._handle_client_event(ClientEvent("tool_started", title="inspect_web_page", text="same args"))
+        await app._handle_client_event(ClientEvent("tool_finished", title="inspect_web_page", text="first result"))
+        await app._handle_client_event(ClientEvent("tool_finished", title="inspect_web_page", text="second result"))
+        await pilot.pause(0.05)
+        compact_tool_records = [text for role, text in app._transcript_records if role == "tool"]
+        compact_tool_blocks = [block.text for block in app.query(ToolBlock)]
+        app._show_tool_details = True
+        app._rerender_tool_blocks()
+        detailed_tool_records = [text for role, text in app._transcript_records if role == "tool"]
+        detailed_tool_blocks = [block.text for block in app.query(ToolBlock)]
+        export_text = _format_transcript_markdown(app._transcript_records)
+    passed = (
+        compact_tool_records == [
+            "工具 完成 inspect_web_page first result",
+            "工具 完成 inspect_web_page second result",
+        ]
+        and compact_tool_blocks == compact_tool_records
+        and len(detailed_tool_records) == 2
+        and detailed_tool_blocks == detailed_tool_records
+        and "first result" in detailed_tool_records[0]
+        and "second result" in detailed_tool_records[1]
+        and detailed_tool_records[0] != detailed_tool_records[1]
+        and export_text.count("## Tool") == 1
+        and "first result" in export_text
+        and "second result" in export_text
+    )
+    return {
+        "name": "textual_client_keeps_duplicate_tool_transcript_records_distinct",
+        "passed": passed,
+        "detail": {
+            "compact_tool_records": compact_tool_records,
+            "compact_tool_blocks": compact_tool_blocks,
+            "detailed_tool_records": detailed_tool_records,
+            "detailed_tool_blocks": detailed_tool_blocks,
+            "export_text": export_text,
+        },
     }
 
 
@@ -711,6 +779,112 @@ async def _check_textual_escape_intervention_survives_stuck_turn() -> dict[str, 
     }
 
 
+class MarkdownInterruptBackend(FakeAgentBackend):
+    def __init__(self) -> None:
+        super().__init__(response="")
+        self.messages: list[str] = []
+        self.interrupt_calls = 0
+        self.started = asyncio.Event()
+        self.interrupted = asyncio.Event()
+
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.messages.append(message)
+        yield ClientEvent("assistant_delta", text="部分 **Markdown** [link](https://example.com)")
+        self.started.set()
+        await self.interrupted.wait()
+        yield ClientEvent("assistant_done")
+
+    async def interrupt(self) -> ClientEvent:
+        self.interrupt_calls += 1
+        self.interrupted.set()
+        return ClientEvent("interrupted", text="已中断当前 AI 回复。")
+
+
+async def _check_textual_interrupted_assistant_markdown_is_finalized() -> dict[str, Any]:
+    backend = MarkdownInterruptBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(90, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "会被中断的 Markdown"
+        await pilot.press("enter")
+        for _ in range(100):
+            if backend.started.is_set():
+                break
+            await pilot.pause(0.01)
+        await pilot.pause(0.05)
+        await pilot.press("escape")
+        await _wait_until_idle(app, pilot)
+        assistant_blocks = [message for message in app.query(MessageBlock) if message.has_class("assistant")]
+        assistant_streaming = [bool(getattr(message, "streaming", False)) for message in assistant_blocks]
+        renderable_types = [type(message._renderable()).__name__ for message in assistant_blocks]
+        meta_messages = [message.text for message in app.query(MessageBlock) if message.has_class("meta")]
+
+    passed = (
+        backend.interrupt_calls == 1
+        and assistant_blocks
+        and assistant_streaming == [False]
+        and renderable_types == ["Markdown"]
+        and any("已中断当前 AI 回复" in message for message in meta_messages)
+    )
+    return {
+        "name": "textual_client_finalizes_interrupted_assistant_markdown",
+        "passed": passed,
+        "detail": {
+            "interrupt_calls": backend.interrupt_calls,
+            "assistant_texts": [message.text for message in assistant_blocks],
+            "assistant_streaming": assistant_streaming,
+            "renderable_types": renderable_types,
+            "meta_messages": meta_messages,
+        },
+    }
+
+
+class FailingStreamBackend(FakeAgentBackend):
+    def __init__(self) -> None:
+        super().__init__(response="")
+        self.messages: list[str] = []
+
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.messages.append(message)
+        yield ClientEvent("assistant_delta", text="出错前 **内容**")
+        raise RuntimeError("boom")
+
+
+async def _check_textual_backend_stream_exception_renders_error() -> dict[str, Any]:
+    backend = FailingStreamBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(90, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "触发后端异常"
+        await pilot.press("enter")
+        await _wait_until_idle(app, pilot)
+        messages = list(app.query(MessageBlock))
+        assistant_blocks = [message for message in messages if message.has_class("assistant")]
+        error_messages = [message.text for message in messages if message.has_class("error")]
+        assistant_streaming = [bool(getattr(message, "streaming", False)) for message in assistant_blocks]
+        status_text = str(app.query_one("#status").content)
+
+    passed = (
+        backend.messages == ["触发后端异常"]
+        and assistant_streaming == [False]
+        and any("boom" in message for message in error_messages)
+        and status_text.startswith("就绪")
+    )
+    return {
+        "name": "textual_client_backend_stream_exception_renders_error",
+        "passed": passed,
+        "detail": {
+            "backend_messages": backend.messages,
+            "assistant_texts": [message.text for message in assistant_blocks],
+            "assistant_streaming": assistant_streaming,
+            "error_messages": error_messages,
+            "status": status_text,
+        },
+    }
+
+
 def _check_textual_agent_chrome() -> dict[str, Any]:
     css = AICTextualApp.CSS
     forbidden_light_fragments = [
@@ -757,6 +931,7 @@ class ConfirmationBackend:
         self.delay_submit = False
         self.feedback_inputs: set[str] = set()
         self.classified_inputs: list[tuple[str, str]] = []
+        self.classified_contexts: list[dict[str, Any]] = []
         self.interrupt_calls = 0
         self._interrupted = False
 
@@ -766,7 +941,11 @@ class ConfirmationBackend:
             yield ClientEvent("assistant_done")
             return
         self.confirmation = asyncio.get_running_loop().create_future()
-        yield ClientEvent("approval_requested", text=f"等待确认：{message}")
+        yield ClientEvent(
+            "approval_requested",
+            text=f"等待确认：{message}",
+            data={"approval_kind": "active_wait", "wait_type": "manual_confirm", "wait_prompt": message},
+        )
         accepted = await self.confirmation
         yield ClientEvent("system_output", text=f"确认输入：{accepted}")
         yield ClientEvent("assistant_delta", text="继续执行")
@@ -787,9 +966,10 @@ class ConfirmationBackend:
         if not handled:
             yield ClientEvent("error", text="没有可确认的等待。")
 
-    async def classify_active_turn_input(self, message: str) -> str:
+    async def classify_active_turn_input(self, message: str, *, context: dict[str, Any] | None = None) -> str:
         intent = FEEDBACK_OR_CORRECTION if message in self.feedback_inputs else CONFIRM_CURRENT_WAIT
         self.classified_inputs.append((message, intent))
+        self.classified_contexts.append(dict(context or {}))
         return intent
 
     async def interrupt(self) -> ClientEvent:
@@ -807,12 +987,70 @@ class ConfirmationBackend:
             "thread_id": "confirmation",
             "busy": self.confirmation is not None and not self.confirmation.done(),
             "pending_approval": self.confirmation is not None and not self.confirmation.done(),
-            "context_state": {},
+            "pending_approval_kind": "active_wait" if self.confirmation is not None and not self.confirmation.done() else "",
+            "active_wait": {
+                "wait_type": "manual_confirm",
+                "prompt": "需要人工确认的任务",
+            }
+            if self.confirmation is not None and not self.confirmation.done()
+            else {},
+            "context_state": {
+                "current_plan_path": "plans/context-demo/plan.json",
+                "latest_output_dir": "plans/context-demo/output/latest",
+                "work_plan_summary": "测试人工确认上下文",
+            },
         }
 
     async def close(self) -> None:
         if self.confirmation is not None and not self.confirmation.done():
             self.confirmation.cancel()
+
+
+class IdleActiveWaitBackend:
+    def __init__(self) -> None:
+        self.pending = True
+        self.stream_messages: list[str] = []
+        self.confirm_messages: list[str] = []
+        self.classified_contexts: list[dict[str, Any]] = []
+        self.interrupt_calls = 0
+
+    async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.stream_messages.append(message)
+        yield ClientEvent("assistant_delta", text=f"普通流收到：{message}")
+        yield ClientEvent("assistant_done")
+
+    async def submit_during_turn(self, message: str) -> bool:
+        return False
+
+    async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
+        self.confirm_messages.append(message)
+        self.pending = False
+        yield ClientEvent("system_output", text=f"确认输入：{message}")
+
+    async def classify_active_turn_input(self, message: str, *, context: dict[str, Any] | None = None) -> str:
+        self.classified_contexts.append(dict(context or {}))
+        return CONFIRM_CURRENT_WAIT
+
+    async def interrupt(self) -> ClientEvent:
+        self.interrupt_calls += 1
+        self.pending = False
+        return ClientEvent("interrupted", text="已中断 idle 等待。")
+
+    async def attach_clipboard_images(self) -> list[str]:
+        return []
+
+    async def status_snapshot(self) -> dict[str, Any]:
+        return {
+            "thread_id": "idle-active-wait",
+            "busy": False,
+            "pending_approval": self.pending,
+            "pending_approval_kind": "active_wait" if self.pending else "",
+            "active_wait": {"wait_type": "manual_confirm", "prompt": "idle 等待确认"} if self.pending else {},
+            "context_state": {},
+        }
+
+    async def close(self) -> None:
+        return None
 
 
 async def _check_active_confirmation_input() -> dict[str, Any]:
@@ -848,6 +1086,108 @@ async def _check_active_confirmation_input() -> dict[str, Any]:
             "meta_messages": meta_messages,
             "approval_messages": approval_messages,
             "assistant_messages": assistant_messages,
+        },
+    }
+
+
+async def _check_idle_active_wait_routes_to_confirmation() -> dict[str, Any]:
+    backend = IdleActiveWaitBackend()
+    app = AICTextualApp(backend)
+    debug_default_ok = ("AIC_TEXTUAL_INPUT_DEBUG" in os.environ) or not app._input_debug_enabled
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause(0.05)
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "继续"
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        confirm_messages = list(backend.confirm_messages)
+        stream_messages = list(backend.stream_messages)
+        classified_contexts = list(backend.classified_contexts)
+        meta_messages = [message.text for message in app.query(MessageBlock) if message.has_class("meta")]
+
+    escape_backend = IdleActiveWaitBackend()
+    escape_app = AICTextualApp(escape_backend)
+    async with escape_app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause(0.05)
+        await pilot.press("escape")
+        await pilot.pause(0.1)
+        escape_confirm_messages = list(escape_backend.confirm_messages)
+        escape_stream_messages = list(escape_backend.stream_messages)
+        escape_meta_messages = [
+            message.text for message in escape_app.query(MessageBlock) if message.has_class("meta")
+        ]
+
+    passed = (
+        debug_default_ok
+        and confirm_messages == ["继续"]
+        and stream_messages == []
+        and bool(classified_contexts)
+        and any("确认输入：继续" in message for message in meta_messages)
+        and escape_confirm_messages == ["停止"]
+        and escape_stream_messages == []
+        and any("Esc 已请求停止当前等待" in message for message in escape_meta_messages)
+    )
+    return {
+        "name": "textual_client_routes_idle_active_wait_to_confirmation",
+        "passed": passed,
+        "detail": {
+            "debug_default_ok": debug_default_ok,
+            "confirm_messages": confirm_messages,
+            "stream_messages": stream_messages,
+            "classified_contexts": classified_contexts,
+            "meta_messages": meta_messages,
+            "escape_confirm_messages": escape_confirm_messages,
+            "escape_stream_messages": escape_stream_messages,
+            "escape_meta_messages": escape_meta_messages,
+        },
+    }
+
+
+async def _check_active_confirmation_natural_completion_input() -> dict[str, Any]:
+    backend = ConfirmationBackend()
+    completion = "已经登录进去了"
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(80, 24)) as pilot:
+        composer = app.query_one("#composer", Composer)
+        composer.focus()
+        composer.text = "需要人工确认的任务"
+        await pilot.press("enter")
+        await pilot.pause(0.05)
+        composer.text = completion
+        await pilot.press("enter")
+        await pilot.pause(0.1)
+        messages = list(app.query(MessageBlock))
+        user_messages = [message.text for message in messages if message.has_class("user")]
+        meta_messages = [message.text for message in messages if message.has_class("meta")]
+        assistant_messages = [message.text for message in messages if message.has_class("assistant")]
+        classified_context = backend.classified_contexts[0] if backend.classified_contexts else {}
+        active_wait_context = classified_context.get("active_wait") if isinstance(classified_context, dict) else {}
+        state_context = classified_context.get("context_state") if isinstance(classified_context, dict) else {}
+    passed = (
+        backend.classified_inputs == [(completion, CONFIRM_CURRENT_WAIT)]
+        and backend.handled_inputs == [completion]
+        and backend.interrupt_calls == 0
+        and user_messages == ["需要人工确认的任务", completion]
+        and any(f"确认输入：{completion}" in text for text in meta_messages)
+        and assistant_messages == ["继续执行"]
+        and isinstance(active_wait_context, dict)
+        and active_wait_context.get("wait_type") == "manual_confirm"
+        and "需要人工确认的任务" in str(active_wait_context.get("prompt", ""))
+        and isinstance(state_context, dict)
+        and state_context.get("current_plan_path") == "plans/context-demo/plan.json"
+    )
+    return {
+        "name": "textual_client_treats_natural_completion_as_confirmation",
+        "passed": passed,
+        "detail": {
+            "classified_inputs": backend.classified_inputs,
+            "handled_inputs": backend.handled_inputs,
+            "interrupt_calls": backend.interrupt_calls,
+            "user_messages": user_messages,
+            "meta_messages": meta_messages,
+            "assistant_messages": assistant_messages,
+            "classified_context": classified_context,
         },
     }
 
@@ -1028,9 +1368,11 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             slash_palette_total = len(palette.commands)
             slash_palette_names = [command.name for command in palette.commands]
             app._backend_status["pending_approval"] = True
+            app._backend_status["pending_approval_kind"] = "tool_approval"
             app._sync_command_palette()
             approval_palette_names = [command.name for command in palette.commands]
             app._backend_status["pending_approval"] = False
+            app._backend_status["pending_approval_kind"] = ""
             app._sync_command_palette()
             for _ in range(COMMAND_PALETTE_VISIBLE_ROWS):
                 await pilot.press("down")
@@ -1066,15 +1408,16 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             composer.text = "/copy-last"
             await pilot.press("enter")
             await pilot.pause(0.05)
-            composer.text = "/check"
+            composer.text = "/status"
             await pilot.press("enter")
             await pilot.pause(0.05)
-            composer.text = "/status"
+            composer.text = "/export ."
             await pilot.press("enter")
             await pilot.pause(0.05)
             messages = list(app.query(MessageBlock))
             tool_messages = [message.text for message in messages if message.has_class("tool")]
             meta_messages = [message.text for message in messages if message.has_class("meta")]
+            error_messages = [message.text for message in messages if message.has_class("error")]
             exports = sorted((project_root / ".keygen" / "client-exports").glob("transcript-*.md"))
             export_text = exports[-1].read_text(encoding="utf-8") if exports else ""
             last_assistant_path = project_root / ".keygen" / "client-exports" / "last-assistant.md"
@@ -1123,12 +1466,13 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
         )
         and {"approve", "reject"}.issubset(set(approval_palette_names))
         and any("工具细节显示：开启" in message for message in meta_messages)
-        and any("AI 服务可用" in message for message in meta_messages)
+        and not any("AI 服务可用" in message for message in meta_messages)
         and any("状态：" in message and "thread=fake" in message for message in meta_messages)
         and any("工具 完成 inspect_web_page\n" in message and "x" * 500 in message for message in tool_messages)
         and bool(exports)
         and "## Meta" in export_text
         and "工具细节显示：开启" in export_text
+        and any("Is a directory" in message or "目录" in message for message in error_messages)
         and last_assistant_text == "local command check\n"
         and cleared_message_count == 0
     )
@@ -1151,6 +1495,7 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
             "details_enabled": details_enabled,
             "tool_messages": tool_messages,
             "meta_messages": meta_messages,
+            "error_messages": error_messages,
             "exports": [str(path) for path in exports],
             "last_assistant_text": last_assistant_text,
             "cleared_message_count": cleared_message_count,
@@ -1292,13 +1637,14 @@ class PendingApprovalEndingBackend(FakeAgentBackend):
 
     async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
         self.pending_approval = True
-        yield ClientEvent("approval_requested", text="等待用户确认。")
+        yield ClientEvent("approval_requested", text="等待用户确认。", data={"approval_kind": "tool_approval"})
 
     async def status_snapshot(self) -> dict[str, Any]:
         return {
             "thread_id": "approval-ending",
             "busy": False,
             "pending_approval": self.pending_approval,
+            "pending_approval_kind": "tool_approval" if self.pending_approval else "",
             "context_state": {},
         }
 
@@ -1474,7 +1820,14 @@ async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path)
         def can_handle_input_during_turn(self, message: str) -> bool:
             return self._confirmation is not None
 
-        def classify_active_turn_input(self, message: str, *, prompt: str = "", wait_type: str = "") -> str:
+        def classify_active_turn_input(
+            self,
+            message: str,
+            *,
+            prompt: str = "",
+            wait_type: str = "",
+            context: dict[str, Any] | None = None,
+        ) -> str:
             intent = FEEDBACK_OR_CORRECTION if "没有填写" in message else CONFIRM_CURRENT_WAIT
             self.classified.append((message, intent))
             return intent
@@ -1485,7 +1838,12 @@ async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path)
             return True
 
         def client_status_snapshot(self) -> dict[str, Any]:
-            return {"thread_id": self.thread_id, "service": self.service, "pending_approval": self._confirmation is not None}
+            return {
+                "thread_id": self.thread_id,
+                "service": self.service,
+                "pending_approval": self._confirmation is not None,
+                "pending_approval_kind": "active_wait" if self._confirmation is not None else "",
+            }
 
         def attach_clipboard_images(self) -> list[str]:
             return []

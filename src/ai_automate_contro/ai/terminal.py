@@ -218,9 +218,19 @@ class AITerminal(
     def client_status_snapshot(self) -> dict[str, Any]:
         """Return a small UI-safe status snapshot for agent clients."""
         try:
-            pending_approval = bool(self._current_interrupts()) or self._current_ai_confirmation() is not None
+            current_interrupts = self._current_interrupts()
+            current_confirmation = self._current_ai_confirmation()
+            pending_approval = bool(current_interrupts) or current_confirmation is not None
+            pending_approval_kind = "tool_approval" if current_interrupts else ("active_wait" if current_confirmation is not None else "")
+            active_wait = (
+                {"wait_type": current_confirmation.wait_type, "prompt": current_confirmation.prompt}
+                if current_confirmation is not None
+                else {}
+            )
         except Exception:
             pending_approval = False
+            pending_approval_kind = ""
+            active_wait = {}
         return {
             "project_root": str(self.project_root),
             "service": self.config.service_name,
@@ -228,6 +238,8 @@ class AITerminal(
             "thread_id": self.thread_id,
             "busy": self._is_agent_busy(),
             "pending_approval": pending_approval,
+            "pending_approval_kind": pending_approval_kind,
+            "active_wait": active_wait,
             "pending_attachments": len(self._pending_attachments),
             "context_state": self._context_state(),
             "last_error": self._last_error,
@@ -297,7 +309,13 @@ class AITerminal(
                 raise RuntimeError("AI 模式已有一个等待确认的 plan。")
             self._ai_confirmation = wait
         self._emit_activity("等待用户确认", category="run", phase="start", source_kind="approval_requested")
-        self._emit_event(AITerminalEvent("approval_requested", text=_format_ai_confirmation_prompt(wait)))
+        self._emit_event(
+            AITerminalEvent(
+                "approval_requested",
+                text=_format_ai_confirmation_prompt(wait),
+                data={"approval_kind": "active_wait", "wait_type": wait_type, "wait_prompt": wait.prompt},
+            )
+        )
         if self._ask_once_mode:
             wait.event.wait(timeout=ASK_ONCE_CONFIRMATION_TIMEOUT_SECONDS)
             if not wait.event.is_set():
@@ -345,18 +363,40 @@ class AITerminal(
     def _classify_ai_confirmation_reply(self, text: str, wait: "AIConfirmationWait") -> str:
         return self.classify_wait_confirmation_reply(text, prompt=wait.prompt, wait_type=wait.wait_type)
 
-    def classify_wait_confirmation_reply(self, text: str, *, prompt: str = "", wait_type: str = "") -> str:
+    def classify_wait_confirmation_reply(
+        self,
+        text: str,
+        *,
+        prompt: str = "",
+        wait_type: str = "",
+        context: dict[str, Any] | None = None,
+    ) -> str:
+        classifier_context = self._wait_classifier_context(prompt=prompt, wait_type=wait_type, client_context=context)
+        deterministic_decision = _deterministic_wait_decision(
+            text,
+            allow_natural_completion=True,
+            prompt=prompt,
+            wait_type=wait_type,
+            context=classifier_context,
+        )
+        if deterministic_decision is not None:
+            return deterministic_decision
         try:
             messages = [
                 (
                     "system",
                     "你是 agent CLI 的等待判定器。只判断用户这句话是在继续当前等待、停止当前等待，还是反馈/纠正任务；不能执行任务，不能解释。"
                     "只返回 JSON：{\"decision\":\"approve|reject|unclear\"}。"
-                    "approve 表示明确继续，reject 表示明确停止，unclear 表示提问、补充、纠正或混有其他内容；不确定就选 unclear。",
+                    "approve 表示用户明确要继续，或结合上下文可判断当前等待要求的人工操作、检查、弹窗处理、输入、选择、确认等已经完成。"
+                    "reject 表示用户明确停止、取消或终止当前等待。"
+                    "unclear 表示提问、补充、纠正、报错、部分完成、或虽然说继续但同时指出问题；不确定就选 unclear。"
+                    "必须结合等待上下文判断用户行为意图，不要依赖固定场景或字面关键词。",
                 ),
                 (
                     "user",
-                    f"等待类型：{wait_type or '<unknown>'}\n确认提示：{prompt or '<empty>'}\n用户回复：{text}",
+                    "等待上下文：\n"
+                    f"{_format_classifier_context(classifier_context)}\n\n"
+                    f"用户回复：{text}",
                 ),
             ]
             response = self.model.invoke(messages)
@@ -367,29 +407,58 @@ class AITerminal(
                 return decision
         except Exception:
             pass
+        deterministic_decision = _deterministic_wait_decision(
+            text,
+            allow_natural_completion=True,
+            prompt=prompt,
+            wait_type=wait_type,
+            context=classifier_context,
+        )
+        if deterministic_decision is not None:
+            return deterministic_decision
         explicit_decision = classify_ai_confirmation_reply(text)
         if explicit_decision in {"approve", "reject"}:
             return explicit_decision
         return "unclear"
 
-    def classify_active_turn_input(self, text: str, *, prompt: str = "", wait_type: str = "") -> str:
+    def classify_active_turn_input(
+        self,
+        text: str,
+        *,
+        prompt: str = "",
+        wait_type: str = "",
+        context: dict[str, Any] | None = None,
+    ) -> str:
         wait = self._current_ai_confirmation()
         if wait is not None:
             prompt = wait.prompt
             wait_type = wait.wait_type
+        classifier_context = self._wait_classifier_context(prompt=prompt, wait_type=wait_type, client_context=context)
+        deterministic_decision = _deterministic_wait_decision(
+            text,
+            allow_natural_completion=True,
+            prompt=prompt,
+            wait_type=wait_type,
+            context=classifier_context,
+        )
+        if deterministic_decision in {"approve", "reject"}:
+            return "confirm_current_wait"
+        if deterministic_decision == "unclear":
+            return "feedback_or_correction"
         try:
             messages = [
                 (
                     "system",
                     "你是 agent CLI 的输入意图判定器。只判断用户这句话是在确认当前等待，还是在反馈/纠正任务；不能执行任务，不能解释。"
                     "只返回 JSON：{\"intent\":\"confirm_current_wait|feedback_or_correction\"}。"
-                    "confirm_current_wait 只用于短促、明确、没有额外信息的继续/停止控制；其他都算 feedback_or_correction。"
-                    "不确定就选 feedback_or_correction。",
+                    "confirm_current_wait 用于明确继续/停止控制，或结合上下文可判断当前等待要求的人工操作、检查、弹窗处理、输入、选择、确认等已经完成。"
+                    "feedback_or_correction 用于提问、补充、纠正、报错、部分完成，或虽然说继续但同时指出问题。"
+                    "必须结合等待上下文判断用户行为意图，不要依赖固定场景或字面关键词；不确定就选 feedback_or_correction。",
                 ),
                 (
                     "user",
-                    f"等待类型：{wait_type or '<unknown>'}\n"
-                    f"等待提示：{prompt or '<empty>'}\n"
+                    "等待上下文：\n"
+                    f"{_format_classifier_context(classifier_context)}\n\n"
                     f"用户输入：{text}",
                 ),
             ]
@@ -401,9 +470,44 @@ class AITerminal(
                 return intent
         except Exception:
             pass
+        deterministic_decision = _deterministic_wait_decision(
+            text,
+            allow_natural_completion=True,
+            prompt=prompt,
+            wait_type=wait_type,
+            context=classifier_context,
+        )
+        if deterministic_decision in {"approve", "reject"}:
+            return "confirm_current_wait"
         if classify_ai_confirmation_reply(text) in {"approve", "reject"}:
             return "confirm_current_wait"
         return "feedback_or_correction"
+
+    def _wait_classifier_context(
+        self,
+        *,
+        prompt: str = "",
+        wait_type: str = "",
+        client_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        active_wait: dict[str, Any] = {"wait_type": wait_type, "prompt": prompt}
+        try:
+            wait = self._current_ai_confirmation()
+        except Exception:
+            wait = None
+        if wait is not None:
+            active_wait = {"wait_type": wait.wait_type, "prompt": wait.prompt}
+        try:
+            context_state = self._context_state()
+        except Exception:
+            context_state = {}
+        return _sanitize_classifier_context(
+            {
+                "active_wait": active_wait,
+                "terminal_context": context_state,
+                "client_context": client_context or {},
+            }
+        )
 
     def _current_ai_confirmation(self) -> "AIConfirmationWait | None":
         lock = getattr(self, "_ai_confirmation_lock", None)
@@ -763,14 +867,14 @@ def _format_ai_confirmation_prompt(wait: AIConfirmationWait) -> str:
     label = "运行后检查" if wait.wait_type == "post_run_inspection" else "人工确认"
     guidance = "要继续请输入“继续”，要停止请输入“停止”；其他输入会作为反馈交给 AI。"
     if wait.wait_type == "manual_confirm":
-        guidance = "请在当前已打开的 Playwright 浏览器窗口完成操作；完成后回到这里输入“继续”，要停止输入“停止”。"
+        guidance = "请在当前已打开的 Playwright 浏览器窗口完成操作；完成后回到这里输入“继续”，也可以直接说明当前操作已完成或可以继续；要停止输入“停止”。"
     elif wait.wait_type == "post_run_inspection":
         guidance = "请检查当前 Playwright 浏览器窗口和运行产物；确认通过后输入“继续”，要停止输入“停止”。"
     return f"[{label}] {wait.prompt}\n{guidance}"
 
 
 def classify_ai_confirmation_reply(text: str) -> str:
-    normalized = re.sub(r"[\s。！？!?,，；;：:]+", "", str(text).strip().lower())
+    normalized = _normalize_confirmation_text(text)
     if not normalized:
         return "unclear"
     reject_tokens = (
@@ -786,6 +890,232 @@ def classify_ai_confirmation_reply(text: str) -> str:
     if normalized in approve_tokens:
         return "approve"
     return "unclear"
+
+
+def _deterministic_wait_decision(
+    text: str,
+    *,
+    allow_natural_completion: bool,
+    prompt: str = "",
+    wait_type: str = "",
+    context: dict[str, Any] | None = None,
+) -> str | None:
+    normalized = _normalize_confirmation_text(text)
+    if not normalized:
+        return "unclear"
+    if _is_reject_confirmation(normalized):
+        return "reject"
+    if _has_wait_problem_signal(normalized):
+        return "unclear"
+    explicit_decision = classify_ai_confirmation_reply(text)
+    if explicit_decision in {"approve", "reject"}:
+        return explicit_decision
+    if (
+        allow_natural_completion
+        and _has_wait_completion_signal(normalized)
+        and _wait_context_allows_natural_completion(prompt=prompt, wait_type=wait_type, context=context)
+    ):
+        return "approve"
+    return None
+
+
+def _format_classifier_context(context: dict[str, Any]) -> str:
+    return json.dumps(_sanitize_classifier_context(context), ensure_ascii=False, indent=2, default=str)
+
+
+def _sanitize_classifier_context(value: Any, *, _depth: int = 0) -> Any:
+    if _depth > 4:
+        return "<truncated>"
+    if isinstance(value, dict):
+        result: dict[str, Any] = {}
+        for index, (key, item) in enumerate(value.items()):
+            if index >= 24:
+                result["..."] = "<truncated>"
+                break
+            if item in (None, "", [], {}):
+                continue
+            result[str(key)] = _sanitize_classifier_context(item, _depth=_depth + 1)
+        return result
+    if isinstance(value, (list, tuple)):
+        items = [_sanitize_classifier_context(item, _depth=_depth + 1) for item in list(value)[:8]]
+        if len(value) > 8:
+            items.append("<truncated>")
+        return items
+    if isinstance(value, str):
+        return value if len(value) <= 900 else value[:900] + "...<truncated>"
+    if isinstance(value, (bool, int, float)):
+        return value
+    return str(value)
+
+
+def _wait_context_allows_natural_completion(
+    *,
+    prompt: str = "",
+    wait_type: str = "",
+    context: dict[str, Any] | None = None,
+) -> bool:
+    normalized_wait_type = str(wait_type or "").strip().lower()
+    if normalized_wait_type in {"manual_confirm", "post_run_inspection"}:
+        return True
+    if _context_has_active_wait(context or {}):
+        return True
+    context_text = _normalize_confirmation_text(
+        " ".join(
+            (
+                str(prompt or ""),
+                json.dumps(_sanitize_classifier_context(context or {}), ensure_ascii=False, default=str),
+            )
+        )
+    )
+    if not context_text:
+        return False
+    wait_tokens = (
+        "人工确认",
+        "等待确认",
+        "manual_confirm",
+        "manualconfirm",
+        "active_wait",
+        "post_run_inspection",
+        "等待用户",
+        "用户确认",
+        "人工操作",
+        "人工介入",
+        "暂停",
+        "确认",
+        "继续",
+    )
+    return any(token in context_text for token in wait_tokens)
+
+
+def _context_has_active_wait(context: dict[str, Any]) -> bool:
+    active_wait = context.get("active_wait")
+    if isinstance(active_wait, dict) and any(active_wait.values()):
+        return True
+    client_context = context.get("client_context")
+    if isinstance(client_context, dict):
+        nested_wait = client_context.get("active_wait")
+        if isinstance(nested_wait, dict) and any(nested_wait.values()):
+            return True
+        client = client_context.get("client")
+        if isinstance(client, dict) and str(client.get("pending_approval_kind") or "") == "active_wait":
+            return True
+    client = context.get("client")
+    return isinstance(client, dict) and str(client.get("pending_approval_kind") or "") == "active_wait"
+
+
+def _normalize_confirmation_text(text: str) -> str:
+    return re.sub(r"[\s。！？!?,，；;：:、.]+", "", str(text).strip().lower())
+
+
+def _is_reject_confirmation(normalized: str) -> bool:
+    reject_tokens = {
+        "停止",
+        "停止吧",
+        "停下",
+        "取消",
+        "终止",
+        "不继续",
+        "别继续",
+        "stop",
+        "cancel",
+    }
+    return normalized in reject_tokens
+
+
+def _has_wait_problem_signal(normalized: str) -> bool:
+    text = normalized
+    for phrase in ("没问题", "没有问题", "无问题", "页面没问题"):
+        text = text.replace(phrase, "")
+    problem_tokens = (
+        "不对",
+        "不行",
+        "不正确",
+        "错误",
+        "报错",
+        "失败",
+        "有问题",
+        "问题",
+        "没填",
+        "没有填",
+        "没填写",
+        "没有填写",
+        "没录入",
+        "没有录入",
+        "漏",
+        "缺",
+        "无法",
+        "不能",
+        "卡住",
+        "还是没有",
+        "没完成",
+        "没有完成",
+        "未完成",
+        "没处理",
+        "没有处理",
+        "未处理",
+        "没成功",
+        "没有成功",
+        "未成功",
+        "不通过",
+        "异常",
+        "没登录",
+        "未登录",
+        "登录不了",
+        "进不去",
+        "没进去",
+        "没有进去",
+    )
+    return any(token in text for token in problem_tokens)
+
+
+def _has_wait_completion_signal(normalized: str) -> bool:
+    completion_tokens = (
+        "已经登录",
+        "已登录",
+        "登录进去了",
+        "已经登陆",
+        "已登陆",
+        "登陆进去了",
+        "已经进去了",
+        "进去了",
+        "已到",
+        "已经到",
+        "到页面了",
+        "到了",
+        "看到了",
+        "完成",
+        "已完成",
+        "已经完成",
+        "搞定",
+        "好了",
+        "可以了",
+        "行了",
+        "确认了",
+        "确认通过",
+        "操作完成",
+        "操作完了",
+        "弄好了",
+        "弄完了",
+        "做完了",
+        "处理好了",
+        "处理完",
+        "处理完成",
+        "已经处理",
+        "已处理",
+        "可以继续",
+        "接着弄",
+        "接着",
+        "继续运行",
+        "继续吧",
+        "ok",
+        "okay",
+        "done",
+        "页面没问题",
+        "没有问题",
+        "没问题",
+        "通过了",
+    )
+    return any(token in normalized for token in completion_tokens)
 
 
 def _parse_slash_command(text: str) -> tuple[str, str] | None:

@@ -31,9 +31,15 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
             "project": "python -m pip install -e .",
             "ripgrep": _ripgrep_install_hint(),
             "playwright_chromium": "python -m playwright install chromium",
-            "verify": "python main.py self-check env",
+            "verify": _self_check_env_command(),
         },
     }
+
+
+def _self_check_env_command() -> str:
+    if platform.system() == "Windows":
+        return r"python .\main.py self-check env"
+    return "python ./main.py self-check env"
 
 
 def self_check_runtime_config(project_root: Path) -> dict[str, Any]:
@@ -100,7 +106,7 @@ def _check_pwsh() -> dict[str, Any]:
 
 def _check_imports() -> dict[str, Any]:
     modules = {
-        "ai_automate_contro": "keygen-openai-account",
+        "ai_automate_contro": "ai-automate-contro",
         "playwright": "playwright",
         "openai": "openai",
         "jsonschema": "jsonschema",

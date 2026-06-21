@@ -123,6 +123,8 @@ def _make_tool_function(
                 kwargs["_inspection_confirmation_handler"] = inspection_confirmation_handler
             if run_event_handler is not None:
                 kwargs["_run_event_handler"] = lambda event: run_event_handler(tool_name, event)
+        if tool_name == "review_plan_quality" and quality_gate_provider is not None:
+            kwargs["_evidence_context"] = quality_gate_provider()
         if before_tool_call is not None:
             try:
                 before_tool_call(tool_name, kwargs)
@@ -136,6 +138,7 @@ def _make_tool_function(
                 project_root,
                 kwargs,
                 allow_protected=tool_name == "apply_debug_patch_after_approval",
+                allow_run_plan=tool_name == "run_plan",
             )
         except Exception as error:
             result = {
@@ -266,6 +269,14 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="tool_args_match_schema",
             passed=not arg_mismatches,
             detail={"mismatches": arg_mismatches},
+        )
+    )
+    registry_result = check_ai_terminal_tool_registry()
+    checks.append(
+        _self_check_result(
+            name="handler_signatures_match_schema",
+            passed=not registry_result.get("schema_signature_mismatches"),
+            detail={"mismatches": registry_result.get("schema_signature_mismatches", [])},
         )
     )
 
@@ -694,6 +705,15 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                             }
                         )
                     )
+                    output_prefix_result = json.loads(
+                        export_local_file_tool.invoke(
+                            {
+                                "target_path": str(export_dir / "bad-prefix.txt"),
+                                "plan_path": str(plan_path),
+                                "source_output_path": "output/text/source.txt",
+                            }
+                        )
+                    )
                     project_write_result = json.loads(
                         export_local_file_tool.invoke(
                             {
@@ -712,6 +732,8 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         and copied_target.read_text(encoding="utf-8") == "copied artifact\n"
                         and not bool(traversal_result.get("ok"))
                         and "output" in str(traversal_result.get("error", ""))
+                        and not bool(output_prefix_result.get("ok"))
+                        and "不能以 output/" in str(output_prefix_result.get("error", ""))
                         and not bool(project_write_result.get("ok"))
                         and "项目外" in str(project_write_result.get("error", ""))
                     )
@@ -720,6 +742,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         "copy_source": copy_result.get("source_path"),
                         "copy_target": copy_result.get("path"),
                         "traversal_error": traversal_result.get("error"),
+                        "output_prefix_error": output_prefix_result.get("error"),
                         "project_write_error": project_write_result.get("error"),
                     }
             except Exception as error:
@@ -757,7 +780,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         {
                             "plan_path": str(plan_path),
                             "user_request": request,
-                            "evidence_summary": "inspect_web_page 发现登录表单，headed 探索停在登录页。",
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/login final_url=https://example.com/login forms=1 inputs=2，headed 探索停在登录页。",
                             "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
                         }
                     )
@@ -823,7 +846,97 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         {
                             "plan_path": str(plan_path),
                             "user_request": request,
-                            "evidence_summary": "inspect_web_page 发现登录表单；headed 探索已确认 AI 账户管理菜单和账户名称列表。",
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/login final_url=https://example.com/login forms=1 inputs=2；headed 探索已确认 AI 账户管理菜单和账户名称列表。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                no_submit_plan = dict(complete_plan)
+                no_submit_plan["steps"] = [
+                    step
+                    for step in complete_plan["steps"]
+                    if not (step.get("action") == "element" and step.get("type") == "click")
+                    and step.get("action") != "manual_confirm"
+                ]
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": no_submit_plan,
+                        }
+                    )
+                )
+                no_submit_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": request,
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/login final_url=https://example.com/login forms=1 inputs=2。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                extraction_only_plan = {
+                    "name": "quality account names extraction",
+                    "variables": {"target_url": "https://example.com/accounts"},
+                    "steps": [
+                        {"action": "open_browser", "name": "main", "headed": True},
+                        {"action": "navigate", "type": "goto", "browser": "main", "url": "{{target_url}}"},
+                        {
+                            "action": "extract",
+                            "type": "all_texts",
+                            "browser": "main",
+                            "selector": ".account-name",
+                            "save_as": "account_names",
+                        },
+                        {
+                            "action": "write",
+                            "type": "text",
+                            "path": "AI账户.txt",
+                            "value": "{{account_names}}",
+                        },
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": extraction_only_plan,
+                        }
+                    )
+                )
+                extraction_only_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "把页面里的全部账户名称提取出来并写到 /Users/anminhu/Downloads/AI账户.txt，一行一个。",
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/accounts final_url=https://example.com/accounts inputs=2 buttons=1；headed 探索已确认账户名称列表。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                trailing_manual_plan = dict(extraction_only_plan)
+                trailing_manual_plan["steps"] = [
+                    *extraction_only_plan["steps"],
+                    {"action": "manual_confirm", "browser": "main", "prompt": "最后再确认一次"},
+                ]
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": trailing_manual_plan,
+                        }
+                    )
+                )
+                trailing_manual_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "把页面里的全部账户名称提取出来并写到 /Users/anminhu/Downloads/AI账户.txt，一行一个。",
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/accounts final_url=https://example.com/accounts inputs=2 buttons=1；headed 探索已确认账户名称列表。",
                             "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
                         }
                     )
@@ -853,6 +966,35 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                weak_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": request,
+                            "evidence_summary": "manual_confirm 等用户确认后继续。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": extraction_only_plan,
+                        }
+                    )
+                )
+                credential_stopword_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "提取页面中的 password policy 文本和 account name 列表，写到 /Users/anminhu/Downloads/AI账户.txt。",
+                            "evidence_summary": "inspect_web_page requested_url=https://example.com/accounts final_url=https://example.com/accounts title=Accounts；headed 探索已确认列表。",
+                            "planned_output_path": "/Users/anminhu/Downloads/AI账户.txt",
+                        }
+                    )
+                )
                 review_plan_quality_ok = (
                     fail_result.get("ok") is False
                     and fail_result.get("severity") == "fail"
@@ -865,8 +1007,21 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and bool(pass_result.get("plan_signature"))
                     and "已覆盖账号输入" in pass_result.get("covered_facts", [])
                     and "已覆盖输出文件名 AI账户.txt" in pass_result.get("covered_facts", [])
+                    and no_submit_result.get("ok") is False
+                    and "missing_login_submit_or_handoff" in {issue.get("code") for issue in no_submit_result.get("issues", [])}
+                    and extraction_only_result.get("ok") is True
+                    and extraction_only_result.get("severity") == "warn"
+                    and trailing_manual_result.get("ok") is False
+                    and "manual_confirm_without_followup" in {issue.get("code") for issue in trailing_manual_result.get("issues", [])}
+                    and "missing_account_fill" not in {issue.get("code") for issue in extraction_only_result.get("issues", [])}
+                    and "missing_password_fill" not in {issue.get("code") for issue in extraction_only_result.get("issues", [])}
                     and junk_evidence_result.get("ok") is False
                     and "missing_real_site_evidence" in {issue.get("code") for issue in junk_evidence_result.get("issues", [])}
+                    and weak_evidence_result.get("ok") is False
+                    and "missing_real_site_evidence" in {issue.get("code") for issue in weak_evidence_result.get("issues", [])}
+                    and credential_stopword_result.get("ok") is True
+                    and "missing_account_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
+                    and "missing_password_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
                 )
                 review_plan_quality_detail = {
                     "fail_codes": [issue.get("code") for issue in fail_result.get("issues", [])],
@@ -875,7 +1030,14 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "pass_next_action": pass_result.get("next_action"),
                     "pass_covered_facts": pass_result.get("covered_facts", []),
                     "pass_signature": pass_result.get("plan_signature"),
+                    "extraction_only_codes": [
+                        issue.get("code") for issue in extraction_only_result.get("issues", [])
+                    ],
                     "junk_evidence_codes": [issue.get("code") for issue in junk_evidence_result.get("issues", [])],
+                    "weak_evidence_codes": [issue.get("code") for issue in weak_evidence_result.get("issues", [])],
+                    "credential_stopword_codes": [
+                        issue.get("code") for issue in credential_stopword_result.get("issues", [])
+                    ],
                 }
             except Exception as error:
                 review_plan_quality_error = str(error)

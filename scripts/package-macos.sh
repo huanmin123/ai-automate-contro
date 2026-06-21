@@ -30,6 +30,76 @@ run_checked() {
   "$@"
 }
 
+run_packaged_browser_smoke() {
+  local cplan_path="$1"
+  local browser_smoke_dir
+  browser_smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-browser-smoke.XXXXXX")"
+  mkdir -p "$browser_smoke_dir/resources"
+  cat > "$browser_smoke_dir/resources/demo.html" <<'HTML'
+<!doctype html>
+<html>
+  <head><meta charset="utf-8"><title>Packaged Browser Smoke</title></head>
+  <body><h1 id="title">Packaged Browser Smoke</h1></body>
+</html>
+HTML
+  cat > "$browser_smoke_dir/plan.json" <<'JSON'
+{
+  "name": "packaged-browser-smoke",
+  "variables": {
+    "expected_title": "Packaged Browser Smoke"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "demo",
+      "headed": false
+    },
+    {
+      "action": "navigate",
+      "browser": "demo",
+      "url": "{{resources_file_url}}/demo.html",
+      "type": "goto"
+    },
+    {
+      "action": "assert",
+      "browser": "demo",
+      "selector": "#title",
+      "expected": "{{expected_title}}",
+      "type": "text"
+    }
+  ]
+}
+JSON
+  run_checked "$cplan_path" validate --file "$browser_smoke_dir/plan.json"
+  run_checked "$cplan_path" run --file "$browser_smoke_dir/plan.json" --run-name "browser-smoke"
+  rm -rf "$browser_smoke_dir"
+}
+
+real_path() {
+  "$python_bin" - "$1" <<'PY'
+from pathlib import Path
+import sys
+
+print(Path(sys.argv[1]).expanduser().resolve(strict=False))
+PY
+}
+
+assert_path_under() {
+  local target_path="$1"
+  local allowed_root="$2"
+  local resolved_target
+  local resolved_root
+  resolved_target="$(real_path "$target_path")"
+  resolved_root="$(real_path "$allowed_root")"
+  case "$resolved_target" in
+    "$resolved_root"|"$resolved_root"/*)
+      ;;
+    *)
+      die "拒绝操作允许目录外路径：$resolved_target"
+      ;;
+  esac
+}
+
 stop_existing_package_processes() {
   "$python_bin" - "$repo_root" "$package_dir" "$executable_path" "$build_temp_root" "$executable_name" <<'PY'
 import os
@@ -61,6 +131,17 @@ def ancestor_pids(pid: int) -> set[int]:
     return result
 
 
+def process_cwd(pid: int) -> str:
+    try:
+        output = subprocess.check_output(["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"], text=True, stderr=subprocess.DEVNULL)
+    except Exception:
+        return ""
+    for line in output.splitlines():
+        if line.startswith("n"):
+            return os.path.realpath(line[1:])
+    return ""
+
+
 current_tree = ancestor_pids(os.getpid())
 try:
     rows = subprocess.check_output(["ps", "-axo", "pid=,comm=,command="], text=True)
@@ -80,11 +161,16 @@ for row in rows.splitlines():
         continue
     comm = os.path.basename(parts[1])
     command = parts[2] if len(parts) >= 3 else ""
+    cwd = process_cwd(pid)
+    runs_from_package_dir = bool(cwd and (cwd == package_dir or cwd.startswith(f"{package_dir}/")))
     matches_packaged_process = (
-        comm in executable_names
-        or executable_path in command
+        executable_path in command
         or f"{package_dir}/" in command
-        or any(command.startswith(f"./{name} ") or command == f"./{name}" for name in executable_names)
+        or (runs_from_package_dir and comm in executable_names)
+        or (
+            runs_from_package_dir
+            and any(command.startswith(f"./{name} ") or command == f"./{name}" for name in executable_names)
+        )
     )
     matches_stale_packager = (
         ("package-macos.sh" in command and repo_root in command)
@@ -118,6 +204,8 @@ PY
 
 remove_existing_path() {
   local target_path="$1"
+  local allowed_root="$2"
+  assert_path_under "$target_path" "$allowed_root"
   [ -e "$target_path" ] || [ -L "$target_path" ] || return 0
   if rm -rf "$target_path"; then
     return 0
@@ -235,9 +323,9 @@ package_plans_config_path="$package_dir/plans/config.json"
 mkdir -p "$out_dir"
 
 stop_existing_package_processes
-remove_existing_path "$build_dir"
-remove_existing_path "$package_dir"
-remove_existing_path "$zip_path"
+remove_existing_path "$build_dir" "$build_temp_root"
+remove_existing_path "$package_dir" "$out_dir"
+remove_existing_path "$zip_path" "$out_dir"
 mkdir -p "$build_dir" "$package_dir"
 
 browser_dir="$("$python_bin" - <<'PY'
@@ -299,7 +387,7 @@ trap - EXIT
 pyinstaller_package_dir="$pyinstaller_dist_dir/$executable_name"
 [ -d "$pyinstaller_package_dir" ] || die "打包已完成，但没有找到 PyInstaller 输出目录：$pyinstaller_package_dir"
 
-remove_existing_path "$package_dir"
+remove_existing_path "$package_dir" "$out_dir"
 mkdir -p "$package_dir"
 cp -R "$pyinstaller_package_dir/." "$package_dir/"
 [ -f "$executable_path" ] || die "打包复制已完成，但没有找到可执行文件：$executable_path"
@@ -358,6 +446,7 @@ EOF
 if [ "$smoke_test" -eq 1 ]; then
   (
     cd "$package_dir"
+    run_checked "./$executable_name" self-check env
     run_checked "./$executable_name" self-check ai-stream
     run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" self-check ai-terminal
@@ -369,46 +458,7 @@ if [ "$smoke_test" -eq 1 ]; then
     run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "demo-smoke"
   )
 
-  browser_smoke_dir="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-browser-smoke.XXXXXX")"
-  mkdir -p "$browser_smoke_dir/resources"
-  cat > "$browser_smoke_dir/resources/demo.html" <<'HTML'
-<!doctype html>
-<html>
-  <head><meta charset="utf-8"><title>Packaged Browser Smoke</title></head>
-  <body><h1 id="title">Packaged Browser Smoke</h1></body>
-</html>
-HTML
-  cat > "$browser_smoke_dir/plan.json" <<'JSON'
-{
-  "name": "packaged-browser-smoke",
-  "variables": {
-    "expected_title": "Packaged Browser Smoke"
-  },
-  "steps": [
-    {
-      "action": "open_browser",
-      "name": "demo",
-      "headed": false
-    },
-    {
-      "action": "navigate",
-      "browser": "demo",
-      "url": "{{resources_file_url}}/demo.html",
-      "type": "goto"
-    },
-    {
-      "action": "assert",
-      "browser": "demo",
-      "selector": "#title",
-      "expected": "{{expected_title}}",
-      "type": "text"
-    }
-  ]
-}
-JSON
-  run_checked "$cplan_executable_path" validate --file "$browser_smoke_dir/plan.json"
-  run_checked "$cplan_executable_path" run --file "$browser_smoke_dir/plan.json" --run-name "browser-smoke"
-  rm -rf "$browser_smoke_dir"
+  run_packaged_browser_smoke "$cplan_executable_path"
   rm -rf "$package_dir/plans/demo/output"
 fi
 
@@ -422,6 +472,7 @@ if [ "$smoke_test" -eq 1 ]; then
   unzip -q "$zip_path" -d "$zip_smoke_dir"
   (
     cd "$zip_smoke_dir/ai-automate-contro"
+    run_checked "./$executable_name" self-check env
     run_checked "./$executable_name" self-check ai-stream
     run_checked "./$cplan_executable_name" self-check cli
     run_checked "./$cplan_executable_name" self-check runtime
@@ -431,11 +482,12 @@ if [ "$smoke_test" -eq 1 ]; then
     run_checked "./$executable_name" tool check
     run_checked "./$cplan_executable_name" validate --file "./plans/demo/plan.json"
     run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"
+    run_packaged_browser_smoke "./$cplan_executable_name"
   )
   rm -rf "$zip_smoke_dir"
 fi
 
-remove_existing_path "$build_dir"
+remove_existing_path "$build_dir" "$build_temp_root"
 if [ -d "$build_temp_root" ] && [ -z "$(find "$build_temp_root" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
   rmdir "$build_temp_root"
 fi

@@ -14,6 +14,10 @@ from ai_automate_contro.app.command_helpers import (
 )
 from ai_automate_contro.app.errors import format_error_for_terminal, print_cli_error
 from ai_automate_contro.app.parser import build_cplan_parser, build_parser
+from ai_automate_contro.debug.failure_prepare import (
+    CPLAN_DEBUG_NEXT_ACTIONS,
+    prepare_failure_debug_workspace,
+)
 from ai_automate_contro.debug.workspace import (
     apply_debug_patch,
     create_debug_workspace,
@@ -22,7 +26,10 @@ from ai_automate_contro.debug.workspace import (
 )
 from ai_automate_contro.plans.packages import (
     create_plan_package,
+    find_latest_run_output,
 )
+from ai_automate_contro.plans.validator import validate_plan_file
+from ai_automate_contro.support.paths import path_from_text
 
 
 def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
@@ -31,9 +38,9 @@ def run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             return _run_cplan_cli(project_root, argv)
         return _run_cli(project_root, argv)
     except KeyboardInterrupt as error:
-        return print_cli_error(error, project_root=project_root)
+        return print_cli_error(error, project_root=project_root, surface=_cli_error_surface(argv))
     except Exception as error:
-        return print_cli_error(error, project_root=project_root)
+        return print_cli_error(error, project_root=project_root, surface=_cli_error_surface(argv))
 
 
 def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
@@ -199,9 +206,9 @@ def run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
     try:
         return _run_cplan_cli(project_root, argv)
     except KeyboardInterrupt as error:
-        return print_cli_error(error, project_root=project_root)
+        return print_cli_error(error, project_root=project_root, surface="cplan")
     except Exception as error:
-        return print_cli_error(error, project_root=project_root)
+        return print_cli_error(error, project_root=project_root, surface="cplan")
 
 
 def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
@@ -272,14 +279,15 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
         print(json.dumps(workspace.to_dict(), ensure_ascii=False, indent=2))
         return 0
     if command == "debug-prepare":
-        from ai_automate_contro.ai.terminal_tools import prepare_failure_debug_workspace_tool
-
-        result = prepare_failure_debug_workspace_tool(
+        result = prepare_failure_debug_workspace(
             project_root,
             getattr(args, "file"),
+            analyze_latest_run_failure=_analyze_latest_run_failure_for_cplan,
+            validate_plan=_validate_plan_for_cplan,
             output_dir=getattr(args, "output_dir", None),
             name=getattr(args, "name", None),
             include_manual_confirm=bool(getattr(args, "manual_confirm", False)),
+            recommended_next_actions=CPLAN_DEBUG_NEXT_ACTIONS,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
@@ -314,6 +322,10 @@ def _is_cplan_invocation(argv: list[str] | None) -> bool:
     return Path(sys.argv[0]).stem.lower() == "cplan"
 
 
+def _cli_error_surface(argv: list[str] | None) -> str:
+    return "cplan" if _is_cplan_invocation(argv) else "ai"
+
+
 def _confirm_cplan_manual_confirmation(prompt: str) -> bool:
     return _confirm_cplan_wait(prompt, wait_type="manual_confirm")
 
@@ -333,6 +345,58 @@ def _confirm_cplan_wait(prompt: str, *, wait_type: str) -> bool:
         if decision is not None:
             return decision
         print("无法识别输入。cplan 是确定性管理命令，这里只接受 y 或 n。")
+
+
+def _analyze_latest_run_failure_for_cplan(
+    plan_path: str | Path,
+    *,
+    output_dir: str | Path | None = None,
+    log_lines: int = 80,
+    event_lines: int = 80,
+) -> dict[str, object]:
+    from ai_automate_contro.debug.run_failure_analysis import analyze_latest_run_failure_tool
+
+    return analyze_latest_run_failure_tool(
+        _resolve_plan_path_for_cplan,
+        _resolve_run_output_dir_for_cplan,
+        plan_path,
+        output_dir=output_dir,
+        log_lines=log_lines,
+        event_lines=event_lines,
+    )
+
+
+def _validate_plan_for_cplan(project_root: str | Path, plan_path: str | Path) -> dict[str, object]:
+    result = validate_plan_file(plan_path, project_root)
+    return {
+        "ok": result.ok,
+        "plan_path": str(result.plan_path),
+        "errors": [
+            {
+                "path": issue.location,
+                "message": issue.message,
+                "formatted": issue.format(),
+            }
+            for issue in result.errors
+        ],
+    }
+
+
+def _resolve_plan_path_for_cplan(raw_plan_path: str | Path) -> Path:
+    plan_path = path_from_text(raw_plan_path).resolve()
+    if plan_path.is_dir():
+        plan_path = plan_path / "plan.json"
+    return plan_path
+
+
+def _resolve_run_output_dir_for_cplan(plan_path: str | Path, output_dir: str | Path | None) -> Path:
+    if output_dir is not None:
+        return path_from_text(output_dir).resolve()
+    resolved_plan_path = _resolve_plan_path_for_cplan(plan_path)
+    latest_output = find_latest_run_output(resolved_plan_path.parent)
+    if latest_output is None:
+        return resolved_plan_path.parent / "output"
+    return latest_output
 
 
 def _parse_cplan_wait_answer(answer: str) -> bool | None:

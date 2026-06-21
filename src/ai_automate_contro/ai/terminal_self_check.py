@@ -1590,6 +1590,34 @@ def _check_ai_active_turn_input_classifier_routes_feedback() -> dict[str, Any]:
         prompt="请确认浏览器状态。",
         wait_type="manual_confirm",
     )
+    completed_login_intent = AITerminal.classify_active_turn_input(terminal, "已经登录进去了")
+    completed_login_decision = AITerminal.classify_wait_confirmation_reply(
+        terminal,
+        "已经登录进去了",
+        prompt="请填写验证码并登录后台。",
+        wait_type="manual_confirm",
+    )
+    captured_classifier_messages: list[Any] = []
+
+    def capture_contextual_classifier(messages: Any) -> AIMessage:
+        captured_classifier_messages.append(messages)
+        return AIMessage(content='{"intent":"confirm_current_wait"}')
+
+    terminal.model = SimpleNamespace(invoke=capture_contextual_classifier)
+    terminal._context_state = lambda: {
+        "current_plan_path": "plans/explore-ai-account-management/plan.json",
+        "latest_output_dir": "plans/explore-ai-account-management/output/latest",
+        "work_plan_summary": "登录后台并提取 AI 账户名称",
+    }
+    contextual_intent = AITerminal.classify_active_turn_input(
+        terminal,
+        "现在就是你要求的那个状态",
+        context={
+            "client": {"status": "等待人工确认", "queued_count": 0},
+            "active_wait": {"wait_type": "manual_confirm", "prompt": "请填写验证码并登录后台。"},
+        },
+    )
+    classifier_context_text = str(captured_classifier_messages[-1][1][1]) if captured_classifier_messages else ""
     fallback_feedback = classify_ai_confirmation_reply("账户密码没有填写上呢")
     fallback_simple_continue = classify_ai_confirmation_reply("继续")
     fallback_mixed_continue = classify_ai_confirmation_reply("可以，继续")
@@ -1600,7 +1628,14 @@ def _check_ai_active_turn_input_classifier_routes_feedback() -> dict[str, Any]:
         and confirm_intent == "confirm_current_wait"
         and unclear_decision == "unclear"
         and natural_language_intent == "feedback_or_correction"
-        and natural_language_decision == "unclear"
+        and natural_language_decision == "approve"
+        and completed_login_intent == "confirm_current_wait"
+        and completed_login_decision == "approve"
+        and contextual_intent == "confirm_current_wait"
+        and "等待上下文" in classifier_context_text
+        and "plans/explore-ai-account-management/plan.json" in classifier_context_text
+        and "请确认浏览器状态" in classifier_context_text
+        and "queued_count" in classifier_context_text
         and fallback_feedback == "unclear"
         and fallback_simple_continue == "approve"
         and fallback_mixed_continue == "unclear"
@@ -1614,6 +1649,12 @@ def _check_ai_active_turn_input_classifier_routes_feedback() -> dict[str, Any]:
             "feedback_intent": feedback_intent,
             "confirm_intent": confirm_intent,
             "unclear_decision": unclear_decision,
+            "natural_language_intent": natural_language_intent,
+            "natural_language_decision": natural_language_decision,
+            "completed_login_intent": completed_login_intent,
+            "completed_login_decision": completed_login_decision,
+            "contextual_intent": contextual_intent,
+            "classifier_context_text": classifier_context_text,
             "fallback_feedback": fallback_feedback,
             "fallback_simple_continue": fallback_simple_continue,
             "fallback_mixed_continue": fallback_mixed_continue,

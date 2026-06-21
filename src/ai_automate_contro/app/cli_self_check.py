@@ -19,6 +19,10 @@ def self_check_cli_boundaries() -> dict[str, Any]:
     manual_confirm_check = _check_cplan_manual_confirm_closed_loop()
     manual_confirm_headed_check = _check_manual_confirm_requires_visible_browser()
     debug_patch_delete_check = _check_debug_patch_deletion_backup()
+    debug_patch_forbidden_check = _check_debug_patch_rejects_forbidden_paths()
+    output_dir_check = _check_cplan_output_dir_package_scope()
+    cplan_debug_prepare_boundary_check = _check_cplan_debug_prepare_uses_neutral_debug_core()
+    cplan_error_boundary_check = _check_cplan_error_fix_does_not_reference_ai_side()
 
     main_forbidden = {
         "cplan",
@@ -86,6 +90,10 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         manual_confirm_check,
         manual_confirm_headed_check,
         debug_patch_delete_check,
+        debug_patch_forbidden_check,
+        output_dir_check,
+        cplan_debug_prepare_boundary_check,
+        cplan_error_boundary_check,
     ]
     return {
         "ok": all(bool(check["passed"]) for check in checks),
@@ -114,6 +122,62 @@ def _parse_rejected(parser: argparse.ArgumentParser, argv: list[str]) -> bool:
     except (SystemExit, UserFacingError):
         return True
     return False
+
+
+def _check_cplan_debug_prepare_uses_neutral_debug_core() -> dict[str, Any]:
+    cli_path = Path(__file__).resolve().parent / "cli.py"
+    source = cli_path.read_text(encoding="utf-8")
+    has_terminal_tool_import = "ai_automate_contro.ai.terminal_tools import prepare_failure_debug_workspace_tool" in source
+    has_ai_failure_analysis_import = "ai_automate_contro.ai.run_failure_analysis" in source
+    has_neutral_core = "ai_automate_contro.debug.failure_prepare import" in source
+    debug_analysis_source = (
+        Path(__file__).resolve().parents[1] / "debug" / "run_failure_analysis.py"
+    ).read_text(encoding="utf-8")
+    nested_ai_actions = [
+        token
+        for token in ("patch_debug_workspace_json", "run_debug_plan")
+        if token in debug_analysis_source
+    ]
+    return {
+        "name": "cplan_debug_prepare_uses_neutral_debug_core",
+        "passed": (
+            has_neutral_core
+            and not has_terminal_tool_import
+            and not has_ai_failure_analysis_import
+            and not nested_ai_actions
+        ),
+        "detail": {
+            "has_neutral_core": has_neutral_core,
+            "has_terminal_tool_import": has_terminal_tool_import,
+            "has_ai_failure_analysis_import": has_ai_failure_analysis_import,
+            "nested_ai_actions": nested_ai_actions,
+        },
+    }
+
+
+def _check_cplan_error_fix_does_not_reference_ai_side() -> dict[str, Any]:
+    import contextlib
+    import io
+
+    from ai_automate_contro.app.errors import print_cli_error
+
+    stderr = io.StringIO()
+    with contextlib.redirect_stderr(stderr):
+        exit_code = print_cli_error(ValueError("bad input"), surface="cplan")
+    output = stderr.getvalue()
+    return {
+        "name": "cplan_error_fix_does_not_reference_ai_side",
+        "passed": (
+            exit_code == 1
+            and "AI 侧" not in output
+            and "self-check env" not in output
+            and "cplan self-check runtime" in output
+        ),
+        "detail": {
+            "exit_code": exit_code,
+            "output": output,
+        },
+    }
 
 
 def _check_cplan_manual_confirm_closed_loop() -> dict[str, Any]:
@@ -237,6 +301,67 @@ def _check_cplan_manual_confirm_closed_loop() -> dict[str, Any]:
     }
 
 
+def _check_cplan_output_dir_package_scope() -> dict[str, Any]:
+    from ai_automate_contro.engine.executor import execute_plan
+
+    with TemporaryDirectory(prefix="cplan-output-dir-self-check-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        package_dir = project_root / "plans" / "output-dir-scope"
+        package_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = package_dir / "plan.json"
+        plan = {
+            "name": "output dir scope",
+            "variables": {},
+            "steps": [
+                {
+                    "action": "write",
+                    "type": "text",
+                    "path": "scoped.txt",
+                    "value": "ok",
+                }
+            ],
+        }
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        result = execute_plan(
+            plan,
+            project_root,
+            plan_path=plan_path,
+            output_dir="output/custom run",
+            log_echo=False,
+        )
+        relative_output_path = package_dir / "output" / "custom run"
+        scoped_text_path = package_dir / "output" / "text" / "scoped.txt"
+        scoped_text = scoped_text_path.read_text(encoding="utf-8") if scoped_text_path.exists() else ""
+        outside_error = ""
+        try:
+            execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                output_dir=project_root / "outside-output",
+                log_echo=False,
+            )
+        except Exception as error:
+            outside_error = str(error)
+
+    passed = (
+        Path(result.output_dir) == relative_output_path
+        and scoped_text == "ok"
+        and "运行输出目录必须位于当前 plan 包 output 目录内" in outside_error
+    )
+    return {
+        "name": "cplan_output_dir_relative_output_is_package_scoped",
+        "passed": passed,
+        "detail": {
+            "result_output_dir": result.output_dir,
+            "expected_output_dir": str(relative_output_path),
+            "scoped_text": scoped_text,
+            "outside_error": outside_error,
+        },
+    }
+
+
 def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
     from ai_automate_contro.engine.actions.basic import action_manual_confirm
     from ai_automate_contro.plans.validator import validate_plan_file
@@ -269,6 +394,36 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
         {"prompt": "请在浏览器中操作"},
     )
 
+    mismatched_error = ""
+    mismatched_handler_calls: list[str] = []
+    try:
+        action_manual_confirm(
+            SimpleNamespace(
+                state=SimpleNamespace(
+                    sessions={"target": SimpleNamespace(headed=False), "decoy": SimpleNamespace(headed=True)},
+                    manual_confirmation_handler=lambda prompt: mismatched_handler_calls.append(prompt) or True,
+                )
+            ),
+            {"browser": "target", "prompt": "请在 target 浏览器中操作"},
+        )
+    except Exception as error:
+        mismatched_error = str(error)
+
+    ambiguous_error = ""
+    ambiguous_handler_calls: list[str] = []
+    try:
+        action_manual_confirm(
+            SimpleNamespace(
+                state=SimpleNamespace(
+                    sessions={"main": SimpleNamespace(headed=True), "other": SimpleNamespace(headed=True)},
+                    manual_confirmation_handler=lambda prompt: ambiguous_handler_calls.append(prompt) or True,
+                )
+            ),
+            {"prompt": "请在浏览器中操作"},
+        )
+    except Exception as error:
+        ambiguous_error = str(error)
+
     with TemporaryDirectory(prefix="manual-confirm-headed-validation-") as raw_temp_dir:
         project_root = Path(raw_temp_dir).resolve()
         package_dir = project_root / "plans" / "headless-manual-confirm"
@@ -292,12 +447,125 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
         )
         validation = validate_plan_file(plan_path, project_root)
 
+        branch_package_dir = project_root / "plans" / "branch-headless-manual-confirm"
+        branch_package_dir.mkdir(parents=True, exist_ok=True)
+        branch_plan_path = branch_package_dir / "plan.json"
+        branch_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "branch headless manual confirm",
+                    "variables": {"needs_browser": True},
+                    "steps": [
+                        {
+                            "action": "if",
+                            "condition": {"var": "needs_browser", "equals": True},
+                            "then": [{"action": "open_browser", "name": "branch"}],
+                            "else": [],
+                        },
+                        {"action": "manual_confirm", "prompt": "请在分支打开的浏览器里继续"},
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        branch_validation = validate_plan_file(branch_plan_path, project_root)
+
+        sub_plan_package_dir = project_root / "plans" / "sub-plan-headless-manual-confirm"
+        sub_plan_dir = sub_plan_package_dir / "sub-plans"
+        sub_plan_dir.mkdir(parents=True, exist_ok=True)
+        sub_plan_plan_path = sub_plan_package_dir / "plan.json"
+        sub_plan_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "sub plan headless manual confirm",
+                    "steps": [
+                        {"action": "run_sub_plan", "path": "sub-plans/open-headless-plan.json"},
+                        {"action": "manual_confirm", "prompt": "请在子计划打开的浏览器里继续"},
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (sub_plan_dir / "open-headless-plan.json").write_text(
+            json.dumps(
+                {
+                    "name": "open headless sub plan",
+                    "steps": [{"action": "open_browser", "name": "from_sub_plan"}],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        sub_plan_validation = validate_plan_file(sub_plan_plan_path, project_root)
+
+        mismatched_package_dir = project_root / "plans" / "mismatched-manual-confirm"
+        mismatched_package_dir.mkdir(parents=True, exist_ok=True)
+        mismatched_plan_path = mismatched_package_dir / "plan.json"
+        mismatched_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "mismatched manual confirm",
+                    "steps": [
+                        {"action": "open_browser", "name": "target", "headed": False},
+                        {"action": "open_browser", "name": "decoy", "headed": True},
+                        {"action": "manual_confirm", "browser": "target", "prompt": "请在 target 页面继续"},
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        mismatched_validation = validate_plan_file(mismatched_plan_path, project_root)
+
+        bound_package_dir = project_root / "plans" / "bound-manual-confirm"
+        bound_package_dir.mkdir(parents=True, exist_ok=True)
+        bound_plan_path = bound_package_dir / "plan.json"
+        bound_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "bound manual confirm",
+                    "steps": [
+                        {"action": "open_browser", "name": "target", "headed": True},
+                        {"action": "open_browser", "name": "decoy", "headed": False},
+                        {"action": "manual_confirm", "browser": "target", "prompt": "请在 target 页面继续"},
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        bound_validation = validate_plan_file(bound_plan_path, project_root)
+
     validation_messages = [issue.message for issue in validation.errors]
+    branch_validation_messages = [issue.message for issue in branch_validation.errors]
+    sub_plan_validation_messages = [issue.message for issue in sub_plan_validation.errors]
+    mismatched_validation_messages = [issue.message for issue in mismatched_validation.errors]
+    bound_validation_messages = [issue.message for issue in bound_validation.errors]
     passed = (
         "manual_confirm 需要同一个可见 Playwright 浏览器窗口" in blocked_error
         and not blocked_handler_calls
         and headed_handler_calls == ["请在浏览器中操作"]
+        and "指定浏览器 target 不是 headed=true" in mismatched_error
+        and not mismatched_handler_calls
+        and "多个浏览器会话" in ambiguous_error
+        and not ambiguous_handler_calls
         and any("没有 headed=true 的可见浏览器" in message for message in validation_messages)
+        and any("没有 headed=true 的可见浏览器" in message for message in branch_validation_messages)
+        and any("没有 headed=true 的可见浏览器" in message for message in sub_plan_validation_messages)
+        and any("指定浏览器 target 不是 headed=true" in message for message in mismatched_validation_messages)
+        and not bound_validation_messages
     )
     return {
         "name": "manual_confirm_requires_visible_browser_when_browser_open",
@@ -306,7 +574,15 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             "blocked_error": blocked_error,
             "blocked_handler_calls": blocked_handler_calls,
             "headed_handler_calls": headed_handler_calls,
+            "mismatched_error": mismatched_error,
+            "mismatched_handler_calls": mismatched_handler_calls,
+            "ambiguous_error": ambiguous_error,
+            "ambiguous_handler_calls": ambiguous_handler_calls,
             "validation_messages": validation_messages,
+            "branch_validation_messages": branch_validation_messages,
+            "sub_plan_validation_messages": sub_plan_validation_messages,
+            "mismatched_validation_messages": mismatched_validation_messages,
+            "bound_validation_messages": bound_validation_messages,
         },
     }
 
@@ -335,26 +611,46 @@ def _check_debug_patch_deletion_backup() -> dict[str, Any]:
         )
         removable_path = docs_dir / "remove-me.md"
         removable_path.write_text("remove me\n", encoding="utf-8")
+        spaced_removable_path = docs_dir / "remove me too.md"
+        spaced_removable_path.write_text("", encoding="utf-8")
+        header_lines_path = docs_dir / "header-lines.md"
+        header_lines_path.write_text("before\n-- not a file header\n++ not a file header\n", encoding="utf-8")
 
         workspace = create_debug_workspace(plan_path, project_root, name="delete-backup")
         injected_removable_path = workspace.injected_plan_dir / "docs" / "remove-me.md"
         injected_removable_path.unlink()
+        injected_spaced_removable_path = workspace.injected_plan_dir / "docs" / "remove me too.md"
+        injected_spaced_removable_path.unlink()
+        injected_header_lines_path = workspace.injected_plan_dir / "docs" / "header-lines.md"
+        injected_header_lines_path.write_text(
+            "before\n-- not a file header changed\n++ not a file header changed\n",
+            encoding="utf-8",
+        )
 
         generated = generate_debug_patch(workspace.root)
         patch_text = generated.patch_path.read_text(encoding="utf-8")
         applied = apply_debug_patch(workspace.root, yes=True)
         backup_files = sorted((workspace.root / "original-backups").rglob("docs/remove-me.md"))
         backup_text = backup_files[0].read_text(encoding="utf-8") if backup_files else ""
+        spaced_backup_files = sorted((workspace.root / "original-backups").rglob("docs/remove me too.md"))
+        header_text_after_apply = header_lines_path.read_text(encoding="utf-8")
         notes_text = workspace.notes_path.read_text(encoding="utf-8")
         original_exists_after_apply = removable_path.exists()
+        spaced_original_exists_after_apply = spaced_removable_path.exists()
 
+    expected_files = ["docs/header-lines.md", "docs/remove me too.md", "docs/remove-me.md"]
     passed = (
-        generated.changed_files == ["docs/remove-me.md"]
-        and applied.changed_files == ["docs/remove-me.md"]
+        generated.changed_files == expected_files
+        and applied.changed_files == expected_files
         and "deleted file mode" in patch_text
+        and "--- not a file header" in patch_text
         and not original_exists_after_apply
+        and not spaced_original_exists_after_apply
         and backup_text == "remove me\n"
+        and bool(spaced_backup_files)
+        and header_text_after_apply == "before\n-- not a file header changed\n++ not a file header changed\n"
         and "docs/remove-me.md" in notes_text
+        and "docs/remove me too.md" in notes_text
     )
     return {
         "name": "debug_patch_deletion_backs_up_and_reports_deleted_file",
@@ -364,7 +660,64 @@ def _check_debug_patch_deletion_backup() -> dict[str, Any]:
             "applied_changed_files": applied.changed_files,
             "patch_has_deleted_file_mode": "deleted file mode" in patch_text,
             "original_exists_after_apply": original_exists_after_apply,
+            "spaced_original_exists_after_apply": spaced_original_exists_after_apply,
             "backup_files": [str(path) for path in backup_files],
+            "spaced_backup_files": [str(path) for path in spaced_backup_files],
             "backup_text": backup_text,
+            "header_text_after_apply": header_text_after_apply,
+        },
+    }
+
+
+def _check_debug_patch_rejects_forbidden_paths() -> dict[str, Any]:
+    from ai_automate_contro.debug.workspace import apply_debug_patch, create_debug_workspace
+
+    with TemporaryDirectory(prefix="cplan-debug-patch-forbidden-self-check-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        package_dir = project_root / "plans" / "debug-forbidden-patch"
+        package_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = package_dir / "plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "debug forbidden patch",
+                    "steps": [{"action": "print", "message": "debug forbidden patch"}],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        workspace = create_debug_workspace(plan_path, project_root, name="forbidden")
+        workspace.patch_path.write_text(
+            "\n".join(
+                [
+                    "diff --git a/output/leak.txt b/output/leak.txt",
+                    "new file mode 100644",
+                    "index 0000000..0000000",
+                    "--- /dev/null",
+                    "+++ b/output/leak.txt",
+                    "@@ -0,0 +1 @@",
+                    "+leak",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        forbidden_error = ""
+        try:
+            apply_debug_patch(workspace.root, yes=True)
+        except Exception as error:
+            forbidden_error = str(error)
+        output_file_exists = (package_dir / "output" / "leak.txt").exists()
+
+    passed = "debug patch 不允许修改 output" in forbidden_error and not output_file_exists
+    return {
+        "name": "debug_patch_rejects_forbidden_output_paths",
+        "passed": passed,
+        "detail": {
+            "forbidden_error": forbidden_error,
+            "output_file_exists": output_file_exists,
         },
     }

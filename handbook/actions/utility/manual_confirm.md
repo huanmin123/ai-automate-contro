@@ -18,19 +18,21 @@
 ## 可选字段
 
 - `prompt`: 控制台提示语
+- `browser`: 需要用户操作页面时，显式指定目标浏览器会话名。当前 run 已经有多个浏览器会话时必须填写，且对应 `open_browser.headed` 必须是 `true`。
 
 ## 示例
 
 ```json
 {
   "action": "manual_confirm",
+  "browser": "main",
   "prompt": "请在当前自动化浏览器窗口中完成验证码或二次验证，完成后回到当前客户端确认继续。"
 }
 ```
 
 ## 注意事项
 
-- 需要用户操作页面时，前面必须用 `open_browser` 且设置 `headed: true`，否则用户看不到自动化浏览器；如果当前 run 已有浏览器会话但都不是 `headed: true`，`manual_confirm` 会直接报错。
+- 需要用户操作页面时，前面必须用 `open_browser` 且设置 `headed: true`，否则用户看不到自动化浏览器；如果当前 run 已有多个浏览器会话，`manual_confirm` 必须用 `browser` 指定同一个可见 Playwright 浏览器窗口。
 - AI 端没有 `/continue`、`/stop`、`/run`、`/validate` 这类 plan 管理命令；不要在提示语里要求用户输入不存在的 Textual 命令。
 - `cplan run` 遇到该动作时，会在当前命令行等待 `y/n`；继续后同一个 run 接着执行，停止会让当前 run 失败并清理浏览器会话。
 - AI 通过工具运行到确认点时，确认会回到当前 Textual 对话；用户可以用自然语言说明继续、停止或指出页面上的问题。

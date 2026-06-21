@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -279,6 +280,7 @@ def call_ai_terminal_tool(
     arguments: dict[str, Any] | None = None,
     *,
     allow_protected: bool = False,
+    allow_run_plan: bool = False,
 ) -> dict[str, Any]:
     _ensure_ai_terminal_tool_registry_consistent()
     if tool_name not in AI_TERMINAL_TOOL_SPECS:
@@ -289,12 +291,16 @@ def call_ai_terminal_tool(
         raise ValueError(
             f"工具 {tool_name} 是受保护工具，只能通过 AI 终端人工审批流程执行。"
         )
+    if tool_name == "run_plan" and not allow_run_plan:
+        raise ValueError("run_plan 只能通过 AI 终端质量门禁后的工具循环执行；无 AI 管理运行请使用 cplan run。")
     raw_arguments = dict(arguments or {})
     injected_arguments: dict[str, Any] = {}
     if tool_name in {"run_plan", "run_debug_plan"}:
         for key in ("_manual_confirmation_handler", "_inspection_confirmation_handler", "_run_event_handler"):
             if key in raw_arguments:
                 injected_arguments[key] = raw_arguments.pop(key)
+    if tool_name == "review_plan_quality" and "_evidence_context" in raw_arguments:
+        injected_arguments["evidence_context"] = raw_arguments.pop("_evidence_context")
     tool_arguments = _validate_ai_terminal_tool_arguments(tool_name, raw_arguments)
     tool_arguments.update(injected_arguments)
     if spec.requires_project_root:
@@ -352,6 +358,7 @@ def check_ai_terminal_tool_registry() -> dict[str, Any]:
         for name, spec in AI_TERMINAL_TOOL_SPECS.items()
         if not callable(spec.handler) or not spec.description or not issubclass(spec.args_schema, BaseModel)
     )
+    schema_signature_mismatches = _schema_signature_mismatches()
     errors = []
     if missing_schemas:
         errors.append(f"缺少 Pydantic 参数 schema：{', '.join(missing_schemas)}")
@@ -367,6 +374,8 @@ def check_ai_terminal_tool_registry() -> dict[str, Any]:
         errors.append(f"PROTECTED_AI_TERMINAL_TOOLS 包含未知工具：{', '.join(invalid_protected_tools)}")
     if invalid_specs:
         errors.append(f"工具定义不正确：{', '.join(invalid_specs)}")
+    if schema_signature_mismatches:
+        errors.append("工具 handler 签名与 Pydantic schema 不一致。")
     return {
         "ok": not errors,
         "registered_tools": len(tool_names),
@@ -381,6 +390,7 @@ def check_ai_terminal_tool_registry() -> dict[str, Any]:
         "invalid_project_root_tools": invalid_project_root_tools,
         "invalid_protected_tools": invalid_protected_tools,
         "invalid_specs": invalid_specs,
+        "schema_signature_mismatches": schema_signature_mismatches,
         "errors": errors,
     }
 
@@ -396,3 +406,37 @@ def _validate_ai_terminal_tool_arguments(tool_name: str, arguments: dict[str, An
     if spec is None:
         raise ValueError(f"AI 终端工具缺少参数 schema：{tool_name}")
     return spec.args_schema.model_validate(arguments).model_dump()
+
+
+def _schema_signature_mismatches() -> list[dict[str, Any]]:
+    mismatches: list[dict[str, Any]] = []
+    for name, spec in AI_TERMINAL_TOOL_SPECS.items():
+        signature = inspect.signature(spec.handler)
+        schema_fields = set(spec.args_schema.model_fields)
+        accepted_fields: set[str] = set()
+        required_handler_fields: set[str] = set()
+        accepts_var_keyword = False
+        for parameter in signature.parameters.values():
+            if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+                accepts_var_keyword = True
+                continue
+            if parameter.kind == inspect.Parameter.VAR_POSITIONAL:
+                continue
+            if spec.requires_project_root and parameter.name == "project_root":
+                continue
+            if parameter.name.startswith("_"):
+                continue
+            accepted_fields.add(parameter.name)
+            if parameter.default is inspect.Parameter.empty:
+                required_handler_fields.add(parameter.name)
+        missing_handler_params = sorted(required_handler_fields - schema_fields)
+        unsupported_schema_fields = sorted(schema_fields - accepted_fields) if not accepts_var_keyword else []
+        if missing_handler_params or unsupported_schema_fields:
+            mismatches.append(
+                {
+                    "name": name,
+                    "missing_schema_fields_for_required_handler_params": missing_handler_params,
+                    "schema_fields_not_accepted_by_handler": unsupported_schema_fields,
+                }
+            )
+    return mismatches

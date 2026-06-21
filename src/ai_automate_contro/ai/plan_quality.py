@@ -49,20 +49,93 @@ ACCOUNT_FIELD_TOKENS = (
     "手机",
 )
 PASSWORD_FIELD_TOKENS = ("password", "passwd", "pwd", "pass", "密码", "口令")
-LOGIN_TOKENS = ("登录", "登陆", "login", "sign in", "signin", "账号", "账户", "密码", "验证码")
+LOGIN_TOKENS = (
+    "登录",
+    "登陆",
+    "login",
+    "sign in",
+    "signin",
+    "认证",
+    "验证",
+    "验证码",
+    "二次验证",
+    "双重验证",
+    "2fa",
+    "mfa",
+    "滑块",
+    "真人验证",
+    "授权",
+    "权限",
+)
+ACCOUNT_REQUEST_TOKENS = (
+    "账号",
+    "用户名",
+    "登录名",
+    "account",
+    "username",
+    "email",
+    "邮箱",
+    "手机号",
+    "手机",
+)
+PASSWORD_REQUEST_TOKENS = ("密码", "password", "passwd", "pwd", "口令")
 OUTPUT_TOKENS = ("写到", "写入", "保存", "导出", "输出", "文件", "产出", "一行一个", "下载", "Downloads", "Desktop", "桌面")
 EXTRACTION_TOKENS = ("拿出来", "提取", "读取", "获取", "抓取", "导出", "列表", "全部", "所有", "一行一个")
-EVIDENCE_TOKENS = (
-    "inspect_web_page",
-    "open_browser.headed=true",
-    "headed=true",
-    "manual_confirm",
-    "探索",
-    "探测",
-    "证据",
-    "已运行",
-    "跑通",
+NEGATIVE_EVIDENCE_TOKENS = (
+    "没有探测",
+    "未探测",
+    "没探测",
+    "缺少探测",
+    "没有探索",
+    "未探索",
+    "缺少探索",
+    "没有证据",
+    "缺少证据",
+    "无证据",
 )
+AUTOMATION_EVIDENCE_TOKENS = (
+    "inspect_web_page",
+    "output_dir",
+    "final_url",
+    "forms",
+    "inputs",
+    "Playwright",
+    "headed=true",
+    "headed 探索",
+    "探索 plan",
+)
+RUN_EVIDENCE_TOKENS = ("run_plan", "run_debug_plan")
+RUN_RESULT_EVIDENCE_TOKENS = ("output_dir", "final_url", "report.md", "state.json", "events.jsonl", "passed", "failed", "已运行", "跑通")
+MANUAL_CONFIRM_EVIDENCE_TOKENS = ("manual_confirm", "人工确认")
+MANUAL_CONFIRM_CONTEXT_TOKENS = ("同一个 Playwright", "当前浏览器", "可见浏览器", "headed", "headed=true", "探索 plan")
+CREDENTIAL_VALUE_STOPWORDS = {
+    "field",
+    "fields",
+    "input",
+    "inputs",
+    "selector",
+    "name",
+    "list",
+    "policy",
+    "required",
+    "optional",
+    "placeholder",
+    "输入框",
+    "字段",
+    "控件",
+    "选择器",
+    "列表",
+    "策略",
+    "要求",
+    "可选",
+    "必填",
+    "为空",
+    "错误",
+    "正确",
+    "泄露",
+    "明文",
+    "星号",
+}
 FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "trace", "event", "coverage"}
 DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
 POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
@@ -76,6 +149,7 @@ def review_plan_quality_tool(
     evidence_summary: str = "",
     planned_output_path: str = "",
     strict: bool = True,
+    evidence_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
     resolved_plan_path = resolve_plan_path(plan_path)
@@ -109,11 +183,12 @@ def review_plan_quality_tool(
             planned_output_path=planned_output_path,
         )
 
-    profile = _profile_request(user_request, evidence_summary, planned_output_path)
     package = _collect_plan_package(resolved_plan_path)
     step_records = package["steps"]
     variables = package["variables"]
     raw_plan_text = package["raw_text"]
+    profile = _profile_request(user_request, evidence_summary, planned_output_path)
+    _augment_profile_from_plan(profile, step_records, variables)
     facts: list[str] = []
     missing_facts: list[str] = []
     uncertain_facts: list[str] = []
@@ -137,8 +212,21 @@ def review_plan_quality_tool(
         )
         missing_facts.append("可执行步骤")
 
-    _review_browser_flow(profile, step_records, variables, evidence_summary, strict, checks, issues, facts, missing_facts, uncertain_facts)
+    _review_browser_flow(
+        profile,
+        step_records,
+        variables,
+        evidence_summary,
+        evidence_context or {},
+        strict,
+        checks,
+        issues,
+        facts,
+        missing_facts,
+        uncertain_facts,
+    )
     _review_credentials(profile, step_records, variables, raw_plan_text, strict, checks, issues, facts, missing_facts, uncertain_facts)
+    _review_login_progression(profile, step_records, variables, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_output(profile, step_records, variables, planned_output_path, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_manual_confirm(profile, step_records, strict, checks, issues, facts, missing_facts, uncertain_facts)
 
@@ -159,6 +247,7 @@ def _review_browser_flow(
     steps: list[dict[str, Any]],
     variables: dict[str, Any],
     evidence_summary: str,
+    evidence_context: dict[str, Any],
     strict: bool,
     checks: list[dict[str, Any]],
     issues: list[dict[str, str]],
@@ -168,9 +257,12 @@ def _review_browser_flow(
 ) -> None:
     has_open_browser = any(_action(record) == "open_browser" for record in steps)
     navigate_steps = [record for record in steps if _action(record) == "navigate" and record["step"].get("type") == "goto"]
-    headed_exploration = any(_action(record) == "open_browser" and bool(record["step"].get("headed")) for record in steps)
     has_manual_confirm = any(_action(record) == "manual_confirm" for record in steps)
-    has_browser_evidence = _contains_any(evidence_summary, EVIDENCE_TOKENS)
+    has_browser_evidence = _has_real_site_automation_evidence(
+        evidence_summary,
+        urls=profile["urls"],
+        evidence_context=evidence_context,
+    )
     request_urls = profile["urls"]
     url_covered = True
     uncovered_urls: list[str] = []
@@ -209,7 +301,7 @@ def _review_browser_flow(
         facts.append("已覆盖目标网站导航")
 
     evidence_needed = profile["is_real_site"]
-    evidence_ok = not evidence_needed or has_browser_evidence or headed_exploration
+    evidence_ok = not evidence_needed or has_browser_evidence
     checks.append(
         {
             "name": "real_site_evidence",
@@ -217,16 +309,18 @@ def _review_browser_flow(
             "detail": {
                 "needs_evidence": evidence_needed,
                 "evidence_summary_present": bool(str(evidence_summary or "").strip()),
-                "headed_exploration": headed_exploration,
+                "evidence_context_present": bool(evidence_context),
+                "headed_exploration_in_plan": any(
+                    _action(record) == "open_browser" and bool(record["step"].get("headed")) for record in steps
+                ),
                 "manual_confirm": has_manual_confirm,
             },
         }
     )
     if not evidence_ok:
-        severity = "fail" if strict else "warn"
         issues.append(
             _issue(
-                severity,
+                "fail",
                 "missing_real_site_evidence",
                 "真实网站最终 plan 运行前缺少探测或探索证据，容易按文字猜 selector。",
                 "evidence_summary 为空或没有自动化探测/探索证据",
@@ -252,8 +346,8 @@ def _review_credentials(
 ) -> None:
     account_values = profile["account_values"]
     password_values = profile["password_values"]
-    account_needed = profile["mentions_account"] or bool(account_values)
-    password_needed = profile["mentions_password"] or bool(password_values)
+    account_needed = bool(account_values) or profile["mentions_account"]
+    password_needed = bool(password_values) or profile["mentions_password"]
     fill_steps = [
         record
         for record in steps
@@ -306,6 +400,63 @@ def _review_credentials(
 
     if (account_needed or password_needed) and fill_steps and (not account_fills or not password_fills):
         uncertain_facts.append("存在输入步骤，但无法确认是否分别覆盖账号和密码")
+
+
+def _review_login_progression(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    strict: bool,
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+    uncertain_facts: list[str],
+) -> None:
+    login_needed = bool(profile["mentions_login"] or profile["mentions_account"] or profile["mentions_password"])
+    account_values = profile["account_values"]
+    password_values = profile["password_values"]
+    fill_indexes = [
+        index
+        for index, record in enumerate(steps)
+        if _action(record) == "element"
+        and str(record["step"].get("type", "")).lower() in {"fill", "type"}
+        and (
+            _is_account_fill(record["step"], variables, account_values)
+            or _is_password_fill(record["step"], variables, password_values)
+        )
+    ]
+    last_fill_index = max(fill_indexes) if fill_indexes else -1
+    progression_steps = [
+        record
+        for index, record in enumerate(steps)
+        if index > last_fill_index and _is_login_progression_step(record)
+    ]
+    progression_ok = not login_needed or not fill_indexes or bool(progression_steps)
+    checks.append(
+        {
+            "name": "login_submit_or_handoff",
+            "passed": progression_ok,
+            "detail": {
+                "login_needed": login_needed,
+                "credential_fill_locations": [steps[index]["location"] for index in fill_indexes],
+                "progression_locations": [record["location"] for record in progression_steps],
+            },
+        }
+    )
+    if login_needed and fill_indexes and not progression_steps:
+        issues.append(
+            _issue(
+                "fail" if strict else "warn",
+                "missing_login_submit_or_handoff",
+                "plan 填写登录凭据后没有提交、回车、人工交接或后续登录推进步骤。",
+                ", ".join(steps[index]["location"] for index in fill_indexes),
+                "在密码/账号填入后补充登录按钮 click、Enter 提交、manual_confirm 交接，或可证明进入后台的提交触发步骤。",
+            )
+        )
+        missing_facts.append("登录提交或人工交接步骤")
+    elif login_needed and fill_indexes:
+        facts.append("已覆盖登录提交或人工交接")
 
 
 def _review_output(
@@ -437,10 +588,11 @@ def _review_manual_confirm(
     if not manual_indexes:
         checks.append({"name": "manual_confirm_continuation", "passed": True, "detail": "没有 manual_confirm"})
         return
+    last_manual_index = max(manual_indexes)
     has_followup = any(
         _action(record) in POST_MANUAL_ACTIONS
         for index, record in enumerate(steps)
-        if any(index > manual_index for manual_index in manual_indexes)
+        if index > last_manual_index
     )
     check_passed = has_followup or not (profile["needs_output"] or profile["needs_extraction"])
     checks.append(
@@ -449,7 +601,8 @@ def _review_manual_confirm(
             "passed": check_passed,
             "detail": {
                 "manual_confirm_locations": [steps[index]["location"] for index in manual_indexes],
-                "has_followup_data_or_output_step": has_followup,
+                "last_manual_confirm_location": steps[last_manual_index]["location"],
+                "has_followup_data_or_output_step_after_last": has_followup,
             },
         }
     )
@@ -593,21 +746,21 @@ def _resolve_sub_plan_path(package_root: Path, raw_path: Any) -> Path | None:
 
 def _profile_request(user_request: str, evidence_summary: str, planned_output_path: str) -> dict[str, Any]:
     request = str(user_request or "")
-    evidence = str(evidence_summary or "")
-    combined = f"{request}\n{evidence}"
     urls = _dedupe(URL_RE.findall(request))
     output_hint = planned_output_path or _extract_output_hint(request)
     output_filename = _extract_output_filename(planned_output_path, request)
-    account_values = _dedupe(_clean_labeled_value(match) for match in ACCOUNT_VALUE_RE.findall(request))
-    password_values = _dedupe(_clean_labeled_value(match) for match in PASSWORD_VALUE_RE.findall(request))
+    account_values = _credential_values(ACCOUNT_VALUE_RE.findall(request))
+    password_values = _credential_values(PASSWORD_VALUE_RE.findall(request))
+    login_intent = _contains_any(request, LOGIN_TOKENS)
     is_real_site = any(_is_real_http_url(url) for url in urls)
     return {
         "urls": urls,
-        "needs_browser": bool(urls) or _contains_any(request, ("网站", "页面", "浏览器", "后台", "菜单", "表单", "登录", "验证码")),
+        "needs_browser": bool(urls)
+        or _contains_any(request, ("网站", "页面", "浏览器", "后台", "菜单", "表单", "登录", "验证码")),
         "is_real_site": is_real_site,
-        "mentions_login": _contains_any(combined, LOGIN_TOKENS),
-        "mentions_account": bool(account_values) or _contains_any(request, ("账号", "账户", "用户名", "用户", "邮箱", "手机号", "账户名称", "account", "username", "email")),
-        "mentions_password": bool(password_values) or _contains_any(request, ("密码", "password", "passwd", "pwd")),
+        "mentions_login": login_intent,
+        "mentions_account": bool(account_values) or (login_intent and _contains_any(request, ACCOUNT_REQUEST_TOKENS)),
+        "mentions_password": bool(password_values) or (login_intent and _contains_any(request, PASSWORD_REQUEST_TOKENS)),
         "account_values": [value for value in account_values if value],
         "password_values": [value for value in password_values if value],
         "needs_output": bool(output_hint or output_filename) or _contains_any(request, OUTPUT_TOKENS),
@@ -616,6 +769,130 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
         "output_filename": output_filename,
         "requested_output_hint": output_hint,
     }
+
+
+def _augment_profile_from_plan(profile: dict[str, Any], steps: list[dict[str, Any]], variables: dict[str, Any]) -> None:
+    plan_urls = _extract_plan_urls(steps, variables)
+    if plan_urls:
+        profile["urls"] = _dedupe([*profile.get("urls", []), *plan_urls])
+    if any(_is_real_http_url(url) for url in profile.get("urls", [])):
+        profile["is_real_site"] = True
+        profile["needs_browser"] = True
+    if any(_action(record) in {"open_browser", "navigate", "element", "extract"} for record in steps):
+        profile["needs_browser"] = bool(profile.get("needs_browser")) or any(
+            _is_real_http_url(url) for url in profile.get("urls", [])
+        )
+
+
+def _extract_plan_urls(steps: list[dict[str, Any]], variables: dict[str, Any]) -> list[str]:
+    urls: list[str] = []
+    for record in steps:
+        step = record["step"]
+        if _action(record) != "navigate":
+            continue
+        raw_url = step.get("url")
+        resolved_text = _resolved_step_text(raw_url, variables)
+        urls.extend(URL_RE.findall(resolved_text))
+    for value in variables.values():
+        if isinstance(value, str):
+            urls.extend(URL_RE.findall(value))
+    return _dedupe(urls)
+
+
+def _has_real_site_automation_evidence(
+    evidence_summary: str,
+    *,
+    urls: list[str],
+    evidence_context: dict[str, Any],
+) -> bool:
+    text = str(evidence_summary or "").strip()
+    if not text and not evidence_context:
+        return False
+    if _contains_any(text, NEGATIVE_EVIDENCE_TOKENS):
+        return False
+    text_url_ok = _evidence_text_matches_urls(text, urls)
+    context_url_ok = _evidence_context_matches_urls(evidence_context, urls)
+    has_url_binding = text_url_ok or context_url_ok or not urls
+    has_concrete_text_marker = _contains_any(
+        text,
+        (
+            "final_url",
+            "resolved_url",
+            "requested_url",
+            "title=",
+            "url=",
+            "forms",
+            "inputs",
+            "buttons",
+            "output_dir",
+            "report.md",
+            "state.json",
+            "passed",
+            "failed",
+        ),
+    )
+    if _contains_any(text, AUTOMATION_EVIDENCE_TOKENS) and has_url_binding and (has_concrete_text_marker or context_url_ok):
+        return True
+    if (
+        _contains_any(text, RUN_EVIDENCE_TOKENS)
+        and _contains_any(text, RUN_RESULT_EVIDENCE_TOKENS)
+        and has_url_binding
+    ):
+        return True
+    return (
+        _contains_any(text, MANUAL_CONFIRM_EVIDENCE_TOKENS)
+        and _contains_any(text, MANUAL_CONFIRM_CONTEXT_TOKENS)
+        and has_url_binding
+    )
+
+
+def _evidence_text_matches_urls(text: str, urls: list[str]) -> bool:
+    if not urls:
+        return bool(URL_RE.search(text))
+    evidence_urls = URL_RE.findall(text)
+    if not evidence_urls:
+        return False
+    return any(_same_url_host(evidence_url, request_url) for evidence_url in evidence_urls for request_url in urls)
+
+
+def _evidence_context_matches_urls(context: dict[str, Any], urls: list[str]) -> bool:
+    if not context:
+        return False
+    candidates: list[str] = []
+    for key, value in context.items():
+        if isinstance(value, str) and ("url" in key.lower() or value.startswith(("http://", "https://"))):
+            candidates.extend(URL_RE.findall(value))
+    if not candidates:
+        return False
+    if not urls:
+        return True
+    return any(_same_url_host(candidate, request_url) for candidate in candidates for request_url in urls)
+
+
+def _same_url_host(left: str, right: str) -> bool:
+    left_host = urlparse(left).netloc.lower()
+    right_host = urlparse(right).netloc.lower()
+    return bool(left_host and right_host and left_host == right_host)
+
+
+def _credential_values(raw_values: Any) -> list[str]:
+    return _dedupe(
+        value
+        for value in (_clean_labeled_value(match) for match in raw_values)
+        if _looks_like_supplied_credential_value(value)
+    )
+
+
+def _looks_like_supplied_credential_value(value: str) -> bool:
+    text = str(value or "").strip()
+    if not text:
+        return False
+    lowered = text.lower().strip("\"'“”‘’")
+    if lowered in CREDENTIAL_VALUE_STOPWORDS:
+        return False
+    if len(lowered) <= 1:
+        return False
+    return True
 
 
 def _extract_output_hint(request: str) -> str:
@@ -675,6 +952,25 @@ def _is_password_fill(step: dict[str, Any], variables: dict[str, Any], password_
     if _contains_any(value_text, PASSWORD_FIELD_TOKENS) and "{{" in str(step.get("value", "")):
         return True
     return bool(password_values and _value_matches_any(value_text, password_values, variables))
+
+
+def _is_login_progression_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    step = record["step"]
+    step_type = str(step.get("type", "")).lower()
+    if action == "manual_confirm":
+        return True
+    if action == "element":
+        if step_type in {"click", "dblclick", "tap"}:
+            return True
+        if step_type == "press":
+            return "enter" in str(step.get("key", "")).lower()
+    if action == "keyboard" and step_type == "press":
+        return "enter" in str(step.get("key", "")).lower()
+    if action == "script" and step_type == "evaluate":
+        script_text = str(step.get("js", "")).lower()
+        return "submit" in script_text or ".click(" in script_text
+    return action in {"wait_for_network", "wait_for_popup"}
 
 
 def _value_matches_any(value_text: str, expected_values: list[str], variables: dict[str, Any]) -> bool:

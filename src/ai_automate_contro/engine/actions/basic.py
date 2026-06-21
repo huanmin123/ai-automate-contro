@@ -32,7 +32,7 @@ def action_variable(executor: Any, step: dict[str, Any]) -> None:
 
 def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
     prompt = step.get("prompt", "Continue? Input y to proceed: ")
-    _ensure_manual_confirm_has_visible_browser_if_needed(executor)
+    _ensure_manual_confirm_has_visible_browser_if_needed(executor, step)
     if executor.state.manual_confirmation_handler is not None:
         executor.state.logger.log("info", "waiting for manual confirmation", prompt=str(prompt))
         executor.state.state_writer.mark_waiting(prompt=str(prompt))
@@ -47,11 +47,35 @@ def action_manual_confirm(executor: Any, step: dict[str, Any]) -> None:
         raise RuntimeError("人工确认未通过。")
 
 
-def _ensure_manual_confirm_has_visible_browser_if_needed(executor: Any) -> None:
+def _ensure_manual_confirm_has_visible_browser_if_needed(executor: Any, step: dict[str, Any]) -> None:
     sessions = getattr(getattr(executor, "state", None), "sessions", {})
+    target_browser = str(step.get("browser") or "").strip()
     if not sessions:
+        if target_browser:
+            raise RuntimeError(f"manual_confirm 指定了 browser={target_browser}，但当前没有浏览器会话。")
         return
-    if any(bool(getattr(session, "headed", False)) for session in sessions.values()):
+    if target_browser:
+        session = sessions.get(target_browser)
+        if session is None:
+            session_names = ", ".join(str(name) for name in sessions.keys())
+            raise RuntimeError(
+                f"manual_confirm 指定的浏览器会话不存在：{target_browser}。当前会话：{session_names}。"
+            )
+        if bool(getattr(session, "headed", False)):
+            return
+        raise RuntimeError(
+            "manual_confirm 需要同一个可见 Playwright 浏览器窗口。"
+            f"指定浏览器 {target_browser} 不是 headed=true。"
+            "请把对应 open_browser.headed 设置为 true。"
+        )
+    if len(sessions) > 1:
+        session_names = ", ".join(str(name) for name in sessions.keys())
+        raise RuntimeError(
+            "manual_confirm 前已有多个浏览器会话，无法确定用户应操作哪一个窗口。"
+            f"当前会话：{session_names}。请在 manual_confirm.browser 显式指定目标浏览器，并确保它 headed=true。"
+        )
+    only_session = next(iter(sessions.values()))
+    if bool(getattr(only_session, "headed", False)):
         return
     session_names = ", ".join(str(name) for name in sessions.keys())
     raise RuntimeError(

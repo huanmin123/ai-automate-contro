@@ -32,6 +32,10 @@ class AITerminalState(AgentState):
     latest_plan_quality_review_ok: NotRequired[str]
     latest_plan_quality_review_severity: NotRequired[str]
     latest_plan_quality_review_next_action: NotRequired[str]
+    latest_web_inspection_requested_url: NotRequired[str]
+    latest_web_inspection_resolved_url: NotRequired[str]
+    latest_web_inspection_final_url: NotRequired[str]
+    latest_web_inspection_title: NotRequired[str]
     work_plan_items: NotRequired[list[dict[str, str]]]
     work_plan_summary: NotRequired[str]
 
@@ -123,6 +127,18 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     if isinstance(quality_review_signature, str) and quality_review_signature:
         lines.append("- latest_plan_quality_review_signature: <recorded>")
         added = True
+    web_final_url = state.get("latest_web_inspection_final_url")
+    web_requested_url = state.get("latest_web_inspection_requested_url")
+    web_title = state.get("latest_web_inspection_title")
+    if isinstance(web_requested_url, str) and web_requested_url:
+        lines.append(f"- latest_web_inspection_requested_url: {web_requested_url}")
+        added = True
+    if isinstance(web_final_url, str) and web_final_url:
+        lines.append(f"- latest_web_inspection_final_url: {web_final_url}")
+        added = True
+    if isinstance(web_title, str) and web_title:
+        lines.append(f"- latest_web_inspection_title: {web_title}")
+        added = True
     if not added:
         plan_context = format_work_plan_for_context(
             state.get("work_plan_items"),
@@ -194,6 +210,12 @@ def context_update_from_tool_result(
         _capture_context_value(update, "latest_plan_quality_review_next_action", result.get("next_action"))
         if "ok" in result:
             update["latest_plan_quality_review_ok"] = "true" if bool(result.get("ok")) else "false"
+    if tool_name == "inspect_web_page" and result.get("ok") is not False:
+        page = result.get("page") if isinstance(result.get("page"), dict) else {}
+        _capture_context_value(update, "latest_web_inspection_requested_url", result.get("requested_url"))
+        _capture_context_value(update, "latest_web_inspection_resolved_url", result.get("resolved_url"))
+        _capture_context_value(update, "latest_web_inspection_final_url", page.get("final_url"))
+        _capture_context_value(update, "latest_web_inspection_title", page.get("title"))
     if tool_name in {
         "read_debug_workspace",
         "inject_debug_steps",
@@ -232,5 +254,5 @@ def _capture_context_value(update: dict[str, str], key: str, value: Any) -> None
     if key == "output_dir":
         update["latest_output_dir"] = str(path_from_text(value).resolve())
         return
-    if key.startswith("latest_plan_quality_review_"):
+    if key.startswith("latest_plan_quality_review_") or key.startswith("latest_web_inspection_"):
         update[key] = str(value)

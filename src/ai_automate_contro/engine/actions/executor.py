@@ -251,7 +251,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "write": ("type", "path"),
         "assert": ("browser", "page", "type", "selector", "text", "url", "expected"),
         "extract": ("browser", "page", "type", "selector", "save_as"),
-        "manual_confirm": ("prompt",),
+        "manual_confirm": ("browser", "prompt"),
         "run_sub_plan": ("path",),
         "sleep": ("seconds",),
         "ai": ("type", "save_as"),

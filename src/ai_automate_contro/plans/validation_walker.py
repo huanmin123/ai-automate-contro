@@ -219,65 +219,141 @@ def validate_manual_confirm_visible_browser_flow(
     stack: list[Path],
     active_sessions: dict[str, bool],
 ) -> dict[str, bool]:
-    sessions = dict(active_sessions)
+    states = _validate_manual_confirm_visible_browser_flow_states(
+        steps,
+        location_prefix=location_prefix,
+        package_root=package_root,
+        issues=issues,
+        stack=stack,
+        active_states=[dict(active_sessions)],
+    )
+    return _merge_possible_session_states(states)
+
+
+def _validate_manual_confirm_visible_browser_flow_states(
+    steps: list[Any],
+    *,
+    location_prefix: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    stack: list[Path],
+    active_states: list[dict[str, bool]],
+) -> list[dict[str, bool]]:
+    states = _dedupe_session_states(active_states)
+    reported_manual_confirm_states: set[tuple[str, tuple[tuple[str, bool], ...]]] = set()
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
         location = f"{location_prefix}[{index}]"
         if isinstance(step.get("trigger"), dict):
-            sessions = validate_manual_confirm_visible_browser_flow(
+            states = _validate_manual_confirm_visible_browser_flow_states(
                 [step["trigger"]],
                 location_prefix=f"{location}.trigger",
                 package_root=package_root,
                 issues=issues,
                 stack=stack,
-                active_sessions=sessions,
+                active_states=states,
             )
 
         action = step.get("action")
         if action == "open_browser":
             name = step.get("name")
             if isinstance(name, str) and name:
-                sessions[name] = bool(step.get("headed", False))
+                states = [{**state, name: bool(step.get("headed", False))} for state in states]
         elif action == "close_browser":
             browser = step.get("browser")
             if isinstance(browser, str):
-                sessions.pop(browser, None)
-        elif action == "manual_confirm" and sessions and not any(sessions.values()):
-            active = ", ".join(sorted(sessions))
-            issues.append(
-                ValidationIssue(
-                    location,
-                    "manual_confirm 前已有浏览器会话，但没有 headed=true 的可见浏览器。"
-                    f"当前会话：{active}。需要用户在页面里操作时，请把 open_browser.headed 设为 true。",
-                )
-            )
+                next_states: list[dict[str, bool]] = []
+                for state in states:
+                    next_state = dict(state)
+                    next_state.pop(browser, None)
+                    next_states.append(next_state)
+                states = _dedupe_session_states(next_states)
+        elif action == "manual_confirm":
+            for state in states:
+                issue_message = _manual_confirm_visible_browser_issue(step, state)
+                if not issue_message:
+                    continue
+                state_key = (location, tuple(sorted(state.items())))
+                if state_key in reported_manual_confirm_states:
+                    continue
+                reported_manual_confirm_states.add(state_key)
+                issues.append(ValidationIssue(location, issue_message))
         elif action == "run_sub_plan":
-            sessions = _validate_manual_confirm_visible_sub_plan(step, location, package_root, issues, stack, sessions)
+            next_states: list[dict[str, bool]] = []
+            for state in states:
+                next_states.extend(
+                    _validate_manual_confirm_visible_sub_plan_states(
+                        step,
+                        location,
+                        package_root,
+                        issues,
+                        stack,
+                        state,
+                    )
+                )
+            states = _dedupe_session_states(next_states)
         elif action == "if":
+            branch_states: list[dict[str, bool]] = []
             for branch in ("then", "else"):
                 branch_steps = step.get(branch, [])
                 if isinstance(branch_steps, list):
-                    validate_manual_confirm_visible_browser_flow(
-                        branch_steps,
-                        location_prefix=f"{location}.{branch}",
-                        package_root=package_root,
-                        issues=issues,
-                        stack=stack,
-                        active_sessions=sessions,
+                    branch_states.extend(
+                        _validate_manual_confirm_visible_browser_flow_states(
+                            branch_steps,
+                            location_prefix=f"{location}.{branch}",
+                            package_root=package_root,
+                            issues=issues,
+                            stack=stack,
+                            active_states=states,
+                        )
                     )
+            states = _dedupe_session_states(branch_states) if branch_states else states
         elif action in {"foreach", "retry"}:
             child_steps = step.get("steps", [])
             if isinstance(child_steps, list):
-                validate_manual_confirm_visible_browser_flow(
+                child_states = _validate_manual_confirm_visible_browser_flow_states(
                     child_steps,
                     location_prefix=f"{location}.steps",
                     package_root=package_root,
                     issues=issues,
                     stack=stack,
-                    active_sessions=sessions,
+                    active_states=states,
                 )
-    return sessions
+                if action == "foreach":
+                    states = _dedupe_session_states([*states, *child_states])
+                else:
+                    states = _dedupe_session_states(child_states)
+    return _dedupe_session_states(states)
+
+
+def _manual_confirm_visible_browser_issue(step: dict[str, Any], state: dict[str, bool]) -> str:
+    target_browser = step.get("browser")
+    if isinstance(target_browser, str) and target_browser.strip():
+        browser_name = target_browser.strip()
+        if browser_name not in state:
+            active = ", ".join(sorted(state)) or "<无>"
+            return f"manual_confirm 指定的浏览器会话不存在：{browser_name}。当前会话：{active}。"
+        if not state.get(browser_name, False):
+            return (
+                "manual_confirm 需要同一个可见 Playwright 浏览器窗口。"
+                f"指定浏览器 {browser_name} 不是 headed=true。需要用户在页面里操作时，请把对应 open_browser.headed 设为 true。"
+            )
+        return ""
+    if not state:
+        return ""
+    active = ", ".join(sorted(state))
+    if not any(state.values()):
+        return (
+            "manual_confirm 前已有浏览器会话，但没有 headed=true 的可见浏览器。"
+            f"当前会话：{active}。需要用户在页面里操作时，请把 open_browser.headed 设为 true。"
+        )
+    if len(state) > 1:
+        return (
+            "manual_confirm 前已有多个浏览器会话，无法确定用户应操作哪一个窗口。"
+            f"当前会话：{active}。请在 manual_confirm.browser 显式指定目标浏览器。"
+        )
+    return ""
 
 
 def _validate_manual_confirm_visible_sub_plan(
@@ -288,31 +364,73 @@ def _validate_manual_confirm_visible_sub_plan(
     stack: list[Path],
     active_sessions: dict[str, bool],
 ) -> dict[str, bool]:
+    states = _validate_manual_confirm_visible_sub_plan_states(
+        step,
+        location,
+        package_root,
+        issues,
+        stack,
+        active_sessions,
+    )
+    return _merge_possible_session_states(states)
+
+
+def _validate_manual_confirm_visible_sub_plan_states(
+    step: dict[str, Any],
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    stack: list[Path],
+    active_sessions: dict[str, bool],
+) -> list[dict[str, bool]]:
     raw_path = step.get("path")
     if not isinstance(raw_path, str) or not raw_path or "{{" in raw_path or "}}" in raw_path:
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     if is_absolute_path_text(raw_path):
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     path = path_from_text(raw_path)
     if not path.parts or path.parts[0] != "sub-plans" or path.name == "plan.json":
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     resolved_path = (package_root / path).resolve()
     sub_plans_dir = (package_root / "sub-plans").resolve()
     if not is_relative_to(resolved_path, sub_plans_dir) or not resolved_path.exists():
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     if resolved_path in stack:
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     document = load_json_document(resolved_path, issues)
     if document is None:
-        return dict(active_sessions)
+        return [dict(active_sessions)]
     child_steps = document.get("steps", [])
     if not isinstance(child_steps, list):
-        return dict(active_sessions)
-    return validate_manual_confirm_visible_browser_flow(
+        return [dict(active_sessions)]
+    return _validate_manual_confirm_visible_browser_flow_states(
         child_steps,
         location_prefix=f"{resolved_path}:steps",
         package_root=package_root,
         issues=issues,
         stack=[*stack, resolved_path],
-        active_sessions=active_sessions,
+        active_states=[dict(active_sessions)],
     )
+
+
+def _merge_possible_session_states(states: list[dict[str, bool]]) -> dict[str, bool]:
+    merged: dict[str, bool] = {}
+    for state in states:
+        for name, headed in state.items():
+            if name not in merged:
+                merged[name] = headed
+            else:
+                merged[name] = merged[name] and headed
+    return merged
+
+
+def _dedupe_session_states(states: list[dict[str, bool]]) -> list[dict[str, bool]]:
+    deduped: list[dict[str, bool]] = []
+    seen: set[tuple[tuple[str, bool], ...]] = set()
+    for state in states:
+        key = tuple(sorted(state.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(dict(state))
+    return deduped or [{}]

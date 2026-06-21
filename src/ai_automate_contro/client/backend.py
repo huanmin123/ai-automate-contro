@@ -27,7 +27,7 @@ class AgentClientBackend(Protocol):
     async def confirm_active_wait(self, message: str) -> AsyncIterator[ClientEvent]:
         """Confirm, stop, or close the current visible wait and yield any resulting events."""
 
-    async def classify_active_turn_input(self, message: str) -> str:
+    async def classify_active_turn_input(self, message: str, *, context: dict[str, Any] | None = None) -> str:
         """Classify whether busy-turn input confirms the wait or corrects the task."""
 
     async def attach_clipboard_images(self) -> list[str]:
@@ -77,7 +77,11 @@ class FakeAgentBackend:
             yield ClientEvent("tool_finished", title="inspect_web_page", text="发现登录字段/验证信号")
             yield ClientEvent("activity", text="完成 inspect_web_page", data={"category": "tool", "phase": "done"})
         if "审批" in message:
-            yield ClientEvent("approval_requested", text="AI 请求执行受保护工具。\n输入 /approve 批准执行。")
+            yield ClientEvent(
+                "approval_requested",
+                text="AI 请求执行受保护工具。\n输入 /approve 批准执行。",
+                data={"approval_kind": "tool_approval"},
+            )
         if "错误" in message:
             yield ClientEvent("error", text="模拟错误")
         for chunk in _chunk_text(self.response, size=3):
@@ -97,7 +101,7 @@ class FakeAgentBackend:
             yield ClientEvent("status", text="")
         return
 
-    async def classify_active_turn_input(self, message: str) -> str:
+    async def classify_active_turn_input(self, message: str, *, context: dict[str, Any] | None = None) -> str:
         return FEEDBACK_OR_CORRECTION
 
     async def attach_clipboard_images(self) -> list[str]:
@@ -222,7 +226,7 @@ class AITerminalBackend:
                 return
         yield ClientEvent("error", text="当前等待没有接收这条输入，请重新发送或按 Esc 介入。")
 
-    async def classify_active_turn_input(self, message: str) -> str:
+    async def classify_active_turn_input(self, message: str, *, context: dict[str, Any] | None = None) -> str:
         wait_prompt = ""
         wait_type = ""
         terminal = self._terminal
@@ -237,6 +241,7 @@ class AITerminalBackend:
                 message,
                 prompt=wait_prompt,
                 wait_type=wait_type,
+                context=context,
             )
             if intent in ACTIVE_TURN_INPUT_INTENTS:
                 return intent
@@ -322,11 +327,8 @@ class AITerminalBackend:
             return
         alive_workers = {worker for worker in self._retired_workers if not worker.done()}
         if alive_workers:
-            _, pending_workers = await asyncio.wait(alive_workers, timeout=INTERRUPT_GRACE_SECONDS)
-        else:
-            pending_workers = set()
-        if pending_workers:
-            self._fork_thread_for_intervention()
+            await asyncio.wait(alive_workers, timeout=INTERRUPT_GRACE_SECONDS)
+        self._fork_thread_for_intervention()
         self._needs_intervention_fork = False
 
     def _fork_thread_for_intervention(self) -> None:

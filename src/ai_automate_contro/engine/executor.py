@@ -12,7 +12,7 @@ from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.plans.results import PlanResult, write_report_markdown, write_result_json
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.state import RunStateWriter
-from ai_automate_contro.support.paths import path_from_text
+from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp, sanitize_name
 
 
@@ -40,7 +40,7 @@ def execute_plan(
     plan_dir = resolved_plan_path.parent if resolved_plan_path else root_path
     resolved_run_name = run_name or plan.get("name") or (resolved_plan_path.stem if resolved_plan_path else "plan-run")
     resolved_output_dir = (
-        path_from_text(output_dir).resolve()
+        _resolve_run_output_dir(output_dir, plan_dir)
         if output_dir
         else ensure_directory(plan_dir / "output" / f"{make_timestamp()}-{sanitize_name(resolved_run_name)}")
     )
@@ -193,6 +193,15 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+def _resolve_run_output_dir(output_dir: str | Path, plan_dir: Path) -> Path:
+    path = path_from_text(output_dir)
+    if is_absolute_path_text(output_dir):
+        return path.resolve()
+    if path.parts and path.parts[0] == "output":
+        return (plan_dir / path).resolve()
+    return path.resolve()
 
 
 def _should_wait_for_inspection(plan_config: dict[str, Any]) -> bool:

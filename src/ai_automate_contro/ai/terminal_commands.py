@@ -113,6 +113,7 @@ class AITerminalCommandsMixin:
         self._last_error = ""
         self._clear_pending_attachments()
         session = current_ai_terminal_session(self.checkpointer, self.thread_id, project_root=self.project_root)
+        self._runtime_context_state = dict(session.context_state) if session is not None else {}
         self._emit_system_output(f"AI 会话线程：{self.thread_id}")
         if session is not None:
             self._emit_system_output(
@@ -128,6 +129,7 @@ class AITerminalCommandsMixin:
         self._approval_resume_active = False
         self._last_error = ""
         self._clear_pending_attachments()
+        self._runtime_context_state = {}
         self._emit_system_output(f"AI 会话线程：{self.thread_id}")
 
     def _add_image_file(self, arg: str) -> None:

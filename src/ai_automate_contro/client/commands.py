@@ -16,7 +16,6 @@ class ClientCommandSpec:
 
 
 LOCAL_COMMANDS: dict[str, str] = {
-    "check": "检查当前 AI 服务真实连通性",
     "clear": "清空当前屏幕对话",
     "copy-last": "把最近一条 AI 回复写入本地剪贴板文件",
     "details": "切换工具调用细节显示",

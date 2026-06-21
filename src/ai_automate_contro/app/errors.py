@@ -21,7 +21,7 @@ class UserFacingError(Exception):
         return self.message
 
 
-def print_cli_error(error: BaseException, *, project_root: Path | None = None) -> int:
+def print_cli_error(error: BaseException, *, project_root: Path | None = None, surface: str = "ai") -> int:
     if isinstance(error, KeyboardInterrupt):
         print("已取消。", file=sys.stderr)
         return 130
@@ -36,7 +36,7 @@ def print_cli_error(error: BaseException, *, project_root: Path | None = None) -
     if _is_external_ai_service_error(error):
         return 1
 
-    fix = _generic_fix_for(error, project_root=project_root)
+    fix = _generic_fix_for(error, project_root=project_root, surface=surface)
     if fix:
         print("处理办法：", file=sys.stderr)
         for line in _as_lines(fix):
@@ -63,7 +63,7 @@ def format_error_for_terminal(error: BaseException | object, *, project_root: Pa
             lines = friendly
         else:
             lines = [f"错误：{message}"]
-        fix = _generic_fix_for(error, project_root=project_root)
+        fix = _generic_fix_for(error, project_root=project_root, surface="ai")
         if fix and not any(line.startswith("处理办法：") for line in lines):
             lines.append("处理办法：")
             lines.extend(f"  {line}" for line in _as_lines(fix))
@@ -109,13 +109,15 @@ def _user_facing_error_lines(error: UserFacingError) -> list[str]:
     return lines
 
 
-def _generic_fix_for(error: BaseException, *, project_root: Path | None) -> str:
+def _generic_fix_for(error: BaseException, *, project_root: Path | None, surface: str) -> str:
     if isinstance(error, FileNotFoundError):
         location_command = "Set-Location" if platform.system() == "Windows" else "cd"
         return f"检查命令里的文件路径是否存在；相对路径请确认当前 {location_command} 所在目录。"
     if isinstance(error, PermissionError):
         return "检查文件是否被占用、是否有读写权限，或换到有权限的工作目录后重试。"
     if isinstance(error, (ValueError, KeyError)):
+        if surface == "cplan":
+            return "检查命令参数、plan.json、config.json、plan.config 或 debug workspace；然后运行 cplan self-check runtime。"
         return "检查命令参数、plan.json、config.json 或 plan.config。plan 侧先运行 cplan self-check runtime，AI 侧先运行 self-check env。"
     return ""
 
@@ -173,7 +175,7 @@ def _friendly_text_error(text: str) -> list[str] | None:
             "错误：AI 正在处理上一轮请求。",
             "处理办法：",
             "  等待当前回复完成后再输入下一句。",
-            "  如果当前等待不想继续，按 Ctrl+C 中断。",
+            "  如果在 Textual 客户端里不想继续，按 Esc 中断当前等待。",
         ]
     if lowered.startswith("run is waiting for browser inspection"):
         return [

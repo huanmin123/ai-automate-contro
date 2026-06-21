@@ -35,6 +35,10 @@ CONTEXT_STATE_KEYS = (
     "latest_plan_quality_review_ok",
     "latest_plan_quality_review_severity",
     "latest_plan_quality_review_next_action",
+    "latest_web_inspection_requested_url",
+    "latest_web_inspection_resolved_url",
+    "latest_web_inspection_final_url",
+    "latest_web_inspection_title",
 )
 
 

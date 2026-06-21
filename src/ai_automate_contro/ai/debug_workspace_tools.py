@@ -9,7 +9,7 @@ from ai_automate_contro.debug.workspace import (
     find_debug_workspace,
     generate_debug_patch,
 )
-from ai_automate_contro.ai.debug_workspace_io import (
+from ai_automate_contro.debug.workspace_io import (
     debug_relative_path,
     read_debug_manifest,
     read_debug_plan_tree,

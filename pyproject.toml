@@ -3,7 +3,7 @@ requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "keygen-openai-account"
+name = "ai-automate-contro"
 version = "0.1.0"
 description = "JSON plan automation kernel built with Python and Playwright."
 readme = "README.md"

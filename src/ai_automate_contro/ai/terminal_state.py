@@ -74,6 +74,10 @@ class AITerminalStateMixin:
             "latest_plan_quality_review_ok",
             "latest_plan_quality_review_severity",
             "latest_plan_quality_review_next_action",
+            "latest_web_inspection_requested_url",
+            "latest_web_inspection_resolved_url",
+            "latest_web_inspection_final_url",
+            "latest_web_inspection_title",
         ):
             value = values.get(key)
             if isinstance(value, str) and value:
@@ -256,6 +260,7 @@ class AITerminalStateMixin:
                 AITerminalEvent(
                     "approval_requested",
                     text="AI 正在等待人工输入。\n输入 /approve 继续，或输入 /reject <原因> 停止本次工具调用。",
+                    data={"approval_kind": "tool_approval"},
                 )
             )
             return
@@ -270,7 +275,13 @@ class AITerminalStateMixin:
                 chunks.append(str(description))
             chunks.append(json.dumps(args, ensure_ascii=False, indent=2))
         chunks.append("输入 /approve 批准执行，或输入 /reject <原因> 拒绝并继续会话。")
-        self._emit_event(AITerminalEvent("approval_requested", text="\n".join(chunks)))
+        self._emit_event(
+            AITerminalEvent(
+                "approval_requested",
+                text="\n".join(chunks),
+                data={"approval_kind": "tool_approval"},
+            )
+        )
 
     def _checkpoint_count(self) -> int:
         return sum(1 for _ in self.checkpointer.list({"configurable": {"thread_id": self.thread_id}}))

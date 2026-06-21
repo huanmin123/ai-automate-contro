@@ -3,15 +3,24 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.debug.failure_prepare import prepare_failure_debug_workspace
 from ai_automate_contro.debug.workspace import create_debug_workspace, inject_debug_steps, list_debug_workspaces
 from ai_automate_contro.ai import debug_fix
-from ai_automate_contro.ai.debug_workspace_io import (
+from ai_automate_contro.debug.workspace_io import (
     read_debug_manifest,
     reset_injected_file_to_source,
 )
 from ai_automate_contro.ai.plan_tools import validate_plan_tool
 from ai_automate_contro.support.paths import path_from_text
-from ai_automate_contro.support.utils import dict_get, first_string, safe_int
+from ai_automate_contro.support.utils import dict_get
+
+
+AI_DEBUG_NEXT_ACTIONS = [
+    "先读取调试工作区 notes 和 injected-plan，再运行。",
+    "使用 run_debug_plan 运行调试工作区，带诊断信息复现问题。",
+    "检查 injected-plan 运行后产生的 output/debug 产物。",
+    "使用 patch_debug_workspace_json 做最小修改，然后重新校验和运行。",
+]
 
 
 def create_debug_workspace_tool(
@@ -68,65 +77,16 @@ def prepare_failure_debug_workspace_tool(
     name: str | None = None,
     include_manual_confirm: bool = False,
 ) -> dict[str, Any]:
-    analysis = analyze_latest_run_failure(
-        plan_path,
-        output_dir=output_dir,
-        log_lines=40,
-        event_lines=80,
-    )
-    status = first_string(dict_get(analysis, "status"))
-    if status != "failed":
-        raise ValueError(
-            f"prepare_failure_debug_workspace requires a failed run; latest status is '{status}'. "
-            "Run the plan first or pass a failed output_dir."
-        )
-    failed_step_number = safe_int(dict_get(dict_get(analysis, "failed_step"), "step"))
-    browser, page = debug_fix.failure_browser_page(analysis)
-    presets = ["print", "variables"]
-    if browser:
-        presets.extend(["screenshot", "html"])
-    if include_manual_confirm:
-        presets.append("manual_confirm")
-
-    workspace = create_debug_workspace(
-        plan_path,
+    return prepare_failure_debug_workspace(
         project_root,
-        name=name or "failure-debug",
+        plan_path,
+        analyze_latest_run_failure=analyze_latest_run_failure,
+        validate_plan=validate_plan_tool,
+        output_dir=output_dir,
+        name=name,
+        include_manual_confirm=include_manual_confirm,
+        recommended_next_actions=AI_DEBUG_NEXT_ACTIONS,
     )
-    position = "before_step" if failed_step_number else "end"
-    message = debug_fix.failure_debug_message(analysis)
-    injection = inject_debug_steps(
-        workspace.root,
-        presets=presets,
-        message=message,
-        browser=browser,
-        page=page,
-        position=position,
-        step=failed_step_number,
-    )
-    debug_fix.append_failure_debug_note(
-        workspace.root,
-        analysis=analysis,
-        presets=presets,
-        position=position,
-        step=failed_step_number,
-        browser=browser,
-        page=page,
-    )
-    validation = validate_plan_tool(project_root, workspace.injected_plan_dir / "plan.json")
-    return {
-        "ok": validation["ok"],
-        "workspace": workspace.to_dict(),
-        "analysis": analysis,
-        "injection": injection.to_dict(),
-        "validation": validation,
-        "recommended_next_actions": [
-            "先读取调试工作区 notes 和 injected-plan，再运行。",
-            "使用 run_debug_plan 运行调试工作区，带诊断信息复现问题。",
-            "检查 injected-plan 运行后产生的 output/debug 产物。",
-            "使用 patch_debug_workspace_json 做最小修改，然后重新校验和运行。",
-        ],
-    }
 
 
 def propose_debug_fix_tool(

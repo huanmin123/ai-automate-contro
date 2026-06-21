@@ -1,15 +1,26 @@
 from __future__ import annotations
 
 import shutil
-import shlex
 import subprocess
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from ai_automate_contro.debug.models import DebugPatchResult
 from ai_automate_contro.debug.workspace_paths import load_workspace_manifest
 from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp
+
+
+FORBIDDEN_DEBUG_PATCH_PARTS = {
+    ".git",
+    ".keygen",
+    "__pycache__",
+    ".debug-backups",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "output",
+}
 
 
 def generate_debug_patch(workspace: str | Path) -> DebugPatchResult:
@@ -63,10 +74,11 @@ def apply_debug_patch(workspace: str | Path, *, yes: bool = False) -> DebugPatch
             applied=True,
         )
 
-    _run_git_apply(package_dir, patch_path, check_only=True)
-    backup_dir = _backup_original_files_before_patch(workspace_root, package_dir, patch_text)
-    _run_git_apply(package_dir, patch_path, check_only=False)
     changed_files = _changed_files_from_patch(patch_text)
+    _validate_patch_changed_files(changed_files)
+    _run_git_apply(package_dir, patch_path, check_only=True)
+    backup_dir = _backup_original_files_before_patch(workspace_root, package_dir, changed_files)
+    _run_git_apply(package_dir, patch_path, check_only=False)
     _append_apply_note(workspace_root, changed_files, backup_dir=backup_dir)
     return DebugPatchResult(
         workspace_root=workspace_root,
@@ -105,11 +117,10 @@ def _collect_comparable_files(root: Path) -> set[str]:
 
 
 def _is_ignored_debug_relative_path(relative_path: Path) -> bool:
-    ignored_parts = {"output", "__pycache__", ".debug-backups", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
-    if any(part in ignored_parts for part in relative_path.parts):
+    if any(part in FORBIDDEN_DEBUG_PATCH_PARTS for part in relative_path.parts):
         return True
     name = relative_path.name
-    return name.endswith(".pyc") or name.endswith(".pyo")
+    return name.endswith(".pyc") or name.endswith(".pyo") or name.endswith(".egg-info")
 
 
 def _git_no_index_diff(
@@ -191,15 +202,21 @@ def _deleted_file_diff(path: Path, *, original_label: str, modified_label: str) 
 def _normalize_diff_headers(diff_text: str, *, original_label: str, modified_label: str) -> str:
     lines = diff_text.splitlines()
     normalized: list[str] = []
+    saw_original_header = False
+    saw_modified_header = False
     for line in lines:
         if line.startswith("diff --git "):
             normalized.append(f"diff --git {original_label} {modified_label}")
+            saw_original_header = False
+            saw_modified_header = False
             continue
-        if line.startswith("--- "):
+        if not saw_original_header and line.startswith("--- "):
             normalized.append(f"--- {original_label}")
+            saw_original_header = True
             continue
-        if line.startswith("+++ "):
+        if saw_original_header and not saw_modified_header and line.startswith("+++ "):
             normalized.append(f"+++ {modified_label}")
+            saw_modified_header = True
             continue
         normalized.append(line)
     return "\n".join(normalized) + "\n"
@@ -234,9 +251,9 @@ def _git_repo_root(path: Path) -> Path | None:
     return Path(completed.stdout.strip()).resolve()
 
 
-def _backup_original_files_before_patch(workspace_root: Path, package_dir: Path, patch_text: str) -> Path:
+def _backup_original_files_before_patch(workspace_root: Path, package_dir: Path, changed_files: list[str]) -> Path:
     backup_dir = ensure_directory(workspace_root / "original-backups" / make_timestamp())
-    for relative_path in _changed_files_from_patch(patch_text):
+    for relative_path in changed_files:
         source_path = package_dir / relative_path
         target_path = backup_dir / relative_path
         if source_path.exists() and source_path.is_file():
@@ -249,34 +266,38 @@ def _changed_files_from_patch(patch_text: str) -> list[str]:
     files: list[str] = []
     for line in patch_text.splitlines():
         if line.startswith("diff --git "):
-            parts = _split_patch_header(line)
-            for raw_path in parts[2:4]:
-                relative_path = _relative_path_from_patch_path(raw_path)
-                if relative_path is not None:
-                    files.append(relative_path)
-            continue
-        if line.startswith("+++ b/"):
-            files.append(line.removeprefix("+++ b/"))
-            continue
-        if line.startswith("--- a/"):
-            files.append(line.removeprefix("--- a/"))
+            files.extend(_paths_from_diff_git_header(line))
     files = [path for path in files if path and path != "/dev/null"]
     return sorted(dict.fromkeys(files))
 
 
-def _split_patch_header(line: str) -> list[str]:
-    try:
-        return shlex.split(line)
-    except ValueError:
-        return line.split()
+def _validate_patch_changed_files(changed_files: list[str]) -> None:
+    for relative_path in changed_files:
+        if "\\" in relative_path:
+            raise ValueError(f"debug patch 不允许使用反斜杠路径：{relative_path}")
+        path = PurePosixPath(relative_path)
+        parts = path.parts
+        if path.is_absolute() or not parts or any(part in {"", ".", ".."} for part in parts):
+            raise ValueError(f"debug patch 只能修改 plan 包内的普通相对路径：{relative_path}")
+        if any(part in FORBIDDEN_DEBUG_PATCH_PARTS for part in parts):
+            raise ValueError(
+                "debug patch 不允许修改 output、.keygen、git、缓存或 pycache 路径："
+                f"{relative_path}"
+            )
+        if path.name.endswith((".pyc", ".pyo")) or any(part.endswith(".egg-info") for part in parts):
+            raise ValueError(f"debug patch 不允许修改 Python 缓存或 egg-info 路径：{relative_path}")
 
 
-def _relative_path_from_patch_path(path_text: str) -> str | None:
-    if path_text == "/dev/null":
-        return None
-    if path_text.startswith("a/") or path_text.startswith("b/"):
-        return path_text[2:]
-    return path_text or None
+def _paths_from_diff_git_header(line: str) -> list[str]:
+    payload = line.removeprefix("diff --git ")
+    if not payload.startswith("a/"):
+        return []
+    separator = payload.rfind(" b/")
+    if separator < 0:
+        return []
+    original = payload[2:separator]
+    modified = payload[separator + 3 :]
+    return [path for path in (original, modified) if path and path != "/dev/null"]
 
 
 def _append_patch_note(workspace_root: Path, changed_files: list[str]) -> None:

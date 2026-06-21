@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.plans.packages import find_latest_run_output
-from ai_automate_contro.ai.debug_workspace_io import is_relative_to
+from ai_automate_contro.debug.workspace_io import is_relative_to
 from ai_automate_contro.ai import debug_tools, debug_workspace_tools
 from ai_automate_contro.ai.plan_tools import (
     resolve_plan_path,
@@ -135,7 +135,7 @@ def review_plan_quality_tool(
     user_request: str,
     evidence_summary: str = "",
     planned_output_path: str = "",
-    strict: bool = True,
+    _evidence_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return _review_plan_quality_tool(
         project_root,
@@ -143,7 +143,7 @@ def review_plan_quality_tool(
         user_request=user_request,
         evidence_summary=evidence_summary,
         planned_output_path=planned_output_path,
-        strict=strict,
+        evidence_context=_evidence_context or {},
     )
 
 
@@ -180,7 +180,10 @@ def export_local_file_tool(
             raise ValueError("复制 output 产物时必须提供 plan_path。")
         resolved_plan_path = resolve_plan_path(plan_path)
         output_root = (resolved_plan_path.parent / "output").resolve()
-        resolved_source = (output_root / path_from_text(source_output_path)).resolve()
+        normalized_source_path = path_from_text(source_output_path)
+        if normalized_source_path.parts and normalized_source_path.parts[0] == "output":
+            raise ValueError("source_output_path 是相对于当前 plan output/ 的路径，不能以 output/ 开头。")
+        resolved_source = (output_root / normalized_source_path).resolve()
         if not is_relative_to(resolved_source, output_root):
             raise ValueError("source_output_path 必须位于当前 plan output 目录内。")
         if not resolved_source.exists() or not resolved_source.is_file():

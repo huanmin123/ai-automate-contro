@@ -14,20 +14,46 @@ function Resolve-RepoPath {
 
 function Assert-UnderRepo {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $resolved = [System.IO.Path]::GetFullPath($Path)
-    $repo = [System.IO.Path]::GetFullPath($RepoRoot)
-    if (-not $resolved.StartsWith($repo, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (-not (Test-PathUnderRoot -Path $Path -Root $RepoRoot)) {
+        $resolved = [System.IO.Path]::GetFullPath($Path)
         throw "拒绝操作仓库外路径：$resolved"
     }
 }
 
 function Assert-UnderBuildTemp {
     param([Parameter(Mandatory = $true)][string]$Path)
-    $resolved = [System.IO.Path]::GetFullPath($Path)
-    $tempRoot = [System.IO.Path]::GetFullPath($BuildTempRoot)
-    if (-not $resolved.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    if (-not (Test-PathUnderRoot -Path $Path -Root $BuildTempRoot)) {
+        $resolved = [System.IO.Path]::GetFullPath($Path)
         throw "拒绝操作 PyInstaller 临时目录外路径：$resolved"
     }
+}
+
+function Test-PathUnderRoot {
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][string]$Root
+    )
+    $comparison = if ($IsWindows) { [System.StringComparison]::OrdinalIgnoreCase } else { [System.StringComparison]::Ordinal }
+    $resolved = [System.IO.Path]::GetFullPath($Path).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $resolvedRoot = [System.IO.Path]::GetFullPath($Root).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    if ($resolved.Equals($resolvedRoot, $comparison)) {
+        return $true
+    }
+    $directoryPrefix = $resolvedRoot + [System.IO.Path]::DirectorySeparatorChar
+    if ($resolved.StartsWith($directoryPrefix, $comparison)) {
+        return $true
+    }
+    if ([System.IO.Path]::AltDirectorySeparatorChar -ne [System.IO.Path]::DirectorySeparatorChar) {
+        $alternatePrefix = $resolvedRoot + [System.IO.Path]::AltDirectorySeparatorChar
+        return $resolved.StartsWith($alternatePrefix, $comparison)
+    }
+    return $false
 }
 
 function Clear-DirectoryContents {
@@ -107,13 +133,15 @@ function Stop-ExistingPackageProcesses {
         $processes = Get-CimInstance Win32_Process | Where-Object {
             $commandLine = [string]$_.CommandLine
             $name = [string]$_.Name
+            $executablePath = [string]$_.ExecutablePath
             $pidValue = [int]$_.ProcessId
             if ($pidValue -eq $PID) {
                 return $false
             }
             return (
-                $name -ieq $ExecutableFileName -or
-                $name -ieq $CPlanExecutableFileName -or
+                $executablePath.Equals($ExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $executablePath.Equals($CPlanExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
+                $executablePath.StartsWith($PackageDir + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $commandLine.Contains($ExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $commandLine.Contains($CPlanExecutablePath, [System.StringComparison]::OrdinalIgnoreCase) -or
                 $commandLine.Contains($PackageDir, [System.StringComparison]::OrdinalIgnoreCase) -or
@@ -286,7 +314,15 @@ $previousBrowsersPath = [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSE
 try {
     $env:PLAYWRIGHT_BROWSERS_PATH = "0"
     Invoke-Checked "python" @("-m", "playwright", "install", "chromium")
+    $BrowserDir = (& python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).resolve().parent / 'driver' / 'package' / '.local-browsers')").Trim()
+    if (-not (Test-Path -LiteralPath $BrowserDir)) {
+        throw "没有找到 Playwright 浏览器目录：$BrowserDir"
+    }
 
+    $BrowserBackupParent = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-contro-playwright-browsers-{0}" -f [System.Guid]::NewGuid().ToString("N"))
+    $BrowserBackupDir = Join-Path $BrowserBackupParent ".local-browsers"
+    New-Item -ItemType Directory -Force -Path $BrowserBackupParent | Out-Null
+    Move-Item -LiteralPath $BrowserDir -Destination $BrowserBackupDir -Force
     $pyinstallerArgs = @(
         "-m", "PyInstaller",
         "--noconfirm",
@@ -317,7 +353,21 @@ try {
         "--hidden-import", "textual.widgets",
         $EntryPoint
     )
-    Invoke-Checked "python" $pyinstallerArgs
+    try {
+        Invoke-Checked "python" $pyinstallerArgs
+    }
+    finally {
+        if (Test-Path -LiteralPath $BrowserBackupDir) {
+            if (Test-Path -LiteralPath $BrowserDir) {
+                Remove-Item -LiteralPath $BrowserDir -Recurse -Force
+            }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $BrowserDir) | Out-Null
+            Move-Item -LiteralPath $BrowserBackupDir -Destination $BrowserDir -Force
+        }
+        if (Test-Path -LiteralPath $BrowserBackupParent) {
+            Remove-Item -LiteralPath $BrowserBackupParent -Recurse -Force
+        }
+    }
 }
 finally {
     if ($null -eq $previousBrowsersPath) {
@@ -342,6 +392,15 @@ if (-not (Test-Path -LiteralPath $ExecutablePath)) {
     throw "打包复制已完成，但没有找到可执行文件：$ExecutablePath"
 }
 Copy-Item -LiteralPath $ExecutablePath -Destination $CPlanExecutablePath -Force
+
+$PackagedPlaywrightBrowserParent = Join-Path $PackageDir "_internal\playwright\driver\package"
+$PackagedPlaywrightBrowserDir = Join-Path $PackagedPlaywrightBrowserParent ".local-browsers"
+Assert-UnderRepo $PackagedPlaywrightBrowserDir
+if (Test-Path -LiteralPath $PackagedPlaywrightBrowserDir) {
+    Remove-PackagePath $PackagedPlaywrightBrowserDir
+}
+New-Item -ItemType Directory -Force -Path $PackagedPlaywrightBrowserParent | Out-Null
+Copy-Item -LiteralPath $BrowserDir -Destination $PackagedPlaywrightBrowserDir -Recurse -Force
 
 if (-not $IsWindows) {
     chmod +x $ExecutablePath
@@ -394,6 +453,7 @@ $demoReadme | Set-Content -LiteralPath (Join-Path $PackageDemoDocsDir "README.md
 if ($SmokeTest) {
     Push-Location $PackageDir
     try {
+        Invoke-Checked $ExecutablePath @("self-check", "env")
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
@@ -432,6 +492,7 @@ if ($SmokeTest) {
     $ExtractedCPlanExecutablePath = Join-Path $ExtractedPackageDir $CPlanExecutableFileName
     Push-Location $ExtractedPackageDir
     try {
+        Invoke-Checked $ExtractedExecutablePath @("self-check", "env")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")

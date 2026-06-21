@@ -93,7 +93,7 @@ def create_debug_workspace(
                 "created_at": datetime.now().isoformat(timespec="seconds"),
                 "contract": {
                     "source_copy": "Read-only snapshot of the original plan package without output/.",
-                    "injected_plan": "Diagnostic copy where AI/debug tools may add print/capture/write/manual_confirm steps.",
+                    "injected_plan": "Diagnostic copy where debug utilities may add print/capture/write/manual_confirm steps.",
                     "final_patch": "Only patch.diff should describe changes intended for the original plan package.",
                 },
             },

@@ -103,7 +103,6 @@ class ReviewPlanQualityArgs(ToolArgsModel):
     user_request: str = Field(..., description="用户原始需求、目标或任务描述。")
     evidence_summary: str = Field(default="", description="探测、headed 探索、manual_confirm 或运行证据摘要。")
     planned_output_path: str = Field(default="", description="用户要求的最终本机交付路径，如 Downloads/AI账户.txt。")
-    strict: bool = Field(default=True, description="严格门禁；默认缺口即 fail。")
 
 
 class RunPlanArgs(ToolArgsModel):
@@ -155,7 +154,7 @@ class ReadOutputArtifactArgs(ToolArgsModel):
 
 
 class ExportLocalFileArgs(ToolArgsModel):
-    target_path: str = Field(..., description="本机目标路径：绝对路径、~ 路径或运行根相对路径。")
+    target_path: str = Field(..., description="项目外的本机目标路径：绝对路径或 ~ 路径，例如 ~/Downloads/AI账户.txt。")
     content: str | None = Field(default=None, description="文本内容。")
     json_value: Any = Field(default=None, description="JSON 内容，可替代 content，按缩进写入。")
     plan_path: str = Field(default="", description="复制 output 产物时的 plan.json 或包目录。")

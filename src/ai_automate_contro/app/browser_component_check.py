@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import platform
 import tempfile
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -16,29 +17,29 @@ from ai_automate_contro.plans.validator import validate_plan_file
 class BrowserRegressionCase:
     name: str
     plan_path: str
-    evidence_check: Callable[[Path], list[dict[str, Any]]]
+    evidence_check: Callable[[Path, float], list[dict[str, Any]]]
 
 
 BROWSER_REGRESSION_CASES = (
     BrowserRegressionCase(
         "browser-advanced",
         "test-plans/basic/browser-advanced/plan.json",
-        lambda root: _browser_advanced_evidence(root),
+        lambda root, started_at: _browser_advanced_evidence(root, started_at),
     ),
     BrowserRegressionCase(
         "browser-parameter-coverage",
         "test-plans/basic/browser-parameter-coverage/plan.json",
-        lambda root: _browser_parameter_coverage_evidence(root),
+        lambda root, started_at: _browser_parameter_coverage_evidence(root, started_at),
     ),
     BrowserRegressionCase(
         "browser-backlog",
         "test-plans/basic/browser-backlog/plan.json",
-        lambda root: _browser_backlog_evidence(root),
+        lambda root, started_at: _browser_backlog_evidence(root, started_at),
     ),
     BrowserRegressionCase(
         "browser-observability",
         "test-plans/basic/browser-observability/plan.json",
-        lambda root: _browser_observability_evidence(root),
+        lambda root, started_at: _browser_observability_evidence(root, started_at),
     ),
 )
 
@@ -86,6 +87,7 @@ def _run_browser_regression_case(project_root: Path, regression_case: BrowserReg
 
     try:
         plan = load_plan(plan_path)
+        run_started_at = time.time()
         result = execute_plan(
             plan,
             project_root,
@@ -105,7 +107,7 @@ def _run_browser_regression_case(project_root: Path, regression_case: BrowserReg
         }
 
     try:
-        evidence = regression_case.evidence_check(project_root)
+        evidence = regression_case.evidence_check(project_root, run_started_at)
     except Exception as error:
         return {
             "name": regression_case.name,
@@ -195,11 +197,13 @@ def _run_negative_validation_case(project_root: Path, temp_dir: Path, raw_case: 
     }
 
 
-def _browser_advanced_evidence(project_root: Path) -> list[dict[str, Any]]:
-    summary = _read_project_json(project_root, "test-plans/basic/browser-advanced/output/json/browser-advanced-summary.json")
+def _browser_advanced_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    summary_path = project_root / "test-plans/basic/browser-advanced/output/json/browser-advanced-summary.json"
+    summary = _read_json(summary_path)
     mock_response = summary.get("mock_response", {})
     mock_body = mock_response.get("body", {}) if isinstance(mock_response, dict) else {}
     return [
+        _expect("summary_fresh", _file_nonempty_after(summary_path, started_at)),
         _expect("context_text", str(summary.get("context_text", "")).startswith("zh-CN 900x700")),
         _expect("init_script", summary.get("init_script_value") == "ready"),
         _expect("local_storage", summary.get("local_storage_value") == "token-123"),
@@ -207,17 +211,24 @@ def _browser_advanced_evidence(project_root: Path) -> list[dict[str, Any]]:
         _expect("mock_response", isinstance(mock_body, dict) and mock_body.get("ok") is True),
         _expect(
             "trace_zip",
-            _file_nonempty(project_root / "test-plans/basic/browser-advanced/output/traces/browser-advanced.zip"),
+            _file_nonempty_after(
+                project_root / "test-plans/basic/browser-advanced/output/traces/browser-advanced.zip",
+                started_at,
+            ),
         ),
         _expect(
             "har_file",
-            _file_nonempty(project_root / "test-plans/basic/browser-advanced/output/har/browser-advanced.har"),
+            _file_nonempty_after(
+                project_root / "test-plans/basic/browser-advanced/output/har/browser-advanced.har",
+                started_at,
+            ),
         ),
     ]
 
 
-def _browser_parameter_coverage_evidence(project_root: Path) -> list[dict[str, Any]]:
-    summary = _read_project_json(project_root, "test-plans/basic/browser-parameter-coverage/output/json/coverage-summary.json")
+def _browser_parameter_coverage_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    summary_path = project_root / "test-plans/basic/browser-parameter-coverage/output/json/coverage-summary.json"
+    summary = _read_json(summary_path)
     cookies = summary.get("cookies", [])
     events = summary.get("events", [])
     first_event = events[0] if isinstance(events, list) and events and isinstance(events[0], dict) else {}
@@ -225,6 +236,7 @@ def _browser_parameter_coverage_evidence(project_root: Path) -> list[dict[str, A
     download_file = project_root / "test-plans/basic/browser-parameter-coverage/output/downloads/coverage-download.txt"
     download_text = download_file.read_text(encoding="utf-8") if _file_nonempty(download_file) else ""
     return [
+        _expect("summary_fresh", _file_nonempty_after(summary_path, started_at)),
         _expect(
             "cookie_roundtrip",
             isinstance(cookies, list)
@@ -233,21 +245,29 @@ def _browser_parameter_coverage_evidence(project_root: Path) -> list[dict[str, A
         _expect("event_clear_then_console", isinstance(events, list) and len(events) == 1 and first_event.get("type") == "console"),
         _expect(
             "har_file",
-            _file_nonempty(project_root / "test-plans/basic/browser-parameter-coverage/output/har/coverage.har"),
+            _file_nonempty_after(
+                project_root / "test-plans/basic/browser-parameter-coverage/output/har/coverage.har",
+                started_at,
+            ),
         ),
-        _expect("wait_for_download_saved", download_path.endswith("coverage-download.txt") and _file_nonempty(download_file)),
+        _expect(
+            "wait_for_download_saved",
+            download_path.endswith("coverage-download.txt") and _file_nonempty_after(download_file, started_at),
+        ),
         _expect("download_content", download_text == "coverage download ok\n"),
     ]
 
 
-def _browser_backlog_evidence(project_root: Path) -> list[dict[str, Any]]:
-    summary = _read_project_json(project_root, "test-plans/basic/browser-backlog/output/json/browser-backlog-summary.json")
+def _browser_backlog_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    summary_path = project_root / "test-plans/basic/browser-backlog/output/json/browser-backlog-summary.json"
+    summary = _read_json(summary_path)
     coverage_summary = summary.get("coverage_summary", {})
     events = summary.get("events", [])
     event_types = {event.get("type") for event in events if isinstance(event, dict)}
     websocket_frames = [event for event in events if isinstance(event, dict) and event.get("type") == "websocket_frame"]
     eventsource_events = [event for event in events if isinstance(event, dict) and event.get("type") == "eventsource"]
     return [
+        _expect("summary_fresh", _file_nonempty_after(summary_path, started_at)),
         _expect("coverage_js", isinstance(coverage_summary, dict) and "js" in coverage_summary),
         _expect("coverage_css", isinstance(coverage_summary, dict) and "css" in coverage_summary),
         _expect("websocket_frame_events", "websocket_frame" in event_types and len(websocket_frames) >= 2),
@@ -256,8 +276,9 @@ def _browser_backlog_evidence(project_root: Path) -> list[dict[str, Any]]:
     ]
 
 
-def _browser_observability_evidence(project_root: Path) -> list[dict[str, Any]]:
-    summary = _read_project_json(project_root, "test-plans/basic/browser-observability/output/json/browser-observability-summary.json")
+def _browser_observability_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    summary_path = project_root / "test-plans/basic/browser-observability/output/json/browser-observability-summary.json"
+    summary = _read_json(summary_path)
     frames = summary.get("frames", [])
     events = summary.get("events", [])
     webrtc_events = [event.get("event") for event in events if isinstance(event, dict) and event.get("type") == "webrtc"]
@@ -265,6 +286,7 @@ def _browser_observability_evidence(project_root: Path) -> list[dict[str, Any]]:
         event.get("event") for event in events if isinstance(event, dict) and event.get("type") == "serviceworker"
     ]
     return [
+        _expect("summary_fresh", _file_nonempty_after(summary_path, started_at)),
         _expect("frame_list", isinstance(frames, list) and any(frame.get("name") == "details-frame" for frame in frames if isinstance(frame, dict))),
         _expect("webrtc_offer", "createOffer:done" in webrtc_events),
         _expect("webrtc_close", "close" in webrtc_events),
@@ -284,6 +306,10 @@ def _read_json(path: Path) -> Any:
 
 def _file_nonempty(path: Path) -> bool:
     return path.exists() and path.is_file() and path.stat().st_size > 0
+
+
+def _file_nonempty_after(path: Path, started_at: float) -> bool:
+    return _file_nonempty(path) and path.stat().st_mtime >= started_at - 1.0
 
 
 def _expect(name: str, ok: bool) -> dict[str, Any]:

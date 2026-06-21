@@ -1,4 +1,4 @@
-# keygen-openai-account
+# ai-automate-contro
 
 这是一个基于 Playwright + Python 的 JSON 编排自动化内核。用户和 AI 通过维护 plan 包描述流程，执行器读取 `plan.json` 后按顺序驱动浏览器、变量、断言、文件读写、控制流和受控专项 AI 组件。
 
