@@ -54,7 +54,7 @@ CLI
 
 Textual 客户端是面向自然语言的默认入口。它不再展示 `plan>`、`ai>`、`AI>` 或 `你>` 前缀，而是把用户消息、AI 回复、工具进度、系统输出、审批和错误分别渲染成块。工具开始和完成会更新同一个工具块，审批和错误不混入普通工具输出。输入区是灰底无边框的多行 composer，Enter 发送；`Shift+Enter`、`Alt+Enter` 或行尾 `\` 后 Enter 插入换行；多行粘贴保留换行。高度随内容在 4 到 8 行内增长。AI 忙碌时继续发送会进入队列；按 Esc 会中断当前 AI/plan，已有队列时把排队内容合并为下一轮介入消息并优先处理。
 
-客户端采用主流 agent CLI/TUI 的命令发现方式：在输入行输入 `/` 会打开常用命令候选，继续输入前缀实时过滤，Up / Down 选择候选，Tab 或 Enter 补全命令；带参数的命令继续由 Enter 发送。候选只展示 AI 会话入口，常用命令收敛为 `/status`、`/plan`、`/sessions`、`/resume`、`/new`、`/image`、`/approve`、`/reject`、`/export`、`/copy-last`、`/clear` 和 `/exit`。`/plan` 表示 AI 当前工作计划，不是 plan 包管理命令；无 AI 的 list/create/validate/run/debug 统一由 `cplan` 处理。命令入口不再提供重复别名；模型连通性诊断使用一次性命令 `python .\main.py ai check --json`。
+客户端采用主流 agent CLI/TUI 的命令发现方式：在输入行输入 `/` 会打开常用命令候选，继续输入前缀实时过滤，Up / Down 选择候选，Tab 或 Enter 补全命令；带参数的命令继续由 Enter 发送。候选只展示 AI 会话入口，常用命令收敛为 `/status`、`/plan`、`/sessions`、`/resume`、`/new`、`/image`、`/approve`、`/reject`、`/export`、`/copy-last`、`/clear` 和 `/exit`。`/plan` 表示 AI 当前工作计划，不是 plan 包管理命令；无 AI 的 list/create/validate/run/schedule/debug 统一由 `cplan` 处理。命令入口不再提供重复别名；模型连通性诊断使用一次性命令 `python .\main.py ai check --json`。
 
 底部状态条持续显示当前服务、thread、AI 上下文里的 plan/debug workspace/最近 output、排队数量、审批状态和待发送图片数量。plan 的确定性管理状态不再塞进 Textual 客户端。
 
@@ -261,7 +261,7 @@ AI 终端只能通过工具操作项目。
 
 当前工具清单以 `src/ai_automate_contro/ai/terminal_tool_registry.py` 里的 `AI_TERMINAL_TOOL_SPECS` 为准，也可以用 `python .\main.py tool list` 查看；文档不再维护容易过期的完整静态枚举。工具按职责分为几类：
 
-- plan 包发现、读取、创建和受控写入：用于新建 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`，拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
+- plan 包发现、读取、创建、资源导入和受控写入：用于新建 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；用户提供本机输入文件时默认通过导入工具复制到当前 plan 包 `resources/`；拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
 - 真实网页探测和质量门禁：`inspect_web_page` 必须在真实网站最终 plan 前优先使用；`review_plan_quality` 会结合最近探测上下文、用户需求和 plan 内容做门禁。
 - 运行、产物和失败分析：运行证据仍留在当前 plan 包 `output/`；用户明确要求 Downloads、桌面或绝对路径时，最终交付通过 `export_local_file` 写出，不要求用户手动复制。
 - debug workspace 和补丁：无 AI 人工调试走 `cplan debug-*`；AI 修复先写 `injected-plan/`、`notes.md` 或 `report.md`，生成补丁后再经审批应用。
@@ -287,7 +287,7 @@ AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必
 
 `self-check ai-tools` 不调用真实模型，但会真实构建 LangChain `StructuredTool`、验证共享 Pydantic schema 绑定、通过工具 invoke 执行 `validate_plan`，并确认受保护工具在没有 HITL approve resume 时被拒绝。
 
-`self-check ai-terminal` 不调用真实模型，用本地夹具验证会话摘要、`resume` 选择器、常用命令流、压缩归档、图片附件 metadata 和 base64 redaction。
+`self-check ai-terminal` 不调用真实模型，用本地夹具验证会话摘要、`resume` 选择器、常用命令流、压缩归档、图片附件 metadata 和图片 data URL 原文保留。
 
 AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [AI调试修复工作流](./AI调试修复工作流.md)。
 
@@ -317,7 +317,7 @@ AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [
 
 chat completions streaming 解析有独立本地回归入口 `python .\main.py self-check ai-stream`，用于在不访问模型服务的情况下验证 chunk、reasoning chunk 忽略、SDK 对象和空流拒绝逻辑。
 
-真实模型服务只保存在本机运行根配置中；需要分发或提交的示例配置不放真实密钥。
+真实模型服务配置按本地调试原文优先处理；示例配置也可以按需要保留真实密钥，工具不做自动脱敏或拒写。
 
 ## 设计结论
 

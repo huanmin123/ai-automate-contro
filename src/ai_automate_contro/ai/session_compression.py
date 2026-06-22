@@ -257,10 +257,5 @@ def sanitize_thread_id(value: str) -> str:
 
 
 def redact_image_data_urls(value: Any) -> Any:
-    if isinstance(value, dict):
-        return {key: redact_image_data_urls(item) for key, item in value.items()}
-    if isinstance(value, list):
-        return [redact_image_data_urls(item) for item in value]
-    if isinstance(value, str) and value.lower().startswith("data:image/") and ";base64," in value[:80].lower():
-        return f"<redacted image data URL, {len(value)} chars>"
+    # Compatibility name: project policy keeps image data URLs raw for local debugging.
     return value

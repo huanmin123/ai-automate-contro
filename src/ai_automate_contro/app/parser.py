@@ -59,7 +59,12 @@ def build_parser() -> argparse.ArgumentParser:
     tool_call_parser.add_argument("--args-file", help="从 JSON 文件读取工具参数。")
     tool_call_parser.add_argument("--compact", action="store_true", help="输出紧凑 JSON。")
 
-    ai_parser = subparsers.add_parser("ai", help="启动 Textual AI 客户端。")
+    ai_parser = subparsers.add_parser(
+        "ai",
+        help="启动 Textual AI 客户端。",
+        usage="%(prog)s [--service SERVICE] [--thread THREAD] [check|ask] ...",
+        description="不带子命令时启动 Textual AI 客户端；带 check/ask 时执行一次性 AI 诊断或脚本化请求。",
+    )
     ai_parser.add_argument("--service", default="default", help="配置中的 AI 服务名称。")
     ai_parser.add_argument("--thread", default="default", help="持久化 AI 会话线程 id。")
     ai_subparsers = ai_parser.add_subparsers(dest="ai_command")
@@ -117,6 +122,37 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--output-dir",
         help="覆盖运行输出目录；必须位于当前 plan 包的 output/ 目录内。",
     )
+
+    schedule_parser = subparsers.add_parser("schedule", help="管理长期定时启动 plan 的 schedule。")
+    schedule_subparsers = schedule_parser.add_subparsers(dest="schedule_command")
+    schedule_list_parser = schedule_subparsers.add_parser("list", help="列出 schedules.json 中的定时计划。")
+    schedule_list_parser.add_argument("--json", action="store_true", help="以 JSON 输出。")
+    schedule_add_parser = schedule_subparsers.add_parser("add", help="新增或覆盖一个定时计划。")
+    schedule_add_parser.add_argument("--id", required=True, help="schedule id。")
+    schedule_add_parser.add_argument("--file", required=True, help="要运行的 plan.json 或 plan 包目录。")
+    trigger_group = schedule_add_parser.add_mutually_exclusive_group(required=True)
+    trigger_group.add_argument("--daily-at", help="每天执行时间，格式 HH:MM。")
+    trigger_group.add_argument("--every-seconds", type=float, help="按固定秒数间隔执行。")
+    schedule_add_parser.add_argument("--run-immediately", action="store_true", help="interval 首次 daemon 扫描时立即运行。")
+    schedule_add_parser.add_argument("--project-root", help="该 schedule 运行 plan 时使用的 project root；默认当前运行根。")
+    schedule_add_parser.add_argument("--timezone", default="Asia/Shanghai", help="时区，默认 Asia/Shanghai。")
+    schedule_add_parser.add_argument("--run-name", help="覆盖运行名称；默认使用 schedule id。")
+    schedule_add_parser.add_argument("--timeout-seconds", type=int, help="单次运行超时秒数。")
+    schedule_add_parser.add_argument("--disabled", action="store_true", help="创建后保持禁用。")
+    schedule_add_parser.add_argument("--replace", action="store_true", help="允许覆盖同 id schedule。")
+    schedule_remove_parser = schedule_subparsers.add_parser("remove", help="删除一个 schedule。")
+    schedule_remove_parser.add_argument("id", help="schedule id。")
+    schedule_enable_parser = schedule_subparsers.add_parser("enable", help="启用一个 schedule。")
+    schedule_enable_parser.add_argument("id", help="schedule id。")
+    schedule_disable_parser = schedule_subparsers.add_parser("disable", help="禁用一个 schedule。")
+    schedule_disable_parser.add_argument("id", help="schedule id。")
+    schedule_run_now_parser = schedule_subparsers.add_parser("run-now", help="立即运行一个 schedule。")
+    schedule_run_now_parser.add_argument("id", help="schedule id。")
+    schedule_run_now_parser.add_argument("--json", action="store_true", help="以 JSON 输出。")
+    schedule_daemon_parser = schedule_subparsers.add_parser("daemon", help="启动 schedule daemon。")
+    schedule_daemon_parser.add_argument("--poll-seconds", type=float, default=60.0, help="扫描间隔秒数。")
+    schedule_daemon_parser.add_argument("--once", action="store_true", help="只扫描一次后退出，适合测试和系统任务计划程序。")
+    schedule_daemon_parser.add_argument("--json", action="store_true", help="以 JSON 输出本次扫描结果。")
 
     debug_parser = subparsers.add_parser("debug-create", help="为 plan 包创建隔离调试工作区。")
     debug_parser.add_argument("--file", required=True, help="入口 plan.json 路径。")

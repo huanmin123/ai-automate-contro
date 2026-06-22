@@ -75,6 +75,9 @@
 
 ## 路径约束
 
-- 资源输入优先放在当前 plan 包的 `resources/`。
+- 资源输入默认放在当前 plan 包的 `resources/`。
 - 需要读取运行产物时，可以读取当前 plan 包的 `output/<component>/...`。
 - 不建议跨 plan 包读取文件；不同需求包之间保持独立。
+- plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。
+- AI 创建 plan 时，用户没有指定固定本机文件路径时，推荐把文件导入当前包 `resources/`，再写 `resources/...`。
+- `path` 支持绝对路径、共享盘、外部工作目录和越出 plan 包的相对路径；不需要审批字段。

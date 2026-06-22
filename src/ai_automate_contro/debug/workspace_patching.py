@@ -264,9 +264,21 @@ def _backup_original_files_before_patch(workspace_root: Path, package_dir: Path,
 
 def _changed_files_from_patch(patch_text: str) -> list[str]:
     files: list[str] = []
-    for line in patch_text.splitlines():
+    lines = patch_text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
         if line.startswith("diff --git "):
             files.extend(_paths_from_diff_git_header(line))
+            index += 1
+            continue
+        if _is_unified_file_header_pair(lines, index):
+            original_path = _path_from_unified_header(line)
+            modified_path = _path_from_unified_header(lines[index + 1])
+            files.extend(path for path in (original_path, modified_path) if path)
+            index += 2
+            continue
+        index += 1
     files = [path for path in files if path and path != "/dev/null"]
     return sorted(dict.fromkeys(files))
 
@@ -298,6 +310,41 @@ def _paths_from_diff_git_header(line: str) -> list[str]:
     original = payload[2:separator]
     modified = payload[separator + 3 :]
     return [path for path in (original, modified) if path and path != "/dev/null"]
+
+
+def _is_unified_file_header_pair(lines: list[str], index: int) -> bool:
+    if index + 1 >= len(lines):
+        return False
+    if not lines[index].startswith("--- ") or not lines[index + 1].startswith("+++ "):
+        return False
+    if index == 0:
+        return True
+    previous = lines[index - 1]
+    return previous == "" or previous.startswith(
+        (
+            "diff --git ",
+            "index ",
+            "new file mode ",
+            "deleted file mode ",
+            "old mode ",
+            "new mode ",
+            "similarity index ",
+            "rename from ",
+            "rename to ",
+        )
+    )
+
+
+def _path_from_unified_header(line: str) -> str:
+    payload = line[4:].strip()
+    if not payload:
+        return ""
+    path = payload.split("\t", 1)[0].split(" ", 1)[0]
+    if path == "/dev/null":
+        return ""
+    if path.startswith("a/") or path.startswith("b/"):
+        path = path[2:]
+    return path
 
 
 def _append_patch_note(workspace_root: Path, changed_files: list[str]) -> None:

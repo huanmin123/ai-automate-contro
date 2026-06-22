@@ -1,0 +1,12 @@
+{
+  "name": "tick once",
+  "steps": [
+    {
+      "action": "write",
+      "type": "text",
+      "path": "ticks.txt",
+      "value": "sub-plan {{trigger_run_index}}\n",
+      "append": true
+    }
+  ]
+}

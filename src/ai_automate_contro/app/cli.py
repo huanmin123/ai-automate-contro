@@ -235,12 +235,114 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             print_json(result)
             return 0 if result.get("ok") else 1
 
+    schedule_command_result = _run_cplan_schedule_command(project_root, args)
+    if schedule_command_result is not None:
+        return schedule_command_result
+
     plan_command_result = _run_cplan_plan_command(project_root, args)
     if plan_command_result is not None:
         return plan_command_result
 
     parser.print_help()
     return 1
+
+
+def _run_cplan_schedule_command(project_root: Path, args: object) -> int | None:
+    if str(getattr(args, "cplan_command", "") or "") != "schedule":
+        return None
+
+    from ai_automate_contro.app import schedule_manager
+
+    schedule_command = str(getattr(args, "schedule_command", "") or "")
+    if schedule_command == "list":
+        result = schedule_manager.list_schedules(project_root)
+        if bool(getattr(args, "json", False)):
+            print_json(result)
+        else:
+            _print_schedule_list(result)
+        return 0
+    if schedule_command == "add":
+        trigger = (
+            {"type": "daily", "at": getattr(args, "daily_at")}
+            if getattr(args, "daily_at", None)
+            else {
+                "type": "interval",
+                "every_seconds": getattr(args, "every_seconds"),
+                "run_immediately": bool(getattr(args, "run_immediately", False)),
+            }
+        )
+        result = schedule_manager.add_schedule(
+            project_root,
+            schedule_id=getattr(args, "id"),
+            plan_file=getattr(args, "file"),
+            trigger=trigger,
+            schedule_project_root=getattr(args, "project_root", None),
+            timezone_name=getattr(args, "timezone", "Asia/Shanghai"),
+            enabled=not bool(getattr(args, "disabled", False)),
+            timeout_seconds=getattr(args, "timeout_seconds", None),
+            run_name=getattr(args, "run_name", None),
+            replace=bool(getattr(args, "replace", False)),
+        )
+        print(f"已写入 schedule：{result['schedule']['id']}")
+        return 0
+    if schedule_command == "remove":
+        result = schedule_manager.remove_schedule(project_root, getattr(args, "id"))
+        print(f"已删除 schedule：{result['id']}")
+        return 0
+    if schedule_command == "enable":
+        result = schedule_manager.set_schedule_enabled(project_root, getattr(args, "id"), True)
+        print(f"已启用 schedule：{result['schedule']['id']}")
+        return 0
+    if schedule_command == "disable":
+        result = schedule_manager.set_schedule_enabled(project_root, getattr(args, "id"), False)
+        print(f"已禁用 schedule：{result['schedule']['id']}")
+        return 0
+    if schedule_command == "run-now":
+        result = schedule_manager.run_schedule_now(project_root, getattr(args, "id"))
+        if bool(getattr(args, "json", False)):
+            print_json(result)
+        elif result.get("ok"):
+            print(f"schedule 运行结果 {result.get('status')}：{result.get('output_dir')}")
+        else:
+            print(f"schedule 运行失败：{result.get('error')}")
+        return 0 if result.get("ok") else 1
+    if schedule_command == "daemon":
+        result = schedule_manager.run_schedule_daemon(
+            project_root,
+            poll_seconds=float(getattr(args, "poll_seconds", 60.0)),
+            once=bool(getattr(args, "once", False)),
+        )
+        if bool(getattr(args, "json", False)):
+            print_json(result)
+        elif bool(getattr(args, "once", False)):
+            ran = result.get("last_result", {}).get("ran", [])
+            print(f"schedule daemon 扫描完成：运行 {len(ran)} 个 schedule")
+        return 0 if result.get("ok") else 1
+    return None
+
+
+def _print_schedule_list(result: dict[str, object]) -> None:
+    schedules = result.get("schedules", [])
+    if not schedules:
+        print("暂无 schedule。")
+        return
+    for index, schedule in enumerate(schedules, start=1):
+        trigger = schedule.get("trigger", {}) if isinstance(schedule, dict) else {}
+        if isinstance(trigger, dict) and trigger.get("type") == "daily":
+            trigger_text = f"daily@{trigger.get('at')}"
+        elif isinstance(trigger, dict) and trigger.get("type") == "interval":
+            trigger_text = f"interval/{trigger.get('every_seconds')}s"
+        else:
+            trigger_text = str(trigger)
+        state = schedule.get("state", {}) if isinstance(schedule, dict) else {}
+        last_status = state.get("last_status", "") if isinstance(state, dict) else ""
+        print(
+            f"{index:02d}. {schedule.get('id')} "
+            f"| enabled={schedule.get('enabled')} "
+            f"| trigger={trigger_text} "
+            f"| next={schedule.get('next_run_at') or '-'} "
+            f"| last={last_status or '-'}"
+        )
 
 
 def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
@@ -273,7 +375,7 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
             inspection_confirmation_handler=_confirm_post_run_inspection,
         )
         print(f"计划运行结果 {plan_result.status}：{plan_result.output_dir}")
-        return 0
+        return 0 if plan_result.status == "passed" else 1
     if command == "debug-create":
         workspace = create_debug_workspace(getattr(args, "file"), project_root, name=getattr(args, "name", None))
         print(json.dumps(workspace.to_dict(), ensure_ascii=False, indent=2))

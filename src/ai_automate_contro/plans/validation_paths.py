@@ -20,6 +20,8 @@ def validate_output_path(
         return
 
     path = path_from_text(raw_path)
+    if "\\" in raw_path and not is_absolute_path_text(raw_path):
+        issues.append(ValidationIssue(location, "plan JSON 内部路径必须使用 /，不要使用 Windows 反斜杠。"))
     if is_absolute_path_text(raw_path):
         issues.append(ValidationIssue(location, f"output path 必须相对于 output/{category}/"))
         return

@@ -21,6 +21,8 @@ def self_check_cli_boundaries() -> dict[str, Any]:
     debug_patch_delete_check = _check_debug_patch_deletion_backup()
     debug_patch_forbidden_check = _check_debug_patch_rejects_forbidden_paths()
     output_dir_check = _check_cplan_output_dir_package_scope()
+    trigger_parent_action_check = _check_cplan_trigger_parent_action()
+    schedule_management_check = _check_cplan_schedule_management()
     cplan_debug_prepare_boundary_check = _check_cplan_debug_prepare_uses_neutral_debug_core()
     cplan_error_boundary_check = _check_cplan_error_fix_does_not_reference_ai_side()
 
@@ -36,6 +38,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         "debug-inject",
         "debug-patch",
         "debug-apply",
+        "schedule",
     }
     cplan_required = {
         "list",
@@ -47,6 +50,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         "debug-inject",
         "debug-patch",
         "debug-apply",
+        "schedule",
         "self-check",
     }
     cplan_forbidden = {"ai", "tool"}
@@ -92,6 +96,8 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         debug_patch_delete_check,
         debug_patch_forbidden_check,
         output_dir_check,
+        trigger_parent_action_check,
+        schedule_management_check,
         cplan_debug_prepare_boundary_check,
         cplan_error_boundary_check,
     ]
@@ -126,13 +132,23 @@ def _parse_rejected(parser: argparse.ArgumentParser, argv: list[str]) -> bool:
 
 def _check_cplan_debug_prepare_uses_neutral_debug_core() -> dict[str, Any]:
     cli_path = Path(__file__).resolve().parent / "cli.py"
+    debug_analysis_path = Path(__file__).resolve().parents[1] / "debug" / "run_failure_analysis.py"
+    if not cli_path.exists() or not debug_analysis_path.exists():
+        return {
+            "name": "cplan_debug_prepare_uses_neutral_debug_core",
+            "passed": True,
+            "detail": {
+                "skipped": True,
+                "reason": "source files are not available in the packaged executable",
+                "cli_path": str(cli_path),
+                "debug_analysis_path": str(debug_analysis_path),
+            },
+        }
     source = cli_path.read_text(encoding="utf-8")
     has_terminal_tool_import = "ai_automate_contro.ai.terminal_tools import prepare_failure_debug_workspace_tool" in source
     has_ai_failure_analysis_import = "ai_automate_contro.ai.run_failure_analysis" in source
     has_neutral_core = "ai_automate_contro.debug.failure_prepare import" in source
-    debug_analysis_source = (
-        Path(__file__).resolve().parents[1] / "debug" / "run_failure_analysis.py"
-    ).read_text(encoding="utf-8")
+    debug_analysis_source = debug_analysis_path.read_text(encoding="utf-8")
     nested_ai_actions = [
         token
         for token in ("patch_debug_workspace_json", "run_debug_plan")
@@ -358,6 +374,297 @@ def _check_cplan_output_dir_package_scope() -> dict[str, Any]:
             "expected_output_dir": str(relative_output_path),
             "scoped_text": scoped_text,
             "outside_error": outside_error,
+        },
+    }
+
+
+def _check_cplan_trigger_parent_action() -> dict[str, Any]:
+    from ai_automate_contro.engine.executor import execute_plan
+    from ai_automate_contro.plans.packages import summarize_plan
+    from ai_automate_contro.plans.validator import validate_plan_file
+
+    with TemporaryDirectory(prefix="cplan-trigger-parent-self-check-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        package_dir = project_root / "plans" / "trigger-parent"
+        sub_plans_dir = package_dir / "sub-plans"
+        sub_plans_dir.mkdir(parents=True, exist_ok=True)
+        sub_plan_path = sub_plans_dir / "tick-once-plan.json"
+        sub_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "tick once",
+                    "steps": [
+                        {
+                            "action": "write",
+                            "type": "text",
+                            "path": "ticks.txt",
+                            "value": "sub-plan {{trigger_run_index}}\n",
+                            "append": True,
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        plan_path = package_dir / "plan.json"
+        plan = {
+            "name": "trigger parent",
+            "steps": [
+                {"action": "write", "type": "text", "path": "ticks.txt", "value": ""},
+                {
+                    "action": "trigger",
+                    "type": "interval",
+                    "name": "inline",
+                    "every_seconds": 0.01,
+                    "run_immediately": True,
+                    "max_runs": 2,
+                    "steps": [
+                        {
+                            "action": "write",
+                            "type": "text",
+                            "path": "ticks.txt",
+                            "value": "inline {{trigger_run_index}}\n",
+                            "append": True,
+                        }
+                    ],
+                    "save_as": "inline_status",
+                },
+                {
+                    "action": "trigger",
+                    "type": "interval",
+                    "name": "sub_plan",
+                    "every_seconds": 0.01,
+                    "run_immediately": True,
+                    "max_runs": 2,
+                    "path": "sub-plans/tick-once-plan.json",
+                    "save_as": "sub_plan_status",
+                },
+                {
+                    "action": "write",
+                    "type": "json",
+                    "path": "trigger-status.json",
+                    "value": {
+                        "inline": "{{inline_status}}",
+                        "sub_plan": "{{sub_plan_status}}",
+                    },
+                    "indent": 2,
+                },
+            ],
+        }
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        result = execute_plan(plan, project_root, plan_path=plan_path, run_name="trigger-parent", log_echo=False)
+        ticks_path = package_dir / "output" / "text" / "ticks.txt"
+        status_path = package_dir / "output" / "json" / "trigger-status.json"
+        ticks = ticks_path.read_text(encoding="utf-8").splitlines() if ticks_path.exists() else []
+        status = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {}
+        summary = summarize_plan(plan_path, project_root)
+
+        legacy_dir = project_root / "plans" / "legacy-trigger"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        legacy_plan_path = legacy_dir / "plan.json"
+        legacy_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "legacy trigger",
+                    "routines": {"tick": [{"action": "print", "message": "tick"}]},
+                    "triggers": [
+                        {
+                            "name": "tick",
+                            "type": "interval",
+                            "every_seconds": 1,
+                            "routine": "tick",
+                            "max_runs": 1,
+                        }
+                    ],
+                    "steps": [],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        legacy_validation = validate_plan_file(legacy_plan_path, project_root)
+
+        invalid_name_dir = project_root / "plans" / "invalid-trigger-name"
+        invalid_name_dir.mkdir(parents=True, exist_ok=True)
+        invalid_name_plan_path = invalid_name_dir / "plan.json"
+        invalid_name_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "invalid trigger name",
+                    "steps": [
+                        {
+                            "action": "trigger",
+                            "type": "interval",
+                            "name": "   ",
+                            "every_seconds": 1,
+                            "max_runs": 1,
+                            "steps": [{"action": "print", "message": "tick"}],
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        invalid_name_validation = validate_plan_file(invalid_name_plan_path, project_root)
+
+        rendered_invalid_dir = project_root / "plans" / "rendered-invalid-trigger"
+        rendered_invalid_dir.mkdir(parents=True, exist_ok=True)
+        rendered_invalid_plan_path = rendered_invalid_dir / "plan.json"
+        rendered_invalid_plan = {
+            "name": "rendered invalid trigger",
+            "variables": {"bad_bool": "maybe", "bad_runs": "2.5"},
+            "steps": [
+                {
+                    "action": "trigger",
+                    "type": "interval",
+                    "every_seconds": 0.01,
+                    "run_immediately": "{{bad_bool}}",
+                    "max_runs": "{{bad_runs}}",
+                    "steps": [{"action": "print", "message": "tick"}],
+                }
+            ],
+        }
+        rendered_invalid_error = ""
+        try:
+            execute_plan(
+                rendered_invalid_plan,
+                project_root,
+                plan_path=rendered_invalid_plan_path,
+                run_name="rendered-invalid-trigger",
+                log_echo=False,
+            )
+        except Exception as error:
+            rendered_invalid_error = str(error)
+
+    inline_status = status.get("inline", {}) if isinstance(status, dict) else {}
+    sub_plan_status = status.get("sub_plan", {}) if isinstance(status, dict) else {}
+    legacy_errors = [issue.message for issue in legacy_validation.errors]
+    invalid_name_errors = [issue.message for issue in invalid_name_validation.errors]
+    passed = (
+        validation.ok
+        and result.status == "passed"
+        and ticks == ["inline 1", "inline 2", "sub-plan 1", "sub-plan 2"]
+        and inline_status.get("status") == "completed"
+        and inline_status.get("run_count") == 2
+        and sub_plan_status.get("status") == "completed"
+        and sub_plan_status.get("run_count") == 2
+        and "sub-plans/tick-once-plan.json" in summary.get("sub_plans", [])
+        and not legacy_validation.ok
+        and any("routines 已移除" in message for message in legacy_errors)
+        and any("triggers 已移除" in message for message in legacy_errors)
+        and not invalid_name_validation.ok
+        and any("trigger.name 必须是非空字符串" in message for message in invalid_name_errors)
+        and "trigger.run_immediately 必须是布尔值" in rendered_invalid_error
+    )
+    return {
+        "name": "cplan_trigger_parent_action_roundtrip",
+        "passed": passed,
+        "detail": {
+            "validation_ok": validation.ok,
+            "run_status": result.status,
+            "ticks": ticks,
+            "inline_status": inline_status,
+            "sub_plan_status": sub_plan_status,
+            "summary_sub_plans": summary.get("sub_plans", []),
+            "legacy_validation_ok": legacy_validation.ok,
+            "legacy_errors": legacy_errors,
+            "invalid_name_validation_ok": invalid_name_validation.ok,
+            "invalid_name_errors": invalid_name_errors,
+            "rendered_invalid_error": rendered_invalid_error,
+        },
+    }
+
+
+def _check_cplan_schedule_management() -> dict[str, Any]:
+    from ai_automate_contro.app import schedule_manager
+
+    with TemporaryDirectory(prefix="cplan-schedule-self-check-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        package_dir = project_root / "plans" / "scheduled-plan"
+        package_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = package_dir / "plan.json"
+        plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "scheduled plan",
+                    "steps": [
+                        {
+                            "action": "write",
+                            "type": "text",
+                            "path": "scheduled.txt",
+                            "value": "ran",
+                        }
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        added = schedule_manager.add_schedule(
+            project_root,
+            schedule_id="demo",
+            plan_file=plan_path,
+            trigger={"type": "interval", "every_seconds": 1, "run_immediately": True},
+            timeout_seconds=30,
+        )
+        listed_after_add = schedule_manager.list_schedules(project_root)
+        disabled = schedule_manager.set_schedule_enabled(project_root, "demo", False)
+        enabled = schedule_manager.set_schedule_enabled(project_root, "demo", True)
+        run_now = schedule_manager.run_schedule_now(project_root, "demo")
+        due_scan = schedule_manager.run_due_schedules(project_root)
+        state_with_orphan = schedule_manager.load_schedule_state(project_root)
+        state_with_orphan["orphan"] = {"last_status": "stale"}
+        schedule_manager.save_schedule_state(project_root, state_with_orphan)
+        removed = schedule_manager.remove_schedule(project_root, "demo")
+        listed_after_remove = schedule_manager.list_schedules(project_root)
+        output_text_path = package_dir / "output" / "text" / "scheduled.txt"
+        output_text = output_text_path.read_text(encoding="utf-8") if output_text_path.exists() else ""
+        state_after_remove = schedule_manager.load_schedule_state(project_root)
+        config_exists_after_remove = schedule_manager.schedule_config_path(project_root).exists()
+        state_exists_after_remove = schedule_manager.schedule_state_path(project_root).exists()
+
+    passed = (
+        added.get("ok") is True
+        and listed_after_add.get("schedules")
+        and disabled.get("schedule", {}).get("enabled") is False
+        and enabled.get("schedule", {}).get("enabled") is True
+        and run_now.get("ok") is True
+        and run_now.get("status") == "passed"
+        and isinstance(due_scan.get("results"), list)
+        and removed.get("removed") is True
+        and listed_after_remove.get("schedules") == []
+        and "demo" not in state_after_remove
+        and not config_exists_after_remove
+        and not state_exists_after_remove
+        and output_text == "ran"
+    )
+    return {
+        "name": "cplan_schedule_management_roundtrip",
+        "passed": passed,
+        "detail": {
+            "added": added,
+            "listed_after_add_count": len(listed_after_add.get("schedules", [])),
+            "disabled_enabled": disabled.get("schedule", {}).get("enabled"),
+            "enabled_enabled": enabled.get("schedule", {}).get("enabled"),
+            "run_now": run_now,
+            "due_scan": due_scan,
+            "removed": removed,
+            "listed_after_remove_count": len(listed_after_remove.get("schedules", [])),
+            "state_after_remove": state_after_remove,
+            "config_exists_after_remove": config_exists_after_remove,
+            "state_exists_after_remove": state_exists_after_remove,
+            "output_text": output_text,
         },
     }
 

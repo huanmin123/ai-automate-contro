@@ -14,7 +14,6 @@ from ai_automate_contro.plans.validation_paths import is_relative_to, validate_o
 from ai_automate_contro.plans.validation_rules import OUTPUT_ACTION_CATEGORIES, REQUIRED_FIELDS
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
-
 def validate_plan_document(
     document: dict[str, Any],
     *,
@@ -34,6 +33,21 @@ def validate_plan_document(
         return
 
     next_stack = [*stack, resolved_document_path]
+    if "routines" in document:
+        issues.append(
+            ValidationIssue(
+                str(document_path),
+                "顶层 routines 已移除。请把周期执行体直接写入 steps 中的 trigger.steps，或用 trigger.path 引用 sub-plans/*-plan.json。",
+            )
+        )
+    if "triggers" in document:
+        issues.append(
+            ValidationIssue(
+                str(document_path),
+                "顶层 triggers 已移除。trigger 是父级控制流 action，必须直接写在 steps 中执行。",
+            )
+        )
+
     for index, step in enumerate(steps):
         validate_step(
             step,
@@ -96,6 +110,9 @@ def validate_action_specific_fields(
         validate_control_flow(step, action, location, package_root, issues, stack)
         return
 
+    if action == "trigger":
+        validate_trigger_action(step, location, package_root, issues, stack)
+
     if "trigger" in step:
         validate_step(
             step["trigger"],
@@ -106,6 +123,14 @@ def validate_action_specific_fields(
         )
 
     if action == "open_browser":
+        validate_package_input_path(
+            step.get("storage_state_path"),
+            f"{location}.storage_state_path",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
         if "record_har_path" in step:
             validate_output_path(step["record_har_path"], "har", location, package_root, issues)
         if "record_video_dir" in step:
@@ -120,7 +145,184 @@ def validate_action_specific_fields(
         if category and "path" in step:
             validate_output_path(step["path"], category, location, package_root, issues)
 
+    if action == "read":
+        validate_package_input_path(
+            step.get("path"),
+            f"{location}.path",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
+
+    if action == "element" and step.get("type") == "set_files":
+        validate_package_input_paths(
+            step.get("files"),
+            f"{location}.files",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
+
+    if action == "wait_for_file_chooser" and step.get("type") == "set_files":
+        validate_package_input_paths(
+            step.get("files"),
+            f"{location}.files",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
+
+    if action == "network":
+        if step.get("type") == "route_from_har":
+            validate_package_input_path(
+                step.get("path"),
+                f"{location}.path",
+                package_root,
+                issues,
+                step=step,
+                must_exist=False,
+            )
+        elif step.get("type") == "route" and "path" in step:
+            validate_package_input_path(
+                step.get("path"),
+                f"{location}.path",
+                package_root,
+                issues,
+                step=step,
+                must_exist=False,
+            )
+
+    if action == "http":
+        if "response_body_path" in step:
+            validate_output_path(step["response_body_path"], "http", location, package_root, issues)
+        validate_package_input_path(
+            step.get("body_path"),
+            f"{location}.body_path",
+            package_root,
+            issues,
+            step=step,
+        )
+        multipart = step.get("multipart")
+        if isinstance(multipart, dict):
+            files = multipart.get("files", [])
+            if isinstance(files, list):
+                for index, file_item in enumerate(files):
+                    if isinstance(file_item, dict):
+                        validate_package_input_path(
+                            file_item.get("path"),
+                            f"{location}.multipart.files[{index}].path",
+                            package_root,
+                            issues,
+                            step=step,
+                        )
+
+    if action == "command":
+        for field in ("stdout_path", "stderr_path"):
+            if field in step:
+                validate_output_path(step[field], "commands", location, package_root, issues)
+        validate_package_input_path(
+            step.get("stdin_path"),
+            f"{location}.stdin_path",
+            package_root,
+            issues,
+            step=step,
+        )
+        validate_package_cwd(step.get("cwd"), f"{location}.cwd", package_root, issues, step=step)
+
     validate_type_specific_required_fields(step, action, location, issues)
+
+
+def validate_package_input_path(
+    raw_path: Any,
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    *,
+    step: dict[str, Any] | None = None,
+    must_exist: bool = True,
+) -> None:
+    if raw_path in (None, ""):
+        return
+    if not isinstance(raw_path, str):
+        issues.append(ValidationIssue(location, "path 必须是非空字符串"))
+        return
+    if "{{" in raw_path or "}}" in raw_path:
+        return
+    if "\\" in raw_path and not is_absolute_path_text(raw_path):
+        issues.append(ValidationIssue(location, "plan JSON 内部路径必须使用 /，不要使用 Windows 反斜杠。"))
+    if is_absolute_path_text(raw_path):
+        resolved_path = path_from_text(raw_path).resolve()
+    else:
+        path = path_from_text(raw_path)
+        if not path.parts:
+            issues.append(ValidationIssue(location, "path 不能为空"))
+            return
+        resolved_path = (package_root / path).resolve()
+    if must_exist and (not resolved_path.exists() or not resolved_path.is_file()):
+        issues.append(ValidationIssue(location, f"文件不存在：{raw_path}"))
+
+
+def validate_package_input_paths(
+    raw_paths: Any,
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    *,
+    step: dict[str, Any] | None = None,
+    must_exist: bool = True,
+) -> None:
+    if raw_paths in (None, ""):
+        return
+    if isinstance(raw_paths, str):
+        validate_package_input_path(
+            raw_paths,
+            location,
+            package_root,
+            issues,
+            step=step,
+            must_exist=must_exist,
+        )
+        return
+    if isinstance(raw_paths, list):
+        for index, raw_path in enumerate(raw_paths):
+            validate_package_input_path(
+                raw_path,
+                f"{location}[{index}]",
+                package_root,
+                issues,
+                step=step,
+                must_exist=must_exist,
+            )
+        return
+    issues.append(ValidationIssue(location, "files 必须是非空字符串或字符串数组"))
+
+
+def validate_package_cwd(
+    raw_path: Any,
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    *,
+    step: dict[str, Any] | None = None,
+) -> None:
+    if raw_path in (None, ""):
+        return
+    if not isinstance(raw_path, str):
+        issues.append(ValidationIssue(location, "cwd 必须是非空字符串"))
+        return
+    if "{{" in raw_path or "}}" in raw_path:
+        return
+    if "\\" in raw_path and not is_absolute_path_text(raw_path):
+        issues.append(ValidationIssue(location, "plan JSON 内部路径必须使用 /，不要使用 Windows 反斜杠。"))
+    if is_absolute_path_text(raw_path):
+        resolved_path = path_from_text(raw_path).resolve()
+    else:
+        resolved_path = (package_root / path_from_text(raw_path)).resolve()
+    if not resolved_path.exists() or not resolved_path.is_dir():
+        issues.append(ValidationIssue(location, f"cwd 不存在：{raw_path}"))
 
 
 def validate_control_flow(
@@ -161,6 +363,89 @@ def validate_control_flow(
         )
 
 
+def validate_trigger_action(
+    step: dict[str, Any],
+    location: str,
+    package_root: Path,
+    issues: list[ValidationIssue],
+    stack: list[Path],
+) -> None:
+    if "name" in step and not _is_template(step.get("name")):
+        name = step.get("name")
+        if not isinstance(name, str) or not name.strip():
+            issues.append(ValidationIssue(location, "trigger.name 必须是非空字符串"))
+    if "every_seconds" in step:
+        _validate_positive_number_or_template(step.get("every_seconds"), f"{location}.every_seconds", issues)
+    if "max_runs" in step and step.get("max_runs") not in (None, ""):
+        _validate_positive_integer_or_template(step.get("max_runs"), f"{location}.max_runs", issues)
+    if "duration_seconds" in step and step.get("duration_seconds") not in (None, ""):
+        _validate_positive_number_or_template(step.get("duration_seconds"), f"{location}.duration_seconds", issues)
+    for field in ("run_immediately", "allow_infinite"):
+        if field in step and not _is_template(step[field]) and not isinstance(step[field], bool):
+            issues.append(ValidationIssue(location, f"trigger.{field} 必须是布尔值"))
+    if not _has_trigger_bound(step) and not bool(step.get("allow_infinite", False)):
+        issues.append(ValidationIssue(location, "无限 trigger 必须显式设置 allow_infinite=true，或提供 max_runs/duration_seconds"))
+    overlap = step.get("overlap", "skip")
+    if not _is_template(overlap) and overlap not in {"skip", "queue", "fail"}:
+        issues.append(ValidationIssue(location, "trigger.overlap 只能是 skip、queue 或 fail"))
+    on_error = step.get("on_error", "fail_plan")
+    if not _is_template(on_error) and on_error not in {"fail_plan", "stop_trigger"}:
+        issues.append(ValidationIssue(location, "trigger.on_error 只能是 fail_plan 或 stop_trigger"))
+
+    has_steps_field = "steps" in step and step.get("steps") is not None
+    has_steps = has_steps_field and step.get("steps") != []
+    has_path = "path" in step and step.get("path") not in (None, "")
+    if has_steps_field and has_path:
+        issues.append(ValidationIssue(location, "trigger.steps 和 trigger.path 只能提供一种"))
+    if not has_steps and not has_path:
+        issues.append(ValidationIssue(location, "trigger 需要 steps 或 path 作为周期执行体"))
+    if "steps" in step:
+        child_steps = step.get("steps")
+        if not isinstance(child_steps, list):
+            issues.append(ValidationIssue(location, "trigger.steps 必须是数组"))
+        else:
+            for index, child_step in enumerate(child_steps):
+                validate_step(
+                    child_step,
+                    location=f"{location}.steps[{index}]",
+                    package_root=package_root,
+                    issues=issues,
+                    stack=stack,
+                )
+    if has_path:
+        validate_sub_plan(step.get("path"), f"{location}.path", package_root, issues, stack)
+
+
+def _has_trigger_bound(trigger: dict[str, Any]) -> bool:
+    return trigger.get("max_runs") not in (None, "") or trigger.get("duration_seconds") not in (None, "")
+
+
+def _is_template(value: Any) -> bool:
+    return isinstance(value, str) and ("{{" in value or "}}" in value)
+
+
+def _validate_positive_number_or_template(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if isinstance(value, str) and ("{{" in value or "}}" in value):
+        return
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        issues.append(ValidationIssue(location, "必须是大于 0 的数字，或变量模板"))
+        return
+    if number <= 0:
+        issues.append(ValidationIssue(location, "必须大于 0"))
+
+
+def _validate_positive_integer_or_template(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if isinstance(value, str) and ("{{" in value or "}}" in value):
+        return
+    if not isinstance(value, int) or isinstance(value, bool):
+        issues.append(ValidationIssue(location, "必须是大于 0 的整数，或变量模板"))
+        return
+    if value <= 0:
+        issues.append(ValidationIssue(location, "必须大于 0"))
+
+
 def validate_sub_plan(
     raw_path: Any,
     location: str,
@@ -176,6 +461,8 @@ def validate_sub_plan(
         return
 
     path = path_from_text(raw_path)
+    if "\\" in raw_path:
+        issues.append(ValidationIssue(location, "run_sub_plan.path 必须使用 /，不要使用 Windows 反斜杠。"))
     if is_absolute_path_text(raw_path):
         issues.append(ValidationIssue(location, "run_sub_plan.path 必须相对于当前 plan 包"))
         return
@@ -324,6 +611,34 @@ def _validate_manual_confirm_visible_browser_flow_states(
                     states = _dedupe_session_states([*states, *child_states])
                 else:
                     states = _dedupe_session_states(child_states)
+        elif action == "trigger":
+            trigger_states: list[dict[str, bool]] = []
+            child_steps = step.get("steps", [])
+            if isinstance(child_steps, list):
+                trigger_states.extend(
+                    _validate_manual_confirm_visible_browser_flow_states(
+                        child_steps,
+                        location_prefix=f"{location}.steps",
+                        package_root=package_root,
+                        issues=issues,
+                        stack=stack,
+                        active_states=states,
+                    )
+                )
+            if isinstance(step.get("path"), str):
+                for state in states:
+                    trigger_states.extend(
+                        _validate_manual_confirm_visible_sub_plan_states(
+                            step,
+                            location,
+                            package_root,
+                            issues,
+                            stack,
+                            state,
+                        )
+                    )
+            if trigger_states:
+                states = _dedupe_session_states([*states, *trigger_states])
     return _dedupe_session_states(states)
 
 

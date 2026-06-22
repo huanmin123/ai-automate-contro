@@ -1,7 +1,16 @@
 param(
     [switch]$InstallDependencies,
     [switch]$SmokeTest,
-    [switch]$Clean
+    [switch]$Clean,
+    [string]$PythonPath,
+    [switch]$SkipZip,
+    [switch]$NoProcessCleanup,
+    [switch]$ProbeOnly,
+    [ValidateSet("None", "Cleanup", "DependencyCheck", "PlaywrightInstall", "PyInstaller", "CopyPackage")]
+    [string]$StopAfter = "None",
+    [switch]$SkipPlaywrightInstall,
+    [switch]$SkipBrowserCopy,
+    [string]$OutputSuffix = ""
 )
 
 Set-StrictMode -Version Latest
@@ -73,9 +82,19 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)][string]$FilePath,
         [Parameter(Mandatory = $true)][string[]]$Arguments
     )
+    Write-PackageCheckpoint ("RUN " + $FilePath + " " + ($Arguments -join " "))
     & $FilePath @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "命令执行失败：$FilePath $($Arguments -join ' ')"
+    }
+}
+
+function Write-PackageCheckpoint {
+    param([Parameter(Mandatory = $true)][string]$Message)
+    $line = "{0:yyyy-MM-dd HH:mm:ss.fff} {1}" -f (Get-Date), $Message
+    Write-Host $line
+    if ((Get-Variable -Name PackageLogPath -Scope Script -ErrorAction SilentlyContinue) -and $script:PackageLogPath) {
+        Add-Content -LiteralPath $script:PackageLogPath -Value $line -Encoding UTF8
     }
 }
 
@@ -228,7 +247,9 @@ function Remove-PackagePath {
         return
     }
     catch {
-        Stop-ExistingPackageProcesses
+        if (-not $NoProcessCleanup) {
+            Stop-ExistingPackageProcesses
+        }
         Start-Sleep -Seconds 1
         Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
     }
@@ -250,6 +271,12 @@ if ($IsMacOS -and $osArchitecture -ne "arm64") {
 }
 
 $PlatformName = if ($IsWindows) { "windows-$osArchitecture" } else { "macos-arm64" }
+if ($OutputSuffix -and $OutputSuffix -notmatch "^[A-Za-z0-9][A-Za-z0-9._-]*$") {
+    throw "OutputSuffix 只能包含字母、数字、点、下划线或短横线，并且必须以字母或数字开头：$OutputSuffix"
+}
+$PackageName = if ($OutputSuffix) { "ai-automate-contro-$OutputSuffix" } else { "ai-automate-contro" }
+$BuildTempRootName = if ($OutputSuffix) { "ai-automate-contro-pyinstaller-$OutputSuffix" } else { "ai-automate-contro-pyinstaller" }
+$PackageLogFileName = if ($OutputSuffix) { "package-last-$OutputSuffix.log" } else { "package-last.log" }
 $ExecutableBaseName = "aic"
 $CPlanExecutableBaseName = "cplan"
 $ExecutableFileName = if ($IsWindows) { "$ExecutableBaseName.exe" } else { $ExecutableBaseName }
@@ -257,8 +284,8 @@ $CPlanExecutableFileName = if ($IsWindows) { "$CPlanExecutableBaseName.exe" } el
 $ExecutableCommandForDocs = if ($IsWindows) { ".\$ExecutableFileName" } else { "./$ExecutableFileName" }
 $CPlanExecutableCommandForDocs = if ($IsWindows) { ".\$CPlanExecutableFileName" } else { "./$CPlanExecutableFileName" }
 $OutDir = Resolve-RepoPath "out"
-$PackageDir = Join-Path $OutDir "ai-automate-contro"
-$BuildTempRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) "ai-automate-contro-pyinstaller"))
+$PackageDir = Join-Path $OutDir $PackageName
+$BuildTempRoot = [System.IO.Path]::GetFullPath((Join-Path ([System.IO.Path]::GetTempPath()) $BuildTempRootName))
 $BuildDir = Join-Path $BuildTempRoot $PlatformName
 $PyInstallerDistDir = Join-Path $BuildDir "dist"
 $PyInstallerPackageDir = Join-Path $PyInstallerDistDir $ExecutableBaseName
@@ -269,7 +296,8 @@ $ExecutablePath = Join-Path $PackageDir $ExecutableFileName
 $CPlanExecutablePath = Join-Path $PackageDir $CPlanExecutableFileName
 $HandbookSourceDir = Resolve-RepoPath "handbook"
 $PlanConfigPath = Join-Path $PackageDir "plan.config"
-$PackageZipPath = Join-Path $OutDir "ai-automate-contro-$PlatformName.zip"
+$PackageZipPath = Join-Path $OutDir "$PackageName-$PlatformName.zip"
+$script:PackageLogPath = Join-Path $OutDir $PackageLogFileName
 
 Assert-UnderRepo $OutDir
 Assert-UnderRepo $PackageDir
@@ -280,47 +308,111 @@ Assert-UnderRepo $PlanConfigPath
 Assert-UnderRepo $PackageZipPath
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
-Stop-ExistingPackageProcesses
+Set-Content -LiteralPath $script:PackageLogPath -Value "" -Encoding UTF8
+Write-PackageCheckpoint "START package RepoRoot=$RepoRoot Platform=$PlatformName"
+if ($PythonPath) {
+    $PythonCommand = if ([System.IO.Path]::IsPathFullyQualified($PythonPath)) {
+        [System.IO.Path]::GetFullPath($PythonPath)
+    }
+    else {
+        [System.IO.Path]::GetFullPath((Join-Path $RepoRoot $PythonPath))
+    }
+    if (-not (Test-Path -LiteralPath $PythonCommand)) {
+        $PythonCommand = [System.IO.Path]::GetFullPath($PythonPath)
+    }
+    if (-not (Test-Path -LiteralPath $PythonCommand)) {
+        throw "指定的 PythonPath 不存在：$PythonPath"
+    }
+}
+else {
+    $pythonCommandInfo = Get-Command python -ErrorAction SilentlyContinue
+    if (-not $pythonCommandInfo) {
+        throw "PATH 中没有找到 python。"
+    }
+    $PythonCommand = $pythonCommandInfo.Source
+}
+Write-PackageCheckpoint "Using Python: $PythonCommand"
+if ($ProbeOnly) {
+    Write-PackageCheckpoint ("Probe TEMP=" + [System.IO.Path]::GetTempPath())
+    Write-PackageCheckpoint ("Probe PLAYWRIGHT_BROWSERS_PATH=" + [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "Process"))
+    Write-PackageCheckpoint ("Probe PYINSTALLER_CONFIG_DIR=" + [Environment]::GetEnvironmentVariable("PYINSTALLER_CONFIG_DIR", "Process"))
+    if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
+        throw "分发版 AI 终端必须安装 ripgrep (rg)。请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e"
+    }
+    Invoke-Checked $PythonCommand @(
+        "-c",
+        "import sys, pathlib, PyInstaller, textual, playwright; print('python', sys.executable); print('version', sys.version.split()[0]); print('pyinstaller', PyInstaller.__version__); print('textual', getattr(textual, '__version__', 'ok')); print('playwright', pathlib.Path(playwright.__file__).resolve())"
+    )
+    Write-PackageCheckpoint "Probe complete"
+    return
+}
+if ($NoProcessCleanup) {
+    Write-PackageCheckpoint "Skip existing package process cleanup"
+}
+else {
+    Write-PackageCheckpoint "Stop existing package processes"
+    Stop-ExistingPackageProcesses
+}
 Assert-UnderBuildTemp $BuildDir
 Assert-UnderRepo $PackageDir
 Assert-UnderRepo $PackageZipPath
+Write-PackageCheckpoint "Remove build dir: $BuildDir"
 Remove-PackagePath $BuildDir
+Write-PackageCheckpoint "Remove package dir: $PackageDir"
 Remove-PackagePath $PackageDir
+Write-PackageCheckpoint "Remove package zip: $PackageZipPath"
 Remove-PackagePath $PackageZipPath
 New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
 New-Item -ItemType Directory -Force -Path $BuildDir | Out-Null
-
-if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
-    throw "PATH 中没有找到 python。"
+if ($StopAfter -eq "Cleanup") {
+    Write-PackageCheckpoint "StopAfter Cleanup"
+    return
 }
+
 if (-not (Get-Command rg -ErrorAction SilentlyContinue)) {
     throw "分发版 AI 终端必须安装 ripgrep (rg)。请在 PowerShell 7 执行：winget install --id BurntSushi.ripgrep.MSVC -e"
 }
 
 if ($InstallDependencies) {
-    Invoke-Checked "python" @("-m", "pip", "install", "-e", ".[package]")
+    Invoke-Checked $PythonCommand @("-m", "pip", "install", "-e", ".[package]")
 }
 
-python -c "import PyInstaller" 2>$null
+& $PythonCommand -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "未安装 PyInstaller。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
 }
-python -c "import textual" 2>$null
+& $PythonCommand -c "import textual" 2>$null
 if ($LASTEXITCODE -ne 0) {
     throw "当前 Python 解释器缺少 textual。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
+}
+if ($StopAfter -eq "DependencyCheck") {
+    Write-PackageCheckpoint "StopAfter DependencyCheck"
+    return
 }
 
 $previousBrowsersPath = [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "Process")
 try {
     $env:PLAYWRIGHT_BROWSERS_PATH = "0"
-    Invoke-Checked "python" @("-m", "playwright", "install", "chromium")
-    $BrowserDir = (& python -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).resolve().parent / 'driver' / 'package' / '.local-browsers')").Trim()
+    if ($SkipPlaywrightInstall) {
+        Write-PackageCheckpoint "Skip Playwright Chromium install"
+    }
+    else {
+        Write-PackageCheckpoint "Install Playwright Chromium"
+        Invoke-Checked $PythonCommand @("-m", "playwright", "install", "chromium")
+    }
+    $BrowserDir = (& $PythonCommand -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).resolve().parent / 'driver' / 'package' / '.local-browsers')").Trim()
     if (-not (Test-Path -LiteralPath $BrowserDir)) {
         throw "没有找到 Playwright 浏览器目录：$BrowserDir"
+    }
+    Write-PackageCheckpoint "Playwright browser dir: $BrowserDir"
+    if ($StopAfter -eq "PlaywrightInstall") {
+        Write-PackageCheckpoint "StopAfter PlaywrightInstall"
+        return
     }
 
     $BrowserBackupParent = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-contro-playwright-browsers-{0}" -f [System.Guid]::NewGuid().ToString("N"))
     $BrowserBackupDir = Join-Path $BrowserBackupParent ".local-browsers"
+    Write-PackageCheckpoint "Move Playwright browser cache to backup: $BrowserBackupDir"
     New-Item -ItemType Directory -Force -Path $BrowserBackupParent | Out-Null
     Move-Item -LiteralPath $BrowserDir -Destination $BrowserBackupDir -Force
     $pyinstallerArgs = @(
@@ -354,9 +446,11 @@ try {
         $EntryPoint
     )
     try {
-        Invoke-Checked "python" $pyinstallerArgs
+        Write-PackageCheckpoint "Run PyInstaller"
+        Invoke-Checked $PythonCommand $pyinstallerArgs
     }
     finally {
+        Write-PackageCheckpoint "Restore Playwright browser cache"
         if (Test-Path -LiteralPath $BrowserBackupDir) {
             if (Test-Path -LiteralPath $BrowserDir) {
                 Remove-Item -LiteralPath $BrowserDir -Recurse -Force
@@ -381,7 +475,12 @@ finally {
 if (-not (Test-Path -LiteralPath $PyInstallerExecutablePath)) {
     throw "打包已完成，但没有找到可执行文件：$PyInstallerExecutablePath"
 }
+if ($StopAfter -eq "PyInstaller") {
+    Write-PackageCheckpoint "StopAfter PyInstaller"
+    return
+}
 
+Write-PackageCheckpoint "Copy PyInstaller output to package dir"
 Remove-PackagePath $PackageDir
 New-Item -ItemType Directory -Force -Path $PackageDir | Out-Null
 Get-ChildItem -LiteralPath $PyInstallerPackageDir -Force | ForEach-Object {
@@ -400,7 +499,13 @@ if (Test-Path -LiteralPath $PackagedPlaywrightBrowserDir) {
     Remove-PackagePath $PackagedPlaywrightBrowserDir
 }
 New-Item -ItemType Directory -Force -Path $PackagedPlaywrightBrowserParent | Out-Null
-Copy-Item -LiteralPath $BrowserDir -Destination $PackagedPlaywrightBrowserDir -Recurse -Force
+if ($SkipBrowserCopy) {
+    Write-PackageCheckpoint "Skip Playwright browsers copy"
+}
+else {
+    Write-PackageCheckpoint "Copy Playwright browsers into package"
+    Copy-Item -LiteralPath $BrowserDir -Destination $PackagedPlaywrightBrowserDir -Recurse -Force
+}
 
 if (-not $IsWindows) {
     chmod +x $ExecutablePath
@@ -449,6 +554,10 @@ $CPlanExecutableCommandForDocs run --file .\plans\demo\plan.json --run-name demo
 ```
 "@
 $demoReadme | Set-Content -LiteralPath (Join-Path $PackageDemoDocsDir "README.md") -Encoding UTF8
+if ($StopAfter -eq "CopyPackage") {
+    Write-PackageCheckpoint "StopAfter CopyPackage"
+    return
+}
 
 if ($SmokeTest) {
     Push-Location $PackageDir
@@ -475,19 +584,25 @@ if (Test-Path -LiteralPath $PackageDemoOutputDir) {
     Remove-Item -LiteralPath $PackageDemoOutputDir -Recurse -Force
 }
 
-if (Test-Path -LiteralPath $PackageZipPath) {
-    Remove-PackagePath $PackageZipPath
+if (-not $SkipZip) {
+    if (Test-Path -LiteralPath $PackageZipPath) {
+        Remove-PackagePath $PackageZipPath
+    }
+    Write-PackageCheckpoint "Compress package zip"
+    Compress-Archive -LiteralPath $PackageDir -DestinationPath $PackageZipPath -Force
 }
-Compress-Archive -LiteralPath $PackageDir -DestinationPath $PackageZipPath -Force
+else {
+    Write-PackageCheckpoint "Skip package zip"
+}
 
-if ($SmokeTest) {
+if ($SmokeTest -and -not $SkipZip) {
     $ZipSmokeDir = Join-Path $OutDir "zip-smoke"
     if (Test-Path -LiteralPath $ZipSmokeDir) {
         Remove-Item -LiteralPath $ZipSmokeDir -Recurse -Force
     }
     New-Item -ItemType Directory -Force -Path $ZipSmokeDir | Out-Null
     Expand-Archive -LiteralPath $PackageZipPath -DestinationPath $ZipSmokeDir -Force
-    $ExtractedPackageDir = Join-Path $ZipSmokeDir "ai-automate-contro"
+    $ExtractedPackageDir = Join-Path $ZipSmokeDir $PackageName
     $ExtractedExecutablePath = Join-Path $ExtractedPackageDir $ExecutableFileName
     $ExtractedCPlanExecutablePath = Join-Path $ExtractedPackageDir $CPlanExecutableFileName
     Push-Location $ExtractedPackageDir
@@ -526,4 +641,6 @@ Write-Host "分发包 plan 控制 CLI："
 Write-Host $CPlanExecutablePath
 Write-Host "分发包 zip："
 Write-Host $PackageZipPath
-Write-Host "请从 out\ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。"
+Write-Host "打包日志："
+Write-Host $script:PackageLogPath
+Write-Host "请从 out\$PackageName 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。"

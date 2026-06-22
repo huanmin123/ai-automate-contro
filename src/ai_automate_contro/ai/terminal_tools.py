@@ -27,6 +27,7 @@ from ai_automate_contro.ai.run_failure_analysis import (
 )
 from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
 from ai_automate_contro.ai.work_plan import normalize_work_plan_items, normalize_work_plan_summary
+from ai_automate_contro.app import schedule_manager
 from ai_automate_contro.support.paths import path_from_text
 
 
@@ -145,6 +146,64 @@ def review_plan_quality_tool(
         planned_output_path=planned_output_path,
         evidence_context=_evidence_context or {},
     )
+
+
+def list_schedules_tool(project_root: str | Path) -> dict[str, Any]:
+    return schedule_manager.list_schedules(project_root)
+
+
+def add_schedule_tool(
+    project_root: str | Path,
+    *,
+    schedule_id: str,
+    plan_path: str | Path,
+    daily_at: str = "",
+    every_seconds: float | None = None,
+    run_immediately: bool = False,
+    schedule_project_root: str | Path = "",
+    timezone_name: str = "Asia/Shanghai",
+    enabled: bool = True,
+    timeout_seconds: int | None = None,
+    run_name: str | None = None,
+    replace: bool = False,
+) -> dict[str, Any]:
+    if daily_at and every_seconds is not None:
+        raise ValueError("daily_at 和 every_seconds 只能提供一个。")
+    if not daily_at and every_seconds is None:
+        raise ValueError("add_schedule 需要 daily_at 或 every_seconds。")
+    trigger = (
+        {"type": "daily", "at": daily_at}
+        if daily_at
+        else {"type": "interval", "every_seconds": every_seconds, "run_immediately": run_immediately}
+    )
+    return schedule_manager.add_schedule(
+        project_root,
+        schedule_id=schedule_id,
+        plan_file=plan_path,
+        trigger=trigger,
+        schedule_project_root=schedule_project_root or None,
+        timezone_name=timezone_name,
+        enabled=enabled,
+        timeout_seconds=timeout_seconds,
+        run_name=run_name,
+        replace=replace,
+    )
+
+
+def remove_schedule_tool(project_root: str | Path, *, schedule_id: str) -> dict[str, Any]:
+    return schedule_manager.remove_schedule(project_root, schedule_id)
+
+
+def enable_schedule_tool(project_root: str | Path, *, schedule_id: str) -> dict[str, Any]:
+    return schedule_manager.set_schedule_enabled(project_root, schedule_id, True)
+
+
+def disable_schedule_tool(project_root: str | Path, *, schedule_id: str) -> dict[str, Any]:
+    return schedule_manager.set_schedule_enabled(project_root, schedule_id, False)
+
+
+def run_schedule_now_tool(project_root: str | Path, *, schedule_id: str) -> dict[str, Any]:
+    return schedule_manager.run_schedule_now(project_root, schedule_id)
 
 
 def export_local_file_tool(

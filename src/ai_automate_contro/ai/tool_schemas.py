@@ -94,6 +94,13 @@ class WritePlanPackageFileArgs(ToolArgsModel):
     mode: str = Field(default="overwrite", description="写入模式：overwrite 或 append。")
 
 
+class ImportPlanResourceFileArgs(ToolArgsModel):
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    source_path: str = Field(..., description="要导入的本机源文件路径；绝对路径、~ 路径或项目相对路径。")
+    relative_path: str = Field(default="", description="目标 resources/ 下相对路径；空则使用源文件名，可省略 resources/ 前缀。")
+    overwrite: bool = Field(default=False, description="目标资源已存在时是否覆盖。")
+
+
 class ValidatePlanArgs(ToolArgsModel):
     plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
 
@@ -112,6 +119,28 @@ class RunPlanArgs(ToolArgsModel):
         default_factory=dict,
         description="本次运行的临时变量覆盖。",
     )
+
+
+class ListSchedulesArgs(ToolArgsModel):
+    pass
+
+
+class AddScheduleArgs(ToolArgsModel):
+    schedule_id: str = Field(..., description="schedule id，不能包含空白字符。")
+    plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
+    daily_at: str = Field(default="", description="每天执行时间，格式 HH:MM；和 every_seconds 二选一。")
+    every_seconds: float | None = Field(default=None, description="固定间隔秒数；和 daily_at 二选一。")
+    run_immediately: bool = Field(default=False, description="interval 首次 daemon 扫描是否立即运行。")
+    schedule_project_root: str = Field(default="", description="该 schedule 运行 plan 时使用的 project root；空则当前运行根。")
+    timezone_name: str = Field(default="Asia/Shanghai", description="时区。")
+    enabled: bool = Field(default=True, description="创建后是否启用。")
+    timeout_seconds: int | None = Field(default=None, description="单次运行超时秒数。")
+    run_name: str | None = Field(default=None, description="可选运行名称；空则使用 schedule id。")
+    replace: bool = Field(default=False, description="是否覆盖同 id schedule。")
+
+
+class ScheduleIdArgs(ToolArgsModel):
+    schedule_id: str = Field(..., description="schedule id。")
 
 
 class ReadLatestRunStateArgs(ToolArgsModel):

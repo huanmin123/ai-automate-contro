@@ -12,10 +12,13 @@
 
 - 交互入口分成两端，不要混用：
   - AI 端是 `main.py`/`aic` 的 Textual 客户端，用户用自然语言对话；它显示 AI 工作计划、工具进度、审批、错误和队列。这里的 `/plan` 只查看 AI 当前工作计划，不是 plan 包管理命令。
-  - 管理端是 `cplan.py`/`cplan`，没有 AI 对话，只接受固定命令：`list`、`create`、`validate`、`run`、`debug-create`、`debug-prepare`、`debug-inject`、`debug-patch`、`debug-apply`、`self-check`。
+  - 管理端是 `cplan.py`/`cplan`，没有 AI 对话，只接受固定命令：`list`、`create`、`validate`、`run`、`schedule`、`debug-create`、`debug-prepare`、`debug-inject`、`debug-patch`、`debug-apply`、`self-check`。
   - 不存在 Textual 里的 `/run`、`/validate`、`/debug`、`/continue`、`/stop` plan 管理命令；不要把这些写进 plan 文档、提示或用户指引。
 - 创建或修改 plan 前，先确认目标 plan 包位置；未指定目录时使用当前运行根的第一个 `plan_roots`。
 - 真实网页流程不能凭描述猜 selector；先用页面证据，再写浏览器步骤。
+- 输入资源推荐放当前 plan 包 `resources/`。用户要求使用本机文件路径、共享盘或外部工作目录时，AI 可以直接在 plan 中引用该路径，不需要审批字段。
+- plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。运行时会转换成本机路径。
+- 不要默认把 `C:\...`、`D:\...`、`/Users/...`、`/home/...`、UNC 路径或其他 plan 包资源写进可复现 plan。只有用户明确要求固定依赖本机路径、共享盘或外部工作目录时才允许例外；例外前必须告知风险，并在当前 plan 包 `docs/` 下写沟通记录。
 - 所有运行产物都写入当前 plan 包的 `output/`，输出动作的 `path` 不要以 `output/` 开头。
 - 主 `plan.json` 是唯一入口；复用流程时只调用同包 `sub-plans/*-plan.json`。
 - 需要人工登录、验证码、二次验证或权限确认时，使用 `open_browser.headed=true` 的自动化浏览器加 `manual_confirm` 交接；用户必须在同一个 Playwright 浏览器窗口里操作，不要让用户另开本机浏览器。
@@ -26,14 +29,15 @@
 ## 按需读取地图
 
 - `reference/config.md`: `config.json`、AI 服务、运行后检查等配置字段。
+- `reference/schedule.md`: `cplan schedule` 长期定时计划管理。
 - `actions/browser/`: 浏览器会话、页面对象和关闭浏览器。
 - `actions/navigation/`: 跳转、等待、断言、弹窗/下载/网络等待、文件选择器和网络拦截。
 - `actions/interaction/`: 元素、键盘、鼠标和滚动。
 - `actions/data/`: 变量、提取、浏览器存储和验证状态检测。
 - `actions/ai/`: 受控专项 AI action。
-- `actions/control-flow/`: 子计划、条件、循环和重试。
-- `actions/io/`: 读取和写入文件。
-- `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、事件采集、coverage、trace 和睡眠。
+- `actions/control-flow/`: 子计划、条件、循环、重试和运行期触发器。
+- `actions/io/`: 读取、写入文件和 HTTP 客户端请求。
+- `actions/utility/`: 打印、人工确认、截图/HTML 捕获、浏览器 dialog、脚本、本地命令、事件采集、coverage、trace 和睡眠。
 
 常用 action 精确路径：
 
@@ -44,12 +48,14 @@
 - `extract`: `actions/data/extract.md`
 - `read`: `actions/io/read.md`
 - `write`: `actions/io/write.md`
+- `http`: `actions/io/http.md`
+- `command`: `actions/utility/command.md`
 - `manual_confirm`: `actions/utility/manual_confirm.md`
 
 ## 写作约束
 
 - 组件名就是 step 的 `action`。
 - 参数结构一致的能力用同一 action 的 `type` 区分，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`。
-- 生命周期独立的能力保留独立 action，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`。
+- 生命周期独立的能力保留独立 action，例如 `open_browser`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`command`。
 - 专项 AI 统一使用 `ai` action，并通过 `type` 区分连通性、抽取、分类、转换和摘要。
 - 变量使用 `{{变量名}}` 引用；业务变量放在 `plan.json.variables`，运行配置放在 `config.json`。

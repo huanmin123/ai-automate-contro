@@ -371,9 +371,4 @@ def _message_entry(line_number: int, raw_text: str) -> dict[str, Any]:
 
 
 def _redact_inline_image_data_urls(text: str) -> str:
-    if "data:image/" not in text.lower():
-        return text
-    try:
-        return json.dumps(redact_image_data_urls(json.loads(text)), ensure_ascii=False, default=str)
-    except json.JSONDecodeError:
-        return text[:MAX_GREP_LINE_CHARS] + ("..." if len(text) > MAX_GREP_LINE_CHARS else "")
+    return text

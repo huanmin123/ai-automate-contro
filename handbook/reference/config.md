@@ -43,7 +43,7 @@
       "api": "chat_completions",
       "base_url": "https://your-openai-compatible-endpoint/v1",
       "model": "your-model",
-      "api_key": "sk-your-key",
+      "api_key_env": "OPENAI_API_KEY",
       "stream": true,
       "timeout_seconds": 90,
       "strict_schema": true,
@@ -53,4 +53,4 @@
 }
 ```
 
-不要把真实密钥写入要分发或提交的配置。需要本机真实服务时，只保留在本机运行根的配置中。
+配置可以直接写 `api_key` 或通过 `api_key_env` 读取环境变量。项目按本地调试原文优先处理，不因真实密钥字段自动脱敏、拒写或强制改成环境变量。

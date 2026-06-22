@@ -33,6 +33,8 @@
 | `set_files` | `files` | 设置文件上传输入框 |
 | `drag_to` | `target_selector` | 拖拽当前元素到目标元素 |
 
+`set_files.files` 推荐使用当前 plan 包 `resources/...`。AI 创建 plan 时，用户没有指定固定本机上传路径时，推荐先把文件导入当前包 `resources/`，再写 `resources/...`。用户要求使用本机绝对路径、共享盘、外部工作目录或越出 plan 包的相对路径时可以直接写入；不需要审批字段。plan JSON 内部路径推荐使用 `/`。
+
 ## 通用可选字段
 
 - `page`: 页面名，默认当前页面

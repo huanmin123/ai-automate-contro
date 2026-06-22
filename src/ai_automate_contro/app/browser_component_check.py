@@ -43,7 +43,10 @@ BROWSER_REGRESSION_CASES = (
     ),
 )
 
-NEGATIVE_CASES_PATH = Path("test-plans/regression/browser-validation-negative/resources/negative-cases.json")
+NEGATIVE_CASES_PATHS = (
+    Path("test-plans/regression/browser-validation-negative/resources/negative-cases.json"),
+    Path("test-plans/regression/http-command-validation-negative/resources/negative-cases.json"),
+)
 
 
 def self_check_browser_components(project_root: Path) -> dict[str, Any]:
@@ -142,28 +145,29 @@ def _disable_run_log_echo(_output_dir: Path, logger: Any) -> None:
 
 
 def _run_negative_validation_cases(project_root: Path) -> list[dict[str, Any]]:
-    manifest_path = project_root / NEGATIVE_CASES_PATH
-    try:
-        manifest = _read_json(manifest_path)
-        raw_cases = manifest["cases"]
-        if not isinstance(raw_cases, list):
-            raise ValueError("negative-cases.json 字段 cases 必须是数组。")
-    except Exception as error:
-        return [
-            {
-                "name": "negative-case-manifest",
-                "ok": False,
-                "manifest_path": str(manifest_path),
-                "error": str(error),
-                "error_type": type(error).__name__,
-            }
-        ]
-
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="browser-validation-negative-") as raw_temp_dir:
         temp_dir = Path(raw_temp_dir)
-        for raw_case in raw_cases:
-            results.append(_run_negative_validation_case(project_root, temp_dir, raw_case))
+        for manifest_relative_path in NEGATIVE_CASES_PATHS:
+            manifest_path = project_root / manifest_relative_path
+            try:
+                manifest = _read_json(manifest_path)
+                raw_cases = manifest["cases"]
+                if not isinstance(raw_cases, list):
+                    raise ValueError("negative-cases.json 字段 cases 必须是数组。")
+            except Exception as error:
+                results.append(
+                    {
+                        "name": f"negative-case-manifest-{manifest_relative_path.parent.parent.name}",
+                        "ok": False,
+                        "manifest_path": str(manifest_path),
+                        "error": str(error),
+                        "error_type": type(error).__name__,
+                    }
+                )
+                continue
+            for raw_case in raw_cases:
+                results.append(_run_negative_validation_case(project_root, temp_dir, raw_case))
     return results
 
 

@@ -5,7 +5,7 @@ from typing import Any
 
 
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_\.]*)\s*\}\}")
-FULL_PLACEHOLDER_RE = re.compile(r"^\{\{\s*([a-zA-Z_][a-zA-Z0-9_\.]*)\s*\}\}$")
+FULL_PLACEHOLDER_RE = re.compile(r"\A\{\{\s*([a-zA-Z_][a-zA-Z0-9_\.]*)\s*\}\}\Z")
 
 
 def render_value(value: Any, variables: dict[str, Any]) -> Any:

@@ -1,0 +1,274 @@
+{
+  "name": "http-client-request",
+  "tags": [
+    "http",
+    "command",
+    "combo"
+  ],
+  "variables": {
+    "api_base_url": "http://127.0.0.1:43125"
+  },
+  "steps": [
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{api_base_url}}/echo",
+      "query": {
+        "source": "plan",
+        "count": 2
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "echo_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{api_base_url}}/json",
+      "json": {
+        "previous": "{{echo_response.body.query.source}}",
+        "count": "{{echo_response.body.query.count}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "json_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "PUT",
+      "url": "{{api_base_url}}/text",
+      "body": "created-from-{{json_response.body.received.previous}}",
+      "content_type": "text/plain; charset=utf-8",
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "text_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "PATCH",
+      "url": "{{api_base_url}}/form",
+      "form": {
+        "label": "combo",
+        "text_sha256": "{{text_response.body.sha256}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "form_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{api_base_url}}/upload",
+      "multipart": {
+        "fields": {
+          "from_form": "{{form_response.body.fields.label}}"
+        },
+        "files": [
+          {
+            "field": "file",
+            "path": "resources/upload.txt",
+            "filename": "upload.txt",
+            "content_type": "text/plain"
+          }
+        ]
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "upload_response"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import json, os; print(json.dumps({'cwd': os.getcwd(), 'upload': os.path.abspath('resources/upload.txt')}))"
+      ],
+      "stdout_type": "json",
+      "save_as": "absolute_paths"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import hashlib, json, os, sys; data = sys.stdin.buffer.read(); print(json.dumps({'cwd': os.getcwd(), 'stdin_sha256': hashlib.sha256(data).hexdigest()}))"
+      ],
+      "cwd": "{{absolute_paths.stdout_json.cwd}}",
+      "stdin_path": "{{absolute_paths.stdout_json.upload}}",
+      "stdout_type": "json",
+      "save_as": "absolute_command_result"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{api_base_url}}/upload",
+      "multipart": {
+        "fields": {
+          "from_form": "absolute"
+        },
+        "files": [
+          {
+            "field": "file",
+            "path": "{{absolute_paths.stdout_json.upload}}",
+            "filename": "absolute-upload.txt",
+            "content_type": "text/plain"
+          }
+        ]
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "absolute_upload_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{api_base_url}}/download",
+      "response_body_path": "downloads/http-report.csv",
+      "expect_status": 200,
+      "save_as": "download_response"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "resources/process_http_combo.py"
+      ],
+      "stdin": "{{upload_response.body.file.sha256}}\n{{download_response.body_path}}\n{{upload_response.body.fields.from_form}}\n",
+      "stdout_type": "json",
+      "stdout_path": "combo-process-stdout.json",
+      "stderr_path": "combo-process-stderr.txt",
+      "save_as": "process_result"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{api_base_url}}/json",
+      "json": {
+        "processed": "{{process_result.stdout_json.processed}}",
+        "download_sha256": "{{process_result.stdout_json.download_sha256}}",
+        "rows": "{{process_result.stdout_json.rows}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "final_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "HEAD",
+      "url": "{{api_base_url}}/head",
+      "expect_status": 204,
+      "include_body": false,
+      "save_as": "head_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "DELETE",
+      "url": "{{api_base_url}}/delete",
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "delete_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{api_base_url}}/redirect",
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "redirect_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{api_base_url}}/status/409",
+      "expect_status": 409,
+      "body_type": "json",
+      "save_as": "conflict_response"
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "equals",
+            "left": "{{final_response.body.received.processed}}",
+            "right": true
+          },
+          {
+            "type": "equals",
+            "left": "{{absolute_command_result.stdout_json.cwd}}",
+            "right": "{{absolute_paths.stdout_json.cwd}}"
+          },
+          {
+            "type": "equals",
+            "left": "{{absolute_command_result.stdout_json.stdin_sha256}}",
+            "right": "{{upload_response.body.file.sha256}}"
+          },
+          {
+            "type": "equals",
+            "left": "{{absolute_upload_response.body.file.sha256}}",
+            "right": "{{upload_response.body.file.sha256}}"
+          },
+          {
+            "type": "equals",
+            "left": "{{head_response.status}}",
+            "right": 204
+          },
+          {
+            "type": "equals",
+            "left": "{{delete_response.body.method}}",
+            "right": "DELETE"
+          },
+          {
+            "type": "equals",
+            "left": "{{redirect_response.body.query.redirected}}",
+            "right": "yes"
+          },
+          {
+            "type": "equals",
+            "left": "{{conflict_response.status}}",
+            "right": 409
+          }
+        ]
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "HTTP and command combo passed"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.exit(9)"
+          ],
+          "expect_exit_code": 0
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "http-command-combo-variables.json"
+    }
+  ]
+}

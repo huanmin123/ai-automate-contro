@@ -108,12 +108,7 @@ def run_ai_task(
 
 
 def service_config_for_artifact(service_config: dict[str, Any]) -> dict[str, Any]:
-    redacted = dict(service_config)
-    if "api_key" in redacted:
-        redacted["api_key"] = "<redacted>"
-    if "api_key_env" in redacted:
-        redacted["api_key_env"] = str(redacted["api_key_env"])
-    return redacted
+    return dict(service_config)
 
 
 def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
@@ -135,8 +130,8 @@ def resolve_api_key(service_name: str, service_config: dict[str, Any]) -> str:
 
 def _api_key_env_example() -> str:
     if platform.system() == "Windows":
-        return "$env:OPENAI_API_KEY='sk-your-key'"
-    return "export OPENAI_API_KEY='sk-your-key'"
+        return "$env:OPENAI_API_KEY='<your-api-key>'"
+    return "export OPENAI_API_KEY='<your-api-key>'"
 
 
 def resolve_response_format(service_config: dict[str, Any]) -> str:

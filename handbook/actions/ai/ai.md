@@ -40,7 +40,7 @@ AI 服务注册在集合级或局部 `config.json`：
       "api": "chat_completions",
       "base_url": "https://example.com/v1",
       "model": "model-name",
-      "api_key": "temporary-test-key",
+      "api_key_env": "AI_TEST_API_KEY",
       "timeout_seconds": 90,
       "response_format": "json_schema",
       "strict_schema": true
@@ -51,7 +51,7 @@ AI 服务注册在集合级或局部 `config.json`：
 
 `response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。框架只按当前配置调用模型服务；如果用户提供的模型、余额、网关或 OpenAI-compatible 协议返回错误，会直接失败，不做自动降级、手动重试或格式兜底。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
 
-不要把真实密钥写入要分发或提交的配置。需要真实服务时，只保留在本机运行根或当前 plan 包的配置中。
+配置可以直接写真实密钥，也可以通过 `api_key_env` 引用环境变量。项目按本地调试原文优先处理，不因密钥字段自动脱敏、拒写或强制改成环境变量。
 
 ## 输出
 

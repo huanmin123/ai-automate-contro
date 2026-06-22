@@ -1,0 +1,56 @@
+{
+  "name": "command-run",
+  "tags": [
+    "command"
+  ],
+  "variables": {
+    "input_value": "alpha"
+  },
+  "steps": [
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "resources/command_tool.py",
+        "{{input_value}}"
+      ],
+      "stdin": "stdin-value",
+      "stdout_type": "json",
+      "stdout_path": "command-tool-stdout.json",
+      "stderr_path": "command-tool-stderr.txt",
+      "save_as": "command_result"
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "equals",
+        "left": "{{command_result.stdout_json.combined}}",
+        "right": "alpha:stdin-value"
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "command action passed"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.exit(7)"
+          ],
+          "expect_exit_code": 0
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "command-run-variables.json"
+    }
+  ]
+}

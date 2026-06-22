@@ -21,7 +21,7 @@
 - `args`: 浏览器启动参数数组
 - `device`: Playwright 设备预设名，例如 `iPhone 12`；预设会填充 viewport、user_agent、device_scale_factor、is_mobile、has_touch
 - `proxy`: 代理配置对象
-- `storage_state_path`: 从文件加载登录态或上下文状态
+- `storage_state_path`: 从文件加载登录态或上下文状态，默认使用 `resources/...` 或当前 plan 包已生成的 `output/storage-states/...`
 - `viewport`: 视口尺寸，例如 `{"width": 1280, "height": 720}`
 - `screen`: 屏幕尺寸
 - `user_agent`: 自定义 User-Agent
@@ -81,5 +81,8 @@
 - `name` 不能重复。
 - 如果你后面要写 `browser: "main"`，这里的 `name` 就必须叫 `main`。
 - 默认新建一个空白上下文；需要继承状态时使用 `storage_state_path`。
+- `storage_state_path` 默认引用当前 plan 包 `resources/...` 或 `output/storage-states/...`。AI 创建 plan 时，用户给出本机 storage state 文件但没有明确要求长期依赖该路径，必须先导入当前包 `resources/`。
+- `storage_state_path` 支持绝对路径、共享盘、外部工作目录和越出 plan 包的相对路径；不需要审批字段。
+- plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。
 - `device` 不会自动切换 `browser_type`；需要指定浏览器内核时显式填写 `browser_type`。
 - 多数真实站点调试时，优先显式设置 `viewport`、`locale`、`timezone_id`、`user_agent` 和必要的 `extra_http_headers`。

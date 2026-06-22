@@ -347,7 +347,7 @@ def is_forbidden_read_path(path: Path) -> bool:
 
 def relative_to_project(project_root: Path, path: Path) -> str:
     try:
-        return str(path.resolve().relative_to(project_root))
+        return path.resolve().relative_to(project_root).as_posix()
     except ValueError:
         return str(path)
 

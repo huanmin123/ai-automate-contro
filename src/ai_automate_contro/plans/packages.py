@@ -170,10 +170,12 @@ def _collect_static_sub_plans(steps: list[Any]) -> list[str]:
                 branch_steps = step.get(branch, [])
                 if isinstance(branch_steps, list):
                     sub_plans.extend(_collect_static_sub_plans(branch_steps))
-        if action in {"foreach", "retry"}:
+        if action in {"foreach", "retry", "trigger"}:
             child_steps = step.get("steps", [])
             if isinstance(child_steps, list):
                 sub_plans.extend(_collect_static_sub_plans(child_steps))
+        if action == "trigger" and isinstance(step.get("path"), str):
+            sub_plans.append(step["path"])
         trigger = step.get("trigger")
         if isinstance(trigger, dict):
             sub_plans.extend(_collect_static_sub_plans([trigger]))

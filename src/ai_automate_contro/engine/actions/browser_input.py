@@ -83,6 +83,8 @@ def _swipe(executor: Any, step: dict[str, Any]) -> None:
     if bool(step.get("touch", True)):
         try:
             _touch_swipe(target_page, start_x, start_y, end_x, end_y, steps, duration_ms)
+            if bool(step.get("dom_touch_fallback", True)):
+                _dom_touch_swipe(target_page, start_x, start_y, end_x, end_y, steps, duration_ms)
             return
         except Exception as error:
             if not bool(step.get("fallback_to_mouse", True)):
@@ -135,6 +137,105 @@ def _touch_swipe(
         detach = getattr(session, "detach", None)
         if detach is not None:
             detach()
+
+
+def _dom_touch_swipe(
+    page: Any,
+    start_x: float,
+    start_y: float,
+    end_x: float,
+    end_y: float,
+    steps: int,
+    duration_ms: int,
+) -> None:
+    delay_ms = duration_ms / steps if duration_ms else 0
+    page.evaluate(
+        """
+        async (args) => {
+          const hasTouchIntent = (element) => {
+            if (!element || element === document.documentElement) {
+              return false;
+            }
+            const touchAction = window.getComputedStyle(element).touchAction || "";
+            return touchAction && touchAction !== "auto";
+          };
+          const containsPoint = (element, x, y) => {
+            const rect = element.getBoundingClientRect();
+            return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+          };
+          const startHit = document.elementFromPoint(args.startX, args.startY);
+          const touchCandidates = Array.from(document.querySelectorAll("*")).filter((element) => {
+            const rect = element.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && hasTouchIntent(element);
+          });
+          let target = hasTouchIntent(startHit) ? startHit : null;
+          if (!target) {
+            target = touchCandidates.find((element) => containsPoint(element, args.startX, args.startY));
+          }
+          if (!target) {
+            target = touchCandidates[0] || startHit || document.body;
+          }
+          const deltaX = args.endX - args.startX;
+          const deltaY = args.endY - args.startY;
+          let startX = args.startX;
+          let startY = args.startY;
+          let endX = args.endX;
+          let endY = args.endY;
+          if (!containsPoint(target, startX, startY)) {
+            const rect = target.getBoundingClientRect();
+            startX = rect.left + rect.width / 2;
+            startY = rect.top + rect.height / 2;
+            endX = startX + deltaX;
+            endY = startY + deltaY;
+          }
+          const makeTouch = (x, y) => new Touch({
+            identifier: 1,
+            target,
+            clientX: x,
+            clientY: y,
+            screenX: x,
+            screenY: y,
+            pageX: x + window.scrollX,
+            pageY: y + window.scrollY,
+            radiusX: 1,
+            radiusY: 1,
+            rotationAngle: 0,
+            force: 1,
+          });
+          const dispatch = (type, x, y) => {
+            const touch = makeTouch(x, y);
+            const event = new TouchEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              composed: true,
+              touches: type === "touchend" ? [] : [touch],
+              targetTouches: type === "touchend" ? [] : [touch],
+              changedTouches: [touch],
+            });
+            target.dispatchEvent(event);
+          };
+          dispatch("touchstart", startX, startY);
+          for (let index = 1; index <= args.steps; index += 1) {
+            const progress = index / args.steps;
+            const x = startX + (endX - startX) * progress;
+            const y = startY + (endY - startY) * progress;
+            dispatch("touchmove", x, y);
+            if (args.delayMs) {
+              await new Promise((resolve) => setTimeout(resolve, args.delayMs));
+            }
+          }
+          dispatch("touchend", endX, endY);
+        }
+        """,
+        {
+            "startX": start_x,
+            "startY": start_y,
+            "endX": end_x,
+            "endY": end_y,
+            "steps": steps,
+            "delayMs": delay_ms,
+        },
+    )
 
 
 ACTION_HANDLERS = {

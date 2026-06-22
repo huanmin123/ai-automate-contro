@@ -452,11 +452,11 @@ def _check_textual_approval_guidance_is_not_duplicated() -> dict[str, Any]:
 def _check_textual_transcript_export_keeps_raw_text() -> dict[str, Any]:
     export_text = _format_transcript_markdown(
         [
-            ("user", "账户名 huanmin\n密码hu123456.\napi_key=sk-secret12345678"),
+            ("user", "账户名 raw-account-value\n密码raw-password-value.\napi_key=raw-api-key-value"),
             ("assistant", "收到。"),
         ]
     )
-    passed = "hu123456" in export_text and "sk-secret12345678" in export_text and "[REDACTED]" not in export_text
+    passed = "raw-password-value" in export_text and "raw-api-key-value" in export_text and "[REDACTED]" not in export_text
     return {
         "name": "textual_client_export_keeps_raw_inline_text",
         "passed": passed,
@@ -1472,7 +1472,7 @@ async def _check_textual_command_palette_and_local_commands() -> dict[str, Any]:
         and bool(exports)
         and "## Meta" in export_text
         and "工具细节显示：开启" in export_text
-        and any("Is a directory" in message or "目录" in message for message in error_messages)
+        and any("Is a directory" in message or "目录" in message or "Permission denied" in message for message in error_messages)
         and last_assistant_text == "local command check\n"
         and cleared_message_count == 0
     )

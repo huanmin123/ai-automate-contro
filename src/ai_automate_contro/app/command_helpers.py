@@ -44,6 +44,7 @@ def run_plan(
     variable_overrides: dict[str, Any] | None = None,
     manual_confirmation_handler: Any | None = None,
     inspection_confirmation_handler: Any | None = None,
+    interrupt_checker: Any | None = None,
 ) -> Any:
     document = load_plan(raw_plan_path)
     document_type = detect_document_type(document)
@@ -58,6 +59,7 @@ def run_plan(
         variable_overrides=variable_overrides,
         manual_confirmation_handler=manual_confirmation_handler,
         inspection_confirmation_handler=inspection_confirmation_handler,
+        interrupt_checker=interrupt_checker,
     )
 
 

@@ -11,6 +11,7 @@ from ai_automate_contro.ai.plan_tools import issue_to_dict, resolve_plan_path
 from ai_automate_contro.plans.loader import load_plan
 from ai_automate_contro.plans.validator import validate_plan_file
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
+from ai_automate_contro.support.redaction import redact_secret_text
 
 
 URL_RE = re.compile(r"https?://[^\s，。；;,）)\"']+", re.IGNORECASE)
@@ -627,13 +628,39 @@ def _collect_plan_package(plan_path: Path) -> dict[str, Any]:
     steps: list[dict[str, Any]] = []
     variables: dict[str, Any] = {}
     _collect_document(plan_path.resolve(), package_root, [], documents, steps, variables)
+    input_files = _collect_plan_input_file_hashes(package_root)
     raw_text = "\n".join(json.dumps(document["document"], ensure_ascii=False, default=str) for document in documents)
     return {
         "documents": documents,
+        "input_files": input_files,
         "steps": steps,
         "variables": variables,
         "raw_text": raw_text,
     }
+
+
+def _collect_plan_input_file_hashes(package_root: Path) -> list[dict[str, str]]:
+    input_files: list[Path] = []
+    local_config = package_root / "config.json"
+    if local_config.is_file():
+        input_files.append(local_config)
+    resources_dir = package_root / "resources"
+    if resources_dir.is_dir():
+        input_files.extend(path for path in resources_dir.rglob("*") if path.is_file())
+
+    result: list[dict[str, str]] = []
+    for path in sorted(input_files, key=lambda item: item.relative_to(package_root).as_posix().lower()):
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+        result.append(
+            {
+                "relative_path": path.relative_to(package_root).as_posix(),
+                "sha256": digest,
+            }
+        )
+    return result
 
 
 def _collect_document(
@@ -1056,7 +1083,7 @@ def _issue(severity: str, code: str, message: str, evidence: str, fix: str) -> d
         "severity": severity,
         "code": code,
         "message": message,
-        "evidence": evidence,
+        "evidence": redact_secret_text(evidence),
         "fix": fix,
     }
 
@@ -1142,5 +1169,15 @@ def _is_real_http_url(url: str) -> bool:
 def compute_plan_signature(plan_path: str | Path) -> str:
     resolved_plan_path = resolve_plan_path(plan_path)
     package = _collect_plan_package(resolved_plan_path)
-    digest = hashlib.sha256(package["raw_text"].encode("utf-8")).hexdigest()
+    payload = {
+        "documents": [
+            {
+                "relative_path": document["path"].relative_to(resolved_plan_path.parent).as_posix(),
+                "document": document["document"],
+            }
+            for document in package["documents"]
+        ],
+        "input_files": package["input_files"],
+    }
+    digest = hashlib.sha256(json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")).hexdigest()
     return digest

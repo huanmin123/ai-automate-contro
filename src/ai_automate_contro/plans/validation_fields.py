@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from ai_automate_contro.plans.validation_models import ValidationIssue
 from ai_automate_contro.plans.validation_rules import ACTION_TYPES
@@ -24,6 +25,9 @@ FRAME_FIELDS = {
     "frame_url_contains",
     "frame_index",
 }
+
+HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+HTTP_BODY_FIELDS = ("json", "body", "body_path", "form", "multipart")
 
 
 def validate_type_field(
@@ -169,6 +173,8 @@ def validate_type_specific_required_fields(
         required = ("key",)
     elif action == "trace" and step_type == "stop":
         required = ("path",)
+    elif action == "command" and step_type == "run" and not any(field in step for field in ("command", "commands", "argv")):
+        issues.append(ValidationIssue(location, "command.run 需要 command、commands 或 argv 之一"))
     elif action == "ai" and step_type == "extract_data":
         required = ("schema",)
     elif action == "ai" and step_type == "classify_text" and "schema" not in step:
@@ -293,6 +299,12 @@ def _validate_optional_field_values(
         return
     if action == "storage":
         _validate_storage_fields(step, step_type, location, issues)
+        return
+    if action == "http":
+        _validate_http_fields(step, step_type, location, issues)
+        return
+    if action == "command":
+        _validate_command_fields(step, step_type, location, issues)
         return
     if action == "element":
         _validate_element_fields(step, step_type, location, issues)
@@ -465,6 +477,100 @@ def _validate_assert_fields(
         return
     if step_type == "count":
         _validate_enum(step, "mode", {"equals", "gte", "lte"}, location, issues)
+
+
+def _validate_http_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type != "request":
+        return
+    method = step.get("method")
+    if "method" in step and not _is_template(method):
+        if not isinstance(method, str) or method.upper() not in HTTP_METHODS:
+            issues.append(ValidationIssue(location, f"method 不支持的取值：{method}；可选值：{', '.join(sorted(HTTP_METHODS))}"))
+    url = step.get("url")
+    if "url" in step and not _is_template(url):
+        if not isinstance(url, str) or not url.strip():
+            issues.append(ValidationIssue(location, "url 必须是非空字符串"))
+        else:
+            scheme = urlsplit(url).scheme
+            if scheme not in {"http", "https"}:
+                issues.append(ValidationIssue(location, "url 只支持 http:// 或 https://"))
+    body_fields = [field for field in HTTP_BODY_FIELDS if field in step]
+    if len(body_fields) > 1:
+        issues.append(ValidationIssue(location, f"http.request 只能同时使用一种 body 字段，当前包含：{', '.join(body_fields)}"))
+    _validate_dict(step, "headers", location, issues)
+    _validate_dict(step, "query", location, issues)
+    _validate_dict(step, "form", location, issues)
+    _validate_dict(step, "multipart", location, issues)
+    _validate_dict(step, "auth", location, issues)
+    _validate_string(step, "body_path", location, issues)
+    _validate_string(step, "response_body_path", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_string(step, "body", location, issues)
+    _validate_string(step, "content_type", location, issues)
+    _validate_bool(step, "allow_body", location, issues)
+    _validate_bool(step, "follow_redirects", location, issues)
+    _validate_bool(step, "verify_tls", location, issues)
+    _validate_bool(step, "include_headers", location, issues)
+    _validate_bool(step, "include_body", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "max_redirects", location, issues, minimum=0)
+    _validate_int(step, "max_body_bytes", location, issues, minimum=1)
+    _validate_enum(step, "body_type", {"text", "json", "bytes"}, location, issues)
+    if isinstance(step.get("multipart"), dict):
+        multipart = step["multipart"]
+        _validate_dict(multipart, "fields", location, issues)
+        _validate_list(multipart, "files", location, issues)
+        files = multipart.get("files", [])
+        if isinstance(files, list):
+            for index, file_item in enumerate(files):
+                item_location = f"{location}.multipart.files[{index}]"
+                if not isinstance(file_item, dict):
+                    issues.append(ValidationIssue(item_location, "multipart.files 每一项必须是对象"))
+                    continue
+                for field in ("field", "path"):
+                    if field not in file_item:
+                        issues.append(ValidationIssue(item_location, f"multipart.files 缺少必填字段：{field}"))
+                    elif not isinstance(file_item[field], str) or not file_item[field]:
+                        issues.append(ValidationIssue(item_location, f"{field} 必须是非空字符串"))
+
+
+def _validate_command_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type != "run":
+        return
+    command_sources = [field for field in ("command", "commands", "argv") if field in step]
+    if len(command_sources) > 1:
+        issues.append(ValidationIssue(location, "command.run 只能同时提供 command、commands 或 argv 中的一种"))
+    _validate_string(step, "command", location, issues)
+    _validate_dict(step, "commands", location, issues)
+    _validate_list(step, "argv", location, issues)
+    if isinstance(step.get("argv"), list):
+        for index, item in enumerate(step["argv"]):
+            if not isinstance(item, str) or not item:
+                issues.append(ValidationIssue(f"{location}.argv[{index}]", "argv 每一项必须是非空字符串"))
+    _validate_string(step, "cwd", location, issues)
+    _validate_string(step, "stdin", location, issues)
+    _validate_string(step, "stdin_path", location, issues)
+    if "stdin" in step and "stdin_path" in step:
+        issues.append(ValidationIssue(location, "command.stdin 和 command.stdin_path 只能提供一种"))
+    _validate_string(step, "stdout_path", location, issues)
+    _validate_string(step, "stderr_path", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_string(step, "encoding", location, issues)
+    _validate_dict(step, "env", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "max_output_bytes", location, issues, minimum=1)
+    _validate_enum(step, "stdout_type", {"text", "json"}, location, issues)
+    _validate_enum(step, "shell", {"auto", "pwsh", "powershell", "cmd", "sh", "bash"}, location, issues)
 
 
 def _validate_enum(

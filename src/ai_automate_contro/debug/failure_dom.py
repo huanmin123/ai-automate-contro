@@ -101,7 +101,13 @@ def interesting_attrs(attrs: dict[str, str]) -> dict[str, str]:
         "for",
         "value",
     ]
-    return {key: attrs[key] for key in keys if attrs.get(key)}
+    result: dict[str, str] = {}
+    for key in keys:
+        value = attrs.get(key)
+        if not value:
+            continue
+        result[key] = value
+    return result
 
 
 def selector_hint(tag: str, attrs: dict[str, str]) -> str:

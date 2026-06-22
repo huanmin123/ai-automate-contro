@@ -1,0 +1,54 @@
+{
+  "name": "interval-trigger",
+  "variables": {},
+  "steps": [
+    {
+      "action": "write",
+      "type": "text",
+      "path": "ticks.txt",
+      "value": ""
+    },
+    {
+      "action": "trigger",
+      "type": "interval",
+      "name": "inline_ticker",
+      "every_seconds": 0.1,
+      "run_immediately": true,
+      "max_runs": 2,
+      "overlap": "skip",
+      "on_error": "fail_plan",
+      "save_as": "inline_status",
+      "steps": [
+        {
+          "action": "write",
+          "type": "text",
+          "path": "ticks.txt",
+          "value": "inline {{trigger_run_index}}\n",
+          "append": true
+        }
+      ]
+    },
+    {
+      "action": "trigger",
+      "type": "interval",
+      "name": "sub_plan_ticker",
+      "every_seconds": 0.1,
+      "run_immediately": true,
+      "max_runs": 2,
+      "overlap": "skip",
+      "on_error": "fail_plan",
+      "save_as": "sub_plan_status",
+      "path": "sub-plans/tick-once-plan.json"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "trigger-status.json",
+      "value": {
+        "inline": "{{inline_status}}",
+        "sub_plan": "{{sub_plan_status}}"
+      },
+      "indent": 2
+    }
+  ]
+}

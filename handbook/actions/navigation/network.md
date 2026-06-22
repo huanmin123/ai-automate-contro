@@ -27,14 +27,14 @@
 - `headers`: mock 响应头，或 continue 时覆盖请求头
 - `json`: mock JSON 响应体
 - `body`: mock 文本或字节响应体
-- `path`: 使用本地文件作为响应体，路径相对于 plan 包解析
+- `path`: 使用本地文件作为响应体，默认使用当前 plan 包 `resources/...`
 - `content_type`: mock 响应 Content-Type
 - `error_code`: `mode: abort` 时使用，默认 `failed`
 - `continue_url`、`method`、`post_data`: `mode: continue` 时改写请求
 
 ## `route_from_har` 字段
 
-- `path`: HAR 文件路径，通常放在当前 plan 包 `resources/` 下
+- `path`: HAR 文件路径，默认放在当前 plan 包 `resources/` 下
 - `url`: 只对匹配 URL 启用 HAR 回放；建议显式提供，避免影响其他请求
 - `not_found`: HAR 未命中时的行为，`abort` 或 `fallback`
 - `update`: 是否更新 HAR 文件
@@ -91,6 +91,13 @@
   "not_found": "fallback"
 }
 ```
+
+## 路径约束
+
+- `route.path` 和 `route_from_har.path` 默认放在当前 plan 包 `resources/`。
+- AI 创建 plan 时，用户没有指定固定本机响应体文件或 HAR 文件时，推荐先把文件导入当前包 `resources/`，再写 `resources/...`。
+- 本机响应体文件或 HAR 文件支持绝对路径、共享盘、外部工作目录和越出 plan 包的相对路径；不需要审批字段。
+- plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。
 
 mock WebSocket：
 

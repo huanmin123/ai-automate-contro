@@ -28,7 +28,7 @@ def action_ai(executor: Any, step: dict[str, Any]) -> None:
                 f'    "{service_name}": {{\n'
                 '      "base_url": "https://your-openai-compatible-endpoint/v1",\n'
                 '      "model": "your-model",\n'
-                '      "api_key": "sk-your-key"\n'
+                '      "api_key_env": "AIC_TEST_API_KEY"\n'
                 "    }\n"
                 "  }\n"
                 "}"

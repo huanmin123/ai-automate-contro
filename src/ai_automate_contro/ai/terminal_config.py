@@ -46,7 +46,7 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
                 '    "default": {\n'
                 '      "base_url": "https://your-openai-compatible-endpoint/v1",\n'
                 '      "model": "your-model",\n'
-                '      "api_key": "sk-your-key"\n'
+                '      "api_key_env": "AIC_TEST_API_KEY"\n'
                 "    }\n"
                 "  }\n"
                 "}"
@@ -107,5 +107,5 @@ def _verify_command(arguments: str) -> str:
 
 def _api_key_env_example() -> str:
     if platform.system() == "Windows":
-        return "$env:OPENAI_API_KEY='sk-your-key'"
-    return "export OPENAI_API_KEY='sk-your-key'"
+        return "$env:OPENAI_API_KEY='<your-api-key>'"
+    return "export OPENAI_API_KEY='<your-api-key>'"

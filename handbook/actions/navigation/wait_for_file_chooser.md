@@ -11,7 +11,7 @@
 - `action`: 固定写成 `wait_for_file_chooser`
 - `type`: 固定写成 `set_files`
 - `browser`: 浏览器会话名
-- `files`: 文件路径字符串或数组，支持相对于 plan 包的路径
+- `files`: 文件路径字符串或数组，默认使用当前 plan 包 `resources/...`
 - `trigger`: 触发文件选择器的单个动作对象
 
 ## 可选字段
@@ -35,3 +35,10 @@
   }
 }
 ```
+
+## 路径约束
+
+- 上传文件默认放在当前 plan 包 `resources/`。
+- AI 创建 plan 时，用户没有指定固定本机文件路径时，推荐先把文件导入当前包 `resources/`，再写 `resources/...`。
+- `files` 支持绝对路径、共享盘、外部工作目录和越出 plan 包的相对路径；不需要审批字段。
+- plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。

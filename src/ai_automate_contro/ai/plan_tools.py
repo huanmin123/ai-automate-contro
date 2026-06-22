@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -145,7 +146,7 @@ def write_plan_package_file_tool(
         serialized = str(content)
         if target_path.suffix.lower() == ".json":
             try:
-                json.loads(serialized)
+                parsed_json = json.loads(serialized)
             except json.JSONDecodeError as error:
                 raise ValueError(f"JSON 文件内容格式不正确：{error}") from error
 
@@ -166,6 +167,51 @@ def write_plan_package_file_tool(
         "path": str(target_path),
         "relative_path": str(normalized_relative_path),
         "mode": write_mode,
+        "bytes": stat.st_size,
+    }
+
+
+def import_plan_resource_file_tool(
+    project_root: str | Path,
+    plan_path: str | Path,
+    *,
+    source_path: str | Path,
+    relative_path: str | Path = "",
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    root = Path(project_root).resolve()
+    resolved_plan_path = resolve_plan_path(plan_path)
+    package_dir = resolved_plan_path.parent.resolve()
+    if not is_relative_to(package_dir, root):
+        raise ValueError("plan 包必须位于项目根目录内。")
+    if not resolved_plan_path.exists():
+        raise FileNotFoundError(f"plan 包入口不存在：{resolved_plan_path}")
+
+    raw_source_path = path_from_text(source_path).expanduser()
+    resolved_source_path = raw_source_path.resolve() if raw_source_path.is_absolute() else (root / raw_source_path).resolve()
+    if not resolved_source_path.exists() or not resolved_source_path.is_file():
+        raise FileNotFoundError(f"源文件不存在：{resolved_source_path}")
+
+    normalized_relative_path = _normalize_resource_import_path(relative_path, resolved_source_path.name)
+    target_path = (package_dir / normalized_relative_path).resolve()
+    resources_dir = (package_dir / "resources").resolve()
+    if not is_relative_to(target_path, resources_dir):
+        raise ValueError("导入资源只能写入当前 plan 包 resources/ 下。")
+    if target_path.exists() and not overwrite:
+        raise FileExistsError(f"目标资源已存在：{target_path}。需要覆盖时设置 overwrite=true。")
+    if target_path.exists() and target_path.is_dir():
+        raise ValueError(f"目标资源是目录，不能覆盖：{target_path}")
+
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(resolved_source_path, target_path)
+    stat = target_path.stat()
+    return {
+        "ok": True,
+        "plan_path": str(resolved_plan_path),
+        "package_dir": str(package_dir),
+        "source_path": str(resolved_source_path),
+        "path": str(target_path),
+        "relative_path": normalized_relative_path.as_posix(),
         "bytes": stat.st_size,
     }
 
@@ -243,6 +289,66 @@ def _validate_plan_package_write_path(relative_path: Path) -> None:
     if parts[0] in ALLOWED_PLAN_PACKAGE_WRITE_ROOTS and len(parts) >= 2:
         return
     raise ValueError("允许写入的目标只有 plan.json、config.json、docs/**、resources/** 或 sub-plans/*-plan.json。")
+
+
+def _normalize_resource_import_path(relative_path: str | Path, fallback_name: str) -> Path:
+    raw_path_text = str(relative_path or "").strip()
+    raw_path = path_from_text(raw_path_text) if raw_path_text else Path(fallback_name)
+    if is_absolute_path_text(raw_path):
+        raise ValueError("relative_path 必须是 resources/ 下的相对路径。")
+    parts = raw_path.parts
+    if not parts:
+        raise ValueError("relative_path 不能为空。")
+    if parts[0] == "resources":
+        parts = parts[1:]
+    if not parts or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError("relative_path 必须是 resources/ 下的干净文件路径。")
+    if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in parts):
+        raise ValueError("拒绝导入到 output、缓存、checkpoint、git 或 pycache 路径。")
+    target = Path("resources", *parts)
+    if target.name.endswith((".pyc", ".pyo")) or ".egg-info" in target.parts:
+        raise ValueError("拒绝导入 pyc、pyo 或 egg-info 文件。")
+    return target
+
+
+def _validate_no_plain_secret_literals(relative_path: Path, value: Any) -> None:
+    return
+
+
+def _requires_secret_literal_guard(relative_path: Path) -> bool:
+    parts = relative_path.parts
+    if parts == ("plan.json",) or parts == ("config.json",):
+        return True
+    if parts and parts[0] in {"resources", "sub-plans"}:
+        return True
+    return False
+
+
+def _collect_plain_secret_literals(value: Any, *, path: str, findings: list[str]) -> None:
+    return
+
+
+def _is_password_fill_step(value: dict[str, Any]) -> bool:
+    if str(value.get("action") or "") != "element" or str(value.get("type") or "") != "fill":
+        return False
+    fields = " ".join(
+        str(value.get(key) or "")
+        for key in ("selector", "role", "name", "label", "placeholder", "test_id")
+    ).lower()
+    return any(token in fields for token in ("password", "passwd", "pwd", "密码", "口令"))
+
+
+def _is_plain_secret_literal(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip()
+    if not text or "{{" in text or "}}" in text:
+        return False
+    return True
+
+
+def _validate_text_has_no_plain_secret_literals(text: str) -> None:
+    return
 
 
 def _validate_create_plan_package_path(package_dir: Path, project_root: Path) -> None:

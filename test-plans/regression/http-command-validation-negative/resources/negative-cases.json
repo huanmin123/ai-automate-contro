@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "name": "http-body-conflict",
+      "expected_message": "只能同时使用一种 body 字段",
+      "plan": {
+        "name": "negative-http-body-conflict",
+        "steps": [
+          {
+            "action": "http",
+            "type": "request",
+            "method": "POST",
+            "url": "http://127.0.0.1:43125/json",
+            "json": {
+              "ok": true
+            },
+            "form": {
+              "ok": "true"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "http-invalid-protocol",
+      "expected_message": "url 只支持 http:// 或 https://",
+      "plan": {
+        "name": "negative-http-invalid-protocol",
+        "steps": [
+          {
+            "action": "http",
+            "type": "request",
+            "method": "GET",
+            "url": "ftp://example.com/data"
+          }
+        ]
+      }
+    },
+    {
+      "name": "command-missing-command",
+      "expected_message": "command.run 需要 command、commands 或 argv 之一",
+      "plan": {
+        "name": "negative-command-missing-command",
+        "steps": [
+          {
+            "action": "command",
+            "type": "run"
+          }
+        ]
+      }
+    }
+  ]
+}

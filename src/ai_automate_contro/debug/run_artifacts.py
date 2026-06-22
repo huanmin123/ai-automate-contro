@@ -125,9 +125,12 @@ def read_output_artifact_tool(
 ) -> dict[str, Any]:
     resolved_plan_path = resolve_plan_path(plan_path)
     output_root = (resolved_plan_path.parent / "output").resolve()
-    artifact_path = (output_root / path_from_text(relative_path)).resolve()
-    if not is_relative_to(artifact_path, output_root):
-        raise ValueError("产物路径必须位于当前 plan output 目录内。")
+    requested_path = path_from_text(relative_path)
+    artifact_path, resolution = _resolve_output_artifact_path(
+        resolved_plan_path.parent,
+        output_root,
+        requested_path,
+    )
     if not artifact_path.exists() or not artifact_path.is_file():
         raise FileNotFoundError(f"产物不存在：{artifact_path}")
     stat = artifact_path.stat()
@@ -135,11 +138,15 @@ def read_output_artifact_tool(
         "ok": True,
         "path": str(artifact_path),
         "relative_path": str(artifact_path.relative_to(output_root)),
+        "requested_relative_path": str(requested_path),
         "size": stat.st_size,
         "modified_at": stat.st_mtime,
         "content": None,
         "truncated": False,
     }
+    if resolution:
+        payload["resolved_from_relative_path"] = str(requested_path)
+        payload["path_resolution"] = resolution
     if artifact_path.suffix.lower() not in TEXT_ARTIFACT_SUFFIXES:
         return payload
     resolved_max_bytes = max(0, min(int(max_bytes), MAX_TEXT_ARTIFACT_BYTES))
@@ -147,12 +154,62 @@ def read_output_artifact_tool(
     lines = content.splitlines()
     payload["truncated"] = truncated
     payload["requested_max_bytes"] = max_bytes
-    payload["max_bytes"] = MAX_TEXT_ARTIFACT_BYTES
+    payload["max_bytes"] = resolved_max_bytes
     payload["content"] = content
     payload["line_count"] = len(lines)
     payload["non_empty_line_count"] = len([line for line in lines if line.strip()])
     payload["content_complete"] = not truncated
     return payload
+
+
+def _resolve_output_artifact_path(
+    plan_dir: Path,
+    output_root: Path,
+    requested_path: Path,
+) -> tuple[Path, dict[str, Any]]:
+    artifact_path = (output_root / requested_path).resolve()
+    if not is_relative_to(artifact_path, output_root):
+        raise ValueError("产物路径必须位于当前 plan output 目录内。")
+    if artifact_path.exists() and artifact_path.is_file():
+        return artifact_path, {}
+
+    fallback = _resolve_without_run_output_prefix(plan_dir, output_root, requested_path)
+    if fallback is None:
+        return artifact_path, {}
+    fallback_path, stripped_path = fallback
+    return fallback_path, {
+        "mode": "stripped_run_output_prefix",
+        "resolved_relative_path": str(stripped_path),
+        "detail": (
+            "请求路径包含本次 run 输出目录名前缀，但该类 action 产物写在 plan output 根目录下；"
+            "已自动改用去掉 run 目录前缀后的产物路径。"
+        ),
+    }
+
+
+def _resolve_without_run_output_prefix(
+    plan_dir: Path,
+    output_root: Path,
+    requested_path: Path,
+) -> tuple[Path, Path] | None:
+    parts = requested_path.parts
+    if len(parts) < 2:
+        return None
+    first = parts[0]
+    run_dir = (output_root / first).resolve()
+    latest_run_dir = find_latest_run_output(plan_dir)
+    looks_like_run_dir = run_dir.is_dir() and ((run_dir / "run.log").exists() or (run_dir / "result.json").exists())
+    if latest_run_dir is not None and first == latest_run_dir.name:
+        looks_like_run_dir = True
+    if not looks_like_run_dir:
+        return None
+    stripped_path = Path(*parts[1:])
+    fallback_path = (output_root / stripped_path).resolve()
+    if not is_relative_to(fallback_path, output_root):
+        return None
+    if not fallback_path.exists() or not fallback_path.is_file():
+        return None
+    return fallback_path, stripped_path
 
 
 def read_json_if_exists(path: Path) -> Any | None:

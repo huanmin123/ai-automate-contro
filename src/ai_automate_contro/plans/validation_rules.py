@@ -66,6 +66,9 @@ ACTION_TYPES: dict[str, set[str]] = {
         "clear_session_storage",
     },
     "trace": {"start", "stop"},
+    "trigger": {"interval"},
+    "http": {"request"},
+    "command": {"run"},
     "write": {"json", "text", "csv", "variables"},
     "read": {"json", "text", "csv", "storage_state"},
     "assert": {
@@ -122,6 +125,9 @@ REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "if": ("condition",),
     "foreach": ("items", "steps"),
     "retry": ("steps",),
+    "trigger": ("type", "every_seconds"),
+    "http": ("type", "method", "url"),
+    "command": ("type",),
     "sleep": ("seconds",),
 }
 
@@ -137,6 +143,8 @@ OUTPUT_ACTION_CATEGORIES: dict[tuple[str, str], str] = {
     ("write", "text"): "text",
     ("write", "csv"): "csv",
     ("write", "variables"): "variables",
+    ("http", "request"): "http",
+    ("command", "run"): "commands",
     ("ai", "connectivity"): "ai",
     ("ai", "extract_data"): "ai",
     ("ai", "classify_text"): "ai",

@@ -1,0 +1,92 @@
+{
+  "name": "http-command-component-combo-finalize",
+  "steps": [
+    {
+      "action": "read",
+      "type": "text",
+      "path": "output/text/loop-ids.txt",
+      "split_lines": true,
+      "save_as": "loop_ids"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import json, sys; lines = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]; print(json.dumps({'count': len(lines), 'joined': '|'.join(lines)}))"
+      ],
+      "stdin_path": "{{output_dir}}/text/loop-ids.txt",
+      "stdout_type": "json",
+      "save_as": "loop_lines_check"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{api_base_url}}/summary",
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "summary_response"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{api_base_url}}/final",
+      "json": {
+        "count": "{{summary_response.body.count}}",
+        "line_count": "{{loop_lines_check.stdout_json.count}}",
+        "ids": "{{loop_lines_check.stdout_json.joined}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "final_response"
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "equals",
+            "left": "{{summary_response.body.count}}",
+            "right": "{{external_fixture.stdout_json.count}}"
+          },
+          {
+            "type": "equals",
+            "left": "{{loop_lines_check.stdout_json.count}}",
+            "right": "{{external_fixture.stdout_json.count}}"
+          },
+          {
+            "type": "equals",
+            "left": "{{final_response.body.ok}}",
+            "right": true
+          }
+        ]
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "HTTP command component combo passed"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.stderr.write('HTTP command component combo failed\\n'); sys.exit(2)"
+          ]
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "component-combo-variables.json"
+    }
+  ]
+}

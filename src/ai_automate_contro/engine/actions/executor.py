@@ -18,9 +18,11 @@ from . import (
     browser_flow,
     browser_input,
     browser_state,
+    command,
     control_flow,
     extraction,
     failure_capture,
+    http_client,
 )
 
 
@@ -33,8 +35,10 @@ EXTERNAL_ACTION_MODULES = (
     browser_flow,
     browser_input,
     browser_state,
+    command,
     control_flow,
     extraction,
+    http_client,
 )
 
 
@@ -52,7 +56,7 @@ class ActionExecutor:
     def _run_step(self, raw_step: dict[str, Any]) -> None:
         self._raise_if_interrupted()
         action = raw_step["action"]
-        if action in {"if", "foreach", "retry"}:
+        if action in {"if", "foreach", "retry", "trigger"}:
             step = raw_step
         else:
             step = render_value(raw_step, self.state.variables)
@@ -253,6 +257,9 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "extract": ("browser", "page", "type", "selector", "save_as"),
         "manual_confirm": ("browser", "prompt"),
         "run_sub_plan": ("path",),
+        "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "save_as"),
+        "http": ("type", "method", "url", "save_as", "response_body_path"),
+        "command": ("type", "save_as", "cwd", "stdout_path", "stderr_path"),
         "sleep": ("seconds",),
         "ai": ("type", "save_as"),
     }

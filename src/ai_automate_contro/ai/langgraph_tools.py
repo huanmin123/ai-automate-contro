@@ -17,7 +17,7 @@ from ai_automate_contro.ai.terminal_tool_registry import (
     call_ai_terminal_tool,
     check_ai_terminal_tool_registry,
 )
-from ai_automate_contro.ai.plan_quality import compute_plan_signature
+from ai_automate_contro.ai.plan_quality import compute_plan_signature, review_plan_quality_tool as review_plan_quality_direct
 from ai_automate_contro.ai.plan_tools import resolve_plan_path
 from ai_automate_contro.plans.packages import create_plan_package
 
@@ -163,7 +163,7 @@ def _enforce_run_plan_quality_gate(
     quality_gate_provider: Callable[[], dict[str, Any]] | None,
 ) -> None:
     if quality_gate_provider is None:
-        return
+        raise ValueError("run_plan 需要 AI 终端质量门禁上下文。请先调用 review_plan_quality，并通过 AITerminal 主路径运行。")
     review = quality_gate_provider()
     if not isinstance(review, dict) or not review:
         raise ValueError("运行前缺少 review_plan_quality 质量复查。请先调用 review_plan_quality，并修复所有 fail 后再运行。")
@@ -313,6 +313,93 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         read_output_artifact_tool = tool_by_name.get("read_output_artifact")
         review_plan_quality_tool = tool_by_name.get("review_plan_quality")
         run_plan_tool = tool_by_name.get("run_plan")
+        schedule_tools_ok = False
+        schedule_tools_error = ""
+        schedule_tools_detail: dict[str, Any] = {}
+        if all(
+            tool_by_name.get(name) is not None
+            for name in ("add_schedule", "list_schedules", "run_schedule_now", "remove_schedule")
+        ):
+            try:
+                with tempfile.TemporaryDirectory(prefix="ai-tools-schedule-") as raw_schedule_dir:
+                    schedule_root = Path(raw_schedule_dir)
+                    schedule_package = schedule_root / "plans" / "scheduled-tool"
+                    schedule_package.mkdir(parents=True, exist_ok=True)
+                    schedule_plan_path = schedule_package / "plan.json"
+                    schedule_plan_path.write_text(
+                        json.dumps(
+                            {
+                                "name": "scheduled tool plan",
+                                "steps": [
+                                    {
+                                        "action": "write",
+                                        "type": "text",
+                                        "path": "scheduled-tool.txt",
+                                        "value": "ran",
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    schedule_calls: list[dict[str, Any]] = []
+                    schedule_tools = build_langchain_tools(
+                        schedule_root,
+                        after_tool_call=lambda name, args, result: schedule_calls.append(
+                            {"name": name, "ok": result.get("ok"), "error": result.get("error")}
+                        ),
+                    )
+                    schedule_by_name = {tool.name: tool for tool in schedule_tools}
+                    add_schedule_result = json.loads(
+                        schedule_by_name["add_schedule"].invoke(
+                            {
+                                "schedule_id": "tool-demo",
+                                "plan_path": str(schedule_plan_path),
+                                "every_seconds": 0.1,
+                                "run_immediately": True,
+                                "timeout_seconds": 30,
+                            }
+                        )
+                    )
+                    list_result = json.loads(schedule_by_name["list_schedules"].invoke({}))
+                    run_now_result = json.loads(
+                        schedule_by_name["run_schedule_now"].invoke({"schedule_id": "tool-demo"})
+                    )
+                    remove_result = json.loads(
+                        schedule_by_name["remove_schedule"].invoke({"schedule_id": "tool-demo"})
+                    )
+                    list_after_remove_result = json.loads(schedule_by_name["list_schedules"].invoke({}))
+                    output_text_path = schedule_package / "output" / "text" / "scheduled-tool.txt"
+                    output_text = output_text_path.read_text(encoding="utf-8") if output_text_path.exists() else ""
+                    schedule_config_exists = (schedule_root / "schedules.json").exists()
+                    schedule_state_exists = (schedule_root / ".keygen" / "schedules-state.json").exists()
+                    schedule_tools_ok = (
+                        bool(add_schedule_result.get("ok"))
+                        and len(list_result.get("schedules", [])) == 1
+                        and run_now_result.get("ok") is True
+                        and run_now_result.get("status") == "passed"
+                        and remove_result.get("removed") is True
+                        and list_after_remove_result.get("schedules") == []
+                        and output_text == "ran"
+                        and not schedule_config_exists
+                        and not schedule_state_exists
+                    )
+                    schedule_tools_detail = {
+                        "add_ok": add_schedule_result.get("ok"),
+                        "list_count": len(list_result.get("schedules", [])),
+                        "run_now_status": run_now_result.get("status"),
+                        "removed": remove_result.get("removed"),
+                        "list_after_remove_count": len(list_after_remove_result.get("schedules", [])),
+                        "output_text": output_text,
+                        "schedule_config_exists": schedule_config_exists,
+                        "schedule_state_exists": schedule_state_exists,
+                        "schedule_calls": schedule_calls,
+                    }
+            except Exception as error:
+                schedule_tools_error = str(error)
         progressive_tools_ok = False
         progressive_tools_error = ""
         progressive_tools_detail: dict[str, Any] = {}
@@ -327,6 +414,9 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 artifact_path = package_dir / "output" / artifact_relative
                 artifact_path.parent.mkdir(parents=True, exist_ok=True)
                 artifact_path.write_text("alpha\n\nbeta\ngamma\n", encoding="utf-8")
+                run_dir = package_dir / "output" / "20990101-000000-self-check-run"
+                run_dir.mkdir(parents=True, exist_ok=True)
+                (run_dir / "result.json").write_text("{}\n", encoding="utf-8")
                 package_result = json.loads(read_plan_package_tool.invoke({"plan_path": str(plan_path)}))
                 plan = package_result.get("plan", {})
                 sub_plans = package_result.get("sub_plans", [])
@@ -358,6 +448,23 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                prefixed_artifact_result = json.loads(
+                    read_output_artifact_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": f"{run_dir.name}/{artifact_relative}",
+                        }
+                    )
+                )
+                small_artifact_result = json.loads(
+                    read_output_artifact_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": artifact_relative,
+                            "max_bytes": 5,
+                        }
+                    )
+                )
                 package_is_metadata = (
                     isinstance(plan, dict)
                     and "steps_preview" in plan
@@ -372,6 +479,10 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and artifact_result.get("line_count") == 4
                     and artifact_result.get("non_empty_line_count") == 3
                     and artifact_result.get("content_complete") is True
+                    and small_artifact_result.get("max_bytes") == 5
+                    and small_artifact_result.get("truncated") is True
+                    and prefixed_artifact_result.get("relative_path") == "text\\accounts.txt"
+                    and prefixed_artifact_result.get("path_resolution", {}).get("mode") == "stripped_run_output_prefix"
                 )
                 progressive_tools_detail = {
                     "package_is_metadata": package_is_metadata,
@@ -379,6 +490,10 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "slice_lines": slice_result.get("line_count", 0),
                     "artifact_lines": artifact_result.get("line_count", 0),
                     "artifact_non_empty_lines": artifact_result.get("non_empty_line_count", 0),
+                    "small_artifact_max_bytes": small_artifact_result.get("max_bytes"),
+                    "small_artifact_truncated": small_artifact_result.get("truncated"),
+                    "prefixed_artifact_relative_path": prefixed_artifact_result.get("relative_path"),
+                    "prefixed_artifact_resolution": prefixed_artifact_result.get("path_resolution", {}),
                 }
             except Exception as error:
                 progressive_tools_error = str(error)
@@ -448,7 +563,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         or "Refusing to write" in forbidden_error
                     )
                 )
-                secret_literal_write_ok = False
+                secret_literal_written = False
                 secret_literal_error = ""
                 try:
                     secret_literal_write_result = json.loads(
@@ -471,7 +586,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                             }
                         )
                     )
-                    secret_literal_write_ok = bool(secret_literal_write_result.get("ok"))
+                    secret_literal_written = bool(secret_literal_write_result.get("ok"))
                     secret_literal_error = str(secret_literal_write_result)
                 except Exception as error:
                     secret_literal_error = str(error)
@@ -501,7 +616,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     safe_secret_reference_ok = bool(safe_write_result.get("ok"))
                 except Exception as error:
                     safe_secret_reference_error = str(error)
-                secret_resource_write_ok = False
+                secret_resource_written = False
                 secret_resource_error = ""
                 try:
                     secret_resource_write_result = json.loads(
@@ -516,16 +631,16 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                             }
                         )
                     )
-                    secret_resource_write_ok = bool(secret_resource_write_result.get("ok"))
+                    secret_resource_written = bool(secret_resource_write_result.get("ok"))
                 except Exception as error:
                     secret_resource_error = str(error)
                 write_plan_package_file_ok = (
                     bool(write_result.get("ok"))
                     and (package_dir / "docs" / "AI_TOOLS_SELF_CHECK.md").exists()
                     and forbidden_rejected
-                    and secret_literal_write_ok
+                    and secret_literal_written
                     and safe_secret_reference_ok
-                    and secret_resource_write_ok
+                    and secret_resource_written
                 )
                 write_plan_package_file_detail = {
                     "relative_path": write_result.get("relative_path"),
@@ -754,7 +869,11 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         if review_plan_quality_tool is not None and write_plan_package_file_tool is not None:
             try:
                 request = (
-                    "打开 https://example.com/login 登录后台，账户名称 huanmin，密码 hu123456，"
+                    "打开 https://example.com/login 登录后台，账户名称 {{login_username}}，密码 {{login_password}}，"
+                    "把全部账户名称写到 /Users/anminhu/Downloads/AI账户.txt，一行一个。"
+                )
+                secret_request = (
+                    "打开 https://example.com/login 登录后台，账户名称 raw-account-value，密码 raw-password-value，"
                     "把全部账户名称写到 /Users/anminhu/Downloads/AI账户.txt，一行一个。"
                 )
                 incomplete_plan = {
@@ -785,12 +904,23 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                redaction_result = review_plan_quality_direct(
+                    root,
+                    plan_path=plan_path,
+                    user_request=secret_request,
+                    evidence_summary=(
+                        "inspect_web_page requested_url=https://example.com/login "
+                        "final_url=https://example.com/login forms=1 inputs=2，headed 探索停在登录页。"
+                    ),
+                    planned_output_path="/Users/anminhu/Downloads/AI账户.txt",
+                )
+                redaction_text = json.dumps(redaction_result, ensure_ascii=False, default=str)
                 complete_plan = {
                     "name": "quality complete",
                     "variables": {
                         "login_url": "https://example.com/login",
-                        "username": "huanmin",
-                        "password": "hu123456",
+                        "username": "{{login_username}}",
+                        "password": "{{login_password}}",
                     },
                     "steps": [
                         {"action": "open_browser", "name": "main", "headed": True},
@@ -1022,6 +1152,8 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and credential_stopword_result.get("ok") is True
                     and "missing_account_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
                     and "missing_password_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
+                    and "raw-account-value" in redaction_text
+                    and "raw-password-value" in redaction_text
                 )
                 review_plan_quality_detail = {
                     "fail_codes": [issue.get("code") for issue in fail_result.get("issues", [])],
@@ -1038,6 +1170,8 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "credential_stopword_codes": [
                         issue.get("code") for issue in credential_stopword_result.get("issues", [])
                     ],
+                    "raw_credential_evidence_kept": "raw-account-value" in redaction_text
+                    and "raw-password-value" in redaction_text,
                 }
             except Exception as error:
                 review_plan_quality_error = str(error)
@@ -1095,6 +1229,11 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                     run_after_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
+                    (gate_package / "config.json").write_text(
+                        json.dumps({"flag": "changed"}, ensure_ascii=False, indent=2) + "\n",
+                        encoding="utf-8",
+                    )
+                    config_stale_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
                     gate_plan_path.write_text(
                         json.dumps(
                             {
@@ -1114,12 +1253,15 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         and "review_plan_quality" in str(no_review_result.get("error", ""))
                         and bool(review_result.get("ok"))
                         and bool(run_after_review_result.get("ok"))
+                        and config_stale_result.get("ok") is False
+                        and "复查已失效" in str(config_stale_result.get("error", ""))
                         and stale_review_result.get("ok") is False
                         and "复查已失效" in str(stale_review_result.get("error", ""))
                     )
                     run_plan_quality_gate_detail = {
                         "no_review_error": no_review_result.get("error"),
                         "run_after_review_ok": run_after_review_result.get("ok"),
+                        "config_stale_review_error": config_stale_result.get("error"),
                         "stale_review_error": stale_review_result.get("error"),
                         "gated_calls": gated_calls,
                     }
@@ -1165,6 +1307,13 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="export_local_file_tool",
             passed=export_local_file_ok,
             detail={**export_local_file_detail, "error": export_local_file_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="schedule_tools_roundtrip",
+            passed=schedule_tools_ok,
+            detail={**schedule_tools_detail, "error": schedule_tools_error},
         )
     )
     checks.append(

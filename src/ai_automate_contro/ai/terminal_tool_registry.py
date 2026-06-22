@@ -13,6 +13,7 @@ from ai_automate_contro.ai.compression_recall import read_compression_archive_to
 from ai_automate_contro.ai.file_search import grep_project_text_tool, read_project_file_slice_tool
 from ai_automate_contro.ai.plan_tools import (
     create_plan_package_tool,
+    import_plan_resource_file_tool,
     list_plan_packages_tool,
     read_plan_package_tool,
     validate_plan_tool,
@@ -20,6 +21,7 @@ from ai_automate_contro.ai.plan_tools import (
 )
 from ai_automate_contro.ai.tool_schemas import (
     AnalyzeLatestRunFailureArgs,
+    AddScheduleArgs,
     ApplyDebugPatchAfterApprovalArgs,
     CreateDebugWorkspaceArgs,
     CreatePlanPackageArgs,
@@ -27,11 +29,13 @@ from ai_automate_contro.ai.tool_schemas import (
     FindDebugWorkspaceArgs,
     GenerateDebugPatchArgs,
     GrepProjectTextArgs,
+    ImportPlanResourceFileArgs,
     InjectDebugStepsArgs,
     InspectWebPageArgs,
     ListDebugWorkspacesArgs,
     ListOutputArtifactsArgs,
     ListPlanPackagesArgs,
+    ListSchedulesArgs,
     PatchDebugWorkspaceJsonArgs,
     PrepareFailureDebugWorkspaceArgs,
     ProposeDebugFixArgs,
@@ -47,6 +51,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ReviewPlanQualityArgs,
     RunDebugPlanArgs,
     RunPlanArgs,
+    ScheduleIdArgs,
     UpdateWorkPlanArgs,
     ValidateDebugPlanArgs,
     ValidatePlanArgs,
@@ -88,16 +93,40 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         "创建新的 plan 包模板。",
         requires_project_root=True,
     ),
+    "add_schedule": ToolSpec(
+        terminal_tools.add_schedule_tool,
+        AddScheduleArgs,
+        "新增或覆盖 cplan schedule；每天执行用 daily_at，固定间隔用 every_seconds。",
+        requires_project_root=True,
+    ),
+    "disable_schedule": ToolSpec(
+        terminal_tools.disable_schedule_tool,
+        ScheduleIdArgs,
+        "禁用一个 cplan schedule。",
+        requires_project_root=True,
+    ),
+    "enable_schedule": ToolSpec(
+        terminal_tools.enable_schedule_tool,
+        ScheduleIdArgs,
+        "启用一个 cplan schedule。",
+        requires_project_root=True,
+    ),
     "export_local_file": ToolSpec(
         terminal_tools.export_local_file_tool,
         ExportLocalFileArgs,
         "把最终交付物写到用户指定本机路径，或从当前 plan output/ 复制过去；Downloads、桌面、绝对路径必须用它交付。",
         requires_project_root=True,
     ),
+    "import_plan_resource_file": ToolSpec(
+        import_plan_resource_file_tool,
+        ImportPlanResourceFileArgs,
+        "把用户提供的本机文件复制到当前 plan 包 resources/ 下，并返回可写入 plan 的 resources/... 相对路径；这是提升可复现性的可选工具，不用于拒绝绝对输入路径。",
+        requires_project_root=True,
+    ),
     "write_plan_package_file": ToolSpec(
         write_plan_package_file_tool,
         WritePlanPackageFileArgs,
-        "写受控 plan 文件：plan.json、config.json、docs/**、resources/**、sub-plans/*-plan.json。字段按当前 handbook；写后先 validate_plan，再 review_plan_quality。",
+        "写受控 plan 文件：plan.json、config.json、docs/**、resources/**、sub-plans/*-plan.json。拒绝 output/ 等非 plan 包结构路径；内容保留原文，不因账号、密码、token 或 api_key 等明文字段拒绝；字段按当前 handbook；写后先 validate_plan，再 review_plan_quality。",
         requires_project_root=True,
     ),
     "find_debug_workspace": ToolSpec(
@@ -141,6 +170,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         list_plan_packages_tool,
         ListPlanPackagesArgs,
         "按当前运行根的 plan_roots 列出可用 plan 包。",
+        requires_project_root=True,
+    ),
+    "list_schedules": ToolSpec(
+        terminal_tools.list_schedules_tool,
+        ListSchedulesArgs,
+        "列出当前运行根 schedules.json 中的长期定时计划。",
         requires_project_root=True,
     ),
     "patch_debug_workspace_json": ToolSpec(
@@ -219,6 +254,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         ReadRunLogArgs,
         "读取运行输出中的 run.log。",
     ),
+    "remove_schedule": ToolSpec(
+        terminal_tools.remove_schedule_tool,
+        ScheduleIdArgs,
+        "删除一个 cplan schedule。",
+        requires_project_root=True,
+    ),
     "run_debug_plan": ToolSpec(
         terminal_tools.run_debug_plan_tool,
         RunDebugPlanArgs,
@@ -229,6 +270,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         terminal_tools.run_plan_tool,
         RunPlanArgs,
         "运行 plan 包；前置必须通过 validate_plan 和 review_plan_quality，尤其是真实网站、登录、人工介入和本机导出。",
+        requires_project_root=True,
+    ),
+    "run_schedule_now": ToolSpec(
+        terminal_tools.run_schedule_now_tool,
+        ScheduleIdArgs,
+        "立即运行一个 cplan schedule。",
         requires_project_root=True,
     ),
     "validate_debug_plan": ToolSpec(

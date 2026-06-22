@@ -167,11 +167,17 @@ class AITerminal(
         service_config = getattr(self.config, "service_config", {})
         model = service_config.get("model", self.model_name) if isinstance(service_config, dict) else self.model_name
         base_url = service_config.get("base_url", "") if isinstance(service_config, dict) else ""
+        api_key = service_config.get("api_key", "") if isinstance(service_config, dict) else ""
+        api_key_env = service_config.get("api_key_env", "") if isinstance(service_config, dict) else ""
         lines = [text, "", "AI service:"]
         lines.append(f"  service={service}")
         lines.append(f"  model={model}")
         if base_url:
             lines.append(f"  base_url={base_url}")
+        if api_key:
+            lines.append(f"  api_key={api_key}")
+        if api_key_env:
+            lines.append(f"  api_key_env={api_key_env}")
         lines.extend(
             [
                 "",
