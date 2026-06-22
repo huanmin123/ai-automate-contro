@@ -163,3 +163,7 @@ python .\cplan.py self-check runtime
 - `ai` 是受控专项组件，只处理输入输出明确的数据任务，并强制把调试产物写入当前 plan 包 `output/ai/`。
 - 项目按本地调试原文优先处理，真实账号、密钥、Cookie、storage state、运行截图和执行日志等内容不做自动脱敏或阻断；是否提交由用户决定。
 - `test-plans/`、`.keygen/` 和各 plan 包 `output/` 都是本地开发/运行产物边界，发行包和用户 plan 语义以 `plan.config` 为准。
+
+
+## 其他
+有问题可以加入:  QQ群  1092426012   不定时发免费的Tokens 给大家用
