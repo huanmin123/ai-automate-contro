@@ -1,0 +1,117 @@
+{
+  "name": "browser-site-http-command-combo-finalize",
+  "steps": [
+    {
+      "action": "read",
+      "type": "text",
+      "path": "output/text/detail-ids.txt",
+      "split_lines": true,
+      "save_as": "detail_ids"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import json, sys; lines = [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]; print(json.dumps({'count': len(lines), 'joined': '|'.join(lines)}))"
+      ],
+      "stdin_path": "{{output_dir}}/text/detail-ids.txt",
+      "stdout_type": "json",
+      "save_as": "detail_line_check"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{site_base_url}}/api/audit/{{audit_response.body.audit_id}}",
+      "query": {
+        "session": "{{session_id}}",
+        "secret": "{{token}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "audit_lookup"
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{site_base_url}}/api/finalize",
+      "headers": {
+        "Authorization": "Bearer {{token}}",
+        "X-Session-Id": "{{session_id}}"
+      },
+      "json": {
+        "audit_id": "{{audit_response.body.audit_id}}",
+        "session_id": "{{session_id}}",
+        "line_count": "{{detail_line_check.stdout_json.count}}",
+        "joined": "{{detail_line_check.stdout_json.joined}}",
+        "lookup_total": "{{audit_lookup.body.received.total}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "final_response"
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "equals",
+            "left": "{{browser_summary.stdout_json.count}}",
+            "right": 3
+          },
+          {
+            "type": "equals",
+            "left": "{{browser_summary.stdout_json.total}}",
+            "right": 42
+          },
+          {
+            "type": "equals",
+            "left": "{{detail_line_check.stdout_json.count}}",
+            "right": 3
+          },
+          {
+            "type": "equals",
+            "left": "{{detail_line_check.stdout_json.joined}}",
+            "right": "A-100|B-200|C-300"
+          },
+          {
+            "type": "equals",
+            "left": "{{audit_response.body.ok}}",
+            "right": true
+          },
+          {
+            "type": "equals",
+            "left": "{{final_response.body.ok}}",
+            "right": true
+          }
+        ]
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "browser site http command combo passed"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.stderr.write('browser site http command combo failed\\n'); sys.exit(2)"
+          ]
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "browser-site-combo-variables.json"
+    }
+  ]
+}

@@ -1,0 +1,191 @@
+{
+  "name": "browser-site-http-command-combo",
+  "tags": [
+    "browser",
+    "http",
+    "command",
+    "read",
+    "write",
+    "foreach",
+    "run_sub_plan",
+    "integration"
+  ],
+  "variables": {
+    "site_base_url": "http://127.0.0.1:43127",
+    "account": "raw-account-007",
+    "password": "raw-password-007",
+    "token": "token-visible-007"
+  },
+  "steps": [
+    {
+      "action": "open_browser",
+      "name": "site",
+      "headed": false,
+      "timeout_ms": 15000,
+      "viewport": {
+        "width": 1100,
+        "height": 760
+      }
+    },
+    {
+      "action": "navigate",
+      "type": "goto",
+      "browser": "site",
+      "url": "{{site_base_url}}/"
+    },
+    {
+      "action": "wait",
+      "type": "selector",
+      "browser": "site",
+      "selector": "#login-form"
+    },
+    {
+      "action": "element",
+      "type": "fill",
+      "browser": "site",
+      "selector": "#account",
+      "value": "{{account}}"
+    },
+    {
+      "action": "element",
+      "type": "fill",
+      "browser": "site",
+      "selector": "#password",
+      "value": "{{password}}"
+    },
+    {
+      "action": "element",
+      "type": "fill",
+      "browser": "site",
+      "selector": "#token",
+      "value": "{{token}}"
+    },
+    {
+      "action": "element",
+      "type": "click",
+      "browser": "site",
+      "selector": "#login-btn"
+    },
+    {
+      "action": "wait",
+      "type": "text",
+      "browser": "site",
+      "selector": "#login-status",
+      "text": "登录成功",
+      "mode": "contains"
+    },
+    {
+      "action": "assert",
+      "type": "text",
+      "browser": "site",
+      "selector": "#login-status",
+      "expected": "{{token}}",
+      "mode": "contains"
+    },
+    {
+      "action": "script",
+      "type": "evaluate",
+      "browser": "site",
+      "js": "window.localStorage.getItem('sessionId')",
+      "save_as": "session_id"
+    },
+    {
+      "action": "extract",
+      "type": "table",
+      "browser": "site",
+      "row_selector": "#accounts tbody tr",
+      "cell_selector": "td",
+      "include_header": true,
+      "header_selector": "#accounts thead th",
+      "save_as": "account_rows"
+    },
+    {
+      "action": "extract",
+      "type": "all_texts",
+      "browser": "site",
+      "selector": "#accounts tbody tr td:nth-child(2)",
+      "save_as": "account_names"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "browser-rows.json",
+      "value": "{{account_rows}}"
+    },
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import json, sys; rows = json.load(sys.stdin); total = sum(int(row['amount']) for row in rows); print(json.dumps({'count': len(rows), 'total': total, 'ids': [row['id'] for row in rows], 'names': [row['name'] for row in rows]}, ensure_ascii=False))"
+      ],
+      "stdin_path": "{{output_dir}}/json/browser-rows.json",
+      "stdout_type": "json",
+      "save_as": "browser_summary"
+    },
+    {
+      "action": "write",
+      "type": "text",
+      "path": "detail-ids.txt",
+      "value": ""
+    },
+    {
+      "action": "foreach",
+      "items": "{{browser_summary.stdout_json.ids}}",
+      "item_var": "account_id",
+      "index_var": "account_index",
+      "steps": [
+        {
+          "action": "http",
+          "type": "request",
+          "method": "GET",
+          "url": "{{site_base_url}}/api/account/{{account_id}}",
+          "query": {
+            "session": "{{session_id}}",
+            "secret": "{{token}}",
+            "index": "{{account_index}}"
+          },
+          "expect_status": 200,
+          "body_type": "json",
+          "save_as": "account_detail"
+        },
+        {
+          "action": "write",
+          "type": "text",
+          "path": "detail-ids.txt",
+          "value": "{{account_detail.body.id}}\n",
+          "append": true
+        }
+      ]
+    },
+    {
+      "action": "http",
+      "type": "request",
+      "method": "POST",
+      "url": "{{site_base_url}}/api/audit",
+      "headers": {
+        "Authorization": "Bearer {{token}}",
+        "X-Session-Id": "{{session_id}}",
+        "X-Raw-Password": "{{password}}"
+      },
+      "json": {
+        "session_id": "{{session_id}}",
+        "account": "{{account}}",
+        "password": "{{password}}",
+        "token": "{{token}}",
+        "count": "{{browser_summary.stdout_json.count}}",
+        "total": "{{browser_summary.stdout_json.total}}",
+        "ids": "{{browser_summary.stdout_json.ids}}",
+        "names": "{{account_names}}"
+      },
+      "expect_status": 200,
+      "body_type": "json",
+      "save_as": "audit_response"
+    },
+    {
+      "action": "run_sub_plan",
+      "path": "sub-plans/finalize-plan.json"
+    }
+  ]
+}
