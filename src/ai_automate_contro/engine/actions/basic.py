@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from . import assertions, files
@@ -168,11 +169,20 @@ def action_assert(executor: Any, step: dict[str, Any]) -> None:
 
 
 def action_sleep(executor: Any, step: dict[str, Any]) -> None:
+    seconds = float(step.get("seconds", 1))
     if executor.state.sessions:
         first_session = next(iter(executor.state.sessions.values()))
-        executor._wait_for_timeout(first_session.require_page(), int(float(step.get("seconds", 1)) * 1000))
+        executor._wait_for_timeout(first_session.require_page(), int(seconds * 1000))
         return
-    raise RuntimeError("sleep 需要至少一个已打开的浏览器会话。")
+    deadline = time.monotonic() + max(0.0, seconds)
+    while True:
+        checker = getattr(executor.state, "interrupt_requested", None)
+        if callable(checker) and checker():
+            raise KeyboardInterrupt("用户中断。")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(remaining, 0.2))
 
 
 ACTION_HANDLERS = {

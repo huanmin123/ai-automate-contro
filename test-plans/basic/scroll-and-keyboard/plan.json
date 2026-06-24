@@ -1,5 +1,6 @@
 {
   "name": "scroll-and-keyboard",
+  "automation_type": "browser",
   "variables": {
     "scroll_url": "{{resources_file_url}}/scroll_keyboard.html"
   },

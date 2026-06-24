@@ -1,5 +1,6 @@
 {
   "name": "patch-apply-check",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {

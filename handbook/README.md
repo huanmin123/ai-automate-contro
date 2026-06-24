@@ -5,8 +5,9 @@
 ## 读取顺序
 
 1. 先读 [计划结构](./计划结构.md)，确认 plan 包、配置、变量、输出和子计划边界。
-2. 需要一个最小可运行样例时，读 [第一个计划示例](./第一个计划示例.md)。
-3. 只有在要写某个 `action` 时，才进入下方对应子目录读取具体组件字段。
+2. 根据 `automation_type` 进入对应执行线入口：[浏览器自动化](./browser/README.md) 或 [桌面控制](./desktop/README.md)。
+3. 需要一个最小可运行样例时，读 [第一个计划示例](./第一个计划示例.md)。
+4. 只有在要写某个 `action` 时，才进入对应执行线和通用 action 文档读取具体组件字段。
 
 ## 决策规则
 
@@ -15,13 +16,17 @@
   - 管理端是 `cplan.py`/`cplan`，没有 AI 对话，只接受固定命令：`list`、`create`、`validate`、`run`、`schedule`、`debug-create`、`debug-prepare`、`debug-inject`、`debug-patch`、`debug-apply`、`self-check`。
   - 不存在 Textual 里的 `/run`、`/validate`、`/debug`、`/continue`、`/stop` plan 管理命令；不要把这些写进 plan 文档、提示或用户指引。
 - 创建或修改 plan 前，先确认目标 plan 包位置；未指定目录时使用当前运行根的第一个 `plan_roots`。
+- 创建或修改 plan 前，先确认 `automation_type`。浏览器网页流程使用 `browser`，本机桌面应用和系统级键鼠控制使用 `desktop`；不明确时必须先问用户，不能靠 action 名称猜类型。
+- 主 `plan.json` 必须声明 `automation_type`。子计划默认继承主 plan 类型；如果显式声明，必须和主 plan 一致。
 - 真实网页流程不能凭描述猜 selector；先用页面证据，再写浏览器步骤。
+- 真实桌面应用流程不能凭描述猜窗口、控件或坐标；先用窗口列表、控件树、截图、图像/OCR 结果或人工确认取证，再写桌面步骤。
 - 输入资源推荐放当前 plan 包 `resources/`。用户要求使用本机文件路径、共享盘或外部工作目录时，AI 可以直接在 plan 中引用该路径，不需要审批字段。
 - plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。运行时会转换成本机路径。
 - 不要默认把 `C:\...`、`D:\...`、`/Users/...`、`/home/...`、UNC 路径或其他 plan 包资源写进可复现 plan。只有用户明确要求固定依赖本机路径、共享盘或外部工作目录时才允许例外；例外前必须告知风险，并在当前 plan 包 `docs/` 下写沟通记录。
 - 所有运行产物都写入当前 plan 包的 `output/`，输出动作的 `path` 不要以 `output/` 开头。
 - 主 `plan.json` 是唯一入口；复用流程时只调用同包 `sub-plans/*-plan.json`。
 - 需要人工登录、验证码、二次验证或权限确认时，使用 `open_browser.headed=true` 的自动化浏览器加 `manual_confirm` 交接；用户必须在同一个 Playwright 浏览器窗口里操作，不要让用户另开本机浏览器。
+- macOS Accessibility、Screen Recording、Automation 等桌面权限只能检测、触发授权提示、打开系统设置并等待用户确认，不能静默授权或自动点击系统隐私授权。
 - `manual_confirm` 的继续方式取决于入口：在 AI 端，用户回到同一个 Textual 对话用自然语言确认、停止或反馈问题；在 `cplan run` 管理端，用户回到同一个命令行只输入 `y` 继续、`n` 停止。不要让管理端接受一串自然语言确认词。
 - 修改已有 plan 时优先做最小 JSON 路径修改；调试修复先进入调试工作区，再生成补丁。
 - 不要把完整日志、大型产物或整本手册塞进上下文；先看目录，再按 action 精确读取。
@@ -30,6 +35,8 @@
 
 - `reference/config.md`: `config.json`、AI 服务、运行后检查等配置字段。
 - `reference/schedule.md`: `cplan schedule` 长期定时计划管理。
+- `browser/README.md`: `automation_type: "browser"` 的浏览器自动化入口。
+- `desktop/README.md`: `automation_type: "desktop"` 的桌面控制入口。
 - `actions/browser/`: 浏览器会话、页面对象和关闭浏览器。
 - `actions/navigation/`: 跳转、等待、断言、弹窗/下载/网络等待、文件选择器和网络拦截。
 - `actions/interaction/`: 元素、键盘、鼠标和滚动。
@@ -55,6 +62,8 @@
 ## 写作约束
 
 - 组件名就是 step 的 `action`。
+- 主 plan 顶层必须写 `automation_type`，值只能是 `browser` 或 `desktop`。不要使用顶层 `type` 代替它。
+- `automation_type: "browser"` 的 plan 只能使用浏览器专属 action 和通用 action；`automation_type: "desktop"` 的 plan 只能使用桌面专属 action 和通用 action。
 - 参数结构一致的能力用同一 action 的 `type` 区分，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`。
 - 生命周期独立的能力保留独立 action，例如 `open_browser`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`command`。
 - 专项 AI 统一使用 `ai` action，并通过 `type` 区分连通性、抽取、分类、转换和摘要。

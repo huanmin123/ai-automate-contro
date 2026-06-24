@@ -165,6 +165,14 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_langchain_tools(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-plan-generation":
+            from ai_automate_contro.ai.terminal_plan_generation_self_check import (
+                self_check_ai_plan_generation_simulation,
+            )
+
+            result = self_check_ai_plan_generation_simulation(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
 
     if args.command == "tool":
         from ai_automate_contro.ai.terminal_tool_registry import (
@@ -232,6 +240,12 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.browser_component_check import self_check_browser_components
 
             result = self_check_browser_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-components":
+            from ai_automate_contro.app.desktop_component_check import self_check_desktop_components
+
+            result = self_check_desktop_components(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
 
@@ -354,6 +368,7 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
         package_dir = create_plan_package(
             getattr(args, "path"),
             project_root=project_root,
+            automation_type=getattr(args, "automation_type"),
             name=getattr(args, "name", None),
             force=bool(getattr(args, "force", False)),
         )

@@ -18,7 +18,8 @@
               "ok": "true"
             }
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -33,7 +34,8 @@
             "method": "GET",
             "url": "ftp://example.com/data"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -46,7 +48,8 @@
             "action": "command",
             "type": "run"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     }
   ]

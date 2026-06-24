@@ -1,5 +1,6 @@
 {
   "name": "wait-for-popup",
+  "automation_type": "browser",
   "variables": {
     "popup_demo_url": "{{resources_file_url}}/popup_parent.html"
   },

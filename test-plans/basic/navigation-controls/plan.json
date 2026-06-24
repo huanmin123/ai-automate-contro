@@ -1,5 +1,6 @@
 {
   "name": "navigation-controls",
+  "automation_type": "browser",
   "variables": {
     "home_url": "{{resources_file_url}}/navigation_home.html",
     "details_url": "{{resources_file_url}}/navigation_details.html"

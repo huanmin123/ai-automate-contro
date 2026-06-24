@@ -282,7 +282,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
 
     plan_root = _self_check_plan_root(root)
     with _self_check_temp_plan_package(plan_root) as package_dir:
-        create_plan_package(package_dir, project_root=root, name="AI Tools Self Check")
+        create_plan_package(package_dir, project_root=root, automation_type="browser", name="AI Tools Self Check")
         plan_path = package_dir / "plan.json"
 
         validate_plan_tool = tool_by_name.get("validate_plan")
@@ -330,6 +330,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         json.dumps(
                             {
                                 "name": "scheduled tool plan",
+                                "automation_type": "browser",
                                 "steps": [
                                     {
                                         "action": "write",
@@ -573,6 +574,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                                 "relative_path": "plan.json",
                                 "json_value": {
                                     "name": "Secret Literal Check",
+                                    "automation_type": "browser",
                                     "steps": [
                                         {
                                             "action": "element",
@@ -600,6 +602,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                                 "relative_path": "sub-plans/secret-reference-plan.json",
                                 "json_value": {
                                     "name": "Secret Reference Check",
+                                    "automation_type": "browser",
                                     "steps": [
                                         {
                                             "action": "element",
@@ -878,6 +881,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 )
                 incomplete_plan = {
                     "name": "quality incomplete",
+                    "automation_type": "browser",
                     "variables": {"login_url": "https://example.com/login"},
                     "steps": [
                         {"action": "open_browser", "name": "main", "headed": True},
@@ -917,6 +921,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 redaction_text = json.dumps(redaction_result, ensure_ascii=False, default=str)
                 complete_plan = {
                     "name": "quality complete",
+                    "automation_type": "browser",
                     "variables": {
                         "login_url": "https://example.com/login",
                         "username": "{{login_username}}",
@@ -1009,6 +1014,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 )
                 extraction_only_plan = {
                     "name": "quality account names extraction",
+                    "automation_type": "browser",
                     "variables": {"target_url": "https://example.com/accounts"},
                     "steps": [
                         {"action": "open_browser", "name": "main", "headed": True},
@@ -1185,12 +1191,13 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     gate_root = Path(raw_gate_dir)
                     (gate_root / "plans").mkdir(parents=True, exist_ok=True)
                     gate_package = gate_root / "plans" / "gate"
-                    create_plan_package(gate_package, project_root=gate_root, name="gate")
+                    create_plan_package(gate_package, project_root=gate_root, automation_type="browser", name="gate")
                     gate_plan_path = gate_package / "plan.json"
                     gate_plan_path.write_text(
                         json.dumps(
                             {
                                 "name": "gate",
+                                "automation_type": "browser",
                                 "variables": {},
                                 "steps": [{"action": "print", "message": "gate ok"}],
                             },
@@ -1238,6 +1245,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         json.dumps(
                             {
                                 "name": "gate changed",
+                                "automation_type": "browser",
                                 "variables": {},
                                 "steps": [{"action": "print", "message": "changed"}],
                             },

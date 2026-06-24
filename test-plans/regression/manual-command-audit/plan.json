@@ -1,5 +1,6 @@
 {
   "name": "manual-command-audit",
+  "automation_type": "browser",
   "tags": [
     "regression",
     "interactive"

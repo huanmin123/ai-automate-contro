@@ -1,5 +1,6 @@
 {
   "name": "browser-parameter-coverage",
+  "automation_type": "browser",
   "variables": {
     "coverage_url": "{{resources_file_url}}/coverage.html"
   },

@@ -1,5 +1,6 @@
 {
   "name": "multi-page",
+  "automation_type": "browser",
   "variables": {
     "login_url": "{{resources_file_url}}/basic_login.html",
     "details_url": "{{resources_file_url}}/navigation_details.html"

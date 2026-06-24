@@ -1,5 +1,6 @@
 {
   "name": "failure-capture",
+  "automation_type": "browser",
   "tags": [
     "debug",
     "failure-demo"

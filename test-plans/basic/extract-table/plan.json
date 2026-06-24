@@ -1,5 +1,6 @@
 {
   "name": "extract-table",
+  "automation_type": "browser",
   "variables": {
     "table_demo_url": "{{resources_file_url}}/table_demo.html"
   },

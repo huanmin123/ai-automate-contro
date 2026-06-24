@@ -61,6 +61,18 @@ def analyze_latest_run_failure_tool(
         result_key="failure_page_states",
         directory_name="failure-page-state",
     )
+    failure_desktop_screenshots = collect_failure_files(
+        run_output_dir,
+        result,
+        result_key="failure_desktop_screenshots",
+        directory_name="failure-desktop-screenshots",
+    )
+    failure_desktop_states = collect_failure_files(
+        run_output_dir,
+        result,
+        result_key="failure_desktop_states",
+        directory_name="failure-desktop-state",
+    )
     dom_summaries = [
         summarize_failure_html(run_output_dir, html_path)
         for html_path in failure_htmls[:5]
@@ -80,6 +92,8 @@ def analyze_latest_run_failure_tool(
         "failure_screenshots": failure_screenshots,
         "failure_htmls": failure_htmls,
         "failure_page_states": failure_page_states,
+        "failure_desktop_screenshots": failure_desktop_screenshots,
+        "failure_desktop_states": failure_desktop_states,
         "dom_summaries": [summary for summary in dom_summaries if summary],
         "recent_errors": errors[-10:],
         "recent_warnings": warnings[-10:],

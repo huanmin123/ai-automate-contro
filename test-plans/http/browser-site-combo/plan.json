@@ -1,5 +1,6 @@
 {
   "name": "browser-site-http-command-combo",
+  "automation_type": "browser",
   "tags": [
     "browser",
     "http",

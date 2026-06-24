@@ -1,5 +1,6 @@
 {
   "name": "load-json-and-loop",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {

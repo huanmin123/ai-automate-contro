@@ -20,6 +20,7 @@ from . import (
     browser_state,
     command,
     control_flow,
+    desktop,
     extraction,
     failure_capture,
     http_client,
@@ -37,6 +38,7 @@ EXTERNAL_ACTION_MODULES = (
     browser_state,
     command,
     control_flow,
+    desktop,
     extraction,
     http_client,
 )
@@ -84,6 +86,9 @@ class ActionExecutor:
                 step_number=step_number,
                 action=action,
                 step_name=step_name,
+                step_summary=step_summary,
+                step=step,
+                error=error,
             )
             self.state.logger.log(
                 "error",
@@ -260,6 +265,13 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "save_as"),
         "http": ("type", "method", "url", "save_as", "response_body_path"),
         "command": ("type", "save_as", "cwd", "stdout_path", "stderr_path"),
+        "open_desktop": ("name", "platform", "backend", "request_permissions", "save_as"),
+        "close_desktop": ("desktop",),
+        "desktop_window": ("desktop", "type", "title", "title_contains", "app", "process_name", "path", "save_as"),
+        "desktop_input": ("desktop", "type", "target", "x", "y", "button", "method", "keys", "save_as"),
+        "desktop_capture": ("desktop", "type", "path", "region", "save_as"),
+        "desktop_wait": ("desktop", "type", "state", "title", "title_contains", "app", "timeout_ms", "save_as"),
+        "desktop_assert": ("desktop", "type", "state", "title", "title_contains", "app", "path", "save_as"),
         "sleep": ("seconds",),
         "ai": ("type", "save_as"),
     }

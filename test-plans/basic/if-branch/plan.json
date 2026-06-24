@@ -1,5 +1,6 @@
 {
   "name": "if-branch",
+  "automation_type": "browser",
   "variables": {
     "mode": "debug"
   },

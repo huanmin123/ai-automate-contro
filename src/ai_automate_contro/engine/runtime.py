@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from playwright.sync_api import Browser, BrowserContext, Dialog, Download, Page, Playwright
 
+from ai_automate_contro.engine.desktop import DesktopSession
 from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.engine.state import RunStateWriter
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
@@ -52,7 +53,7 @@ class BrowserSession:
 @dataclass
 class RuntimeState:
     project_root: Path
-    playwright: Playwright
+    playwright: Playwright | None
     run_name: str
     output_dir: Path
     logger: RunLogger
@@ -61,10 +62,13 @@ class RuntimeState:
     package_dir: Path | None = None
     variables: dict[str, Any] = field(default_factory=dict)
     sessions: dict[str, BrowserSession] = field(default_factory=dict)
+    desktop_sessions: dict[str, DesktopSession] = field(default_factory=dict)
     step_counter: int = 0
     failure_screenshots: list[str] = field(default_factory=list)
     failure_htmls: list[str] = field(default_factory=list)
     failure_page_states: list[str] = field(default_factory=list)
+    failure_desktop_screenshots: list[str] = field(default_factory=list)
+    failure_desktop_states: list[str] = field(default_factory=list)
     downloads: list[str] = field(default_factory=list)
     browser_events: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     browser_event_handlers: dict[str, list[tuple[Any, str, Any]]] = field(default_factory=dict)
@@ -86,6 +90,11 @@ class RuntimeState:
         if name not in self.sessions:
             raise KeyError(f"浏览器会话不存在：{name}")
         return self.sessions[name]
+
+    def require_desktop_session(self, name: str) -> DesktopSession:
+        if name not in self.desktop_sessions:
+            raise KeyError(f"桌面会话不存在：{name}")
+        return self.desktop_sessions[name]
 
     @property
     def plan_dir(self) -> Path:
@@ -136,32 +145,39 @@ class RuntimeState:
 
     def close_all(self) -> None:
         try:
+            for session in reversed(list(self.desktop_sessions.values())):
+                self._close_runtime_resource(
+                    session.close,
+                    owner=session.name,
+                    resource="desktop",
+                )
             for session in reversed(list(self.sessions.values())):
                 for page_name in reversed(list(session.pages.keys())):
                     self._close_runtime_resource(
                         lambda page=session.pages[page_name]: page.close(),
-                        browser=session.name,
+                        owner=session.name,
                         resource="page",
                         name=page_name,
                     )
                 self._close_runtime_resource(
                     session.context.close,
-                    browser=session.name,
+                    owner=session.name,
                     resource="context",
                 )
                 self._close_runtime_resource(
                     session.browser.close,
-                    browser=session.name,
+                    owner=session.name,
                     resource="browser",
                 )
         finally:
+            self.desktop_sessions.clear()
             self.sessions.clear()
 
     def _close_runtime_resource(
         self,
         close: Callable[[], Any],
         *,
-        browser: str,
+        owner: str,
         resource: str,
         name: str | None = None,
     ) -> None:
@@ -171,7 +187,7 @@ class RuntimeState:
             self.logger.log(
                 "warning",
                 "runtime resource close failed",
-                browser=browser,
+                owner=owner,
                 resource=resource,
                 name=name,
                 error=str(error),

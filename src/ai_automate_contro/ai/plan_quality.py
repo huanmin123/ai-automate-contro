@@ -15,10 +15,10 @@ from ai_automate_contro.support.redaction import redact_secret_text
 
 
 URL_RE = re.compile(r"https?://[^\s，。；;,）)\"']+", re.IGNORECASE)
-FILENAME_RE = re.compile(r"[\w\u4e00-\u9fff ._-]+\.(?:txt|csv|json|xlsx|md|html)", re.IGNORECASE)
+FILENAME_RE = re.compile(r"[\w\u4e00-\u9fff ._-]+\.(?:txt|csv|json|xlsx|md|html|png|jpg|jpeg|webp|pdf)", re.IGNORECASE)
 LABELED_FILENAME_RE = re.compile(
     r"(?:文件名称|文件名|filename|file name)\s*(?:[:：=是为]|就是|叫|命名为|保存为)?\s*"
-    r"([^\s，。；;,/\\]+?\.(?:txt|csv|json|xlsx|md|html))",
+    r"([^\s，。；;,/\\]+?\.(?:txt|csv|json|xlsx|md|html|png|jpg|jpeg|webp|pdf))",
     re.IGNORECASE,
 )
 TEMPLATE_RE = re.compile(r"{{\s*([A-Za-z0-9_.-]+)\s*}}")
@@ -138,8 +138,20 @@ CREDENTIAL_VALUE_STOPWORDS = {
     "星号",
 }
 FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "trace", "event", "coverage"}
-DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
-POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
+BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
+FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_window", "desktop_capture", "desktop_assert", "ai", "command"}
+DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_window", "desktop_capture", "desktop_wait", "desktop_assert", "ai", "command"}
+BROWSER_POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
+DESKTOP_POST_MANUAL_ACTIONS = {
+    "desktop_window",
+    "desktop_input",
+    "desktop_capture",
+    "desktop_wait",
+    "desktop_assert",
+    "write",
+    "ai",
+    "command",
+}
 
 
 def review_plan_quality_tool(
@@ -188,8 +200,11 @@ def review_plan_quality_tool(
     step_records = package["steps"]
     variables = package["variables"]
     raw_plan_text = package["raw_text"]
+    automation_type = _package_automation_type(package)
     profile = _profile_request(user_request, evidence_summary, planned_output_path)
+    profile["automation_type"] = automation_type
     _augment_profile_from_plan(profile, step_records, variables)
+    _apply_execution_line_profile(profile)
     facts: list[str] = []
     missing_facts: list[str] = []
     uncertain_facts: list[str] = []
@@ -213,6 +228,14 @@ def review_plan_quality_tool(
         )
         missing_facts.append("可执行步骤")
 
+    checks.append(
+        {
+            "name": "automation_type",
+            "passed": automation_type in {"browser", "desktop"},
+            "detail": automation_type or "<missing>",
+        }
+    )
+
     _review_browser_flow(
         profile,
         step_records,
@@ -226,6 +249,7 @@ def review_plan_quality_tool(
         missing_facts,
         uncertain_facts,
     )
+    _review_desktop_flow(profile, step_records, checks, issues, facts, missing_facts)
     _review_credentials(profile, step_records, variables, raw_plan_text, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_login_progression(profile, step_records, variables, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_output(profile, step_records, variables, planned_output_path, strict, checks, issues, facts, missing_facts, uncertain_facts)
@@ -256,6 +280,24 @@ def _review_browser_flow(
     missing_facts: list[str],
     uncertain_facts: list[str],
 ) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
+    if automation_type != "browser":
+        checks.append(
+            {
+                "name": "browser_navigation",
+                "passed": True,
+                "detail": {"automation_type": automation_type, "not_applicable": True},
+            }
+        )
+        checks.append(
+            {
+                "name": "real_site_evidence",
+                "passed": True,
+                "detail": {"automation_type": automation_type, "not_applicable": True},
+            }
+        )
+        return
+
     has_open_browser = any(_action(record) == "open_browser" for record in steps)
     navigate_steps = [record for record in steps if _action(record) == "navigate" and record["step"].get("type") == "goto"]
     has_manual_confirm = any(_action(record) == "manual_confirm" for record in steps)
@@ -333,6 +375,82 @@ def _review_browser_flow(
         facts.append("已有真实网站探测或探索证据")
 
 
+def _review_desktop_flow(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
+    if automation_type != "desktop":
+        checks.append(
+            {
+                "name": "desktop_session",
+                "passed": True,
+                "detail": {"automation_type": automation_type, "not_applicable": True},
+            }
+        )
+        return
+
+    has_open_desktop = any(_action(record) == "open_desktop" for record in steps)
+    desktop_action_locations = [
+        record["location"]
+        for record in steps
+        if _action(record).startswith("desktop_") or _action(record) == "close_desktop"
+    ]
+    evidence_locations = [record["location"] for record in steps if _action(record) in DESKTOP_DATA_COLLECTION_ACTIONS]
+    session_ok = not desktop_action_locations or has_open_desktop
+    evidence_ok = not desktop_action_locations or bool(evidence_locations)
+    checks.append(
+        {
+            "name": "desktop_session",
+            "passed": session_ok,
+            "detail": {
+                "open_desktop": has_open_desktop,
+                "desktop_action_locations": desktop_action_locations,
+            },
+        }
+    )
+    if not session_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_session",
+                "desktop plan 使用了桌面 action，但没有先打开桌面会话。",
+                ", ".join(desktop_action_locations[:8]),
+                "在桌面 action 前补充 open_desktop，并用 desktop 字段引用同一个会话名。",
+            )
+        )
+        missing_facts.append("桌面会话打开步骤")
+    else:
+        facts.append("已覆盖桌面会话打开")
+
+    checks.append(
+        {
+            "name": "desktop_evidence_step",
+            "passed": evidence_ok,
+            "detail": {
+                "has_window_or_capture_step": bool(evidence_locations),
+                "evidence_action_locations": evidence_locations,
+            },
+        }
+    )
+    if not evidence_ok:
+        issues.append(
+            _issue(
+                "warn",
+                "missing_desktop_evidence_step",
+                "desktop plan 没有窗口、截图、等待或断言类证据步骤，运行后难以判断桌面状态。",
+                ", ".join(desktop_action_locations[:8]) or "无桌面证据 action",
+                "补充 desktop_window list、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
+            )
+        )
+    else:
+        facts.append("已覆盖桌面窗口或截图证据")
+
+
 def _review_credentials(
     profile: dict[str, Any],
     steps: list[dict[str, Any]],
@@ -345,6 +463,7 @@ def _review_credentials(
     missing_facts: list[str],
     uncertain_facts: list[str],
 ) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
     account_values = profile["account_values"]
     password_values = profile["password_values"]
     account_needed = bool(account_values) or profile["mentions_account"]
@@ -352,7 +471,7 @@ def _review_credentials(
     fill_steps = [
         record
         for record in steps
-        if _action(record) == "element" and str(record["step"].get("type", "")).lower() in {"fill", "type"}
+        if _is_credential_input_step(record, automation_type)
     ]
     account_fills = [record for record in fill_steps if _is_account_fill(record["step"], variables, account_values)]
     password_fills = [record for record in fill_steps if _is_password_fill(record["step"], variables, password_values)]
@@ -414,14 +533,14 @@ def _review_login_progression(
     missing_facts: list[str],
     uncertain_facts: list[str],
 ) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
     login_needed = bool(profile["mentions_login"] or profile["mentions_account"] or profile["mentions_password"])
     account_values = profile["account_values"]
     password_values = profile["password_values"]
     fill_indexes = [
         index
         for index, record in enumerate(steps)
-        if _action(record) == "element"
-        and str(record["step"].get("type", "")).lower() in {"fill", "type"}
+        if _is_credential_input_step(record, automation_type)
         and (
             _is_account_fill(record["step"], variables, account_values)
             or _is_password_fill(record["step"], variables, password_values)
@@ -431,7 +550,7 @@ def _review_login_progression(
     progression_steps = [
         record
         for index, record in enumerate(steps)
-        if index > last_fill_index and _is_login_progression_step(record)
+        if index > last_fill_index and _is_login_progression_step(record, automation_type)
     ]
     progression_ok = not login_needed or not fill_indexes or bool(progression_steps)
     checks.append(
@@ -472,11 +591,14 @@ def _review_output(
     missing_facts: list[str],
     uncertain_facts: list[str],
 ) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
     needs_output = profile["needs_output"]
     output_filename = profile["output_filename"]
-    output_steps = [record for record in steps if _action(record) in FINAL_BROWSER_OUTPUT_ACTIONS]
+    output_actions = FINAL_DESKTOP_OUTPUT_ACTIONS if automation_type == "desktop" else FINAL_BROWSER_OUTPUT_ACTIONS
+    data_actions = DESKTOP_DATA_COLLECTION_ACTIONS if automation_type == "desktop" else BROWSER_DATA_COLLECTION_ACTIONS
+    output_steps = [record for record in steps if _action(record) in output_actions]
     write_steps = [record for record in steps if _action(record) == "write"]
-    data_steps = [record for record in steps if _action(record) in DATA_COLLECTION_ACTIONS]
+    data_steps = [record for record in steps if _action(record) in data_actions]
     target_file_covered = not output_filename or any(
         _path_basename(_resolved_step_text(record["step"].get("path"), variables)).lower() == output_filename.lower()
         for record in output_steps
@@ -504,7 +626,7 @@ def _review_output(
                 "missing_output_artifact",
                 "用户要求产出或保存结果，但 plan 没有 write/capture/download/ai 等输出步骤。",
                 "未找到输出类 action",
-                "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。",
+                _output_fix_hint(automation_type),
             )
         )
         missing_facts.append("运行产物写出")
@@ -553,9 +675,9 @@ def _review_output(
             _issue(
                 "fail" if strict else "warn",
                 "missing_data_extraction",
-                "用户要求读取/提取页面数据，但 plan 没有 extract/script/ai/storage/download 等数据获取步骤。",
+                _data_extraction_issue_message(automation_type),
                 "需求包含提取/读取/全部/列表/一行一个语义",
-                "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。",
+                _data_extraction_fix_hint(automation_type),
             )
         )
         missing_facts.append("目标数据提取")
@@ -585,13 +707,15 @@ def _review_manual_confirm(
     missing_facts: list[str],
     uncertain_facts: list[str],
 ) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
+    post_manual_actions = DESKTOP_POST_MANUAL_ACTIONS if automation_type == "desktop" else BROWSER_POST_MANUAL_ACTIONS
     manual_indexes = [index for index, record in enumerate(steps) if _action(record) == "manual_confirm"]
     if not manual_indexes:
         checks.append({"name": "manual_confirm_continuation", "passed": True, "detail": "没有 manual_confirm"})
         return
     last_manual_index = max(manual_indexes)
     has_followup = any(
-        _action(record) in POST_MANUAL_ACTIONS
+        _action(record) in post_manual_actions
         for index, record in enumerate(steps)
         if index > last_manual_index
     )
@@ -637,6 +761,19 @@ def _collect_plan_package(plan_path: Path) -> dict[str, Any]:
         "variables": variables,
         "raw_text": raw_text,
     }
+
+
+def _package_automation_type(package: dict[str, Any]) -> str:
+    documents = package.get("documents")
+    if not isinstance(documents, list) or not documents:
+        return ""
+    first = documents[0]
+    if not isinstance(first, dict):
+        return ""
+    document = first.get("document")
+    if not isinstance(document, dict):
+        return ""
+    return str(document.get("automation_type") or "")
 
 
 def _collect_plan_input_file_hashes(package_root: Path) -> list[dict[str, str]]:
@@ -811,6 +948,13 @@ def _augment_profile_from_plan(profile: dict[str, Any], steps: list[dict[str, An
         )
 
 
+def _apply_execution_line_profile(profile: dict[str, Any]) -> None:
+    if str(profile.get("automation_type") or "") != "desktop":
+        return
+    profile["needs_browser"] = False
+    profile["is_real_site"] = False
+
+
 def _extract_plan_urls(steps: list[dict[str, Any]], variables: dict[str, Any]) -> list[str]:
     urls: list[str] = []
     for record in steps:
@@ -923,12 +1067,33 @@ def _looks_like_supplied_credential_value(value: str) -> bool:
 
 
 def _extract_output_hint(request: str) -> str:
-    absolute = re.search(r"(?:/[^\s，。；;,]+)+", request)
+    if _has_negated_external_output_hint(request):
+        return ""
+    absolute = re.search(r"(?<![\w.-])(?:~[\\/]|[A-Za-z]:[\\/]|\\\\|/)[^\s，。；;,]+", request)
     if absolute:
         return absolute.group(0)
-    if _contains_any(request, ("Downloads", "下载", "桌面", "Desktop")):
+    if re.search(r"\bDownloads?\b", request, flags=re.IGNORECASE) or re.search(
+        r"(?:写到|写入|保存到|导出到|输出到|放到|复制到).{0,12}(?:桌面|下载)",
+        request,
+    ):
         return "Downloads/Desktop"
     return ""
+
+
+def _has_negated_external_output_hint(request: str) -> bool:
+    text = str(request or "")
+    return bool(
+        re.search(
+            r"(?:不要|不用|无需|别|不需要|禁止).{0,12}(?:导出|写到|写入|保存|输出|复制).{0,12}(?:Downloads?|Desktop|桌面|下载)",
+            text,
+            flags=re.IGNORECASE,
+        )
+        or re.search(
+            r"(?:不要|不用|无需|别|不需要|禁止).{0,8}(?:Downloads?|Desktop|桌面|下载)",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
 
 
 def _extract_output_filename(planned_output_path: str, request: str) -> str:
@@ -960,6 +1125,13 @@ def _normalize_output_filename_candidate(candidate: str) -> str:
     ).strip(" ：:，。；;,")
     if not text:
         return ""
+    filename_match = re.search(
+        r"([^\s，。；;,/\\]+?\.(?:txt|csv|json|xlsx|md|html|png|jpg|jpeg|webp|pdf))$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if filename_match:
+        text = filename_match.group(1)
     return path_from_text(text).name
 
 
@@ -981,12 +1153,23 @@ def _is_password_fill(step: dict[str, Any], variables: dict[str, Any], password_
     return bool(password_values and _value_matches_any(value_text, password_values, variables))
 
 
-def _is_login_progression_step(record: dict[str, Any]) -> bool:
+def _is_credential_input_step(record: dict[str, Any], automation_type: str) -> bool:
+    step_type = str(record["step"].get("type", "")).lower()
+    if automation_type == "desktop":
+        return _action(record) == "desktop_input" and step_type == "type_text"
+    return _action(record) == "element" and step_type in {"fill", "type"}
+
+
+def _is_login_progression_step(record: dict[str, Any], automation_type: str = "browser") -> bool:
     action = _action(record)
     step = record["step"]
     step_type = str(step.get("type", "")).lower()
     if action == "manual_confirm":
         return True
+    if automation_type == "desktop":
+        if action == "desktop_input" and step_type == "hotkey":
+            return _contains_any(_json_text(step.get("keys")), ("enter", "return"))
+        return action in {"desktop_window", "desktop_wait", "desktop_assert", "desktop_capture"}
     if action == "element":
         if step_type in {"click", "dblclick", "tap"}:
             return True
@@ -998,6 +1181,24 @@ def _is_login_progression_step(record: dict[str, Any]) -> bool:
         script_text = str(step.get("js", "")).lower()
         return "submit" in script_text or ".click(" in script_text
     return action in {"wait_for_network", "wait_for_popup"}
+
+
+def _output_fix_hint(automation_type: str) -> str:
+    if automation_type == "desktop":
+        return "补充 desktop_window list、desktop_capture screenshot/snapshot、desktop_assert 或 write，把运行证据写入当前 plan output/。"
+    return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
+
+
+def _data_extraction_issue_message(automation_type: str) -> str:
+    if automation_type == "desktop":
+        return "用户要求读取/提取桌面状态，但 plan 没有 desktop_window/desktop_capture/desktop_assert 等桌面证据步骤。"
+    return "用户要求读取/提取页面数据，但 plan 没有 extract/script/ai/storage/download 等数据获取步骤。"
+
+
+def _data_extraction_fix_hint(automation_type: str) -> str:
+    if automation_type == "desktop":
+        return "先用 desktop_window list、desktop_capture screenshot/snapshot、desktop_wait 或 desktop_assert 获取桌面状态，再按需写出文件。"
+    return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
 
 
 def _value_matches_any(value_text: str, expected_values: list[str], variables: dict[str, Any]) -> bool:

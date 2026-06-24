@@ -1,5 +1,6 @@
 {
   "name": "file-io",
+  "automation_type": "browser",
   "variables": {
     "message": "hello automation"
   },

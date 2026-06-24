@@ -11,8 +11,14 @@ from ai_automate_contro.plans.validation_fields import (
 from ai_automate_contro.plans.validation_io import load_json_document
 from ai_automate_contro.plans.validation_models import ValidationIssue
 from ai_automate_contro.plans.validation_paths import is_relative_to, validate_output_path
-from ai_automate_contro.plans.validation_rules import OUTPUT_ACTION_CATEGORIES, REQUIRED_FIELDS
+from ai_automate_contro.plans.validation_rules import (
+    ACTIONS_BY_AUTOMATION_TYPE,
+    ALLOWED_AUTOMATION_TYPES,
+    OUTPUT_ACTION_CATEGORIES,
+    REQUIRED_FIELDS,
+)
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
+
 
 def validate_plan_document(
     document: dict[str, Any],
@@ -21,11 +27,19 @@ def validate_plan_document(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None = None,
 ) -> None:
     resolved_document_path = document_path.resolve()
     if resolved_document_path in stack:
         issues.append(ValidationIssue(str(document_path), "检测到子计划循环引用"))
         return
+
+    current_automation_type = validate_document_automation_type(
+        document,
+        document_path=document_path,
+        issues=issues,
+        parent_automation_type=automation_type,
+    )
 
     steps = document.get("steps")
     if not isinstance(steps, list):
@@ -55,15 +69,63 @@ def validate_plan_document(
             package_root=package_root,
             issues=issues,
             stack=next_stack,
+            automation_type=current_automation_type,
         )
-    validate_manual_confirm_visible_browser_flow(
-        steps,
-        location_prefix=f"{document_path}:steps",
-        package_root=package_root,
-        issues=issues,
-        stack=next_stack,
-        active_sessions={},
-    )
+    if current_automation_type == "browser":
+        validate_manual_confirm_visible_browser_flow(
+            steps,
+            location_prefix=f"{document_path}:steps",
+            package_root=package_root,
+            issues=issues,
+            stack=next_stack,
+            active_sessions={},
+        )
+
+
+def validate_document_automation_type(
+    document: dict[str, Any],
+    *,
+    document_path: Path,
+    issues: list[ValidationIssue],
+    parent_automation_type: str | None,
+) -> str | None:
+    raw_value = document.get("automation_type")
+    location = f"{document_path}:automation_type"
+    if parent_automation_type is None:
+        if "automation_type" not in document:
+            issues.append(
+                ValidationIssue(
+                    str(document_path),
+                    "主 plan 必须包含 automation_type，取值为 browser 或 desktop。",
+                )
+            )
+            return None
+        if not isinstance(raw_value, str) or not raw_value:
+            issues.append(ValidationIssue(location, "automation_type 必须是非空字符串，取值为 browser 或 desktop。"))
+            return None
+        if raw_value not in ALLOWED_AUTOMATION_TYPES:
+            allowed = ", ".join(sorted(ALLOWED_AUTOMATION_TYPES))
+            issues.append(ValidationIssue(location, f"automation_type 不支持：{raw_value}；可选值：{allowed}"))
+            return None
+        return raw_value
+
+    if "automation_type" not in document:
+        return parent_automation_type
+    if not isinstance(raw_value, str) or not raw_value:
+        issues.append(ValidationIssue(location, "子计划 automation_type 必须是非空字符串，或省略以继承主 plan。"))
+        return parent_automation_type
+    if raw_value not in ALLOWED_AUTOMATION_TYPES:
+        allowed = ", ".join(sorted(ALLOWED_AUTOMATION_TYPES))
+        issues.append(ValidationIssue(location, f"子计划 automation_type 不支持：{raw_value}；可选值：{allowed}"))
+        return parent_automation_type
+    if raw_value != parent_automation_type:
+        issues.append(
+            ValidationIssue(
+                location,
+                f"子计划 automation_type 必须与主 plan 一致：主 plan={parent_automation_type}，子计划={raw_value}。",
+            )
+        )
+    return parent_automation_type
 
 
 def validate_step(
@@ -73,6 +135,7 @@ def validate_step(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None,
 ) -> None:
     if not isinstance(step, dict):
         issues.append(ValidationIssue(location, "step 必须是 JSON 对象"))
@@ -85,13 +148,27 @@ def validate_step(
     if action not in SUPPORTED_ACTIONS:
         issues.append(ValidationIssue(location, f"不支持的 action：{action}"))
         return
+    validate_action_partition(action, automation_type, location, issues)
 
     for field in REQUIRED_FIELDS.get(action, ()):
         if field not in step:
             issues.append(ValidationIssue(location, f"缺少必填字段：{field}"))
 
     validate_type_field(step, action, location, issues)
-    validate_action_specific_fields(step, action, location, package_root, issues, stack)
+    validate_action_specific_fields(step, action, location, package_root, issues, stack, automation_type)
+
+
+def validate_action_partition(
+    action: str,
+    automation_type: str | None,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if automation_type not in ACTIONS_BY_AUTOMATION_TYPE:
+        return
+    if action in ACTIONS_BY_AUTOMATION_TYPE[automation_type]:
+        return
+    issues.append(ValidationIssue(location, f"automation_type={automation_type} 不支持 action：{action}"))
 
 
 def validate_action_specific_fields(
@@ -101,17 +178,18 @@ def validate_action_specific_fields(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None,
 ) -> None:
     if action == "run_sub_plan":
-        validate_sub_plan(step.get("path"), location, package_root, issues, stack)
+        validate_sub_plan(step.get("path"), location, package_root, issues, stack, automation_type)
         return
 
     if action in {"if", "foreach", "retry"}:
-        validate_control_flow(step, action, location, package_root, issues, stack)
+        validate_control_flow(step, action, location, package_root, issues, stack, automation_type)
         return
 
     if action == "trigger":
-        validate_trigger_action(step, location, package_root, issues, stack)
+        validate_trigger_action(step, location, package_root, issues, stack, automation_type)
 
     if "trigger" in step:
         validate_step(
@@ -120,6 +198,7 @@ def validate_action_specific_fields(
             package_root=package_root,
             issues=issues,
             stack=stack,
+            automation_type=automation_type,
         )
 
     if action == "open_browser":
@@ -139,7 +218,18 @@ def validate_action_specific_fields(
     if action == "write" and step.get("type") != "variables" and "value" not in step:
         issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 
-    if action in {"capture", "write", "wait_for_download", "ai", "trace", "event", "coverage"}:
+    if action in {
+        "capture",
+        "write",
+        "wait_for_download",
+        "ai",
+        "trace",
+        "event",
+        "coverage",
+        "desktop_capture",
+        "desktop_window",
+        "desktop_assert",
+    }:
         output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
         category = OUTPUT_ACTION_CATEGORIES.get((action, output_type))
         if category and "path" in step:
@@ -332,6 +422,7 @@ def validate_control_flow(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None,
 ) -> None:
     if action == "if":
         for branch in ("then", "else"):
@@ -346,6 +437,7 @@ def validate_control_flow(
                     package_root=package_root,
                     issues=issues,
                     stack=stack,
+                    automation_type=automation_type,
                 )
         return
 
@@ -360,6 +452,7 @@ def validate_control_flow(
             package_root=package_root,
             issues=issues,
             stack=stack,
+            automation_type=automation_type,
         )
 
 
@@ -369,6 +462,7 @@ def validate_trigger_action(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None,
 ) -> None:
     if "name" in step and not _is_template(step.get("name")):
         name = step.get("name")
@@ -411,9 +505,10 @@ def validate_trigger_action(
                     package_root=package_root,
                     issues=issues,
                     stack=stack,
+                    automation_type=automation_type,
                 )
     if has_path:
-        validate_sub_plan(step.get("path"), f"{location}.path", package_root, issues, stack)
+        validate_sub_plan(step.get("path"), f"{location}.path", package_root, issues, stack, automation_type)
 
 
 def _has_trigger_bound(trigger: dict[str, Any]) -> bool:
@@ -452,6 +547,7 @@ def validate_sub_plan(
     package_root: Path,
     issues: list[ValidationIssue],
     stack: list[Path],
+    automation_type: str | None,
 ) -> None:
     if not isinstance(raw_path, str) or not raw_path:
         issues.append(ValidationIssue(location, "run_sub_plan.path 必须是非空字符串"))
@@ -494,6 +590,7 @@ def validate_sub_plan(
         package_root=package_root,
         issues=issues,
         stack=stack,
+        automation_type=automation_type,
     )
 
 

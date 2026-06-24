@@ -1,5 +1,6 @@
 {
   "name": "browser-validation-negative",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {

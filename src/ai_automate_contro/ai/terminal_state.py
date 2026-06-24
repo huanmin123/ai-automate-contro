@@ -376,7 +376,7 @@ def _tool_argument_summary(tool_name: str, arguments: dict[str, Any]) -> str:
         "grep_project_text": ("pattern", "root_path", "file_glob"),
         "read_project_file_slice": ("path", "start_line", "line_count"),
         "read_plan_package": ("plan_path",),
-        "create_plan_package": ("package_path", "name"),
+        "create_plan_package": ("package_path", "name", "automation_type"),
         "export_local_file": ("target_path", "source_output_path", "mode"),
         "write_plan_package_file": ("plan_path", "relative_path", "mode"),
         "validate_plan": ("plan_path",),

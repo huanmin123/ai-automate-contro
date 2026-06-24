@@ -1,5 +1,6 @@
 {
   "name": "write-csv",
+  "automation_type": "browser",
   "variables": {
     "rows": [
       {

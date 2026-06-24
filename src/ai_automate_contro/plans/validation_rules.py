@@ -3,6 +3,8 @@ from __future__ import annotations
 from ai_automate_contro.ai.schemas import AI_TASK_TYPES
 
 
+ALLOWED_AUTOMATION_TYPES = {"browser", "desktop"}
+
 ACTION_TYPES: dict[str, set[str]] = {
     "variable": {"set", "set_many", "copy"},
     "page": {"open", "switch", "close"},
@@ -69,6 +71,11 @@ ACTION_TYPES: dict[str, set[str]] = {
     "trigger": {"interval"},
     "http": {"request"},
     "command": {"run"},
+    "desktop_window": {"list", "focus"},
+    "desktop_input": {"type_text", "hotkey", "click"},
+    "desktop_capture": {"screenshot", "snapshot"},
+    "desktop_wait": {"window"},
+    "desktop_assert": {"window", "screenshot"},
     "write": {"json", "text", "csv", "variables"},
     "read": {"json", "text", "csv", "storage_state"},
     "assert": {
@@ -128,6 +135,13 @@ REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     "trigger": ("type", "every_seconds"),
     "http": ("type", "method", "url"),
     "command": ("type",),
+    "open_desktop": ("name",),
+    "close_desktop": ("desktop",),
+    "desktop_window": ("desktop", "type"),
+    "desktop_input": ("desktop", "type"),
+    "desktop_capture": ("desktop", "type", "path"),
+    "desktop_wait": ("desktop", "type"),
+    "desktop_assert": ("desktop", "type"),
     "sleep": ("seconds",),
 }
 
@@ -145,6 +159,10 @@ OUTPUT_ACTION_CATEGORIES: dict[tuple[str, str], str] = {
     ("write", "variables"): "variables",
     ("http", "request"): "http",
     ("command", "run"): "commands",
+    ("desktop_window", "list"): "desktop-windows",
+    ("desktop_capture", "screenshot"): "desktop-screenshots",
+    ("desktop_capture", "snapshot"): "desktop-state",
+    ("desktop_assert", "screenshot"): "desktop-screenshots",
     ("ai", "connectivity"): "ai",
     ("ai", "extract_data"): "ai",
     ("ai", "classify_text"): "ai",
@@ -153,3 +171,62 @@ OUTPUT_ACTION_CATEGORIES: dict[tuple[str, str], str] = {
 }
 
 FORBIDDEN_OUTPUT_ROOTS = {"output", "resources", "docs", "sub-plans"}
+
+COMMON_ACTIONS = {
+    "ai",
+    "command",
+    "foreach",
+    "http",
+    "if",
+    "manual_confirm",
+    "print",
+    "read",
+    "retry",
+    "run_sub_plan",
+    "sleep",
+    "trigger",
+    "variable",
+    "write",
+}
+
+BROWSER_ACTIONS = {
+    "assert",
+    "capture",
+    "close_browser",
+    "coverage",
+    "detect_challenge",
+    "dialog",
+    "element",
+    "event",
+    "extract",
+    "keyboard",
+    "mouse",
+    "navigate",
+    "network",
+    "open_browser",
+    "page",
+    "script",
+    "scroll",
+    "storage",
+    "trace",
+    "wait",
+    "wait_for_download",
+    "wait_for_file_chooser",
+    "wait_for_network",
+    "wait_for_popup",
+}
+
+DESKTOP_ACTIONS = {
+    "close_desktop",
+    "desktop_capture",
+    "desktop_input",
+    "desktop_wait",
+    "desktop_assert",
+    "desktop_window",
+    "open_desktop",
+}
+
+ACTIONS_BY_AUTOMATION_TYPE = {
+    "browser": COMMON_ACTIONS | BROWSER_ACTIONS,
+    "desktop": COMMON_ACTIONS | DESKTOP_ACTIONS,
+}

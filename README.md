@@ -28,7 +28,7 @@ python .\main.py tool check
 创建新的 plan 包模板：
 
 ```powershell
-python .\cplan.py create --path .\plans\new-plan --name "New Plan"
+python .\cplan.py create --path .\plans\new-plan --automation-type browser --name "New Plan"
 ```
 
 进入 AI 终端：

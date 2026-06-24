@@ -80,6 +80,10 @@ class ReadPlanPackageArgs(ToolArgsModel):
 class CreatePlanPackageArgs(ToolArgsModel):
     package_path: str | None = Field(default=None, description="目标 plan 包目录；空则用默认 plan 根和 name。")
     name: str | None = Field(default=None, description="plan 名称。省略 package_path 时必填。")
+    automation_type: Literal["browser", "desktop"] = Field(
+        ...,
+        description="plan 执行线：browser 表示 Playwright 浏览器自动化，desktop 表示跨平台桌面控制。",
+    )
     force: bool = Field(default=False, description="允许已有非空包目录。")
 
 
@@ -108,7 +112,10 @@ class ValidatePlanArgs(ToolArgsModel):
 class ReviewPlanQualityArgs(ToolArgsModel):
     plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
     user_request: str = Field(..., description="用户原始需求、目标或任务描述。")
-    evidence_summary: str = Field(default="", description="探测、headed 探索、manual_confirm 或运行证据摘要。")
+    evidence_summary: str = Field(
+        default="",
+        description="按执行线传入证据摘要：browser 使用网页探测、headed 探索、manual_confirm 或运行证据；desktop 使用窗口列表、截图、权限诊断、控件/状态快照、manual_confirm 或运行证据。",
+    )
     planned_output_path: str = Field(default="", description="用户要求的最终本机交付路径，如 Downloads/AI账户.txt。")
 
 

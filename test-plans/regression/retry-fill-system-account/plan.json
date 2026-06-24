@@ -1,5 +1,6 @@
 {
   "name": "retry-fill-system-account",
+  "automation_type": "browser",
   "variables": {
     "email": "test@example.com",
     "login_url": "{{resources_file_url}}/basic_login.html"

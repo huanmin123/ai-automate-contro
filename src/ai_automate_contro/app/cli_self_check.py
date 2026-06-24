@@ -14,7 +14,9 @@ from ai_automate_contro.client.commands import all_client_commands
 
 def self_check_cli_boundaries() -> dict[str, Any]:
     main_commands = _subcommands(build_parser())
+    main_self_check_commands = _subcommands_for(build_parser(), "self-check")
     cplan_commands = _subcommands(build_cplan_parser())
+    cplan_self_check_commands = _subcommands_for(build_cplan_parser(), "self-check")
     textual_commands = {command.name for command in all_client_commands()}
     manual_confirm_check = _check_cplan_manual_confirm_closed_loop()
     manual_confirm_headed_check = _check_manual_confirm_requires_visible_browser()
@@ -91,6 +93,29 @@ def self_check_cli_boundaries() -> dict[str, Any]:
             "passed": _parse_accepted(build_cplan_parser(), ["validate", "--file", "plans/demo/plan.json"]),
             "detail": {},
         },
+        {
+            "name": "cplan_self_check_has_browser_and_desktop_components",
+            "passed": {"browser-components", "desktop-components"}.issubset(cplan_self_check_commands),
+            "detail": {"commands": sorted(cplan_self_check_commands)},
+        },
+        {
+            "name": "main_self_check_has_ai_plan_generation_simulation",
+            "passed": {"ai-terminal", "ai-tools", "ai-plan-generation"}.issubset(main_self_check_commands),
+            "detail": {"commands": sorted(main_self_check_commands)},
+        },
+        {
+            "name": "cplan_create_requires_automation_type",
+            "passed": _parse_rejected(build_cplan_parser(), ["create", "--path", "plans/demo"])
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["create", "--path", "plans/demo", "--automation-type", "browser"],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["create", "--path", "plans/demo", "--automation-type", "desktop"],
+            ),
+            "detail": {},
+        },
         manual_confirm_check,
         manual_confirm_headed_check,
         debug_patch_delete_check,
@@ -111,6 +136,17 @@ def _subcommands(parser: argparse.ArgumentParser) -> set[str]:
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             return set(action.choices)
+    return set()
+
+
+def _subcommands_for(parser: argparse.ArgumentParser, command: str) -> set[str]:
+    for action in parser._actions:
+        if not isinstance(action, argparse._SubParsersAction):
+            continue
+        subparser = action.choices.get(command)
+        if subparser is None:
+            return set()
+        return _subcommands(subparser)
     return set()
 
 
@@ -208,6 +244,7 @@ def _check_cplan_manual_confirm_closed_loop() -> dict[str, Any]:
         project_root = Path(raw_temp_dir).resolve()
         plan = {
             "name": "cplan manual confirm self-check",
+            "automation_type": "browser",
             "variables": {},
             "steps": [
                 {"action": "print", "message": "before manual confirm"},
@@ -327,6 +364,7 @@ def _check_cplan_output_dir_package_scope() -> dict[str, Any]:
         plan_path = package_dir / "plan.json"
         plan = {
             "name": "output dir scope",
+            "automation_type": "browser",
             "variables": {},
             "steps": [
                 {
@@ -393,6 +431,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "tick once",
+                    "automation_type": "browser",
                     "steps": [
                         {
                             "action": "write",
@@ -412,6 +451,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
         plan_path = package_dir / "plan.json"
         plan = {
             "name": "trigger parent",
+            "automation_type": "browser",
             "steps": [
                 {"action": "write", "type": "text", "path": "ticks.txt", "value": ""},
                 {
@@ -470,6 +510,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "legacy trigger",
+                    "automation_type": "browser",
                     "routines": {"tick": [{"action": "print", "message": "tick"}]},
                     "triggers": [
                         {
@@ -497,6 +538,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "invalid trigger name",
+                    "automation_type": "browser",
                     "steps": [
                         {
                             "action": "trigger",
@@ -521,6 +563,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
         rendered_invalid_plan_path = rendered_invalid_dir / "plan.json"
         rendered_invalid_plan = {
             "name": "rendered invalid trigger",
+            "automation_type": "browser",
             "variables": {"bad_bool": "maybe", "bad_runs": "2.5"},
             "steps": [
                 {
@@ -596,6 +639,7 @@ def _check_cplan_schedule_management() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "scheduled plan",
+                    "automation_type": "browser",
                     "steps": [
                         {
                             "action": "write",
@@ -740,6 +784,7 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "headless manual confirm",
+                    "automation_type": "browser",
                     "variables": {},
                     "steps": [
                         {"action": "open_browser", "name": "main"},
@@ -761,6 +806,7 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "branch headless manual confirm",
+                    "automation_type": "browser",
                     "variables": {"needs_browser": True},
                     "steps": [
                         {
@@ -788,6 +834,7 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "sub plan headless manual confirm",
+                    "automation_type": "browser",
                     "steps": [
                         {"action": "run_sub_plan", "path": "sub-plans/open-headless-plan.json"},
                         {"action": "manual_confirm", "prompt": "请在子计划打开的浏览器里继续"},
@@ -820,6 +867,7 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "mismatched manual confirm",
+                    "automation_type": "browser",
                     "steps": [
                         {"action": "open_browser", "name": "target", "headed": False},
                         {"action": "open_browser", "name": "decoy", "headed": True},
@@ -841,6 +889,7 @@ def _check_manual_confirm_requires_visible_browser() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "bound manual confirm",
+                    "automation_type": "browser",
                     "steps": [
                         {"action": "open_browser", "name": "target", "headed": True},
                         {"action": "open_browser", "name": "decoy", "headed": False},
@@ -907,6 +956,7 @@ def _check_debug_patch_deletion_backup() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "debug delete backup",
+                    "automation_type": "browser",
                     "variables": {},
                     "steps": [{"action": "print", "message": "debug patch deletion"}],
                 },
@@ -988,6 +1038,7 @@ def _check_debug_patch_rejects_forbidden_paths() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "debug forbidden patch",
+                    "automation_type": "browser",
                     "steps": [{"action": "print", "message": "debug forbidden patch"}],
                 },
                 ensure_ascii=False,

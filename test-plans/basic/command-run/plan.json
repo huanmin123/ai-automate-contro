@@ -1,5 +1,6 @@
 {
   "name": "command-run",
+  "automation_type": "browser",
   "tags": [
     "command"
   ],

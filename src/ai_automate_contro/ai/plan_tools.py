@@ -77,6 +77,7 @@ def create_plan_package_tool(
     project_root: str | Path,
     package_path: str | Path | None = None,
     *,
+    automation_type: str,
     name: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
@@ -92,7 +93,13 @@ def create_plan_package_tool(
     else:
         resolved_package_path = default_plan_package_dir(root, name=name or "").resolve()
     _validate_create_plan_package_path(resolved_package_path, root)
-    package_dir = create_plan_package(resolved_package_path, project_root=root, name=name, force=force)
+    package_dir = create_plan_package(
+        resolved_package_path,
+        project_root=root,
+        automation_type=automation_type,
+        name=name,
+        force=force,
+    )
     return {
         "ok": True,
         "package_dir": str(package_dir),
@@ -453,6 +460,7 @@ def read_plan_file_overview(path: Path, package_dir: Path) -> dict[str, Any]:
     overview.update(
         {
             "name": document.get("name") or path.parent.name,
+            "automation_type": document.get("automation_type") or "",
             "tags": [str(tag) for tag in tags],
             "variables": sorted(str(key) for key in variables.keys()),
             "step_count": len(steps),

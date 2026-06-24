@@ -259,6 +259,9 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "必须再调用 review_plan_quality",
         "用户原始需求、探测/探索证据摘要和用户要求的最终本机输出路径",
         "review_plan_quality 返回 fail",
+        "review_plan_quality 按 `automation_type` 分流",
+        "desktop plan 检查 open_desktop、桌面窗口/截图/等待/断言证据和桌面产物",
+        "不要求 open_browser、navigate 或 inspect_web_page",
         "强制运行门禁",
         "run_plan 会拒绝没有通过最新质量复查或复查后被修改过的 plan",
         "validate_plan -> review_plan_quality -> 修复直到通过 -> run_plan",
@@ -322,6 +325,7 @@ def _check_plan_generation_validation_hints() -> dict[str, Any]:
             json.dumps(
                 {
                     "name": "guardrail",
+                    "automation_type": "browser",
                     "variables": {},
                     "steps": [
                         {"action": "open_browser", "name": "main"},
@@ -418,11 +422,21 @@ def _check_terminal_export_and_plan_creation_boundaries() -> dict[str, Any]:
                 project_export_denied = "项目外" in str(error)
                 project_export_error = str(error)
 
-            package_result = create_plan_package_tool(project_root, package_path="plans/new-demo", name="new demo")
+            package_result = create_plan_package_tool(
+                project_root,
+                package_path="plans/new-demo",
+                automation_type="browser",
+                name="new demo",
+            )
             output_plan_denied = False
             output_plan_error = ""
             try:
-                create_plan_package_tool(project_root, package_path="plans/new-demo/output/bad", name="bad")
+                create_plan_package_tool(
+                    project_root,
+                    package_path="plans/new-demo/output/bad",
+                    automation_type="browser",
+                    name="bad",
+                )
             except Exception as error:
                 output_plan_denied = "拒绝" in str(error) or "plan_roots" in str(error)
                 output_plan_error = str(error)
@@ -430,7 +444,12 @@ def _check_terminal_export_and_plan_creation_boundaries() -> dict[str, Any]:
             external_plan_denied = False
             external_plan_error = ""
             try:
-                create_plan_package_tool(project_root, package_path=external_dir / "bad-plan", name="bad")
+                create_plan_package_tool(
+                    project_root,
+                    package_path=external_dir / "bad-plan",
+                    automation_type="browser",
+                    name="bad",
+                )
             except Exception as error:
                 external_plan_denied = "项目根目录内" in str(error)
                 external_plan_error = str(error)

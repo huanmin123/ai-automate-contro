@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_subparsers.add_parser("ai-stream", help="检查本地 chat completions 流式解析。")
     self_check_subparsers.add_parser("ai-terminal", help="检查 AI 会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")
+    self_check_subparsers.add_parser("ai-plan-generation", help="模拟服务端 AI 的执行线识别和 plan 生成工具调用。")
 
     return parser
 
@@ -109,6 +110,12 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
 
     create_parser = subparsers.add_parser("create", help="创建 plan 包模板。")
     create_parser.add_argument("--path", required=True, help="要创建的 plan 包目录。")
+    create_parser.add_argument(
+        "--automation-type",
+        required=True,
+        choices=["browser", "desktop"],
+        help="plan 执行线：browser 或 desktop。",
+    )
     create_parser.add_argument("--name", help="写入 plan.json 的 plan 名称。")
     create_parser.add_argument("--force", action="store_true", help="允许使用已有的非空包目录。")
 
@@ -191,6 +198,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     self_check_subparsers.add_parser("cli", help="检查 aic/main.py 与 cplan 的命令边界。")
     self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
+    self_check_subparsers.add_parser("desktop-components", help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。")
 
 
 def _friendly_argparse_message(message: str) -> str:

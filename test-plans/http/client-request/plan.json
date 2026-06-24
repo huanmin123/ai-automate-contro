@@ -1,5 +1,6 @@
 {
   "name": "http-client-request",
+  "automation_type": "browser",
   "tags": [
     "http",
     "command",

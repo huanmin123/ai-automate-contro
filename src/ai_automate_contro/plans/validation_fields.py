@@ -175,6 +175,21 @@ def validate_type_specific_required_fields(
         required = ("path",)
     elif action == "command" and step_type == "run" and not any(field in step for field in ("command", "commands", "argv")):
         issues.append(ValidationIssue(location, "command.run 需要 command、commands 或 argv 之一"))
+    elif action == "desktop_window" and step_type == "focus":
+        _validate_window_query(step, action, step_type, location, issues)
+    elif action == "desktop_input" and step_type == "type_text":
+        required = ("value",)
+    elif action == "desktop_input" and step_type == "hotkey":
+        required = ("keys",)
+    elif action == "desktop_input" and step_type == "click":
+        if "target" not in step and not ("x" in step and "y" in step):
+            issues.append(ValidationIssue(location, "desktop_input.click 需要 target 或 x/y"))
+    elif action == "desktop_wait" and step_type == "window":
+        _validate_window_query(step, action, step_type, location, issues)
+    elif action == "desktop_assert" and step_type == "window":
+        _validate_window_query(step, action, step_type, location, issues)
+    elif action == "desktop_assert" and step_type == "screenshot":
+        required = ("path",)
     elif action == "ai" and step_type == "extract_data":
         required = ("schema",)
     elif action == "ai" and step_type == "classify_text" and "schema" not in step:
@@ -305,6 +320,24 @@ def _validate_optional_field_values(
         return
     if action == "command":
         _validate_command_fields(step, step_type, location, issues)
+        return
+    if action == "open_desktop":
+        _validate_open_desktop_fields(step, location, issues)
+        return
+    if action == "desktop_window":
+        _validate_desktop_window_fields(step, step_type, location, issues)
+        return
+    if action == "desktop_input":
+        _validate_desktop_input_fields(step, step_type, location, issues)
+        return
+    if action == "desktop_capture":
+        _validate_desktop_capture_fields(step, step_type, location, issues)
+        return
+    if action == "desktop_wait":
+        _validate_desktop_wait_fields(step, step_type, location, issues)
+        return
+    if action == "desktop_assert":
+        _validate_desktop_assert_fields(step, step_type, location, issues)
         return
     if action == "element":
         _validate_element_fields(step, step_type, location, issues)
@@ -571,6 +604,191 @@ def _validate_command_fields(
     _validate_int(step, "max_output_bytes", location, issues, minimum=1)
     _validate_enum(step, "stdout_type", {"text", "json"}, location, issues)
     _validate_enum(step, "shell", {"auto", "pwsh", "powershell", "cmd", "sh", "bash"}, location, issues)
+
+
+def _validate_open_desktop_fields(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_enum(step, "platform", {"auto", "windows", "macos"}, location, issues)
+    _validate_enum(
+        step,
+        "backend",
+        {
+            "auto",
+            "native",
+            "windows-uia",
+            "windows-win32",
+            "pywinauto-uia",
+            "pywinauto-win32",
+            "macos-ax",
+            "vision",
+        },
+        location,
+        issues,
+    )
+    _validate_bool(step, "request_permissions", location, issues)
+    _validate_list(step, "permissions", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_string(step, "save_as", location, issues)
+
+
+def _validate_desktop_window_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_window_query_fields(step, location, issues)
+    _validate_string(step, "path", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    if step_type == "list":
+        _validate_bool(step, "include_invisible", location, issues)
+
+
+def _validate_desktop_input_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_enum(step, "method", {"auto", "type", "clipboard"}, location, issues)
+    _validate_int(step, "delay_ms", location, issues, minimum=0)
+    _validate_bool(step, "preserve_clipboard", location, issues)
+    if step_type == "type_text":
+        _validate_string(step, "value", location, issues)
+    if step_type == "hotkey":
+        keys = step.get("keys")
+        if keys is None or _is_template(keys):
+            return
+        if not isinstance(keys, list) or not keys:
+            issues.append(ValidationIssue(location, "keys 必须是非空字符串数组"))
+            return
+        for index, key in enumerate(keys):
+            if not isinstance(key, str) or not key:
+                issues.append(ValidationIssue(f"{location}.keys[{index}]", "keys 每一项必须是非空字符串"))
+    if step_type == "click":
+        _validate_enum(step, "target", {"current_window_center", "focused_window_center"}, location, issues)
+        _validate_int(step, "x", location, issues)
+        _validate_int(step, "y", location, issues)
+        _validate_enum(step, "button", {"left", "right", "middle"}, location, issues)
+        _validate_int(step, "clicks", location, issues, minimum=1)
+        _validate_int(step, "interval_ms", location, issues, minimum=0)
+        if ("x" in step) != ("y" in step):
+            issues.append(ValidationIssue(location, "desktop_input.click 使用坐标时必须同时提供 x 和 y"))
+        if "target" in step and ("x" in step or "y" in step):
+            issues.append(ValidationIssue(location, "desktop_input.click 不能同时使用 target 和 x/y"))
+
+
+def _validate_desktop_capture_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_region(step, "region", location, issues)
+    _validate_bool(step, "include_cursor", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    if step_type == "snapshot":
+        _validate_bool(step, "include_windows", location, issues)
+        _validate_bool(step, "include_displays", location, issues)
+
+
+def _validate_desktop_wait_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_window_query_fields(step, location, issues)
+    if step_type == "window":
+        _validate_enum(step, "state", {"exists", "not_exists", "focused"}, location, issues)
+        _validate_int(step, "timeout_ms", location, issues, minimum=1)
+        _validate_int(step, "interval_ms", location, issues, minimum=1)
+        _validate_string(step, "save_as", location, issues)
+
+
+def _validate_desktop_assert_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_string(step, "save_as", location, issues)
+    if step_type == "window":
+        _validate_window_query_fields(step, location, issues)
+        _validate_enum(step, "state", {"exists", "not_exists", "focused"}, location, issues)
+        _validate_int(step, "timeout_ms", location, issues, minimum=1)
+        _validate_int(step, "interval_ms", location, issues, minimum=1)
+        return
+    if step_type == "screenshot":
+        _validate_string(step, "path", location, issues)
+        _validate_int(step, "min_bytes", location, issues, minimum=0)
+
+
+WINDOW_QUERY_FIELDS = {
+    "title",
+    "title_contains",
+    "title_regex",
+    "app",
+    "process",
+    "process_name",
+    "class_name",
+    "window_id",
+}
+
+
+def _validate_window_query(
+    step: dict[str, Any],
+    action: str,
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if not any(field in step and step.get(field) not in (None, "") for field in WINDOW_QUERY_FIELDS):
+        issues.append(ValidationIssue(location, f"{action}.{step_type} 需要至少一种窗口定位字段"))
+
+
+def _validate_window_query_fields(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    for field in ("title", "title_contains", "title_regex", "app", "process", "process_name", "class_name"):
+        _validate_string(step, field, location, issues)
+    if "window_id" in step and not _is_template(step["window_id"]):
+        value = step["window_id"]
+        if not isinstance(value, (str, int)) or value == "":
+            issues.append(ValidationIssue(location, "window_id 必须是非空字符串或整数"))
+    _validate_int(step, "match_index", location, issues, minimum=0)
+
+
+def _validate_region(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, f"{field} 必须是对象"))
+        return
+    for required_field in ("x", "y", "width", "height"):
+        if required_field not in value:
+            issues.append(ValidationIssue(location, f"{field}.{required_field} 缺少必填字段"))
+            continue
+        dimension = value[required_field]
+        if not isinstance(dimension, int):
+            issues.append(ValidationIssue(location, f"{field}.{required_field} 必须是整数"))
+            continue
+        if required_field in {"width", "height"} and dimension <= 0:
+            issues.append(ValidationIssue(location, f"{field}.{required_field} 必须大于 0"))
+        elif required_field in {"x", "y"} and dimension < 0:
+            issues.append(ValidationIssue(location, f"{field}.{required_field} 必须大于或等于 0"))
 
 
 def _validate_enum(

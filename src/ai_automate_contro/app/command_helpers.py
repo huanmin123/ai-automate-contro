@@ -31,7 +31,7 @@ def print_plan_list(project_root: Path, filter_text: str) -> None:
         summary = summarize_plan(plan_path, project_root)
         print(
             f"{index:02d}. {summary['relative_path']} "
-            f"| 名称={summary['name']} | 步骤数={summary['steps']}"
+            f"| 类型={summary['automation_type']} | 名称={summary['name']} | 步骤数={summary['steps']}"
         )
 
 

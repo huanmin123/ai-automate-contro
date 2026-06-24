@@ -18,7 +18,8 @@
             "frame_name": "details-frame",
             "selector": "#submit"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -38,7 +39,8 @@
             "js": false,
             "css": false
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -58,7 +60,8 @@
             "url": "wss://fixture.local/ws",
             "close_code": 999
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -78,7 +81,8 @@
             "url": "wss://fixture.local/ws",
             "server_messages": "ready"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -97,7 +101,8 @@
             "browser": "main",
             "webrtc": "yes"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -120,7 +125,8 @@
             "end_y": 0,
             "steps": 0
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -141,7 +147,8 @@
             "mode": "full",
             "save_as": "snapshot"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -155,7 +162,8 @@
             "name": "main",
             "device": 12
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     },
     {
@@ -175,7 +183,8 @@
             "path": "resources/replay.har",
             "scope": "browser"
           }
-        ]
+        ],
+        "automation_type": "browser"
       }
     }
   ]

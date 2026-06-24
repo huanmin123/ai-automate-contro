@@ -1,5 +1,6 @@
 {
   "name": "ai-terminal-full-cycle",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {

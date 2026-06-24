@@ -1,5 +1,6 @@
 {
   "name": "dialog-flow",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {

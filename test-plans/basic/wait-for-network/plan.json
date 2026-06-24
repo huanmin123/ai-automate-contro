@@ -1,5 +1,6 @@
 {
   "name": "wait-for-network",
+  "automation_type": "browser",
   "variables": {
     "network_demo_url": "data:text/html,<html><body><button id='request-btn'>Send Request</button><button id='response-btn'>Send Response</button><script>document.getElementById('request-btn').addEventListener('click',()=>fetch('https://httpbin.org/get?case=request-demo'));document.getElementById('response-btn').addEventListener('click',()=>fetch('https://httpbin.org/get?case=response-demo'));</script></body></html>"
   },

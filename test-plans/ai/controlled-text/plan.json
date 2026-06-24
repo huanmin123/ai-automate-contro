@@ -1,5 +1,6 @@
 {
   "name": "controlled-text-ai",
+  "automation_type": "browser",
   "tags": [
     "ai",
     "controlled-component"

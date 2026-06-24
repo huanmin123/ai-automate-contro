@@ -14,9 +14,12 @@ def create_plan_package(
     raw_path: str | Path,
     *,
     project_root: Path,
+    automation_type: str,
     name: str | None = None,
     force: bool = False,
 ) -> Path:
+    if automation_type not in {"browser", "desktop"}:
+        raise ValueError("automation_type 必须是 browser 或 desktop。")
     package_dir = path_from_text(raw_path).resolve()
     if package_dir.exists():
         existing_items = list(package_dir.iterdir())
@@ -29,6 +32,7 @@ def create_plan_package(
         package_dir / "plan.json",
         {
             "name": plan_name,
+            "automation_type": automation_type,
             "variables": {},
             "steps": [
                 {
@@ -110,6 +114,7 @@ def summarize_plan(plan_path: str | Path, project_root: Path) -> dict[str, Any]:
         "relative_path": str(relative_path),
         "package_dir": str(resolved_plan_path.parent),
         "name": document.get("name") or resolved_plan_path.parent.name,
+        "automation_type": document.get("automation_type") or "",
         "tags": [str(tag) for tag in tags],
         "variables": sorted(str(key) for key in variables.keys()),
         "steps": len(steps),

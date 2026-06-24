@@ -1,5 +1,6 @@
 {
   "name": "wait-variants",
+  "automation_type": "browser",
   "variables": {
     "wait_url": "{{resources_file_url}}/wait_variants.html"
   },

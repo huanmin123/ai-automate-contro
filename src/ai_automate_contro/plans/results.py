@@ -20,6 +20,8 @@ class PlanResult:
     failure_screenshots: list[str] = field(default_factory=list)
     failure_htmls: list[str] = field(default_factory=list)
     failure_page_states: list[str] = field(default_factory=list)
+    failure_desktop_screenshots: list[str] = field(default_factory=list)
+    failure_desktop_states: list[str] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -62,6 +64,10 @@ def write_report_markdown(result: PlanResult, output_dir: Path) -> Path:
         lines.append(f"- Failure HTML: `{_display_artifact_path(output_dir, html)}`")
     for page_state in result.failure_page_states:
         lines.append(f"- Failure page state: `{_display_artifact_path(output_dir, page_state)}`")
+    for screenshot in result.failure_desktop_screenshots:
+        lines.append(f"- Failure desktop screenshot: `{_display_artifact_path(output_dir, screenshot)}`")
+    for desktop_state in result.failure_desktop_states:
+        lines.append(f"- Failure desktop state: `{_display_artifact_path(output_dir, desktop_state)}`")
     for download in _metadata_list(result.metadata, "downloads"):
         lines.append(f"- Download: `{_display_artifact_path(output_dir, download)}`")
     if not lines[-1].startswith("- "):

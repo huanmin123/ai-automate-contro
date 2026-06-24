@@ -1,5 +1,6 @@
 {
   "name": "detect-challenge",
+  "automation_type": "browser",
   "variables": {
     "challenge_url": "{{resources_file_url}}/verification_challenge.html"
   },

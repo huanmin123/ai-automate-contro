@@ -1,5 +1,6 @@
 {
   "name": "minimal-browser-plan",
+  "automation_type": "browser",
   "variables": {
     "demo_expected_title": "Minimal Plan"
   },

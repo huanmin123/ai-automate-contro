@@ -18,6 +18,8 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
         slow_mo_ms=int(step.get("slow_mo_ms", 0)),
         timeout_ms=int(step.get("timeout_ms", 15_000)),
     )
+    if executor.state.playwright is None:
+        raise RuntimeError("当前运行没有 Playwright runtime；请确认 plan.automation_type=browser 后再使用浏览器 action。")
     browser_type = step.get("browser_type", "chromium")
     if browser_type not in {"chromium", "firefox", "webkit"}:
         raise ValueError(f"不支持的 browser_type：{browser_type}")
@@ -200,6 +202,8 @@ def _build_context_kwargs(executor: Any, step: dict[str, Any]) -> dict[str, Any]
     context_kwargs: dict[str, Any] = {}
     if "device" in step:
         device_name = str(step["device"])
+        if executor.state.playwright is None:
+            raise RuntimeError("当前运行没有 Playwright runtime；不能使用 Playwright 设备预设。")
         devices = executor.state.playwright.devices
         if device_name not in devices:
             raise ValueError(f"未知的 Playwright 设备预设：{device_name}")

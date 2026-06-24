@@ -1,5 +1,6 @@
 {
   "name": "browser-backlog",
+  "automation_type": "browser",
   "variables": {
     "demo_url": "{{resources_file_url}}/backlog.html"
   },

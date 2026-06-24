@@ -1,5 +1,6 @@
 {
   "name": "browser-advanced",
+  "automation_type": "browser",
   "variables": {
     "demo_url": "{{resources_file_url}}/advanced_browser.html",
     "upload_file": "resources/upload.txt"

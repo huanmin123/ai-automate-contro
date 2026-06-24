@@ -54,8 +54,13 @@
 ## Action 与组件边界
 
 - 优先保持 JSON 计划格式、动作命名和现有字段风格一致。
+- 新建或大改 plan 前必须明确 `automation_type`，只能是 `browser` 或 `desktop`。不明确时先问用户，不能通过 action 名称猜测。
+- 主 `plan.json` 必须声明 `automation_type`；子计划继承主 plan 类型，显式声明时必须一致。
 - 参数级别一致的组件必须收敛为单个 action，并通过 `type` 区分具体操作，例如 `navigate`、`page`、`element`、`wait`、`extract`、`assert`、`capture`、`read`、`write`。
 - 只有参数结构或执行生命周期无法统一时才新增独立组件，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`。
+- 桌面自动化是独立执行线，不能并入 `command`、浏览器 `element`、浏览器 `mouse` 或浏览器 `keyboard`；落地时使用 `open_desktop`、`desktop_window`、`desktop_input`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等独立 action。
+- 新增或修改桌面 action、desktop runtime、backend payload、桌面输出分区、失败采集或 self-check 时，必须先对照 [桌面Action与Runtime契约](../functions/桌面Action与Runtime契约.md)，不要在代码里临时发明字段。
+- `automation_type: "browser"` 只能使用浏览器专属 action 和通用 action；`automation_type: "desktop"` 只能使用桌面专属 action 和通用 action。跨线 action 必须在校验阶段失败。
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
 - `read` 统一使用 `path`、`type`、`save_as`。
 - 新增动作组件时，同步更新 `src/ai_automate_contro/engine/actions/` 下对应行为模块和 action 注册出口、`handbook/<action>.md`、`handbook/README.md` 和必要的 `test-plans/` 示例。
@@ -68,15 +73,19 @@
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护。
 - 新增或修改 AI 终端工具后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
 - AI 新建 plan 包可使用 `create_plan_package`、`write_plan_package_file` 和资源导入工具写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。工具只拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 等非 plan 包结构路径，不得因明文账号、密码、token、api_key、Cookie 或验证码拒绝写入。
+- AI 根据自然语言创建 plan 时，先判断用户要的是浏览器网页自动化还是本机桌面控制。除非用户明确说网页、URL、浏览器、DOM，或明确说桌面应用、窗口、系统键鼠、macOS/Windows 应用，否则必须先追问确认执行线。
 - AI 终端线程状态包含当前 plan、当前 debug workspace 和最近输出目录等摘要状态，由选择、运行、调试 plan 和工具返回自动维护，不暴露旧式手动设置命令。
 
-## 真实网站与自动化证据
+## 真实网站与桌面证据
 
 - AI 为真实网站、URL、后台页面或网页流程创建最终 plan 前，必须先用自动化跑通流程证据，不能只按用户文字猜 selector。
 - 第一步用 `inspect_web_page` 真实访问并读取受限 DOM 摘要、表单、输入框、按钮、链接、表格以及登录/验证信号。
 - 涉及登录、验证码、二次验证、后台菜单、弹窗、权限页或动态页面时，继续创建并运行 `open_browser.headed=true` 的探索 plan。
 - 需要用户介入时，必须用 `manual_confirm` 停在同一个 Playwright 浏览器窗口里交接，不要求用户另开本机浏览器、登录后发 URL、截图或 HTML 来替代自动化交接。
 - 用户明确同意并提供账号密码或一次性验证信息时，AI 可以按页面正常流程填写、点击和提交；不得破解、绕过或代解验证码、人机验证、二次验证或登录安全策略。
+- AI 为真实桌面应用创建最终 plan 前，必须先获取窗口列表、控件树、截图、图像定位结果或人工确认等证据，不能只按用户文字猜窗口标题、控件 selector 或坐标。
+- Windows 桌面控制优先使用 UI Automation / Win32 控件语义，坐标和图像定位只作为兜底；UAC、安全桌面、管理员权限和不同用户会话边界不做绕过。
+- macOS 桌面控制必须检测 Accessibility、Screen Recording、Automation 等权限。代码可以触发授权提示、打开系统设置并暂停等待，但不能静默替用户授权，也不能自动点击系统隐私授权。
 
 ## 调试修复流程
 
@@ -112,4 +121,5 @@
 - 修改 Textual 交互客户端、队列、消息块、输入框或客户端后端事件适配：运行 `python .\main.py self-check textual-client`。
 - 修改专项 AI streaming 解析：运行 `python .\main.py self-check ai-stream`；真实服务回归仍使用 `test-plans/ai/controlled-text/plan.json`。
 - 新增 AI 终端工具：运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
+- 新增桌面 action、desktop backend、桌面失败采集或桌面校验规则：运行 `python .\cplan.py self-check desktop-components`；无 GUI、锁屏、权限不足或依赖缺失时应返回 skipped 和原因。
 - 若验证依赖浏览器，需要先确保已执行 `python -m playwright install chromium`。

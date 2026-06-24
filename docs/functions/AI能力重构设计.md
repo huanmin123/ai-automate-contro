@@ -91,7 +91,7 @@ AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 
 - `generate_debug_patch`
 - `apply_debug_patch_after_approval`
 
-除受保护工具和 `run_plan` 外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
+除受保护工具和 `run_plan` 外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；门禁按 `automation_type` 分流，browser 使用网页探测/探索证据，desktop 使用窗口、截图、状态快照、权限诊断和桌面产物证据，不能互相替代。无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
 
 其中 `patch_debug_workspace_json` 用于对 `injected-plan/` 下的 JSON 文件做路径级最小修改，例如只替换 `["steps",0,"message"]`。`write_debug_workspace_file` 保留为整文件写入、文档、资源、notes 和 report 的受限写入工具。
 

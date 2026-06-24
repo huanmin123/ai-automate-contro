@@ -1,5 +1,6 @@
 {
   "name": "storage-state-roundtrip",
+  "automation_type": "browser",
   "variables": {
     "login_url": "{{resources_file_url}}/basic_login.html"
   },

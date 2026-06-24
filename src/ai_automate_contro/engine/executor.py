@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable
 from datetime import datetime
+from contextlib import nullcontext
 
 from playwright.sync_api import sync_playwright
 
@@ -65,6 +66,7 @@ def execute_plan(
         plan_variables=dict(plan.get("variables", {})),
         variable_overrides=variable_overrides or {},
     )
+    automation_type = str(plan.get("automation_type") or "")
 
     started_at = datetime.now().isoformat(timespec="seconds")
     error_message: str | None = None
@@ -73,7 +75,8 @@ def execute_plan(
     result: PlanResult | None = None
     caught_error: BaseException | None = None
 
-    with sync_playwright() as playwright:
+    playwright_context = nullcontext(None) if automation_type == "desktop" else sync_playwright()
+    with playwright_context as playwright:
         state = RuntimeState(
             project_root=root_path,
             playwright=playwright,
@@ -140,8 +143,11 @@ def execute_plan(
                 failure_screenshots=list(state.failure_screenshots),
                 failure_htmls=list(state.failure_htmls),
                 failure_page_states=list(state.failure_page_states),
+                failure_desktop_screenshots=list(state.failure_desktop_screenshots),
+                failure_desktop_states=list(state.failure_desktop_states),
                 tags=list(plan.get("tags", [])),
                 metadata={
+                    "automation_type": automation_type,
                     "downloads": list(state.downloads),
                     "last_dialog_message": state.last_dialog_message,
                 },

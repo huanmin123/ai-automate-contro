@@ -1,5 +1,6 @@
 {
   "name": "browser-observability",
+  "automation_type": "browser",
   "variables": {
     "demo_url": "{{resources_file_url}}/observability.html",
     "frame_url_part": "frame-child.html"
