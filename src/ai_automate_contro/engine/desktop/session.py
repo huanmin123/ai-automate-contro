@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any
+
+from ai_automate_contro.engine.desktop.backends.base import DesktopBackend
+
+
+@dataclass
+class DesktopSession:
+    name: str
+    backend: DesktopBackend
+    platform: str
+    backend_name: str
+    permissions: dict[str, Any] = field(default_factory=dict)
+    current_window: dict[str, Any] | None = None
+
+    def close(self) -> None:
+        self.backend.close()

@@ -1,0 +1,46 @@
+{
+  "name": "real ai desktop loop",
+  "automation_type": "desktop",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_desktop",
+      "name": "desktop",
+      "backend": "auto",
+      "save_as": "desktop_probe"
+    },
+    {
+      "action": "desktop_window",
+      "desktop": "desktop",
+      "type": "list",
+      "path": "windows.json",
+      "save_as": "desktop_windows"
+    },
+    {
+      "action": "desktop_capture",
+      "desktop": "desktop",
+      "type": "screenshot",
+      "path": "screen.png",
+      "save_as": "desktop_screenshot"
+    },
+    {
+      "action": "desktop_assert",
+      "desktop": "desktop",
+      "type": "screenshot",
+      "path": "screen.png",
+      "min_bytes": 1,
+      "save_as": "desktop_screenshot_assertion"
+    },
+    {
+      "action": "desktop_capture",
+      "desktop": "desktop",
+      "type": "snapshot",
+      "path": "snapshot.json",
+      "save_as": "desktop_snapshot"
+    },
+    {
+      "action": "close_desktop",
+      "desktop": "desktop"
+    }
+  ]
+}

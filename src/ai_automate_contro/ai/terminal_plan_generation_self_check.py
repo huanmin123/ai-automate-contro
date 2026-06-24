@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+import json
+import tempfile
+from pathlib import Path
+from typing import Any, Literal
+
+from ai_automate_contro.ai.terminal_tool_registry import call_ai_terminal_tool
+
+
+AutomationDecision = Literal["browser", "desktop", "ambiguous"]
+
+
+def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[str, Any]:
+    resolved_project_root = Path(project_root).resolve()
+    with tempfile.TemporaryDirectory(prefix="ai-plan-generation-self-check-") as raw_temp_dir:
+        simulation_root = Path(raw_temp_dir).resolve()
+        _write_minimal_project_config(simulation_root)
+        checks = [
+            _run_browser_generation_case(simulation_root),
+            _run_desktop_generation_case(simulation_root),
+            _run_ambiguous_confirmation_case(simulation_root),
+            _run_mixed_line_negative_case(simulation_root),
+        ]
+    return {
+        "ok": all(check["passed"] for check in checks),
+        "check": "ai_plan_generation_simulation",
+        "project_root": str(resolved_project_root),
+        "simulated_service": "scripted_server_ai",
+        "checks": checks,
+    }
+
+
+def simulate_execution_line_decision(user_message: str) -> dict[str, Any]:
+    text = user_message.lower()
+    desktop_tokens = {
+        "app",
+        "desktop",
+        "finder",
+        "notepad",
+        "textedit",
+        "window",
+        "windows",
+        "macos",
+        "菜单栏",
+        "本机",
+        "桌面",
+        "窗口",
+        "记事本",
+        "系统设置",
+        "键盘",
+        "鼠标",
+        "客户端",
+    }
+    browser_tokens = {
+        "browser",
+        "chrome",
+        "dom",
+        "url",
+        "web",
+        "website",
+        "网页",
+        "浏览器",
+        "网址",
+        "后台页面",
+        "页面表单",
+    }
+    desktop_hits = sorted(token for token in desktop_tokens if token in text)
+    browser_hits = sorted(token for token in browser_tokens if token in text)
+    if desktop_hits and not browser_hits:
+        return {
+            "decision": "desktop",
+            "requires_confirmation": False,
+            "confidence": "high",
+            "evidence": desktop_hits,
+        }
+    if browser_hits and not desktop_hits:
+        return {
+            "decision": "browser",
+            "requires_confirmation": False,
+            "confidence": "high",
+            "evidence": browser_hits,
+        }
+    return {
+        "decision": "ambiguous",
+        "requires_confirmation": True,
+        "confidence": "low",
+        "evidence": {"browser": browser_hits, "desktop": desktop_hits},
+        "question": "你要自动化的是网页里的流程，还是本机桌面应用里的流程？两者的 plan 类型不同。",
+    }
+
+
+def _run_browser_generation_case(project_root: Path) -> dict[str, Any]:
+    user_message = "请帮我自动化一个网页 URL，打开浏览器页面并截图。"
+    decision = simulate_execution_line_decision(user_message)
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/browser-simulated-plan",
+        automation_type="browser",
+        name="browser simulated plan",
+        plan_document={
+            "name": "browser simulated plan",
+            "automation_type": "browser",
+            "variables": {},
+            "steps": [
+                {"action": "open_browser", "name": "main"},
+                {"action": "navigate", "browser": "main", "type": "goto", "url": "https://example.com"},
+                {"action": "capture", "browser": "main", "type": "screenshot", "path": "example.png"},
+                {"action": "close_browser", "browser": "main"},
+            ],
+        },
+    )
+    passed = (
+        decision.get("decision") == "browser"
+        and not decision.get("requires_confirmation")
+        and result.get("created_automation_type") == "browser"
+        and result.get("validation_ok") is True
+    )
+    return _self_check_result(
+        name="scripted_ai_generates_browser_plan_with_automation_type",
+        passed=passed,
+        detail={"decision": decision, **result},
+    )
+
+
+def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
+    user_message = "请控制本机桌面 Notepad 窗口，截图并保存状态。"
+    decision = simulate_execution_line_decision(user_message)
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/desktop-simulated-plan",
+        automation_type="desktop",
+        name="desktop simulated plan",
+        plan_document={
+            "name": "desktop simulated plan",
+            "automation_type": "desktop",
+            "variables": {},
+            "steps": [
+                {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+                {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
+                {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
+                {"action": "desktop_assert", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
+                {"action": "close_desktop", "desktop": "desktop"},
+            ],
+        },
+        quality_user_request=(
+            "这是本机桌面控制 desktop，不是浏览器自动化。"
+            "请做安全桌面探测：desktop_window list 写 windows.json，"
+            "desktop_capture screenshot 写 screen.png，并用 desktop_assert 验证截图。"
+        ),
+        quality_evidence_summary=(
+            "automation_type=desktop；plan 包含 open_desktop、desktop_window list、"
+            "desktop_capture screenshot、desktop_assert screenshot、close_desktop。"
+        ),
+    )
+    passed = (
+        decision.get("decision") == "desktop"
+        and not decision.get("requires_confirmation")
+        and result.get("created_automation_type") == "desktop"
+        and result.get("validation_ok") is True
+        and result.get("quality_review_ok") is True
+        and "missing_browser_navigation" not in "\n".join(result.get("quality_issue_codes", []))
+    )
+    return _self_check_result(
+        name="scripted_ai_generates_desktop_plan_with_automation_type",
+        passed=passed,
+        detail={"decision": decision, **result},
+    )
+
+
+def _run_ambiguous_confirmation_case(project_root: Path) -> dict[str, Any]:
+    user_message = "帮我自动化企业后台登录，然后填一下表格。"
+    decision = simulate_execution_line_decision(user_message)
+    plan_count_before = _count_plan_packages(project_root)
+    tool_calls: list[dict[str, Any]] = []
+    plan_count_after = _count_plan_packages(project_root)
+    passed = (
+        decision.get("decision") == "ambiguous"
+        and decision.get("requires_confirmation") is True
+        and "网页里的流程" in str(decision.get("question", ""))
+        and not tool_calls
+        and plan_count_before == plan_count_after
+    )
+    return _self_check_result(
+        name="scripted_ai_requires_confirmation_for_ambiguous_execution_line",
+        passed=passed,
+        detail={
+            "decision": decision,
+            "tool_calls": tool_calls,
+            "plan_count_before": plan_count_before,
+            "plan_count_after": plan_count_after,
+        },
+    )
+
+
+def _run_mixed_line_negative_case(project_root: Path) -> dict[str, Any]:
+    user_message = "这是桌面控制 plan，但模型错误地写入了跨线 action。"
+    decision = simulate_execution_line_decision(user_message)
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/mixed-line-negative-plan",
+        automation_type="desktop",
+        name="mixed line negative plan",
+        plan_document={
+            "name": "mixed line negative plan",
+            "automation_type": "desktop",
+            "variables": {},
+            "steps": [{"action": "open_browser", "name": "main"}],
+        },
+    )
+    validation_errors = "\n".join(result.get("validation_errors", []))
+    passed = (
+        decision.get("decision") == "desktop"
+        and result.get("created_automation_type") == "desktop"
+        and result.get("validation_ok") is False
+        and "automation_type=desktop 不支持 action：open_browser" in validation_errors
+    )
+    return _self_check_result(
+        name="scripted_ai_mixed_line_plan_is_rejected",
+        passed=passed,
+        detail={"decision": decision, **result},
+    )
+
+
+def _simulate_plan_generation(
+    project_root: Path,
+    *,
+    package_path: str,
+    automation_type: Literal["browser", "desktop"],
+    name: str,
+    plan_document: dict[str, Any],
+    quality_user_request: str = "",
+    quality_evidence_summary: str = "",
+) -> dict[str, Any]:
+    tool_calls: list[dict[str, Any]] = []
+
+    create_result = _call_tool(
+        project_root,
+        tool_calls,
+        "create_plan_package",
+        {"package_path": package_path, "automation_type": automation_type, "name": name},
+    )
+    plan_path = str(create_result.get("plan_path", ""))
+    write_result = _call_tool(
+        project_root,
+        tool_calls,
+        "write_plan_package_file",
+        {"plan_path": plan_path, "relative_path": "plan.json", "json_value": plan_document},
+    )
+    validation_result = _call_tool(project_root, tool_calls, "validate_plan", {"plan_path": plan_path})
+    quality_result: dict[str, Any] = {}
+    if quality_user_request:
+        quality_result = _call_tool(
+            project_root,
+            tool_calls,
+            "review_plan_quality",
+            {
+                "plan_path": plan_path,
+                "user_request": quality_user_request,
+                "evidence_summary": quality_evidence_summary,
+            },
+        )
+    return {
+        "created_automation_type": (
+            create_result.get("summary", {}).get("automation_type")
+            if isinstance(create_result.get("summary"), dict)
+            else ""
+        ),
+        "plan_path": plan_path,
+        "write_ok": bool(write_result.get("ok")),
+        "validation_ok": bool(validation_result.get("ok")),
+        "validation_errors": [str(error.get("formatted") or error) for error in validation_result.get("errors", [])],
+        "quality_review_ok": bool(quality_result.get("ok")) if quality_result else None,
+        "quality_issue_codes": [
+            str(issue.get("code") or issue)
+            for issue in quality_result.get("issues", [])
+            if isinstance(issue, dict)
+        ],
+        "tool_calls": tool_calls,
+    }
+
+
+def _call_tool(
+    project_root: Path,
+    tool_calls: list[dict[str, Any]],
+    tool_name: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    result = call_ai_terminal_tool(project_root=project_root, tool_name=tool_name, arguments=arguments)
+    tool_calls.append(
+        {
+            "tool": tool_name,
+            "arguments": _compact_arguments(arguments),
+            "ok": bool(result.get("ok")),
+        }
+    )
+    return result
+
+
+def _compact_arguments(arguments: dict[str, Any]) -> dict[str, Any]:
+    compacted = dict(arguments)
+    if isinstance(compacted.get("json_value"), dict):
+        document = compacted["json_value"]
+        compacted["json_value"] = {
+            "automation_type": document.get("automation_type"),
+            "step_count": len(document.get("steps", [])) if isinstance(document.get("steps"), list) else 0,
+        }
+    return compacted
+
+
+def _write_minimal_project_config(project_root: Path) -> None:
+    (project_root / "plans").mkdir(parents=True, exist_ok=True)
+    (project_root / "test-plans").mkdir(parents=True, exist_ok=True)
+    (project_root / "handbook").mkdir(parents=True, exist_ok=True)
+    (project_root / "plan.config").write_text(
+        json.dumps(
+            {
+                "handbook_path": "handbook",
+                "plan_roots": ["plans", "test-plans"],
+                "default_ai_config_dir": "plans",
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _count_plan_packages(project_root: Path) -> int:
+    return sum(1 for _path in (project_root / "plans").glob("*/plan.json"))
+
+
+def _self_check_result(*, name: str, passed: bool, detail: dict[str, Any] | None = None) -> dict[str, Any]:
+    result: dict[str, Any] = {"name": name, "passed": passed}
+    if detail is not None:
+        result["detail"] = detail
+    return result
