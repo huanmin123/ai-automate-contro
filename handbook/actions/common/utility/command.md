@@ -96,4 +96,4 @@
 - plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。
 - `stdout_path`、`stderr_path` 只能写入当前 plan 包 `output/commands/`。
 - 响应变量和输出文件保留 stdout/stderr 原文；日志保留执行摘要。
-- 第一版只支持同步命令；不管理后台进程或长期服务。
+- 只支持同步命令；不管理后台进程或长期服务。

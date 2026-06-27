@@ -30,6 +30,7 @@ from ai_automate_contro.ai.tool_schemas import (
     GenerateDebugPatchArgs,
     GrepProjectTextArgs,
     ImportPlanResourceFileArgs,
+    InspectDesktopArgs,
     InjectDebugStepsArgs,
     InspectWebPageArgs,
     ListDebugWorkspacesArgs,
@@ -73,7 +74,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "analyze_latest_run_failure": ToolSpec(
         terminal_tools.analyze_latest_run_failure_tool,
         AnalyzeLatestRunFailureArgs,
-        "分析最近一次失败运行的证据，包括日志、事件、截图、HTML、页面状态和 DOM 摘要。",
+        "分析最近一次失败运行的证据，包括日志、事件、截图、HTML、页面状态、DOM 摘要和桌面 diagnostics 修复建议。",
     ),
     "apply_debug_patch_after_approval": ToolSpec(
         terminal_tools.apply_debug_patch_after_approval_tool,
@@ -154,6 +155,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         terminal_tools.inspect_web_page_tool,
         InspectWebPageArgs,
         "一次性打开 URL/本地 HTML，返回受限 DOM、表单、按钮、链接、表格和登录/验证证据；真实流程用 headed 探索 plan。",
+        requires_project_root=True,
+    ),
+    "inspect_desktop": ToolSpec(
+        terminal_tools.inspect_desktop_tool,
+        InspectDesktopArgs,
+        "一次性探测当前桌面，返回权限/依赖、窗口列表、可选控件 dump 和可选截图路径；写 desktop plan 前先用它确认窗口和控件定位。",
         requires_project_root=True,
     ),
     "list_debug_workspaces": ToolSpec(

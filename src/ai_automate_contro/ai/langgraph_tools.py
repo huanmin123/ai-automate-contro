@@ -306,6 +306,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
         read_plan_package_tool = tool_by_name.get("read_plan_package")
         grep_project_text_tool = tool_by_name.get("grep_project_text")
         inspect_web_page_tool = tool_by_name.get("inspect_web_page")
+        inspect_desktop_tool = tool_by_name.get("inspect_desktop")
         read_project_file_slice_tool = tool_by_name.get("read_project_file_slice")
         write_plan_package_file_tool = tool_by_name.get("write_plan_package_file")
         update_work_plan_tool = tool_by_name.get("update_work_plan")
@@ -520,7 +521,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     missing_root_result.get("ok") is False
                     and "搜索路径不存在" in str(missing_root_result.get("error", ""))
                     and isinstance(suggested_paths, list)
-                    and "handbook/actions/interaction/element.md" in suggested_paths
+                    and "handbook/actions/browser/interaction/element.md" in suggested_paths
                 )
                 missing_root_recoverable_detail = {
                     "error": missing_root_result.get("error"),
@@ -715,6 +716,49 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 }
             except Exception as error:
                 web_inspection_error = str(error)
+
+        desktop_inspection_ok = False
+        desktop_inspection_error = ""
+        desktop_inspection_detail: dict[str, Any] = {}
+        if inspect_desktop_tool is not None:
+            try:
+                desktop_result = json.loads(
+                    inspect_desktop_tool.invoke(
+                        {
+                            "platform_name": "auto",
+                            "request_permissions": False,
+                            "include_windows": True,
+                            "include_elements": False,
+                            "max_windows": 5,
+                        }
+                    )
+                )
+                probe = desktop_result.get("probe") if isinstance(desktop_result.get("probe"), dict) else {}
+                capability_matrix = (
+                    desktop_result.get("capability_matrix")
+                    if isinstance(desktop_result.get("capability_matrix"), dict)
+                    else {}
+                )
+                desktop_inspection_ok = (
+                    desktop_result.get("ok") is True
+                    and desktop_result.get("tool") == "inspect_desktop"
+                    and isinstance(desktop_result.get("windows"), list)
+                    and isinstance(probe.get("permissions"), dict)
+                    and isinstance(probe.get("dependencies"), dict)
+                    and capability_matrix.get("schema_version") == 1
+                    and isinstance(capability_matrix.get("capabilities"), dict)
+                )
+                desktop_inspection_detail = {
+                    "platform": desktop_result.get("platform"),
+                    "backend": desktop_result.get("backend"),
+                    "window_count": desktop_result.get("window_count"),
+                    "window_error": desktop_result.get("window_error"),
+                    "permissions": probe.get("permissions", {}),
+                    "capability_matrix_ok": capability_matrix.get("schema_version") == 1,
+                    "capability_limitations": capability_matrix.get("limitations", []),
+                }
+            except Exception as error:
+                desktop_inspection_error = str(error)
 
         work_plan_tool_ok = False
         work_plan_tool_error = ""
@@ -1131,6 +1175,442 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                desktop_inspection_summary = (
+                    "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 "
+                    "window_count=3 include_windows=true；已获得桌面探测、能力矩阵和窗口列表证据。"
+                )
+                desktop_missing_session_plan = {
+                    "name": "desktop missing session",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {
+                            "action": "desktop_capture",
+                            "desktop": "desktop",
+                            "type": "screenshot",
+                            "path": "screen.png",
+                        }
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_missing_session_plan,
+                        }
+                    )
+                )
+                desktop_missing_session_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "截取当前桌面截图并保存 screen.png。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_capture screenshot 作为桌面证据。",
+                        }
+                    )
+                )
+                desktop_no_evidence_plan = {
+                    "name": "desktop no evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_no_evidence_plan,
+                        }
+                    )
+                )
+                desktop_no_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "打开桌面会话后关闭。",
+                            "evidence_summary": desktop_inspection_summary,
+                        }
+                    )
+                )
+                desktop_no_inspection_plan = {
+                    "name": "desktop no inspection",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_capture",
+                            "desktop": "desktop",
+                            "type": "screenshot",
+                            "path": "screen.png",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_no_inspection_plan,
+                        }
+                    )
+                )
+                desktop_no_inspection_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "截取当前桌面截图并保存 screen.png。",
+                            "evidence_summary": "没有探测；只有 plan 内 desktop_capture 证据。",
+                        }
+                    )
+                )
+                desktop_lifecycle_no_evidence_plan = {
+                    "name": "desktop lifecycle no evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_window",
+                            "desktop": "desktop",
+                            "type": "close",
+                            "title_contains": "Demo",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_lifecycle_no_evidence_plan,
+                        }
+                    )
+                )
+                desktop_lifecycle_no_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "关闭桌面上标题包含 Demo 的窗口。",
+                            "evidence_summary": desktop_inspection_summary,
+                        }
+                    )
+                )
+                desktop_element_evidence_plan = {
+                    "name": "desktop element evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "list",
+                            "title_contains": "Demo",
+                            "path": "elements.json",
+                            "save_as": "elements",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_element_evidence_plan,
+                        }
+                    )
+                )
+                desktop_element_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "读取桌面 App 控件列表并保存 elements.json。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_element list 输出控件列表。",
+                            "planned_output_path": "elements.json",
+                        }
+                    )
+                )
+                desktop_element_dump_evidence_plan = {
+                    "name": "desktop element dump evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "dump",
+                            "title_contains": "Demo",
+                            "path": "elements-dump.json",
+                            "save_as": "elements_dump",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_element_dump_evidence_plan,
+                        }
+                    )
+                )
+                desktop_element_dump_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "导出桌面 App 控件树和 selector 建议到 elements-dump.json。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_element dump 输出控件树和 selector_hints。",
+                            "planned_output_path": "elements-dump.json",
+                        }
+                    )
+                )
+                desktop_assert_element_evidence_plan = {
+                    "name": "desktop assert element evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_assert",
+                            "desktop": "desktop",
+                            "type": "element",
+                            "title_contains": "Demo",
+                            "name": "Status",
+                            "state": "exists",
+                            "path": "status-assertion.json",
+                            "save_as": "status_assertion",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_assert_element_evidence_plan,
+                        }
+                    )
+                )
+                desktop_assert_element_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "断言桌面 App 中存在 Status 控件并保存断言。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_assert element 验证控件存在。",
+                            "planned_output_path": "status-assertion.json",
+                        }
+                    )
+                )
+                desktop_element_click_no_evidence_plan = {
+                    "name": "desktop element click no evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "click",
+                            "title_contains": "Demo",
+                            "name_contains": "Login",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_element_click_no_evidence_plan,
+                        }
+                    )
+                )
+                desktop_element_click_no_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "点击桌面 App 上的 Login 控件。",
+                            "evidence_summary": desktop_inspection_summary,
+                        }
+                    )
+                )
+                desktop_element_invoke_no_evidence_plan = {
+                    "name": "desktop element invoke no evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "invoke",
+                            "title_contains": "Demo",
+                            "name": "Login",
+                            "control_type": "Button",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_element_invoke_no_evidence_plan,
+                        }
+                    )
+                )
+                desktop_element_invoke_no_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "触发桌面 App 上的 Login 控件。",
+                            "evidence_summary": desktop_inspection_summary,
+                        }
+                    )
+                )
+                desktop_credentials_plan = {
+                    "name": "desktop credentials",
+                    "automation_type": "desktop",
+                    "variables": {"username": "desktop-user", "password": "desktop-pass"},
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_app",
+                            "desktop": "desktop",
+                            "type": "launch",
+                            "app": "DemoLogin",
+                            "save_as": "app_launch",
+                        },
+                        {
+                            "action": "desktop_wait",
+                            "desktop": "desktop",
+                            "type": "window",
+                            "title_contains": "Login",
+                            "state": "exists",
+                        },
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "set_text",
+                            "title_contains": "Login",
+                            "name": "Username",
+                            "value": "{{username}}",
+                        },
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "set_text",
+                            "title_contains": "Login",
+                            "name": "Password",
+                            "value": "{{password}}",
+                        },
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "invoke",
+                            "title_contains": "Login",
+                            "name": "Login",
+                            "control_type": "Button",
+                        },
+                        {
+                            "action": "desktop_capture",
+                            "desktop": "desktop",
+                            "type": "screenshot",
+                            "path": "login-after-submit.png",
+                        },
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_credentials_plan,
+                        }
+                    )
+                )
+                desktop_credentials_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "在桌面 App 登录，账户 desktop-user，密码 desktop-pass，并截图验证。",
+                            "evidence_summary": f"{desktop_inspection_summary} 已通过 desktop_wait window 和 desktop_capture screenshot 获取桌面窗口证据。",
+                        }
+                    )
+                )
+                desktop_no_submit_plan = {
+                    **desktop_credentials_plan,
+                    "name": "desktop credentials without submit",
+                    "steps": [
+                        step
+                        for step in desktop_credentials_plan["steps"]
+                        if not (
+                            (
+                                step.get("action") == "desktop_input"
+                                and step.get("type") in {"click", "double_click", "right_click"}
+                            )
+                            or (step.get("action") == "desktop_element" and step.get("type") == "invoke")
+                        )
+                        and not (step.get("action") == "desktop_capture")
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_no_submit_plan,
+                        }
+                    )
+                )
+                desktop_no_submit_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "在桌面 App 登录，账户 desktop-user，密码 desktop-pass。",
+                            "evidence_summary": f"{desktop_inspection_summary} 已通过 desktop_wait window 获取桌面窗口证据。",
+                        }
+                    )
+                )
+                desktop_trailing_manual_plan = {
+                    "name": "desktop trailing manual",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_window",
+                            "desktop": "desktop",
+                            "type": "list",
+                            "path": "windows.json",
+                        },
+                        {"action": "write", "type": "text", "path": "windows.txt", "value": "{{windows}}"},
+                        {"action": "manual_confirm", "prompt": "请确认桌面状态。"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_trailing_manual_plan,
+                        }
+                    )
+                )
+                desktop_trailing_manual_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "读取桌面窗口列表，保存 windows.txt，然后人工确认。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_window list 输出窗口列表。",
+                            "planned_output_path": "windows.txt",
+                        }
+                    )
+                )
                 review_plan_quality_ok = (
                     fail_result.get("ok") is False
                     and fail_result.get("severity") == "fail"
@@ -1158,6 +1638,48 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and credential_stopword_result.get("ok") is True
                     and "missing_account_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
                     and "missing_password_fill" not in {issue.get("code") for issue in credential_stopword_result.get("issues", [])}
+                    and desktop_missing_session_result.get("ok") is False
+                    and "missing_desktop_session"
+                    in {issue.get("code") for issue in desktop_missing_session_result.get("issues", [])}
+                    and desktop_no_evidence_result.get("ok") is False
+                    and desktop_no_evidence_result.get("severity") == "fail"
+                    and "missing_desktop_evidence_step"
+                    in {issue.get("code") for issue in desktop_no_evidence_result.get("issues", [])}
+                    and desktop_no_inspection_result.get("ok") is False
+                    and "missing_desktop_inspection_evidence"
+                    in {issue.get("code") for issue in desktop_no_inspection_result.get("issues", [])}
+                    and desktop_lifecycle_no_evidence_result.get("ok") is False
+                    and desktop_lifecycle_no_evidence_result.get("severity") == "fail"
+                    and "missing_desktop_evidence_step"
+                    in {issue.get("code") for issue in desktop_lifecycle_no_evidence_result.get("issues", [])}
+                    and desktop_element_evidence_result.get("ok") is True
+                    and "missing_desktop_evidence_step"
+                    not in {issue.get("code") for issue in desktop_element_evidence_result.get("issues", [])}
+                    and desktop_element_dump_evidence_result.get("ok") is True
+                    and "missing_desktop_evidence_step"
+                    not in {issue.get("code") for issue in desktop_element_dump_evidence_result.get("issues", [])}
+                    and desktop_assert_element_evidence_result.get("ok") is True
+                    and "missing_desktop_evidence_step"
+                    not in {issue.get("code") for issue in desktop_assert_element_evidence_result.get("issues", [])}
+                    and desktop_element_click_no_evidence_result.get("ok") is False
+                    and desktop_element_click_no_evidence_result.get("severity") == "fail"
+                    and "missing_desktop_evidence_step"
+                    in {issue.get("code") for issue in desktop_element_click_no_evidence_result.get("issues", [])}
+                    and desktop_element_invoke_no_evidence_result.get("ok") is False
+                    and desktop_element_invoke_no_evidence_result.get("severity") == "fail"
+                    and "missing_desktop_evidence_step"
+                    in {issue.get("code") for issue in desktop_element_invoke_no_evidence_result.get("issues", [])}
+                    and desktop_credentials_result.get("ok") is True
+                    and "missing_account_fill"
+                    not in {issue.get("code") for issue in desktop_credentials_result.get("issues", [])}
+                    and "missing_password_fill"
+                    not in {issue.get("code") for issue in desktop_credentials_result.get("issues", [])}
+                    and desktop_no_submit_result.get("ok") is False
+                    and "missing_login_submit_or_handoff"
+                    in {issue.get("code") for issue in desktop_no_submit_result.get("issues", [])}
+                    and desktop_trailing_manual_result.get("ok") is False
+                    and "manual_confirm_without_followup"
+                    in {issue.get("code") for issue in desktop_trailing_manual_result.get("issues", [])}
                     and "raw-account-value" in redaction_text
                     and "raw-password-value" in redaction_text
                 )
@@ -1175,6 +1697,30 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "weak_evidence_codes": [issue.get("code") for issue in weak_evidence_result.get("issues", [])],
                     "credential_stopword_codes": [
                         issue.get("code") for issue in credential_stopword_result.get("issues", [])
+                    ],
+                    "desktop_missing_session_codes": [
+                        issue.get("code") for issue in desktop_missing_session_result.get("issues", [])
+                    ],
+                    "desktop_no_evidence_codes": [
+                        issue.get("code") for issue in desktop_no_evidence_result.get("issues", [])
+                    ],
+                    "desktop_no_inspection_codes": [
+                        issue.get("code") for issue in desktop_no_inspection_result.get("issues", [])
+                    ],
+                    "desktop_lifecycle_no_evidence_codes": [
+                        issue.get("code") for issue in desktop_lifecycle_no_evidence_result.get("issues", [])
+                    ],
+                    "desktop_dump_evidence_codes": [
+                        issue.get("code") for issue in desktop_element_dump_evidence_result.get("issues", [])
+                    ],
+                    "desktop_credentials_codes": [
+                        issue.get("code") for issue in desktop_credentials_result.get("issues", [])
+                    ],
+                    "desktop_no_submit_codes": [
+                        issue.get("code") for issue in desktop_no_submit_result.get("issues", [])
+                    ],
+                    "desktop_trailing_manual_codes": [
+                        issue.get("code") for issue in desktop_trailing_manual_result.get("issues", [])
                     ],
                     "raw_credential_evidence_kept": "raw-account-value" in redaction_text
                     and "raw-password-value" in redaction_text,
@@ -1256,6 +1802,68 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         encoding="utf-8",
                     )
                     stale_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
+                    desktop_gate_package = gate_root / "plans" / "desktop-gate"
+                    create_plan_package(
+                        desktop_gate_package,
+                        project_root=gate_root,
+                        automation_type="desktop",
+                        name="desktop gate",
+                    )
+                    desktop_gate_plan_path = desktop_gate_package / "plan.json"
+                    desktop_gate_plan_path.write_text(
+                        json.dumps(
+                            {
+                                "name": "desktop gate",
+                                "automation_type": "desktop",
+                                "variables": {},
+                                "steps": [{"action": "write", "type": "text", "path": "desktop-gate.txt", "value": "ok"}],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    desktop_no_review_result = json.loads(
+                        gated_by_name["run_plan"].invoke({"plan_path": str(desktop_gate_plan_path)})
+                    )
+                    desktop_review_result = json.loads(
+                        gated_by_name["review_plan_quality"].invoke(
+                            {
+                                "plan_path": str(desktop_gate_plan_path),
+                                "user_request": "执行一个 desktop automation_type 的普通 plan。",
+                            }
+                        )
+                    )
+                    gate_state.update(
+                        {
+                            "latest_plan_quality_review_plan_path": desktop_review_result.get("plan_path"),
+                            "latest_plan_quality_review_signature": desktop_review_result.get("plan_signature"),
+                            "latest_plan_quality_review_ok": "true" if desktop_review_result.get("ok") else "false",
+                            "latest_plan_quality_review_severity": desktop_review_result.get("severity"),
+                            "latest_plan_quality_review_next_action": desktop_review_result.get("next_action"),
+                        }
+                    )
+                    desktop_run_after_review_result = json.loads(
+                        gated_by_name["run_plan"].invoke({"plan_path": str(desktop_gate_plan_path)})
+                    )
+                    desktop_gate_plan_path.write_text(
+                        json.dumps(
+                            {
+                                "name": "desktop gate changed",
+                                "automation_type": "desktop",
+                                "variables": {},
+                                "steps": [{"action": "write", "type": "text", "path": "desktop-gate.txt", "value": "changed"}],
+                            },
+                            ensure_ascii=False,
+                            indent=2,
+                        )
+                        + "\n",
+                        encoding="utf-8",
+                    )
+                    desktop_stale_review_result = json.loads(
+                        gated_by_name["run_plan"].invoke({"plan_path": str(desktop_gate_plan_path)})
+                    )
                     run_plan_quality_gate_ok = (
                         no_review_result.get("ok") is False
                         and "review_plan_quality" in str(no_review_result.get("error", ""))
@@ -1265,12 +1873,21 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         and "复查已失效" in str(config_stale_result.get("error", ""))
                         and stale_review_result.get("ok") is False
                         and "复查已失效" in str(stale_review_result.get("error", ""))
+                        and desktop_no_review_result.get("ok") is False
+                        and "另一个 plan" in str(desktop_no_review_result.get("error", ""))
+                        and bool(desktop_review_result.get("ok"))
+                        and bool(desktop_run_after_review_result.get("ok"))
+                        and desktop_stale_review_result.get("ok") is False
+                        and "复查已失效" in str(desktop_stale_review_result.get("error", ""))
                     )
                     run_plan_quality_gate_detail = {
                         "no_review_error": no_review_result.get("error"),
                         "run_after_review_ok": run_after_review_result.get("ok"),
                         "config_stale_review_error": config_stale_result.get("error"),
                         "stale_review_error": stale_review_result.get("error"),
+                        "desktop_no_review_error": desktop_no_review_result.get("error"),
+                        "desktop_run_after_review_ok": desktop_run_after_review_result.get("ok"),
+                        "desktop_stale_review_error": desktop_stale_review_result.get("error"),
                         "gated_calls": gated_calls,
                     }
             except Exception as error:
@@ -1301,6 +1918,13 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="inspect_web_page_tool",
             passed=web_inspection_ok,
             detail={**web_inspection_detail, "error": web_inspection_error},
+        )
+    )
+    checks.append(
+        _self_check_result(
+            name="inspect_desktop_tool",
+            passed=desktop_inspection_ok,
+            detail={**desktop_inspection_detail, "error": desktop_inspection_error},
         )
     )
     checks.append(

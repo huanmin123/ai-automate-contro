@@ -90,6 +90,53 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_subparsers.add_parser("ai-terminal", help="检查 AI 会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")
     self_check_subparsers.add_parser("ai-plan-generation", help="模拟服务端 AI 的执行线识别和 plan 生成工具调用。")
+    self_check_subparsers.add_parser("ai-desktop-loop", help="运行 AI 工具链到桌面 runtime 的真实闭环自检。")
+    ai_real_desktop_loop_parser = self_check_subparsers.add_parser(
+        "ai-real-desktop-loop",
+        help="使用真实模型驱动 AI 终端生成并运行 desktop smoke plan。",
+    )
+    ai_real_desktop_loop_parser.add_argument("--service", default="default", help="配置中的 AI 服务名称。")
+    ai_real_desktop_loop_parser.add_argument("--thread", default="", help="可选 AI 终端 thread id；默认自动生成。")
+    ai_real_desktop_loop_parser.add_argument("--api-key-file", default="", help="可选本机密钥文件；支持从文件中解析 URL 和 sk-* key。")
+    ai_real_desktop_loop_parser.add_argument("--api-key-env", default="AIC_TEST_API_KEY", help="未提供密钥文件时读取的环境变量。")
+    ai_real_desktop_loop_parser.add_argument("--base-url", default="", help="覆盖 OpenAI-compatible base_url。")
+    ai_real_desktop_loop_parser.add_argument("--model", default="gpt-5.5", help="真实模型名，默认 gpt-5.5。")
+    ai_real_desktop_loop_parser.add_argument("--timeout-seconds", type=int, default=180, help="单次模型请求超时秒数。")
+    ai_real_desktop_loop_parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=5,
+        help="真实模型调用遇到连接或超时类瞬态错误时的最大尝试次数。",
+    )
+    ai_real_desktop_loop_parser.add_argument(
+        "--retry-delay-seconds",
+        type=float,
+        default=3.0,
+        help="真实模型闭环外层重试的基础等待秒数；实际等待按尝试次数线性退避。",
+    )
+    ai_real_execution_line_parser = self_check_subparsers.add_parser(
+        "ai-real-execution-line",
+        help="使用真实模型回归 AI 终端执行线确认，不创建 plan。",
+    )
+    ai_real_execution_line_parser.add_argument("--service", default="default", help="配置中的 AI 服务名称。")
+    ai_real_execution_line_parser.add_argument("--thread", default="", help="可选 AI 终端 thread id；默认自动生成。")
+    ai_real_execution_line_parser.add_argument("--api-key-file", default="", help="可选本机密钥文件；支持从文件中解析 URL 和 sk-* key。")
+    ai_real_execution_line_parser.add_argument("--api-key-env", default="AIC_TEST_API_KEY", help="未提供密钥文件时读取的环境变量。")
+    ai_real_execution_line_parser.add_argument("--base-url", default="", help="覆盖 OpenAI-compatible base_url。")
+    ai_real_execution_line_parser.add_argument("--model", default="gpt-5.5", help="真实模型名，默认 gpt-5.5。")
+    ai_real_execution_line_parser.add_argument("--timeout-seconds", type=int, default=180, help="单次模型请求超时秒数。")
+    ai_real_execution_line_parser.add_argument(
+        "--max-attempts",
+        type=int,
+        default=5,
+        help="真实模型调用遇到连接或超时类瞬态错误时的最大尝试次数。",
+    )
+    ai_real_execution_line_parser.add_argument(
+        "--retry-delay-seconds",
+        type=float,
+        default=3.0,
+        help="真实模型执行线回归外层重试的基础等待秒数；实际等待按尝试次数线性退避。",
+    )
 
     return parser
 
@@ -177,12 +224,13 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--preset",
         action="append",
         required=True,
-        choices=["print", "variables", "manual_confirm", "screenshot", "html"],
+        choices=["print", "variables", "manual_confirm", "screenshot", "html", "desktop_screenshot", "desktop_snapshot", "desktop_windows"],
         help="要注入的诊断预设；可重复传入。",
     )
     inject_parser.add_argument("--message", help="print/manual_confirm 预设使用的消息。")
     inject_parser.add_argument("--browser", help="screenshot/html 预设使用的浏览器会话名。")
     inject_parser.add_argument("--page", help="screenshot/html 预设使用的页面名。")
+    inject_parser.add_argument("--desktop", help="desktop_* 预设使用的桌面会话名；默认 desktop。")
     inject_parser.add_argument("--position", choices=["start", "end", "before_step", "after_step"], default="end", help="步骤注入位置。")
     inject_parser.add_argument("--step", type=int, help="before_step 或 after_step 使用的 1-based 锚点步骤。")
 
@@ -199,6 +247,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
     self_check_subparsers.add_parser("desktop-components", help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。")
+    self_check_subparsers.add_parser("desktop-real-app", help="运行真实桌面 App 回归；Windows 使用 Notepad，macOS 使用 TextEdit。")
 
 
 def _friendly_argparse_message(message: str) -> str:

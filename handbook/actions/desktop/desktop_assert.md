@@ -70,16 +70,44 @@
 
 再执行 `desktop_assert type=screenshot`。
 
-## 验证
+## type=element
 
-```powershell
-python .\cplan.py self-check desktop-components
+验证目标窗口内的桌面控件状态，必要时同时验证控件文本。
+
+```json
+{
+  "action": "desktop_assert",
+  "type": "element",
+  "desktop": "desk",
+  "title_contains": "Demo",
+  "name": "Status",
+  "state": "exists",
+  "expected": "Saved",
+  "mode": "contains",
+  "path": "status-assertion.json",
+  "save_as": "status_assertion"
+}
 ```
 
-当前自检覆盖：
+字段：
 
-- `desktop_assert.window` 缺少窗口定位字段时校验失败。
-- `desktop_assert.screenshot` 缺少 `path` 时校验失败。
-- 基础桌面 plan 生成截图并通过截图断言。
-- Windows Notepad / macOS TextEdit 临时 App 回归覆盖聚焦、输入、保存、截图和断言。
+- `desktop`: 必填，`open_desktop.name`。
+- Window Query: `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id` 至少一种。
+- Element Locator: `element_id`、`automation_id`、`name`、`name_contains`、`name_regex`、`text`、`text_contains`、`text_regex`、`control_type`、`role`、`element_class_name` 至少一种。
+- `state`: `exists`、`not_exists`、`enabled`、`disabled`、`focused`，默认 `exists`。
+- `expected`: 可选，控件文本期望值。
+- `mode`: `equals`、`contains`、`not_contains`，默认 `equals`。
+- `text_source`: `auto`、`text`、`value`、`name`，默认 `auto`。
+- `path`: 可选，写入 `output/desktop-elements/`。
+- `timeout_ms`、`interval_ms`、`max_depth`、`max_elements`: 控件定位参数。
+
+行为：
+
+- 先用 Window Query 命中窗口，再用 Element Locator 命中控件。
+- `state=not_exists` 成功时 `element` 为 `null`，不能同时使用 `expected`。
+- 带 `expected` 时，断言会读取命中控件的文本并按 `mode` 比较。
+- 成功 payload 包含 `element`、`matches`、`candidates_count`、`state` 和可选 `text_assertion`。
+
+`desktop_assert type=element` 是桌面识别/验证证据，可用于 AI 终端质量门禁。
+
 - 不存在窗口触发失败后生成桌面失败截图和状态 JSON。

@@ -77,7 +77,14 @@ def analyze_latest_run_failure_tool(
         summarize_failure_html(run_output_dir, html_path)
         for html_path in failure_htmls[:5]
     ]
-    hints = build_failure_hints(error=error, failed_step=failed_step, events=events)
+    desktop_diagnostics = collect_desktop_diagnostics(failure_desktop_states)
+    desktop_repair_suggestions = build_desktop_repair_suggestions(desktop_diagnostics)
+    hints = build_failure_hints(
+        error=error,
+        failed_step=failed_step,
+        events=events,
+        desktop_diagnostics=desktop_diagnostics,
+    )
 
     return {
         "ok": True,
@@ -94,6 +101,8 @@ def analyze_latest_run_failure_tool(
         "failure_page_states": failure_page_states,
         "failure_desktop_screenshots": failure_desktop_screenshots,
         "failure_desktop_states": failure_desktop_states,
+        "desktop_diagnostics": desktop_diagnostics,
+        "desktop_repair_suggestions": desktop_repair_suggestions,
         "dom_summaries": [summary for summary in dom_summaries if summary],
         "recent_errors": errors[-10:],
         "recent_warnings": warnings[-10:],
@@ -211,7 +220,251 @@ def collect_failure_files(run_output_dir: Path, result: Any, *, result_key: str,
     return sorted(dict.fromkeys(files))
 
 
-def build_failure_hints(*, error: str, failed_step: dict[str, Any] | None, events: list[dict[str, Any]]) -> list[str]:
+def collect_desktop_diagnostics(state_paths: list[str]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for raw_path in state_paths[:5]:
+        path = Path(raw_path)
+        payload = read_json_if_exists(path)
+        if not isinstance(payload, dict):
+            continue
+        diagnostics = dict_get(payload, "diagnostics")
+        if not isinstance(diagnostics, dict):
+            diagnostics = {}
+        window_diagnostics = dict_get(diagnostics, "window")
+        if not isinstance(window_diagnostics, dict):
+            window_diagnostics = dict_get(payload, "window_diagnostics")
+        if not isinstance(window_diagnostics, dict):
+            window_diagnostics = {}
+        element_diagnostics = dict_get(diagnostics, "element")
+        if not isinstance(element_diagnostics, dict):
+            element_diagnostics = dict_get(payload, "element_diagnostics")
+        if not isinstance(element_diagnostics, dict):
+            element_diagnostics = {}
+        capability_matrix = dict_get(payload, "capability_matrix")
+        if not isinstance(capability_matrix, dict):
+            capability_matrix = dict_get(diagnostics, "capability_matrix")
+        if not isinstance(capability_matrix, dict):
+            capability_matrix = {}
+        summaries.append(
+            {
+                "path": str(path),
+                "step": payload.get("step"),
+                "action": payload.get("action", ""),
+                "step_name": payload.get("step_name", ""),
+                "error": payload.get("error", ""),
+                "error_type": payload.get("error_type", ""),
+                "target": payload.get("target", {}) if isinstance(payload.get("target"), dict) else {},
+                "window": summarize_window_diagnostics(window_diagnostics),
+                "element": summarize_element_diagnostics(element_diagnostics),
+                "capability_matrix": summarize_capability_matrix(capability_matrix),
+                "screenshot": payload.get("screenshot", ""),
+            }
+        )
+    return summaries
+
+
+def summarize_capability_matrix(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_capabilities = payload.get("capabilities") if isinstance(payload.get("capabilities"), dict) else {}
+    capabilities = {
+        "semantic": _capability_group(payload, raw_capabilities, "semantic"),
+        "input": _capability_group(payload, raw_capabilities, "input"),
+        "screenshot": _capability_group(payload, raw_capabilities, "screenshot"),
+        "vision": _capability_group(payload, raw_capabilities, "vision"),
+    }
+    return {
+        "schema_version": payload.get("schema_version", ""),
+        "platform": payload.get("platform", ""),
+        "backend": payload.get("backend", ""),
+        "source": payload.get("source", ""),
+        "capabilities": capabilities,
+        "permissions": payload.get("permissions", {}) if isinstance(payload.get("permissions"), dict) else {},
+        "dependencies": payload.get("dependencies", {}) if isinstance(payload.get("dependencies"), dict) else {},
+        "limitations": payload.get("limitations", []) if isinstance(payload.get("limitations"), list) else [],
+    }
+
+
+def _capability_group(payload: dict[str, Any], capabilities: dict[str, Any], group: str) -> dict[str, Any]:
+    raw = capabilities.get(group)
+    if isinstance(raw, dict):
+        return raw
+    legacy = payload.get(group)
+    return legacy if isinstance(legacy, dict) else {}
+
+
+def summarize_window_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    query = dict_get(payload, "query")
+    matches = dict_get(payload, "matches")
+    near_matches = dict_get(payload, "near_matches")
+    current_window = dict_get(payload, "current_window")
+    return {
+        "query": query if isinstance(query, dict) else {},
+        "current_window": current_window if isinstance(current_window, dict) else {},
+        "total_windows": _safe_int(dict_get(payload, "total_windows")),
+        "match_count": _safe_int(dict_get(payload, "match_count")),
+        "matches": compact_window_candidates(matches),
+        "near_matches": compact_window_near_matches(near_matches),
+        "skipped": bool(dict_get(payload, "skipped")),
+        "reason": first_string(dict_get(payload, "reason"), ""),
+        "error": first_string(dict_get(payload, "error"), ""),
+    }
+
+
+def summarize_element_diagnostics(payload: dict[str, Any]) -> dict[str, Any]:
+    locator = dict_get(payload, "locator")
+    window_query = dict_get(payload, "window_query")
+    matches = dict_get(payload, "matches")
+    near_matches = dict_get(payload, "near_matches")
+    selector_hints = dict_get(payload, "selector_hints")
+    return {
+        "window_query": window_query if isinstance(window_query, dict) else {},
+        "locator": locator if isinstance(locator, dict) else {},
+        "count": _safe_int(dict_get(payload, "count")),
+        "match_count": _safe_int(dict_get(payload, "match_count")),
+        "matches": compact_element_candidates(matches),
+        "near_matches": compact_element_near_matches(near_matches),
+        "selector_hints": selector_hints[:8] if isinstance(selector_hints, list) else [],
+        "skipped": bool(dict_get(payload, "skipped")),
+        "reason": first_string(dict_get(payload, "reason"), ""),
+        "error": first_string(dict_get(payload, "error"), ""),
+        "error_type": first_string(dict_get(payload, "error_type"), ""),
+    }
+
+
+def compact_window_candidates(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    candidates: list[dict[str, Any]] = []
+    for item in value[:5]:
+        if isinstance(item, dict):
+            candidates.append(
+                {
+                    "title": first_string(item.get("title"), ""),
+                    "app": first_string(item.get("app"), ""),
+                    "process_name": first_string(item.get("process_name"), ""),
+                    "class_name": first_string(item.get("class_name"), ""),
+                    "focused": bool(item.get("focused")),
+                    "bounds": item.get("bounds", {}) if isinstance(item.get("bounds"), dict) else {},
+                }
+            )
+    return candidates
+
+
+def compact_window_near_matches(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    matches: list[dict[str, Any]] = []
+    for item in value[:5]:
+        if not isinstance(item, dict):
+            continue
+        window = item.get("window") if isinstance(item.get("window"), dict) else {}
+        matches.append(
+            {
+                "score": _safe_int(item.get("score")),
+                "matched_fields": item.get("matched_fields", []) if isinstance(item.get("matched_fields"), list) else [],
+                "missing_fields": item.get("missing_fields", []) if isinstance(item.get("missing_fields"), list) else [],
+                "window": compact_window_candidates([window])[0] if window else {},
+            }
+        )
+    return matches
+
+
+def compact_element_candidates(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    candidates: list[dict[str, Any]] = []
+    for item in value[:5]:
+        if isinstance(item, dict):
+            candidates.append(compact_element_candidate(item))
+    return candidates
+
+
+def compact_element_near_matches(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    matches: list[dict[str, Any]] = []
+    for item in value[:5]:
+        if not isinstance(item, dict):
+            continue
+        element = item.get("element") if isinstance(item.get("element"), dict) else {}
+        matches.append(
+            {
+                "score": _safe_int(item.get("score")),
+                "matched_fields": item.get("matched_fields", []) if isinstance(item.get("matched_fields"), list) else [],
+                "missing_fields": item.get("missing_fields", []) if isinstance(item.get("missing_fields"), list) else [],
+                "reasons": item.get("reasons", []) if isinstance(item.get("reasons"), list) else [],
+                "element": compact_element_candidate(element) if element else {},
+            }
+        )
+    return matches
+
+
+def compact_element_candidate(element: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "automation_id": first_string(element.get("automation_id"), ""),
+        "name": first_string(element.get("name"), ""),
+        "text": first_string(element.get("text"), ""),
+        "value": first_string(element.get("value"), ""),
+        "control_type": first_string(element.get("control_type"), ""),
+        "role": first_string(element.get("role"), ""),
+        "class_name": first_string(element.get("class_name"), first_string(element.get("element_class_name"), "")),
+        "bounds": element.get("bounds", {}) if isinstance(element.get("bounds"), dict) else {},
+        "selector_hints": element.get("selector_hints", [])[:5] if isinstance(element.get("selector_hints"), list) else [],
+    }
+
+
+def build_desktop_repair_suggestions(diagnostics: list[dict[str, Any]]) -> list[str]:
+    suggestions: list[str] = []
+    for item in diagnostics:
+        window = item.get("window") if isinstance(item.get("window"), dict) else {}
+        element = item.get("element") if isinstance(item.get("element"), dict) else {}
+        window_query = window.get("query") if isinstance(window.get("query"), dict) else {}
+        element_locator = element.get("locator") if isinstance(element.get("locator"), dict) else {}
+        window_near_matches = window.get("near_matches") if isinstance(window.get("near_matches"), list) else []
+        element_near_matches = element.get("near_matches") if isinstance(element.get("near_matches"), list) else []
+        selector_hints = element.get("selector_hints") if isinstance(element.get("selector_hints"), list) else []
+        capability_matrix = item.get("capability_matrix") if isinstance(item.get("capability_matrix"), dict) else {}
+        limitations = capability_matrix.get("limitations") if isinstance(capability_matrix.get("limitations"), list) else []
+        if limitations:
+            suggestions.append(f"桌面能力限制：先处理 capability_matrix.limitations={limitations!r}。")
+        if window_query and not window.get("match_count") and window_near_matches:
+            top_window = window_near_matches[0].get("window") if isinstance(window_near_matches[0], dict) else {}
+            title = first_string(dict_get(top_window, "title"), "")
+            app = first_string(dict_get(top_window, "app"), dict_get(top_window, "process_name"), "")
+            suggestions.append(
+                "桌面窗口未命中：根据 diagnostics.window.near_matches 修正 Window Query"
+                + (f"，优先核对 title_contains={title!r}" if title else "")
+                + (f" 或 app/process={app!r}" if app else "")
+                + "。"
+            )
+        if element_locator and element_near_matches:
+            top_element = element_near_matches[0].get("element") if isinstance(element_near_matches[0], dict) else {}
+            hints = top_element.get("selector_hints") if isinstance(top_element, dict) else []
+            if not hints:
+                hints = selector_hints
+            suggestions.append(
+                "桌面控件未命中：根据 diagnostics.element.near_matches 修正 Element Locator"
+                + (f"，可优先尝试 selector_hints={hints[:3]!r}" if hints else "")
+                + "。"
+            )
+        if element.get("error") and not element_locator:
+            suggestions.append("桌面控件诊断缺少 locator：先补充 name/name_contains/automation_id/control_type 等 Element Locator。")
+    return list(dict.fromkeys(suggestions))
+
+
+def _safe_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def build_failure_hints(
+    *,
+    error: str,
+    failed_step: dict[str, Any] | None,
+    events: list[dict[str, Any]],
+    desktop_diagnostics: list[dict[str, Any]] | None = None,
+) -> list[str]:
     text = " ".join(
         [
             error.lower(),
@@ -220,6 +473,15 @@ def build_failure_hints(*, error: str, failed_step: dict[str, Any] | None, event
         ]
     )
     hints: list[str] = []
+    desktop_diagnostics = desktop_diagnostics or []
+    if desktop_diagnostics:
+        hints.append(
+            "Desktop failure evidence is available; inspect desktop_diagnostics and desktop_repair_suggestions before changing the plan."
+        )
+    if "desktop" in text and ("window" in text or "窗口" in text):
+        hints.append("Desktop window query may be wrong; compare failed Window Query with diagnostics.window.near_matches.")
+    if "desktop" in text and ("element" in text or "控件" in text):
+        hints.append("Desktop element locator may be wrong; compare failed Element Locator with diagnostics.element.near_matches and selector_hints.")
     if "timeout" in text or "selector" in text:
         hints.append("Likely selector or wait timing issue; inspect failed selector, page state, screenshot, and failure HTML DOM.")
     if "manual confirmation" in text:

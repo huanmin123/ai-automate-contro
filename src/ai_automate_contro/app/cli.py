@@ -173,6 +173,46 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_ai_plan_generation_simulation(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-desktop-loop":
+            from ai_automate_contro.ai.desktop_loop_self_check import self_check_ai_desktop_loop
+
+            result = self_check_ai_desktop_loop(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-real-desktop-loop":
+            from ai_automate_contro.ai.real_desktop_loop_self_check import self_check_real_ai_desktop_loop
+
+            result = self_check_real_ai_desktop_loop(
+                project_root,
+                service=args.service,
+                thread_id=args.thread,
+                api_key_file=args.api_key_file,
+                api_key_env=args.api_key_env,
+                base_url=args.base_url,
+                model=args.model,
+                timeout_seconds=args.timeout_seconds,
+                max_attempts=args.max_attempts,
+                retry_delay_seconds=args.retry_delay_seconds,
+            )
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-real-execution-line":
+            from ai_automate_contro.ai.real_execution_line_self_check import self_check_real_ai_execution_line
+
+            result = self_check_real_ai_execution_line(
+                project_root,
+                service=args.service,
+                thread_id=args.thread,
+                api_key_file=args.api_key_file,
+                api_key_env=args.api_key_env,
+                base_url=args.base_url,
+                model=args.model,
+                timeout_seconds=args.timeout_seconds,
+                max_attempts=args.max_attempts,
+                retry_delay_seconds=args.retry_delay_seconds,
+            )
+            print_json(result)
+            return 0 if result.get("ok") else 1
 
     if args.command == "tool":
         from ai_automate_contro.ai.terminal_tool_registry import (
@@ -246,6 +286,12 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.desktop_component_check import self_check_desktop_components
 
             result = self_check_desktop_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-real-app":
+            from ai_automate_contro.app.desktop_component_check import self_check_desktop_real_app
+
+            result = self_check_desktop_real_app(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
 
@@ -415,6 +461,7 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
             message=getattr(args, "message", None),
             browser=getattr(args, "browser", None),
             page=getattr(args, "page", None),
+            desktop=getattr(args, "desktop", None),
             position=getattr(args, "position", "end"),
             step=getattr(args, "step", None),
         )

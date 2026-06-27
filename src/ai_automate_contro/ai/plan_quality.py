@@ -80,7 +80,7 @@ ACCOUNT_REQUEST_TOKENS = (
     "手机",
 )
 PASSWORD_REQUEST_TOKENS = ("密码", "password", "passwd", "pwd", "口令")
-OUTPUT_TOKENS = ("写到", "写入", "保存", "导出", "输出", "文件", "产出", "一行一个", "下载", "Downloads", "Desktop", "桌面")
+OUTPUT_TOKENS = ("写到", "写入", "保存", "导出", "输出", "文件", "产出", "一行一个", "下载", "Downloads", "Desktop")
 EXTRACTION_TOKENS = ("拿出来", "提取", "读取", "获取", "抓取", "导出", "列表", "全部", "所有", "一行一个")
 NEGATIVE_EVIDENCE_TOKENS = (
     "没有探测",
@@ -139,13 +139,16 @@ CREDENTIAL_VALUE_STOPWORDS = {
 }
 FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "trace", "event", "coverage"}
 BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
-FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_window", "desktop_capture", "desktop_assert", "ai", "command"}
-DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_window", "desktop_capture", "desktop_wait", "desktop_assert", "ai", "command"}
+FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_capture", "desktop_assert", "desktop_vision", "ai", "command"}
+DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_capture", "desktop_wait", "desktop_assert", "desktop_vision", "ai", "command"}
 BROWSER_POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
 DESKTOP_POST_MANUAL_ACTIONS = {
+    "desktop_app",
+    "desktop_element",
     "desktop_window",
     "desktop_input",
     "desktop_capture",
+    "desktop_vision",
     "desktop_wait",
     "desktop_assert",
     "write",
@@ -249,7 +252,7 @@ def review_plan_quality_tool(
         missing_facts,
         uncertain_facts,
     )
-    _review_desktop_flow(profile, step_records, checks, issues, facts, missing_facts)
+    _review_desktop_flow(profile, step_records, evidence_summary, evidence_context or {}, checks, issues, facts, missing_facts)
     _review_credentials(profile, step_records, variables, raw_plan_text, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_login_progression(profile, step_records, variables, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_output(profile, step_records, variables, planned_output_path, strict, checks, issues, facts, missing_facts, uncertain_facts)
@@ -378,6 +381,8 @@ def _review_browser_flow(
 def _review_desktop_flow(
     profile: dict[str, Any],
     steps: list[dict[str, Any]],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
     checks: list[dict[str, Any]],
     issues: list[dict[str, str]],
     facts: list[str],
@@ -400,9 +405,10 @@ def _review_desktop_flow(
         for record in steps
         if _action(record).startswith("desktop_") or _action(record) == "close_desktop"
     ]
-    evidence_locations = [record["location"] for record in steps if _action(record) in DESKTOP_DATA_COLLECTION_ACTIONS]
+    evidence_locations = [record["location"] for record in steps if _is_desktop_evidence_step(record)]
     session_ok = not desktop_action_locations or has_open_desktop
     evidence_ok = not desktop_action_locations or bool(evidence_locations)
+    inspection_ok = not desktop_action_locations or _has_desktop_inspection_evidence(evidence_summary, evidence_context)
     checks.append(
         {
             "name": "desktop_session",
@@ -429,10 +435,34 @@ def _review_desktop_flow(
 
     checks.append(
         {
+            "name": "desktop_inspection_evidence",
+            "passed": inspection_ok,
+            "detail": {
+                "evidence_summary_present": bool(str(evidence_summary or "").strip()),
+                "evidence_context_keys": sorted(evidence_context.keys()) if isinstance(evidence_context, dict) else [],
+            },
+        }
+    )
+    if not inspection_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_inspection_evidence",
+                "真实桌面 plan 运行前缺少 inspect_desktop、capability_matrix、窗口列表、控件树或截图探测证据。",
+                str(evidence_summary or "").strip()[:500] or "evidence_summary 为空，且没有桌面探测上下文。",
+                "先调用 inspect_desktop 获取平台、backend、capability_matrix、窗口列表、可选控件树或截图，再把摘要传给 review_plan_quality。",
+            )
+        )
+        missing_facts.append("桌面 inspect_desktop/capability_matrix 探测证据")
+    else:
+        facts.append("已有桌面 inspect_desktop/capability_matrix 探测证据")
+
+    checks.append(
+        {
             "name": "desktop_evidence_step",
             "passed": evidence_ok,
             "detail": {
-                "has_window_or_capture_step": bool(evidence_locations),
+                "has_window_capture_or_element_step": bool(evidence_locations),
                 "evidence_action_locations": evidence_locations,
             },
         }
@@ -440,15 +470,15 @@ def _review_desktop_flow(
     if not evidence_ok:
         issues.append(
             _issue(
-                "warn",
+                "fail",
                 "missing_desktop_evidence_step",
-                "desktop plan 没有窗口、截图、等待或断言类证据步骤，运行后难以判断桌面状态。",
+                "desktop plan 没有窗口、控件、截图、等待或断言类证据步骤，运行后难以判断桌面状态。",
                 ", ".join(desktop_action_locations[:8]) or "无桌面证据 action",
-                "补充 desktop_window list、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
+                "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
             )
         )
     else:
-        facts.append("已覆盖桌面窗口或截图证据")
+        facts.append("已覆盖桌面窗口、控件或截图证据")
 
 
 def _review_credentials(
@@ -594,11 +624,13 @@ def _review_output(
     automation_type = str(profile.get("automation_type") or "browser")
     needs_output = profile["needs_output"]
     output_filename = profile["output_filename"]
-    output_actions = FINAL_DESKTOP_OUTPUT_ACTIONS if automation_type == "desktop" else FINAL_BROWSER_OUTPUT_ACTIONS
-    data_actions = DESKTOP_DATA_COLLECTION_ACTIONS if automation_type == "desktop" else BROWSER_DATA_COLLECTION_ACTIONS
-    output_steps = [record for record in steps if _action(record) in output_actions]
+    if automation_type == "desktop":
+        output_steps = [record for record in steps if _is_desktop_output_step(record)]
+        data_steps = [record for record in steps if _is_desktop_evidence_step(record)]
+    else:
+        output_steps = [record for record in steps if _action(record) in FINAL_BROWSER_OUTPUT_ACTIONS]
+        data_steps = [record for record in steps if _action(record) in BROWSER_DATA_COLLECTION_ACTIONS]
     write_steps = [record for record in steps if _action(record) == "write"]
-    data_steps = [record for record in steps if _action(record) in data_actions]
     target_file_covered = not output_filename or any(
         _path_basename(_resolved_step_text(record["step"].get("path"), variables)).lower() == output_filename.lower()
         for record in output_steps
@@ -1017,6 +1049,41 @@ def _has_real_site_automation_evidence(
     )
 
 
+def _has_desktop_inspection_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = str(evidence_summary or "").strip()
+    if _contains_any(text, NEGATIVE_EVIDENCE_TOKENS):
+        return False
+    context = evidence_context if isinstance(evidence_context, dict) else {}
+    context_markers = [
+        key
+        for key, value in context.items()
+        if str(key).startswith("latest_desktop_inspection_") and value not in (None, "", [], {})
+    ]
+    if context_markers:
+        return True
+    if _contains_any(
+        text,
+        (
+            "inspect_desktop",
+            "capability_matrix",
+            "desktop inspection",
+            "desktop_inspection",
+            "window_count",
+            "focused_window",
+            "include_windows",
+            "include_elements",
+            "selector_hints",
+            "控件树",
+            "窗口列表",
+            "桌面探测",
+            "桌面截图",
+            "能力矩阵",
+        ),
+    ):
+        return True
+    return False
+
+
 def _evidence_text_matches_urls(text: str, urls: list[str]) -> bool:
     if not urls:
         return bool(URL_RE.search(text))
@@ -1156,7 +1223,10 @@ def _is_password_fill(step: dict[str, Any], variables: dict[str, Any], password_
 def _is_credential_input_step(record: dict[str, Any], automation_type: str) -> bool:
     step_type = str(record["step"].get("type", "")).lower()
     if automation_type == "desktop":
-        return _action(record) == "desktop_input" and step_type == "type_text"
+        action = _action(record)
+        return (action == "desktop_input" and step_type == "type_text") or (
+            action == "desktop_element" and step_type == "set_text"
+        )
     return _action(record) == "element" and step_type in {"fill", "type"}
 
 
@@ -1169,7 +1239,13 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
     if automation_type == "desktop":
         if action == "desktop_input" and step_type == "hotkey":
             return _contains_any(_json_text(step.get("keys")), ("enter", "return"))
-        return action in {"desktop_window", "desktop_wait", "desktop_assert", "desktop_capture"}
+        if action == "desktop_input" and step_type in {"click", "double_click", "right_click"}:
+            return True
+        if action == "desktop_element" and step_type in {"click", "invoke"}:
+            return True
+        if action == "desktop_window":
+            return step_type in {"list", "focus"}
+        return action in {"desktop_wait", "desktop_assert", "desktop_capture"}
     if action == "element":
         if step_type in {"click", "dblclick", "tap"}:
             return True
@@ -1185,19 +1261,50 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "补充 desktop_window list、desktop_capture screenshot/snapshot、desktop_assert 或 write，把运行证据写入当前 plan output/。"
+        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 write，把运行证据写入当前 plan output/。"
     return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
+
+
+def _is_desktop_evidence_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    if action == "desktop_window":
+        return str(record["step"].get("type", "")).lower() == "list"
+    if action == "desktop_element":
+        return str(record["step"].get("type", "")).lower() in {"list", "dump", "find", "wait", "get_text", "get_state"}
+    return action in DESKTOP_DATA_COLLECTION_ACTIONS
+
+
+def _is_desktop_output_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    if action == "desktop_window":
+        step = record["step"]
+        return str(step.get("type", "")).lower() == "list" and step.get("path") is not None
+    if action == "desktop_element":
+        step = record["step"]
+        return str(step.get("type", "")).lower() in {
+            "list",
+            "dump",
+            "find",
+            "wait",
+            "get_text",
+            "get_state",
+            "click",
+            "set_text",
+            "select",
+            "invoke",
+        } and step.get("path") is not None
+    return action in FINAL_DESKTOP_OUTPUT_ACTIONS
 
 
 def _data_extraction_issue_message(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "用户要求读取/提取桌面状态，但 plan 没有 desktop_window/desktop_capture/desktop_assert 等桌面证据步骤。"
+        return "用户要求读取/提取桌面状态，但 plan 没有 desktop_window/desktop_element 读取类、desktop_assert element、desktop_capture 或 desktop_vision 等桌面证据步骤。"
     return "用户要求读取/提取页面数据，但 plan 没有 extract/script/ai/storage/download 等数据获取步骤。"
 
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_capture screenshot/snapshot、desktop_wait 或 desktop_assert 获取桌面状态，再按需写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 desktop_wait 获取桌面状态，再按需写出文件。"
     return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
 
 
@@ -1269,7 +1376,7 @@ def _quality_result(
 
 def _next_action(severity: str, issues: list[dict[str, str]], planned_output_path: str) -> str:
     if severity == "fail":
-        if any(issue.get("code") == "missing_real_site_evidence" for issue in issues):
+        if any(issue.get("code") in {"missing_real_site_evidence", "missing_desktop_inspection_evidence"} for issue in issues):
             return "collect_evidence"
         return "fix_plan"
     if planned_output_path and is_absolute_path_text(planned_output_path):

@@ -8,7 +8,7 @@
 
 | type | 用途 |
 | --- | --- |
-| `connectivity` | 测试模型服务是否可用 |
+| `connectivity` | 检查模型服务是否可用 |
 | `extract_data` | 从文本中抽取结构化数据 |
 | `classify_text` | 在固定标签中分类 |
 | `transform_data` | 按指令转换数据 |
@@ -51,7 +51,7 @@ AI 服务注册在集合级或局部 `config.json`：
 
 `response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。框架只按当前配置调用模型服务；如果用户提供的模型、余额、网关或 OpenAI-compatible 协议返回错误，会直接失败，不做自动降级、手动重试或格式兜底。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
 
-配置可以直接写真实密钥，也可以通过 `api_key_env` 引用环境变量。项目按本地调试原文优先处理，不因密钥字段自动脱敏、拒写或强制改成环境变量。
+配置可以直接写真实密钥，也可以通过 `api_key_env` 引用环境变量。plan 会按配置调用模型服务。
 
 ## 输出
 

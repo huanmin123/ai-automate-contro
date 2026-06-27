@@ -40,9 +40,12 @@ def prepare_failure_debug_workspace(
         )
     failed_step_number = safe_int(dict_get(dict_get(analysis, "failed_step"), "step"))
     browser, page = failure_browser_page(analysis)
+    desktop = failure_desktop_session(analysis)
     presets = ["print", "variables"]
     if browser:
         presets.extend(["screenshot", "html"])
+    if desktop:
+        presets.extend(["desktop_screenshot", "desktop_snapshot", "desktop_windows"])
     if include_manual_confirm:
         presets.append("manual_confirm")
 
@@ -59,6 +62,7 @@ def prepare_failure_debug_workspace(
         message=message,
         browser=browser,
         page=page,
+        desktop=desktop,
         position=position,
         step=failed_step_number,
     )
@@ -70,6 +74,7 @@ def prepare_failure_debug_workspace(
         step=failed_step_number,
         browser=browser,
         page=page,
+        desktop=desktop,
     )
     validation = validate_plan(project_root, workspace.injected_plan_dir / "plan.json")
     return {
@@ -103,6 +108,24 @@ def failure_browser_page(analysis: dict[str, Any]) -> tuple[str | None, str | No
     return None, None
 
 
+def failure_desktop_session(analysis: dict[str, Any]) -> str | None:
+    failed_plan_step = dict_get(dict_get(analysis, "plan_context"), "failed_step")
+    desktop = first_string(dict_get(failed_plan_step, "desktop"))
+    if desktop:
+        return desktop
+
+    desktop_diagnostics = dict_get(analysis, "desktop_diagnostics")
+    if isinstance(desktop_diagnostics, list):
+        for item in desktop_diagnostics:
+            if not isinstance(item, dict):
+                continue
+            target = dict_get(item, "target")
+            desktop = first_string(dict_get(target, "desktop"))
+            if desktop:
+                return desktop
+    return None
+
+
 def failure_debug_message(analysis: dict[str, Any]) -> str:
     failed_step = dict_get(analysis, "failed_step")
     step_number = dict_get(failed_step, "step")
@@ -124,6 +147,7 @@ def append_failure_debug_note(
     step: int | None,
     browser: str | None,
     page: str | None,
+    desktop: str | None,
 ) -> None:
     notes_path = workspace_root / "notes.md"
     with notes_path.open("a", encoding="utf-8") as file:
@@ -133,6 +157,7 @@ def append_failure_debug_note(
         file.write(f"- Injection position: `{position}`\n")
         file.write(f"- Presets: `{', '.join(presets)}`\n")
         file.write(f"- Browser/Page: `{browser or '<none>'}` / `{page or '<default>'}`\n")
+        file.write(f"- Desktop: `{desktop or '<none>'}`\n")
         error = first_string(dict_get(analysis, "error")).strip()
         if error:
             file.write("\n### Error\n\n")
@@ -154,6 +179,52 @@ def append_failure_debug_note(
                     if text:
                         file.write(f" - {text}")
                     file.write("\n")
+        desktop_diagnostics = dict_get(analysis, "desktop_diagnostics")
+        desktop_repair_suggestions = dict_get(analysis, "desktop_repair_suggestions")
+        failure_desktop_states = dict_get(analysis, "failure_desktop_states")
+        failure_desktop_screenshots = dict_get(analysis, "failure_desktop_screenshots")
+        if isinstance(failure_desktop_states, list) and failure_desktop_states:
+            file.write("\n### Desktop Failure State Files\n\n")
+            for path in failure_desktop_states[:5]:
+                file.write(f"- `{path}`\n")
+        if isinstance(failure_desktop_screenshots, list) and failure_desktop_screenshots:
+            file.write("\n### Desktop Failure Screenshots\n\n")
+            for path in failure_desktop_screenshots[:5]:
+                file.write(f"- `{path}`\n")
+        if isinstance(desktop_diagnostics, list) and desktop_diagnostics:
+            file.write("\n### Desktop Diagnostics\n\n")
+            for item in desktop_diagnostics[:3]:
+                if not isinstance(item, dict):
+                    continue
+                file.write(f"- Action: `{dict_get(item, 'action')}`; step: `{dict_get(item, 'step')}`\n")
+                capability_matrix = dict_get(item, "capability_matrix")
+                if isinstance(capability_matrix, dict):
+                    limitations = dict_get(capability_matrix, "limitations")
+                    if limitations:
+                        file.write(f"  - Capability limitations: `{limitations}`\n")
+                window = dict_get(item, "window")
+                if isinstance(window, dict):
+                    query = dict_get(window, "query")
+                    near_matches = dict_get(window, "near_matches")
+                    if query:
+                        file.write(f"  - Window query: `{query}`\n")
+                    if isinstance(near_matches, list) and near_matches:
+                        file.write(f"  - Window near matches: `{near_matches[:3]}`\n")
+                element = dict_get(item, "element")
+                if isinstance(element, dict):
+                    locator = dict_get(element, "locator")
+                    near_matches = dict_get(element, "near_matches")
+                    selector_hints = dict_get(element, "selector_hints")
+                    if locator:
+                        file.write(f"  - Element locator: `{locator}`\n")
+                    if isinstance(near_matches, list) and near_matches:
+                        file.write(f"  - Element near matches: `{near_matches[:3]}`\n")
+                    if isinstance(selector_hints, list) and selector_hints:
+                        file.write(f"  - Selector hints: `{selector_hints[:5]}`\n")
+        if isinstance(desktop_repair_suggestions, list) and desktop_repair_suggestions:
+            file.write("\n### Desktop Repair Suggestions\n\n")
+            for suggestion in desktop_repair_suggestions[:5]:
+                file.write(f"- {suggestion}\n")
 
 
 def _read_json_if_exists(path: Path) -> Any | None:

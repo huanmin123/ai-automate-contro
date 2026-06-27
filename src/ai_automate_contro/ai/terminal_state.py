@@ -78,6 +78,17 @@ class AITerminalStateMixin:
             "latest_web_inspection_resolved_url",
             "latest_web_inspection_final_url",
             "latest_web_inspection_title",
+            "latest_desktop_inspection_platform",
+            "latest_desktop_inspection_backend",
+            "latest_desktop_inspection_capability_limitations",
+            "latest_desktop_inspection_window_count",
+            "latest_desktop_inspection_focused_window",
+            "latest_desktop_inspection_element_match_count",
+            "latest_desktop_failure_status",
+            "latest_desktop_failure_diagnostics_count",
+            "latest_desktop_failure_repair_suggestions",
+            "latest_desktop_failure_state_files",
+            "latest_desktop_failure_screenshots",
         ):
             value = values.get(key)
             if isinstance(value, str) and value:
@@ -373,6 +384,15 @@ def _tool_argument_summary(tool_name: str, arguments: dict[str, Any]) -> str:
         return ""
     fields_by_tool = {
         "inspect_web_page": ("url", "headed"),
+        "inspect_desktop": (
+            "platform_name",
+            "include_windows",
+            "include_elements",
+            "title_contains",
+            "app",
+            "process_name",
+            "window_id",
+        ),
         "grep_project_text": ("pattern", "root_path", "file_glob"),
         "read_project_file_slice": ("path", "start_line", "line_count"),
         "read_plan_package": ("plan_path",),
@@ -440,6 +460,22 @@ def _tool_result_summary(tool_name: str, result: dict[str, Any]) -> str:
             summary_parts.append(f"url={_compact_tool_value(final_url)}")
         if signals:
             summary_parts.append("发现" + "/".join(signals))
+    elif tool_name == "inspect_desktop":
+        summary_parts.append(f"platform={result.get('platform', '')}")
+        summary_parts.append(f"windows={result.get('window_count', 0)}")
+        capability_matrix = result.get("capability_matrix") if isinstance(result.get("capability_matrix"), dict) else {}
+        limitations = capability_matrix.get("limitations") if isinstance(capability_matrix.get("limitations"), list) else []
+        if limitations:
+            summary_parts.append(f"limitations={_compact_tool_value(','.join(str(item) for item in limitations), limit=80)}")
+        elif capability_matrix:
+            summary_parts.append("capability=ok")
+        elements = result.get("elements") if isinstance(result.get("elements"), dict) else {}
+        if elements:
+            summary_parts.append(f"elements={elements.get('count', 0)}")
+            summary_parts.append(f"matches={elements.get('match_count', 0)}")
+        screenshot = result.get("screenshot") if isinstance(result.get("screenshot"), dict) else {}
+        if screenshot.get("path"):
+            summary_parts.append(f"screenshot={_compact_path(screenshot.get('path'))}")
     elif tool_name == "grep_project_text":
         if result.get("ok") is False:
             summary_parts.append(f"error={_compact_tool_value(result.get('error', '搜索失败'), limit=120)}")
@@ -937,6 +973,104 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
     if message == "browser closed":
         browser = _compact_tool_value(fields.get("browser"), limit=48)
         return f"浏览器已关闭 · {browser}" if browser else "浏览器已关闭"
+    if message == "desktop opened":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        platform = _compact_tool_value(fields.get("platform"), limit=32)
+        backend = _compact_tool_value(fields.get("backend"), limit=32)
+        return _join_progress_parts("桌面已打开", desktop, platform, backend)
+    if message == "desktop closed":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        return _join_progress_parts("桌面已关闭", desktop)
+    if message == "desktop app launched":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        app = _compact_tool_value(fields.get("app"), limit=48)
+        path = _compact_path(fields.get("path"))
+        command = _compact_tool_value(fields.get("command"), limit=72)
+        pid = _compact_tool_value(fields.get("pid"), limit=24)
+        target = app or path or command
+        return _join_progress_parts("桌面 App 已启动", desktop, target, f"pid={pid}" if pid else "")
+    if message == "desktop windows listed":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        count = _compact_tool_value(fields.get("count"), limit=16)
+        path = _compact_path(fields.get("path"))
+        return _join_progress_parts("桌面窗口已列出", desktop, f"count={count}" if count else "", path)
+    if message == "desktop window focused":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        title = _compact_tool_value(fields.get("title"), limit=72)
+        window_id = _compact_tool_value(fields.get("window_id"), limit=36)
+        return _join_progress_parts("桌面窗口已聚焦", desktop, title, window_id)
+    if message == "desktop window controlled":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        operation = _compact_tool_value(fields.get("type"), limit=32)
+        title = _compact_tool_value(fields.get("title"), limit=72)
+        window_id = _compact_tool_value(fields.get("window_id"), limit=36)
+        return _join_progress_parts("桌面窗口已控制", desktop, operation, title, window_id)
+    if message in {
+        "desktop elements listed",
+        "desktop element resolved",
+        "desktop element wait completed",
+        "desktop element text read",
+        "desktop element state read",
+        "desktop element clicked",
+        "desktop element text set",
+        "desktop element invoked",
+        "desktop element tree dumped",
+    }:
+        labels = {
+            "desktop elements listed": "桌面控件已列出",
+            "desktop element tree dumped": "桌面控件树已导出",
+            "desktop element resolved": "桌面控件已定位",
+            "desktop element wait completed": "桌面控件等待完成",
+            "desktop element text read": "桌面控件文本已读取",
+            "desktop element state read": "桌面控件状态已读取",
+            "desktop element clicked": "桌面控件已点击",
+            "desktop element text set": "桌面控件文本已设置",
+            "desktop element invoked": "桌面控件已触发",
+        }
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        element_type = _compact_tool_value(fields.get("type"), limit=32)
+        count = _compact_tool_value(fields.get("count"), limit=16)
+        method = _compact_tool_value(fields.get("method"), limit=40)
+        fallback_used = fields.get("fallback_used")
+        path = _compact_path(fields.get("path"))
+        save_as = _compact_tool_value(fields.get("save_as"), limit=48)
+        return _join_progress_parts(
+            labels[message],
+            desktop,
+            element_type,
+            f"count={count}" if count else "",
+            f"method={method}" if method else "",
+            "fallback" if fallback_used is True else "",
+            path,
+            f"save_as={save_as}" if save_as else "",
+        )
+    if message == "desktop input sent":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        input_type = _compact_tool_value(fields.get("type"), limit=32)
+        save_as = _compact_tool_value(fields.get("save_as"), limit=48)
+        return _join_progress_parts("桌面输入已发送", desktop, input_type, f"save_as={save_as}" if save_as else "")
+    if message == "desktop capture saved":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        capture_type = _compact_tool_value(fields.get("type"), limit=32)
+        path = _compact_path(fields.get("path"))
+        return _join_progress_parts("桌面截图/状态已保存", desktop, capture_type, path)
+    if message == "desktop wait completed":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        state = _compact_tool_value(fields.get("state"), limit=32)
+        matches = _compact_tool_value(fields.get("matches"), limit=16)
+        return _join_progress_parts("桌面等待完成", desktop, state, f"matches={matches}" if matches else "")
+    if message == "desktop assertion passed":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        assertion_type = _compact_tool_value(fields.get("type"), limit=32)
+        path = _compact_path(fields.get("path"))
+        state = _compact_tool_value(fields.get("state"), limit=32)
+        return _join_progress_parts("桌面断言通过", desktop, assertion_type, state, path)
+    if message == "desktop element assertion passed":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        state = _compact_tool_value(fields.get("state"), limit=32)
+        matches = _compact_tool_value(fields.get("matches"), limit=16)
+        path = _compact_path(fields.get("path"))
+        return _join_progress_parts("桌面控件断言通过", desktop, state, f"matches={matches}" if matches else "", path)
     if message in {"new page opened", "page switched", "page closed"}:
         page = _compact_tool_value(fields.get("page"), limit=48)
         browser = _compact_tool_value(fields.get("browser"), limit=48)

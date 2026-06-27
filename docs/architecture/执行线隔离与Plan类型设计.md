@@ -55,7 +55,7 @@
 | 分区 | browser plan | desktop plan | 说明 |
 | --- | --- | --- | --- |
 | browser actions | 允许 | 禁止 | `open_browser`、`navigate`、`element`、浏览器 `mouse`/`keyboard`、浏览器 `capture` 等 |
-| desktop actions | 禁止 | 允许 | `open_desktop`、`desktop_window`、`desktop_input`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等 |
+| desktop actions | 禁止 | 允许 | `open_desktop`、`desktop_app type=launch`、`desktop_window`、`desktop_element`、`desktop_input type_text/hotkey/click/double_click/right_click/scroll/drag`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等 |
 | common actions | 允许 | 允许 | `if`、`foreach`、`retry`、`trigger`、`run_sub_plan`、`read`、`write`、`http`、`command`、`print`、`sleep`、`manual_confirm`、受控专项 `ai` 等 |
 
 通用 action 也必须避免隐式绑定某一条执行线。例如 `manual_confirm` 可以用于浏览器登录，也可以用于 macOS 权限授权；具体提示文案由 plan 决定。
@@ -84,7 +84,7 @@ load plan
 
 - `DesktopSession`
 - Windows/macOS backend adapter
-- 桌面截图、窗口列表、控件树、权限诊断
+- 桌面截图、窗口列表、控件树、`capability_matrix`、权限诊断和鼠标/控件操作标注证据
 - 桌面 action registry
 
 桌面运行时不是终端命令包装，也不是某个单一 App 的专用控制器。它抽象的是当前用户可见桌面会话中人类可以通过键盘、鼠标、窗口、控件、菜单和屏幕视觉完成的操作；遇到系统安全边界、权限缺失或不可可靠识别的 UI 时，应失败、跳过或通过人工确认交接。
@@ -132,7 +132,7 @@ handbook/
 
 `browser/README.md` 是浏览器线入口，只链接浏览器 action 和通用 action。`desktop/README.md` 是桌面线入口，只链接桌面 action 设计和通用 action。现有 `actions/` 目录在迁移期仍承载已实现 action 文档，但入口必须按执行线过滤阅读，不能把浏览器 `mouse`/`keyboard` 当成桌面键鼠使用。
 
-后续实现 desktop action 时，新增文档优先放入 `handbook/desktop/actions/`，浏览器 action 可逐步迁移到 `handbook/browser/actions/`。如果暂不移动旧文件，也必须保证入口文档按执行线隔离。
+新增或修改 action 文档时按执行线放置：浏览器专属 action 放入 `handbook/actions/browser/`，桌面专属 action 放入 `handbook/actions/desktop/`，两条执行线共享的 action 放入 `handbook/actions/common/`。
 
 ## AI 终端决策
 

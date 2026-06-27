@@ -36,6 +36,17 @@ class AITerminalState(AgentState):
     latest_web_inspection_resolved_url: NotRequired[str]
     latest_web_inspection_final_url: NotRequired[str]
     latest_web_inspection_title: NotRequired[str]
+    latest_desktop_inspection_platform: NotRequired[str]
+    latest_desktop_inspection_backend: NotRequired[str]
+    latest_desktop_inspection_capability_limitations: NotRequired[str]
+    latest_desktop_inspection_window_count: NotRequired[str]
+    latest_desktop_inspection_focused_window: NotRequired[str]
+    latest_desktop_inspection_element_match_count: NotRequired[str]
+    latest_desktop_failure_status: NotRequired[str]
+    latest_desktop_failure_diagnostics_count: NotRequired[str]
+    latest_desktop_failure_repair_suggestions: NotRequired[str]
+    latest_desktop_failure_state_files: NotRequired[str]
+    latest_desktop_failure_screenshots: NotRequired[str]
     work_plan_items: NotRequired[list[dict[str, str]]]
     work_plan_summary: NotRequired[str]
 
@@ -139,6 +150,50 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     if isinstance(web_title, str) and web_title:
         lines.append(f"- latest_web_inspection_title: {web_title}")
         added = True
+    desktop_platform = state.get("latest_desktop_inspection_platform")
+    desktop_backend = state.get("latest_desktop_inspection_backend")
+    desktop_capability_limitations = state.get("latest_desktop_inspection_capability_limitations")
+    desktop_window_count = state.get("latest_desktop_inspection_window_count")
+    desktop_focused_window = state.get("latest_desktop_inspection_focused_window")
+    desktop_element_match_count = state.get("latest_desktop_inspection_element_match_count")
+    desktop_failure_status = state.get("latest_desktop_failure_status")
+    desktop_failure_diagnostics_count = state.get("latest_desktop_failure_diagnostics_count")
+    desktop_failure_repair_suggestions = state.get("latest_desktop_failure_repair_suggestions")
+    desktop_failure_state_files = state.get("latest_desktop_failure_state_files")
+    desktop_failure_screenshots = state.get("latest_desktop_failure_screenshots")
+    if isinstance(desktop_platform, str) and desktop_platform:
+        lines.append(f"- latest_desktop_inspection_platform: {desktop_platform}")
+        added = True
+    if isinstance(desktop_backend, str) and desktop_backend:
+        lines.append(f"- latest_desktop_inspection_backend: {desktop_backend}")
+        added = True
+    if isinstance(desktop_capability_limitations, str) and desktop_capability_limitations:
+        lines.append(f"- latest_desktop_inspection_capability_limitations: {desktop_capability_limitations}")
+        added = True
+    if isinstance(desktop_window_count, str) and desktop_window_count:
+        lines.append(f"- latest_desktop_inspection_window_count: {desktop_window_count}")
+        added = True
+    if isinstance(desktop_focused_window, str) and desktop_focused_window:
+        lines.append(f"- latest_desktop_inspection_focused_window: {desktop_focused_window}")
+        added = True
+    if isinstance(desktop_element_match_count, str) and desktop_element_match_count:
+        lines.append(f"- latest_desktop_inspection_element_match_count: {desktop_element_match_count}")
+        added = True
+    if isinstance(desktop_failure_status, str) and desktop_failure_status:
+        lines.append(f"- latest_desktop_failure_status: {desktop_failure_status}")
+        added = True
+    if isinstance(desktop_failure_diagnostics_count, str) and desktop_failure_diagnostics_count:
+        lines.append(f"- latest_desktop_failure_diagnostics_count: {desktop_failure_diagnostics_count}")
+        added = True
+    if isinstance(desktop_failure_repair_suggestions, str) and desktop_failure_repair_suggestions:
+        lines.append(f"- latest_desktop_failure_repair_suggestions: {desktop_failure_repair_suggestions}")
+        added = True
+    if isinstance(desktop_failure_state_files, str) and desktop_failure_state_files:
+        lines.append(f"- latest_desktop_failure_state_files: {desktop_failure_state_files}")
+        added = True
+    if isinstance(desktop_failure_screenshots, str) and desktop_failure_screenshots:
+        lines.append(f"- latest_desktop_failure_screenshots: {desktop_failure_screenshots}")
+        added = True
     if not added:
         plan_context = format_work_plan_for_context(
             state.get("work_plan_items"),
@@ -216,6 +271,28 @@ def context_update_from_tool_result(
         _capture_context_value(update, "latest_web_inspection_resolved_url", result.get("resolved_url"))
         _capture_context_value(update, "latest_web_inspection_final_url", page.get("final_url"))
         _capture_context_value(update, "latest_web_inspection_title", page.get("title"))
+    if tool_name == "inspect_desktop" and result.get("ok") is not False:
+        _capture_context_value(update, "latest_desktop_inspection_platform", result.get("platform"))
+        _capture_context_value(update, "latest_desktop_inspection_backend", result.get("backend"))
+        capability_matrix = result.get("capability_matrix") if isinstance(result.get("capability_matrix"), dict) else {}
+        limitations = capability_matrix.get("limitations") if isinstance(capability_matrix.get("limitations"), list) else []
+        _capture_context_value(
+            update,
+            "latest_desktop_inspection_capability_limitations",
+            ", ".join(str(item) for item in limitations) if limitations else "none",
+        )
+        if result.get("window_count") not in (None, ""):
+            _capture_context_value(update, "latest_desktop_inspection_window_count", str(result.get("window_count")))
+        focused_window = _desktop_focused_window_summary(result)
+        _capture_context_value(update, "latest_desktop_inspection_focused_window", focused_window)
+        elements = result.get("elements") if isinstance(result.get("elements"), dict) else {}
+        match_count = elements.get("match_count") if isinstance(elements, dict) else None
+        if match_count not in (None, ""):
+            _capture_context_value(update, "latest_desktop_inspection_element_match_count", str(match_count))
+    if tool_name in {"analyze_latest_run_failure", "prepare_failure_debug_workspace"} and result.get("ok") is not False:
+        analysis = result.get("analysis") if tool_name == "prepare_failure_debug_workspace" else result
+        if isinstance(analysis, dict):
+            _capture_desktop_failure_context(update, analysis)
     if tool_name in {
         "read_debug_workspace",
         "inject_debug_steps",
@@ -254,5 +331,52 @@ def _capture_context_value(update: dict[str, str], key: str, value: Any) -> None
     if key == "output_dir":
         update["latest_output_dir"] = str(path_from_text(value).resolve())
         return
-    if key.startswith("latest_plan_quality_review_") or key.startswith("latest_web_inspection_"):
+    if (
+        key.startswith("latest_plan_quality_review_")
+        or key.startswith("latest_web_inspection_")
+        or key.startswith("latest_desktop_inspection_")
+        or key.startswith("latest_desktop_failure_")
+    ):
         update[key] = str(value)
+
+
+def _desktop_focused_window_summary(result: dict[str, Any]) -> str:
+    windows = result.get("windows") if isinstance(result.get("windows"), list) else []
+    focused = next((window for window in windows if isinstance(window, dict) and bool(window.get("focused"))), None)
+    if not isinstance(focused, dict):
+        focused = windows[0] if windows and isinstance(windows[0], dict) else {}
+    if not focused:
+        return ""
+    title = str(focused.get("title") or "")
+    app = str(focused.get("app") or focused.get("process_name") or "")
+    window_id = str(focused.get("id") or "")
+    parts = [part for part in (f"id={window_id}" if window_id else "", f"title={title}" if title else "", f"app={app}" if app else "") if part]
+    return ", ".join(parts)
+
+
+def _capture_desktop_failure_context(update: dict[str, str], analysis: dict[str, Any]) -> None:
+    diagnostics = analysis.get("desktop_diagnostics") if isinstance(analysis.get("desktop_diagnostics"), list) else []
+    suggestions = (
+        analysis.get("desktop_repair_suggestions")
+        if isinstance(analysis.get("desktop_repair_suggestions"), list)
+        else []
+    )
+    state_files = (
+        analysis.get("failure_desktop_states")
+        if isinstance(analysis.get("failure_desktop_states"), list)
+        else []
+    )
+    screenshots = (
+        analysis.get("failure_desktop_screenshots")
+        if isinstance(analysis.get("failure_desktop_screenshots"), list)
+        else []
+    )
+    if diagnostics or suggestions or state_files or screenshots:
+        _capture_context_value(update, "latest_desktop_failure_status", str(analysis.get("status", "")))
+        _capture_context_value(update, "latest_desktop_failure_diagnostics_count", str(len(diagnostics)))
+        if suggestions:
+            _capture_context_value(update, "latest_desktop_failure_repair_suggestions", " | ".join(str(item) for item in suggestions[:3]))
+        if state_files:
+            _capture_context_value(update, "latest_desktop_failure_state_files", " | ".join(str(item) for item in state_files[:3]))
+        if screenshots:
+            _capture_context_value(update, "latest_desktop_failure_screenshots", " | ".join(str(item) for item in screenshots[:3]))

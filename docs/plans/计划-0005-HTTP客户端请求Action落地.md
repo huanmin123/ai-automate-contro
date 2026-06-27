@@ -115,7 +115,7 @@ python .\cplan.py run --file .\test-plans\http\client-request\plan.json --run-na
 ## 文档同步
 
 - [HTTP客户端请求Action设计](../functions/HTTP客户端请求Action设计.md)
-- `handbook/actions/io/http.md`
+- `handbook/actions/common/io/http.md`
 - `handbook/README.md`
 - `docs/functions/核心功能设计.md`
 - `docs/develop/测试与验证说明.md`

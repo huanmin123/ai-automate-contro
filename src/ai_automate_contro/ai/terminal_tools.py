@@ -25,6 +25,7 @@ from ai_automate_contro.ai.run_artifacts import (
 from ai_automate_contro.ai.run_failure_analysis import (
     analyze_latest_run_failure_tool as _analyze_latest_run_failure_tool,
 )
+from ai_automate_contro.ai.desktop_inspection import inspect_desktop_tool as _inspect_desktop_tool
 from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
 from ai_automate_contro.ai.work_plan import normalize_work_plan_items, normalize_work_plan_summary
 from ai_automate_contro.app import schedule_manager
@@ -291,6 +292,57 @@ def inspect_web_page_tool(
     )
 
 
+def inspect_desktop_tool(
+    project_root: str | Path,
+    *,
+    platform_name: str = "auto",
+    backend: str = "auto",
+    request_permissions: bool = False,
+    include_windows: bool = True,
+    include_invisible: bool = False,
+    include_elements: bool = False,
+    include_screenshot: bool = False,
+    title: str = "",
+    title_contains: str = "",
+    title_regex: str = "",
+    app: str = "",
+    process: str = "",
+    process_name: str = "",
+    class_name: str = "",
+    window_id: str = "",
+    match_index: int = 0,
+    element_locator: dict[str, Any] | None = None,
+    max_windows: int = 20,
+    max_elements: int = 120,
+    max_depth: int = 4,
+    text_limit: int = 120,
+) -> dict[str, Any]:
+    return _inspect_desktop_tool(
+        project_root,
+        platform_name=platform_name,
+        backend=backend,
+        request_permissions=request_permissions,
+        include_windows=include_windows,
+        include_invisible=include_invisible,
+        include_elements=include_elements,
+        include_screenshot=include_screenshot,
+        title=title,
+        title_contains=title_contains,
+        title_regex=title_regex,
+        app=app,
+        process=process,
+        process_name=process_name,
+        class_name=class_name,
+        window_id=window_id,
+        match_index=match_index,
+        element_locator=element_locator or {},
+        max_windows=max_windows,
+        max_elements=max_elements,
+        max_depth=max_depth,
+        text_limit=text_limit,
+    )
+
+
 def update_work_plan_tool(
     *,
     items: list[dict[str, Any]],
@@ -330,6 +382,7 @@ def inject_debug_steps_tool(
     message: str | None = None,
     browser: str | None = None,
     page: str | None = None,
+    desktop: str | None = None,
     position: str = "end",
     step: int | None = None,
 ) -> dict[str, Any]:
@@ -339,6 +392,7 @@ def inject_debug_steps_tool(
         message=message,
         browser=browser,
         page=page,
+        desktop=desktop,
         position=position,
         step=step,
     )

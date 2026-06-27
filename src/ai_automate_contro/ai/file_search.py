@@ -178,7 +178,8 @@ def _missing_search_root_result(
         "error": f"搜索路径不存在：{relative_root}",
         "hint": (
             "先搜索上级目录或 handbook/README.md 确认真实路径；"
-            "handbook/actions 是分类目录，不要猜 handbook/actions/<action>。"
+            "handbook/actions 是分类目录，不要猜 handbook/actions/<action>；"
+            "按执行线查 handbook/actions/browser、handbook/actions/desktop 或 handbook/actions/common。"
         ),
         "suggested_paths": suggestions,
     }

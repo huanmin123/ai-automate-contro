@@ -23,9 +23,36 @@ class InspectWebPageArgs(ToolArgsModel):
     headed: bool = Field(default=False, description="仅显示一次性探测浏览器；真实交互改用 headed 探索 plan + manual_confirm。")
 
 
+class InspectDesktopArgs(ToolArgsModel):
+    platform_name: Literal["auto", "windows", "macos"] = Field(default="auto", description="桌面平台；auto 使用当前系统。")
+    backend: Literal["auto", "native"] = Field(default="auto", description="桌面 backend；当前工具只使用 native。")
+    request_permissions: bool = Field(default=False, description="是否主动触发可探测的系统权限检查。")
+    include_windows: bool = Field(default=True, description="是否返回窗口列表。")
+    include_invisible: bool = Field(default=False, description="窗口列表是否包含不可见窗口。")
+    include_elements: bool = Field(default=False, description="是否对匹配窗口做控件 dump；缺少窗口定位时默认使用当前聚焦窗口。")
+    include_screenshot: bool = Field(default=False, description="是否保存一次桌面截图到 .keygen/desktop-inspections/。")
+    title: str = Field(default="", description="窗口标题精确匹配。")
+    title_contains: str = Field(default="", description="窗口标题包含文本。")
+    title_regex: str = Field(default="", description="窗口标题正则。")
+    app: str = Field(default="", description="App/进程名称包含文本。")
+    process: str = Field(default="", description="进程名称包含文本。")
+    process_name: str = Field(default="", description="进程名称包含文本。")
+    class_name: str = Field(default="", description="窗口 class_name 包含文本。")
+    window_id: str = Field(default="", description="窗口 id。")
+    match_index: int = Field(default=0, description="多窗口命中时的索引。")
+    element_locator: dict[str, Any] = Field(
+        default_factory=dict,
+        description="可选 desktop_element locator 对象，如 automation_id/name_contains/control_type/text_contains。",
+    )
+    max_windows: int = Field(default=20, description="最多返回窗口数；工具会限幅。")
+    max_elements: int = Field(default=120, description="最多返回控件数；工具会限幅。")
+    max_depth: int = Field(default=4, description="控件树最大深度；工具会限幅。")
+    text_limit: int = Field(default=120, description="控件文本截断长度；工具会限幅。")
+
+
 class GrepProjectTextArgs(ToolArgsModel):
     pattern: str = Field(..., description="ripgrep 搜索文本或正则。")
-    root_path: str = Field(default=".", description="项目相对目录/文件；查 handbook action 先定位，不猜 handbook/actions/<action>。")
+    root_path: str = Field(default=".", description="项目相对目录/文件；查 handbook action 先定位，不猜 handbook/actions/<action>，按 browser/desktop/common 分类查。")
     literal: bool = Field(default=True, description="按固定字符串搜索。")
     include_output: bool = Field(default=False, description="是否包含 plan output/；仅明确需要时开启。")
     file_glob: str = Field(default="", description="可选 rg glob，如 *.md 或 **/*.json。")
@@ -161,7 +188,7 @@ class ReadLatestRunReportArgs(ToolArgsModel):
 class AnalyzeLatestRunFailureArgs(ToolArgsModel):
     plan_path: str = Field(..., description="plan.json 路径或 plan 包目录。")
     output_dir: str | None = Field(default=None, description="可选指定运行输出目录。")
-    log_lines: int = Field(default=80, description="包含的日志行数。")
+    log_lines: int = Field(default=80, description="包含的日志行数；桌面失败会额外返回 desktop_diagnostics 和 desktop_repair_suggestions。")
     event_lines: int = Field(default=80, description="包含的事件行数。")
 
 
@@ -228,10 +255,14 @@ class PrepareFailureDebugWorkspaceArgs(ToolArgsModel):
 
 class InjectDebugStepsArgs(ToolArgsModel):
     workspace: str = Field(..., description="debug workspace 根路径。")
-    presets: list[str] = Field(..., description="诊断预设列表。")
+    presets: list[str] = Field(
+        ...,
+        description="诊断预设列表：print、variables、manual_confirm、screenshot、html、desktop_screenshot、desktop_snapshot、desktop_windows。",
+    )
     message: str | None = Field(default=None, description="print/manual_confirm 消息。")
     browser: str | None = Field(default=None, description="screenshot/html 浏览器会话名。")
     page: str | None = Field(default=None, description="screenshot/html 页面名。")
+    desktop: str | None = Field(default=None, description="desktop_* 预设使用的桌面会话名；默认 desktop。")
     position: str = Field(default="end", description="注入位置：start、end、before_step 或 after_step。")
     step: int | None = Field(default=None, description="before/after_step 的 1-based 锚点步骤。")
 

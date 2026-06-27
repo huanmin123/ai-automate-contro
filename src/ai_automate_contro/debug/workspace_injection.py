@@ -19,6 +19,7 @@ def inject_debug_steps(
     message: str | None = None,
     browser: str | None = None,
     page: str | None = None,
+    desktop: str | None = None,
     position: str = "end",
     step: int | None = None,
 ) -> DebugInjectionResult:
@@ -36,7 +37,7 @@ def inject_debug_steps(
 
     normalized_presets = [_normalize_preset(preset) for preset in presets]
     injected_steps = [
-        _build_debug_step(preset, message=message, browser=browser, page=page)
+        _build_debug_step(preset, message=message, browser=browser, page=page, desktop=desktop)
         for preset in normalized_presets
     ]
     backup_path = _backup_plan(plan_path)
@@ -86,7 +87,7 @@ def _backup_plan(plan_path: Path) -> Path:
 
 def _normalize_preset(preset: str) -> str:
     value = preset.strip().lower()
-    supported = {"print", "variables", "manual_confirm", "screenshot", "html"}
+    supported = {"print", "variables", "manual_confirm", "screenshot", "html", "desktop_screenshot", "desktop_snapshot", "desktop_windows"}
     if value not in supported:
         raise ValueError(f"Unsupported debug injection preset: {preset}")
     return value
@@ -98,6 +99,7 @@ def _build_debug_step(
     message: str | None,
     browser: str | None,
     page: str | None,
+    desktop: str | None,
 ) -> dict[str, Any]:
     if preset == "print":
         return {
@@ -138,12 +140,42 @@ def _build_debug_step(
         if page:
             step["page"] = page
         return step
+    if preset == "desktop_screenshot":
+        resolved_desktop = _desktop_for_preset(preset, desktop)
+        return {
+            "action": "desktop_capture",
+            "desktop": resolved_desktop,
+            "type": "screenshot",
+            "path": f"debug/desktop/screenshots/screenshot-{make_timestamp()}.png",
+        }
+    if preset == "desktop_snapshot":
+        resolved_desktop = _desktop_for_preset(preset, desktop)
+        return {
+            "action": "desktop_capture",
+            "desktop": resolved_desktop,
+            "type": "snapshot",
+            "path": f"debug/desktop/state/snapshot-{make_timestamp()}.json",
+        }
+    if preset == "desktop_windows":
+        resolved_desktop = _desktop_for_preset(preset, desktop)
+        return {
+            "action": "desktop_window",
+            "desktop": resolved_desktop,
+            "type": "list",
+            "path": f"debug/desktop/windows/windows-{make_timestamp()}.json",
+        }
     raise ValueError(f"Unsupported debug injection preset: {preset}")
 
 
 def _require_browser_for_preset(preset: str, browser: str | None) -> None:
     if not browser:
         raise ValueError(f"Debug preset '{preset}' requires --browser <name>.")
+
+
+def _desktop_for_preset(preset: str, desktop: str | None) -> str:
+    if desktop and desktop.strip():
+        return desktop.strip()
+    return "desktop"
 
 
 def _append_injection_note(

@@ -6,10 +6,51 @@ from typing import Any
 
 from ai_automate_contro.ai.run_artifacts import read_json_if_exists
 from ai_automate_contro.support.utils import dict_get, first_string
-from ai_automate_contro.ai.debug_selector_fix import (
-    build_debug_fix_proposals,
-    selector_auto_apply_gate,
-)
+from ai_automate_contro.ai import debug_desktop_fix, debug_selector_fix
+
+
+def build_debug_fix_proposals(
+    analysis: dict[str, Any],
+    source_plan_path: Path,
+    *,
+    user_hint: str,
+) -> list[dict[str, Any]]:
+    proposals: list[dict[str, Any]] = []
+    proposals.extend(
+        debug_selector_fix.build_debug_fix_proposals(
+            analysis,
+            source_plan_path,
+            user_hint=user_hint,
+        )
+    )
+    proposals.extend(
+        debug_desktop_fix.build_desktop_debug_fix_proposals(
+            analysis,
+            source_plan_path,
+            user_hint=user_hint,
+        )
+    )
+    return proposals
+
+
+def auto_apply_gate(proposals: list[dict[str, Any]], *, user_hint: str) -> dict[str, Any]:
+    if not proposals:
+        return {"ok": False, "reason": "No debug fix proposal is available."}
+    selected = proposals[0]
+    proposal_type = str(selected.get("type", ""))
+    if proposal_type.startswith("desktop_"):
+        return debug_desktop_fix.desktop_auto_apply_gate(proposals, user_hint=user_hint)
+    return debug_selector_fix.selector_auto_apply_gate(proposals, user_hint=user_hint)
+
+
+def selected_patch_operations(proposal: dict[str, Any]) -> list[dict[str, Any]]:
+    operations = proposal.get("operations")
+    if isinstance(operations, list) and operations:
+        return [operation for operation in operations if isinstance(operation, dict)]
+    operation = proposal.get("operation")
+    if isinstance(operation, dict):
+        return [operation]
+    return []
 
 
 def failure_browser_page(analysis: dict[str, Any]) -> tuple[str | None, str | None]:
@@ -94,10 +135,12 @@ def append_debug_fix_note(workspace_root: Path, proposal: dict[str, Any]) -> Non
         file.write(f"- Type: `{proposal.get('type')}`\n")
         file.write(f"- Confidence: `{proposal.get('confidence')}`\n")
         file.write(f"- Step: `{proposal.get('step_number')}`\n")
-        file.write(f"- Selector: `{proposal.get('from')}` -> `{proposal.get('to')}`\n")
+        file.write(f"- From: `{proposal.get('from')}`\n")
+        file.write(f"- To: `{proposal.get('to')}`\n")
         file.write("\n### Operation\n\n")
         file.write("```json\n")
-        json.dump(proposal.get("operation"), file, ensure_ascii=False, indent=2)
+        operations = selected_patch_operations(proposal)
+        json.dump(operations[0] if len(operations) == 1 else operations, file, ensure_ascii=False, indent=2)
         file.write("\n```\n")
         file.write("\n### Reason\n\n")
         file.write(str(proposal.get("reason", "")).strip() + "\n")

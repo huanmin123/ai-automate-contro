@@ -39,6 +39,17 @@ CONTEXT_STATE_KEYS = (
     "latest_web_inspection_resolved_url",
     "latest_web_inspection_final_url",
     "latest_web_inspection_title",
+    "latest_desktop_inspection_platform",
+    "latest_desktop_inspection_backend",
+    "latest_desktop_inspection_capability_limitations",
+    "latest_desktop_inspection_window_count",
+    "latest_desktop_inspection_focused_window",
+    "latest_desktop_inspection_element_match_count",
+    "latest_desktop_failure_status",
+    "latest_desktop_failure_diagnostics_count",
+    "latest_desktop_failure_repair_suggestions",
+    "latest_desktop_failure_state_files",
+    "latest_desktop_failure_screenshots",
 )
 
 

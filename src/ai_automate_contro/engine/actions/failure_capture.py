@@ -157,6 +157,10 @@ def capture_desktop_failure_state(
             )
         desktop_state_path = desktop_state_dir / f"{file_stem}.json"
         try:
+            window_diagnostics = _desktop_window_diagnostics(session, step or {})
+            element_diagnostics = _desktop_element_diagnostics(session, step or {})
+            snapshot = session.backend.snapshot()
+            capability_matrix = _desktop_capability_matrix(session, snapshot)
             desktop_state = {
                 "step": step_number,
                 "action": action,
@@ -168,9 +172,24 @@ def capture_desktop_failure_state(
                 "desktop": desktop_name,
                 "platform": session.platform,
                 "backend": session.backend_name,
+                "capability_matrix": capability_matrix,
                 "current_window": session.current_window or {},
                 "screenshot": str(screenshot_path) if screenshot_path.exists() else "",
-                "snapshot": session.backend.snapshot(),
+                "element_diagnostics": element_diagnostics,
+                "window_diagnostics": window_diagnostics,
+                "diagnostics": {
+                    "window": window_diagnostics,
+                    "element": element_diagnostics,
+                    "permissions": getattr(session, "permissions", {}) or {},
+                    "capability_matrix": capability_matrix,
+                    "current_window": session.current_window or {},
+                    "snapshot": snapshot,
+                },
+                "artifacts": {
+                    "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
+                    "state_path": str(desktop_state_path),
+                },
+                "snapshot": snapshot,
             }
             with desktop_state_path.open("w", encoding="utf-8") as file:
                 json.dump(desktop_state, file, ensure_ascii=False, indent=2)
@@ -218,10 +237,82 @@ def _page_state_payload(
     }
 
 
+def _desktop_capability_matrix(session: Any, snapshot: dict[str, Any]) -> dict[str, Any]:
+    session_matrix = getattr(session, "capability_matrix", {}) or {}
+    if isinstance(session_matrix, dict) and session_matrix:
+        return dict(session_matrix)
+    snapshot_matrix = snapshot.get("capability_matrix") if isinstance(snapshot, dict) else {}
+    return dict(snapshot_matrix) if isinstance(snapshot_matrix, dict) else {}
+
+
 DESKTOP_TARGET_FIELDS = {
     "action",
     "type",
     "desktop",
+    "title",
+    "title_contains",
+    "title_regex",
+    "app",
+    "command",
+    "args",
+    "process",
+    "process_name",
+    "class_name",
+    "window_id",
+    "match_index",
+    "element_id",
+    "automation_id",
+    "name",
+    "name_contains",
+    "name_regex",
+    "text",
+    "text_contains",
+    "text_regex",
+    "control_type",
+    "role",
+    "element_class_name",
+    "element_match_index",
+    "max_depth",
+    "max_elements",
+    "state",
+    "value",
+    "option_index",
+    "expected",
+    "mode",
+    "text_source",
+    "preserve_clipboard",
+    "include_tree",
+    "include_selector_hints",
+    "text_limit",
+    "method",
+    "operation",
+    "timeout_ms",
+    "interval_ms",
+    "wait",
+    "path",
+    "region",
+    "save_as",
+    "target",
+    "x",
+    "y",
+    "offset_x",
+    "offset_y",
+    "bounds",
+    "button",
+    "clicks",
+    "keys",
+    "delay_ms",
+    "amount",
+    "start_x",
+    "start_y",
+    "end_x",
+    "end_y",
+    "delta_x",
+    "delta_y",
+    "duration_ms",
+}
+
+DESKTOP_WINDOW_QUERY_FIELDS = {
     "title",
     "title_contains",
     "title_regex",
@@ -231,12 +322,21 @@ DESKTOP_TARGET_FIELDS = {
     "class_name",
     "window_id",
     "match_index",
-    "state",
-    "timeout_ms",
-    "interval_ms",
-    "path",
-    "region",
-    "save_as",
+}
+
+DESKTOP_ELEMENT_LOCATOR_FIELDS = {
+    "element_id",
+    "automation_id",
+    "name",
+    "name_contains",
+    "name_regex",
+    "text",
+    "text_contains",
+    "text_regex",
+    "control_type",
+    "role",
+    "element_class_name",
+    "element_match_index",
 }
 
 
@@ -248,6 +348,86 @@ def _desktop_target_payload(step: dict[str, Any]) -> dict[str, Any]:
             continue
         payload[field] = _compact_target_value(value)
     return payload
+
+
+def _desktop_window_diagnostics(session: Any, step: dict[str, Any]) -> dict[str, Any]:
+    query = {
+        field: step[field]
+        for field in DESKTOP_WINDOW_QUERY_FIELDS
+        if field in step and step.get(field) not in (None, "")
+    }
+    current_window = session.current_window or {}
+    if not query:
+        return {
+            "ok": False,
+            "skipped": True,
+            "reason": "missing window query",
+            "query": {},
+            "current_window": current_window,
+        }
+    try:
+        diagnose_window = getattr(session.backend, "diagnose_window", None)
+        if callable(diagnose_window):
+            payload = diagnose_window(query)
+        else:
+            windows = session.backend.list_windows()
+            payload = {"query": query, "total_windows": len(windows), "windows": windows[:5]}
+        if isinstance(payload, dict):
+            return {**payload, "current_window": current_window}
+        return {"ok": False, "query": query, "current_window": current_window, "payload": payload}
+    except Exception as error:
+        return {
+            "ok": False,
+            "query": query,
+            "current_window": current_window,
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+
+
+def _desktop_element_diagnostics(session: Any, step: dict[str, Any]) -> dict[str, Any]:
+    action = str(step.get("action") or "")
+    step_type = str(step.get("type") or "")
+    if action == "desktop_assert" and step_type != "element":
+        return {}
+    if action not in {"desktop_element", "desktop_assert"}:
+        return {}
+    window_query = {
+        field: step[field]
+        for field in DESKTOP_WINDOW_QUERY_FIELDS
+        if field in step and step.get(field) not in (None, "")
+    }
+    locator = {
+        field: step[field]
+        for field in DESKTOP_ELEMENT_LOCATOR_FIELDS
+        if field in step and step.get(field) not in (None, "")
+    }
+    diagnostic_base = {"window_query": window_query, "locator": locator}
+    if not window_query:
+        return {**diagnostic_base, "ok": False, "skipped": True, "reason": "missing window query"}
+    try:
+        max_depth = max(0, int(step.get("max_depth", 4)))
+    except (TypeError, ValueError):
+        max_depth = 4
+    try:
+        max_elements = min(max(1, int(step.get("max_elements", 120))), 120)
+    except (TypeError, ValueError):
+        max_elements = 120
+    try:
+        payload = session.backend.dump_elements(
+            window_query,
+            locator=locator or None,
+            max_depth=max_depth,
+            max_elements=max_elements,
+            include_tree=False,
+            include_selector_hints=True,
+            text_limit=120,
+        )
+        if isinstance(payload, dict):
+            return {**payload, **diagnostic_base}
+        return {**diagnostic_base, "ok": False, "payload": payload}
+    except Exception as error:
+        return {**diagnostic_base, "ok": False, "error": str(error), "error_type": type(error).__name__}
 
 
 def _compact_target_value(value: Any) -> Any:

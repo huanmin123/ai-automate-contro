@@ -94,13 +94,21 @@ def self_check_cli_boundaries() -> dict[str, Any]:
             "detail": {},
         },
         {
-            "name": "cplan_self_check_has_browser_and_desktop_components",
-            "passed": {"browser-components", "desktop-components"}.issubset(cplan_self_check_commands),
+            "name": "cplan_self_check_has_component_and_real_app_entries",
+            "passed": {"browser-components", "desktop-components", "desktop-real-app"}.issubset(
+                cplan_self_check_commands
+            ),
             "detail": {"commands": sorted(cplan_self_check_commands)},
         },
         {
             "name": "main_self_check_has_ai_plan_generation_simulation",
-            "passed": {"ai-terminal", "ai-tools", "ai-plan-generation"}.issubset(main_self_check_commands),
+            "passed": {
+                "ai-terminal",
+                "ai-tools",
+                "ai-plan-generation",
+                "ai-desktop-loop",
+                "ai-real-desktop-loop",
+            }.issubset(main_self_check_commands),
             "detail": {"commands": sorted(main_self_check_commands)},
         },
         {

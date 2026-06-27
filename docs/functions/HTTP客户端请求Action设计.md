@@ -260,7 +260,7 @@ python .\cplan.py self-check runtime
 
 - `src/ai_automate_contro/engine/actions/http_client.py` 和 action 注册出口。
 - `src/ai_automate_contro/plans/validation_rules.py` 和 `validation_fields.py`。
-- `handbook/actions/io/http.md`。
+- `handbook/actions/common/io/http.md`。
 - `handbook/README.md` action 索引。
 - `test-plans/http/client-request/` 示例和 README。
 - `docs/functions/核心功能设计.md` 当前能力列表。

@@ -50,6 +50,7 @@ def inject_debug_steps_tool(
     message: str | None = None,
     browser: str | None = None,
     page: str | None = None,
+    desktop: str | None = None,
     position: str = "end",
     step: int | None = None,
 ) -> dict[str, Any]:
@@ -59,6 +60,7 @@ def inject_debug_steps_tool(
         message=message,
         browser=browser,
         page=page,
+        desktop=desktop,
         position=position,
         step=step,
     )
@@ -135,7 +137,7 @@ def propose_debug_fix_tool(
     if not proposals:
         result["reason"] = "无法从失败证据中推断出受支持的自动修复候选。"
         return result
-    auto_apply_gate = debug_fix.selector_auto_apply_gate(proposals, user_hint=user_hint)
+    auto_apply_gate = debug_fix.auto_apply_gate(proposals, user_hint=user_hint)
     result["auto_apply_gate"] = auto_apply_gate
     if not apply:
         result["next_actions"] = [
@@ -160,11 +162,22 @@ def propose_debug_fix_tool(
         return result
 
     reset_injected_file_to_source(manifest, "plan.json")
+    selected_operations = debug_fix.selected_patch_operations(selected)
+    if not selected_operations:
+        result.update(
+            {
+                "ok": False,
+                "applied": False,
+                "reason": "选中的修复候选没有可应用的 JSON patch operation。",
+            }
+        )
+        return result
+
     patch_result = patch_debug_workspace_json(
         workspace_root,
         root="injected-plan",
         relative_path="plan.json",
-        operations=[selected["operation"]],
+        operations=selected_operations,
     )
     debug_fix.append_debug_fix_note(workspace_root, selected)
     validation = validate_debug_plan(project_root, workspace=workspace_root)

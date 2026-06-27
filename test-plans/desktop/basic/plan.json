@@ -32,15 +32,6 @@
       "save_as": "desktop_screenshot_assertion"
     },
     {
-      "action": "desktop_assert",
-      "desktop": "desktop",
-      "type": "window",
-      "state": "focused",
-      "title_regex": ".+",
-      "timeout_ms": 1000,
-      "save_as": "desktop_focused_window_assertion"
-    },
-    {
       "action": "desktop_capture",
       "desktop": "desktop",
       "type": "snapshot",

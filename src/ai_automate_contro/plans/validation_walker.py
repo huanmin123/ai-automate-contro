@@ -227,7 +227,9 @@ def validate_action_specific_fields(
         "event",
         "coverage",
         "desktop_capture",
+        "desktop_element",
         "desktop_window",
+        "desktop_vision",
         "desktop_assert",
     }:
         output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
@@ -321,6 +323,24 @@ def validate_action_specific_fields(
             step=step,
         )
         validate_package_cwd(step.get("cwd"), f"{location}.cwd", package_root, issues, step=step)
+
+    if action == "desktop_vision":
+        validate_package_input_path(
+            step.get("template_path"),
+            f"{location}.template_path",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
+        validate_package_input_path(
+            step.get("source_path"),
+            f"{location}.source_path",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
 
     validate_type_specific_required_fields(step, action, location, issues)
 

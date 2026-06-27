@@ -230,6 +230,8 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
     required_fragments = [
         "开工前判断：",
         "目标、范围、目标 plan/URL/文件、输入数据、输出要求、登录权限和验收标准",
+        "桌面线按当前运行环境判断平台和能力",
+        "但“在 Windows/macOS 上用 Chrome/浏览器打开网页/URL”仍是 `browser`",
         "能通过当前上下文、handbook、plan、output 或只读工具确认的事情",
         "必须在执行前一次性问清楚",
         "只问关键缺口",
@@ -238,7 +240,7 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "不要因为路径位于 plan 包外而拒绝、改写或强制记录审批字段",
         "浏览器本地页面优先使用 `{{resources_file_url}}`",
         "不要硬编码本机绝对 `file://` URL",
-        "`write` 手册固定在 `handbook/actions/io/write.md`",
+        "`write` 手册固定在 `handbook/actions/common/io/write.md`",
         "页面里已经存在的表格、列表、文本块或同类元素",
         "优先用 `extract.table`、`extract.all_texts`、`extract.text` 或 `script.evaluate` 做确定性提取",
         "`write.type=text` 可以直接写字符串数组",
@@ -260,7 +262,15 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "用户原始需求、探测/探索证据摘要和用户要求的最终本机输出路径",
         "review_plan_quality 返回 fail",
         "review_plan_quality 按 `automation_type` 分流",
-        "desktop plan 检查 open_desktop、桌面窗口/截图/等待/断言证据和桌面产物",
+        "review_plan_quality 对 desktop plan 会检查 `inspect_desktop`/`capability_matrix`/窗口列表/控件树/截图探测证据",
+        "desktop plan 检查 inspect_desktop 摘要、capability_matrix、open_desktop、desktop_app、桌面窗口/控件/截图/等待/断言证据、桌面标注和桌面产物",
+        "desktop_element list/dump/find/wait/get_text/get_state",
+        "desktop_element click/set_text/select/invoke",
+        "desktop_assert type=element",
+        "desktop_element click/set_text/select/invoke 是操作推进，不是识别证据",
+        "Open/Save 文件对话框按真实桌面窗口处理",
+        "desktop_input type_text method=clipboard",
+        "desktop_window 的 close/minimize/maximize/restore 只是窗口控制",
         "不要求 open_browser、navigate 或 inspect_web_page",
         "强制运行门禁",
         "run_plan 会拒绝没有通过最新质量复查或复查后被修改过的 plan",
@@ -652,6 +662,37 @@ def _check_terminal_context_updates_from_quality_review() -> dict[str, Any]:
             "next_action": "fix_plan",
         },
     )
+    desktop_update = context_update_from_tool_result(
+        "inspect_desktop",
+        {"include_windows": True},
+        {
+            "ok": True,
+            "platform": "windows",
+            "backend": "native",
+            "window_count": 2,
+            "windows": [
+                {
+                    "id": 1001,
+                    "title": "Demo App",
+                    "app": "demo.exe",
+                    "focused": True,
+                }
+            ],
+            "elements": {"match_count": 3},
+        },
+    )
+    desktop_failure_update = context_update_from_tool_result(
+        "analyze_latest_run_failure",
+        {"plan_path": "plans/demo/plan.json"},
+        {
+            "ok": True,
+            "status": "failed",
+            "desktop_diagnostics": [{"step": 3, "action": "desktop_element"}],
+            "desktop_repair_suggestions": ["修正 Element Locator。"],
+            "failure_desktop_states": ["plans/demo/output/run/failure-desktop-state/state.json"],
+            "failure_desktop_screenshots": ["plans/demo/output/run/failure-desktop-screenshots/screen.png"],
+        },
+    )
 
     class _FakeGraph:
         def __init__(self) -> None:
@@ -672,6 +713,8 @@ def _check_terminal_context_updates_from_quality_review() -> dict[str, Any]:
 
     runtime_terminal = _RuntimeContextTerminal()
     runtime_terminal._update_context_state(update)
+    runtime_terminal._update_context_state(desktop_update)
+    runtime_terminal._update_context_state(desktop_failure_update)
     runtime_context = runtime_terminal._context_state()
 
     current_plan_path = str(update.get("current_plan_path", "")).replace("\\", "/")
@@ -687,6 +730,15 @@ def _check_terminal_context_updates_from_quality_review() -> dict[str, Any]:
     runtime_context_ok = (
         runtime_context.get("latest_plan_quality_review_ok") == "true"
         and runtime_context.get("latest_plan_quality_review_signature") == "signature-123"
+        and runtime_context.get("latest_desktop_inspection_platform") == "windows"
+        and runtime_context.get("latest_desktop_inspection_window_count") == "2"
+        and "Demo App" in str(runtime_context.get("latest_desktop_inspection_focused_window", ""))
+        and runtime_context.get("latest_desktop_inspection_element_match_count") == "3"
+        and runtime_context.get("latest_desktop_failure_status") == "failed"
+        and runtime_context.get("latest_desktop_failure_diagnostics_count") == "1"
+        and "Element Locator" in str(runtime_context.get("latest_desktop_failure_repair_suggestions", ""))
+        and "failure-desktop-state" in str(runtime_context.get("latest_desktop_failure_state_files", ""))
+        and "failure-desktop-screenshots" in str(runtime_context.get("latest_desktop_failure_screenshots", ""))
     )
     failed_review_ok = (
         failed_update.get("latest_plan_quality_review_ok") == "false"
@@ -698,6 +750,8 @@ def _check_terminal_context_updates_from_quality_review() -> dict[str, Any]:
         passed=quality_keys_ok and runtime_context_ok and failed_review_ok,
         detail={
             "update": update,
+            "desktop_update": desktop_update,
+            "desktop_failure_update": desktop_failure_update,
             "runtime_context": runtime_context,
             "failed_update": failed_update,
         },
@@ -2058,13 +2112,145 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
             },
         },
     )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop opened",
+            "fields": {"desktop": "desk", "platform": "windows", "backend": "native"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop app launched",
+            "fields": {"desktop": "desk", "app": "notepad.exe", "pid": 1234},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop windows listed",
+            "fields": {"desktop": "desk", "count": 3, "path": "desktop-windows/windows.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop window controlled",
+            "fields": {"desktop": "desk", "type": "minimize", "title": "Untitled - Notepad", "window_id": 1234},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop elements listed",
+            "fields": {"desktop": "desk", "type": "list", "count": 7, "path": "desktop-elements/elements.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element tree dumped",
+            "fields": {"desktop": "desk", "type": "dump", "count": 7, "path": "desktop-elements/elements-dump.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element clicked",
+            "fields": {"desktop": "desk", "type": "click", "count": 1, "save_as": "button_click"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element text set",
+            "fields": {"desktop": "desk", "type": "set_text", "method": "uia_value_pattern", "save_as": "entry_text"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element invoked",
+            "fields": {"desktop": "desk", "type": "invoke", "method": "uia_invoke_pattern", "save_as": "button_invoke"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element assertion passed",
+            "fields": {"desktop": "desk", "type": "element", "state": "exists", "matches": 1},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop input sent",
+            "fields": {"desktop": "desk", "type": "click", "save_as": "clicked"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop capture saved",
+            "fields": {"desktop": "desk", "type": "screenshot", "path": "desktop-screenshots/screen.png"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop assertion passed",
+            "fields": {"desktop": "desk", "type": "screenshot", "path": "desktop-screenshots/screen.png"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "ERROR",
+            "message": "step 3 failed",
+            "fields": {
+                "step": 3,
+                "action": "desktop_wait",
+                "step_name": "wait missing window",
+                "step_summary": "desktop=desk, type=window, title_contains=Missing",
+                "error": "等待窗口超时；failure-desktop-state/state.json",
+            },
+        },
+    )
     events = list(terminal.events)
     plan_events = [event for event in events if event.kind == "plan_progress"]
     activity_events = [event for event in events if event.kind == "activity"]
     texts = "\n".join(event.text for event in plan_events)
     passed = (
-        len(plan_events) == 5
-        and len(activity_events) == 5
+        len(plan_events) == 19
+        and len(activity_events) == 19
         and all(event.data.get("source_kind") == "plan_progress" for event in activity_events)
         and activity_events[-1].data.get("phase") == "failed"
         and "plan 开始" in texts
@@ -2074,6 +2260,27 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         and "当前 Playwright 浏览器" in texts
         and "步骤 2 失败" in texts
         and "Timeout 15000ms exceeded" in texts
+        and "桌面已打开" in texts
+        and "桌面 App 已启动" in texts
+        and "notepad.exe" in texts
+        and "桌面窗口已列出" in texts
+        and "桌面窗口已控制" in texts
+        and "minimize" in texts
+        and "桌面控件已列出" in texts
+        and "桌面控件树已导出" in texts
+        and "elements-dump.json" in texts
+        and "desktop-elements" in texts
+        and "桌面控件已点击" in texts
+        and "button_click" in texts
+        and "桌面控件文本已设置" in texts
+        and "uia_value_pattern" in texts
+        and "桌面控件已触发" in texts
+        and "桌面控件断言通过" in texts
+        and "桌面输入已发送" in texts
+        and "click" in texts
+        and "桌面截图/状态已保存" in texts
+        and "桌面断言通过" in texts
+        and "failure-desktop-state" in texts
     )
     return _self_check_result(
         name="terminal_plan_run_progress_events",
