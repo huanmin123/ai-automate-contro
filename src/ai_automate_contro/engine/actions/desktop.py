@@ -50,6 +50,8 @@ DESKTOP_ELEMENT_MESSAGES = {
     "set_text": "desktop element text set",
     "invoke": "desktop element invoked",
     "select": "desktop element selected",
+    "get_table": "desktop table read",
+    "select_cell": "desktop table cell selected",
 }
 
 
@@ -324,6 +326,31 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
                 max_depth=max_depth,
                 max_elements=max_elements,
             )
+        elif element_type == "get_table":
+            payload = session.backend.get_table(
+                window_query,
+                locator,
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+                max_rows=int(step.get("max_rows", 50)),
+                max_columns=int(step.get("max_columns", 20)),
+                text_limit=int(step.get("text_limit", 160)),
+                visible_only=bool(step.get("visible_only", True)),
+            )
+        elif element_type == "select_cell":
+            payload = session.backend.select_table_cell(
+                window_query,
+                locator,
+                row=int(step["row"]),
+                column=str(step.get("column", "")),
+                column_index=step.get("column_index"),
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
         else:
             raise ValueError(f"不支持的 desktop_element.type：{element_type}")
 
@@ -337,7 +364,7 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
     if window:
         session.current_window = dict(window)
-    if element_type in {"click", "set_text", "invoke", "select"}:
+    if element_type in {"click", "set_text", "invoke", "select", "select_cell"}:
         annotation = _capture_element_annotation(
             executor,
             session,
@@ -1151,7 +1178,10 @@ def _capture_element_annotation(
     query: dict[str, Any],
     locator: dict[str, Any],
 ) -> dict[str, Any]:
-    element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+    if element_type == "select_cell" and isinstance(payload.get("selected_cell"), dict):
+        element = payload["selected_cell"]
+    else:
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
     bounds = element.get("bounds") if isinstance(element.get("bounds"), dict) else {}
     points: list[dict[str, Any]] = []
     if "x" in payload and "y" in payload:

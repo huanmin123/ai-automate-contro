@@ -10,7 +10,7 @@
 | [close_desktop](./close_desktop.md) | 关闭桌面 session | `desktop` | 释放 backend 资源 |
 | [desktop_app](./desktop_app.md) | 启动本机 App 或命令 | `type=launch`、`app/path/command`、`args` | 打开 Notepad、TextEdit、业务软件 |
 | [desktop_window](./desktop_window.md) | 列出、聚焦、控制窗口 | `type`、Window Query | 等待窗口、聚焦、关闭、最小化、最大化 |
-| [desktop_element](./desktop_element.md) | 控件树定位和操作 | `type`、Window Query、Element Locator | 找按钮/输入框、读文本、写值、选择项、点击 |
+| [desktop_element](./desktop_element.md) | 控件树定位和操作 | `type`、Window Query、Element Locator | 找按钮/输入框、读文本、写值、选择项、表格、点击 |
 | [desktop_input](./desktop_input.md) | 系统键鼠输入 | `type`、`value`、`keys`、`x/y`、`target` | 输入文本、快捷键、坐标点击/双击/右键、滚动、拖拽 |
 | [desktop_capture](./desktop_capture.md) | 截图和状态快照 | `type`、`path` | 保存桌面证据、失败诊断 |
 | [desktop_vision](./desktop_vision.md) | 图像定位取证 | `type=locate_image`、`template_path`、`threshold` | 控件树不可见、自绘 UI、已有截图定位 |

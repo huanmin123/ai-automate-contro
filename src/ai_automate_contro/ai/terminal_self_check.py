@@ -264,10 +264,10 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "review_plan_quality 按 `automation_type` 分流",
         "review_plan_quality 对 desktop plan 会检查 `inspect_desktop`/`capability_matrix`/窗口列表/控件树/截图探测证据",
         "desktop plan 检查 inspect_desktop 摘要、capability_matrix、open_desktop、desktop_app、桌面窗口/控件/截图/等待/断言证据、桌面标注和桌面产物",
-        "desktop_element list/dump/find/wait/get_text/get_state",
-        "desktop_element click/set_text/select/invoke",
+        "desktop_element list/dump/find/wait/get_text/get_state/get_table",
+        "desktop_element click/set_text/select/invoke/select_cell",
         "desktop_assert type=element",
-        "desktop_element click/set_text/select/invoke 是操作推进，不是识别证据",
+        "desktop_element click/set_text/select/invoke/select_cell 是操作推进，不是识别证据",
         "Open/Save 文件对话框按真实桌面窗口处理",
         "desktop_input type_text method=clipboard",
         "desktop_window 的 close/minimize/maximize/restore 只是窗口控制",
@@ -2171,6 +2171,15 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         "run_plan",
         {
             "level": "INFO",
+            "message": "desktop table read",
+            "fields": {"desktop": "desk", "type": "get_table", "count": 9, "path": "desktop-elements/table.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
             "message": "desktop element clicked",
             "fields": {"desktop": "desk", "type": "click", "count": 1, "save_as": "button_click"},
         },
@@ -2191,6 +2200,15 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
             "level": "INFO",
             "message": "desktop element invoked",
             "fields": {"desktop": "desk", "type": "invoke", "method": "uia_invoke_pattern", "save_as": "button_invoke"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop table cell selected",
+            "fields": {"desktop": "desk", "type": "select_cell", "method": "uia_selection_item_pattern", "path": "desktop-elements/cell.json"},
         },
     )
     AITerminal._handle_plan_run_event(

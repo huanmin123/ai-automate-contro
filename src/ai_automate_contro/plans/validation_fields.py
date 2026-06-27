@@ -205,12 +205,28 @@ def validate_type_specific_required_fields(
         _validate_window_query(step, action, step_type, location, issues)
     elif action == "desktop_element":
         _validate_window_query(step, action, step_type, location, issues)
-        if step_type in {"find", "wait", "get_text", "get_state", "click", "set_text", "invoke", "select"}:
+        if step_type in {
+            "find",
+            "wait",
+            "get_text",
+            "get_state",
+            "click",
+            "set_text",
+            "invoke",
+            "select",
+            "get_table",
+            "select_cell",
+        }:
             _validate_desktop_element_locator(step, action, step_type, location, issues)
         if step_type == "set_text":
             required = ("value",)
         if step_type == "select" and "value" not in step and "option_index" not in step:
             issues.append(ValidationIssue(location, "desktop_element.select 需要 value 或 option_index"))
+        if step_type == "select_cell":
+            if "row" not in step:
+                issues.append(ValidationIssue(location, "desktop_element.select_cell 缺少必填字段：row"))
+            if "column" not in step and "column_index" not in step:
+                issues.append(ValidationIssue(location, "desktop_element.select_cell 需要 column 或 column_index"))
     elif action == "desktop_input" and step_type == "type_text":
         required = ("value",)
     elif action == "desktop_input" and step_type == "hotkey":
@@ -740,6 +756,9 @@ def _validate_desktop_element_fields(
     _validate_bool(step, "include_tree", location, issues)
     _validate_bool(step, "include_selector_hints", location, issues)
     _validate_int(step, "text_limit", location, issues, minimum=0)
+    _validate_int(step, "max_rows", location, issues, minimum=1)
+    _validate_int(step, "max_columns", location, issues, minimum=1)
+    _validate_bool(step, "visible_only", location, issues)
     if step_type == "wait":
         _validate_enum(step, "state", {"exists", "not_exists", "enabled", "disabled", "focused"}, location, issues)
     elif step_type in {"find", "get_text", "get_state"}:
@@ -750,6 +769,10 @@ def _validate_desktop_element_fields(
     if step_type == "select":
         _validate_string(step, "value", location, issues)
         _validate_int(step, "option_index", location, issues, minimum=0)
+    if step_type == "select_cell":
+        _validate_int(step, "row", location, issues, minimum=0)
+        _validate_string(step, "column", location, issues)
+        _validate_int(step, "column_index", location, issues, minimum=0)
 
 
 def _validate_desktop_input_fields(

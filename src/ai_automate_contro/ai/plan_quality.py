@@ -474,7 +474,7 @@ def _review_desktop_flow(
                 "missing_desktop_evidence_step",
                 "desktop plan 没有窗口、控件、截图、等待或断言类证据步骤，运行后难以判断桌面状态。",
                 ", ".join(desktop_action_locations[:8]) or "无桌面证据 action",
-                "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
+                "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
             )
         )
     else:
@@ -1241,7 +1241,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
             return _contains_any(_json_text(step.get("keys")), ("enter", "return"))
         if action == "desktop_input" and step_type in {"click", "double_click", "right_click"}:
             return True
-        if action == "desktop_element" and step_type in {"click", "invoke"}:
+        if action == "desktop_element" and step_type in {"click", "invoke", "select_cell"}:
             return True
         if action == "desktop_window":
             return step_type in {"list", "focus"}
@@ -1261,7 +1261,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 write，把运行证据写入当前 plan output/。"
+        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 write，把运行证据写入当前 plan output/。"
     return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
 
 
@@ -1270,7 +1270,15 @@ def _is_desktop_evidence_step(record: dict[str, Any]) -> bool:
     if action == "desktop_window":
         return str(record["step"].get("type", "")).lower() == "list"
     if action == "desktop_element":
-        return str(record["step"].get("type", "")).lower() in {"list", "dump", "find", "wait", "get_text", "get_state"}
+        return str(record["step"].get("type", "")).lower() in {
+            "list",
+            "dump",
+            "find",
+            "wait",
+            "get_text",
+            "get_state",
+            "get_table",
+        }
     return action in DESKTOP_DATA_COLLECTION_ACTIONS
 
 
@@ -1288,10 +1296,12 @@ def _is_desktop_output_step(record: dict[str, Any]) -> bool:
             "wait",
             "get_text",
             "get_state",
+            "get_table",
             "click",
             "set_text",
             "select",
             "invoke",
+            "select_cell",
         } and step.get("path") is not None
     return action in FINAL_DESKTOP_OUTPUT_ACTIONS
 
@@ -1304,7 +1314,7 @@ def _data_extraction_issue_message(automation_type: str) -> str:
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 desktop_wait 获取桌面状态，再按需写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 desktop_wait 获取桌面状态，再按需写出文件。"
     return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
 
 

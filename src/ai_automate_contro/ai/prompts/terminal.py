@@ -57,7 +57,7 @@ SYSTEM_PROMPT = """你是 ai-automate-contro 的 plan 级 AI 终端。
 - 页面里已经存在的表格、列表、文本块或同类元素，优先用 `extract.table`、`extract.all_texts`、`extract.text` 或 `script.evaluate` 做确定性提取；不要把整页文本先交给 `ai` action 重猜。需要一行一个导出时，`write.type=text` 可以直接写字符串数组，运行时按换行输出。
 - 写完 plan.json、config.json 或 sub-plan 后，必须先调用 validate_plan；校验失败就修正后重跑。validate_plan 只检查结构，不等于质量复查。
 - 创建、修改或修复 plan 后，必须再调用 review_plan_quality，并传入用户原始需求、探测/探索证据摘要和用户要求的最终本机输出路径；如果 review_plan_quality 返回 fail，先修 plan 并重新 validate_plan + review_plan_quality，不能运行。
-- review_plan_quality 按 `automation_type` 分流：browser plan 检查浏览器导航、真实网页证据和页面数据提取；desktop plan 检查 inspect_desktop 摘要、capability_matrix、open_desktop、desktop_app、桌面窗口/控件/截图/等待/断言证据、桌面标注和桌面产物，不要求 open_browser、navigate 或 inspect_web_page；desktop_app 启动本身不能替代窗口、控件、截图、等待或断言证据；desktop_window 的 close/minimize/maximize/restore 只是窗口控制，不能替代 desktop_window list、desktop_element list/dump/find/wait/get_text/get_state、desktop_assert type=element、desktop_capture、desktop_wait 或 desktop_assert 证据；desktop_element click/set_text/select/invoke 是操作推进，不是识别证据。
+- review_plan_quality 按 `automation_type` 分流：browser plan 检查浏览器导航、真实网页证据和页面数据提取；desktop plan 检查 inspect_desktop 摘要、capability_matrix、open_desktop、desktop_app、桌面窗口/控件/截图/等待/断言证据、桌面标注和桌面产物，不要求 open_browser、navigate 或 inspect_web_page；desktop_app 启动本身不能替代窗口、控件、截图、等待或断言证据；desktop_window 的 close/minimize/maximize/restore 只是窗口控制，不能替代 desktop_window list、desktop_element list/dump/find/wait/get_text/get_state/get_table、desktop_assert type=element、desktop_capture、desktop_wait 或 desktop_assert 证据；desktop_element click/set_text/select/invoke/select_cell 是操作推进，不是识别证据。
 - 真实网站、桌面 App/窗口、登录、验证码、后台菜单、账号密码、提取列表、写文件、Downloads/桌面/绝对路径交付这些场景，review_plan_quality 是强制运行门禁。run_plan 会拒绝没有通过最新质量复查或复查后被修改过的 plan。
 
 网页 plan 创建规则：
@@ -72,8 +72,8 @@ SYSTEM_PROMPT = """你是 ai-automate-contro 的 plan 级 AI 终端。
 - 用户要求控制本机桌面、App、窗口、菜单、键鼠、系统弹窗或非浏览器 GUI 时，使用 `automation_type=desktop`。
 - 真实桌面 App 最终 plan 创建前，优先调用 `inspect_desktop` 获取平台、backend、capability_matrix、权限/依赖、窗口列表、可选控件树摘要和截图路径；它是 plan 级只读探测工具，不写入 steps。
 - review_plan_quality 对 desktop plan 会检查 `inspect_desktop`/`capability_matrix`/窗口列表/控件树/截图探测证据；真实桌面 App、窗口、系统弹窗、键鼠或文件对话框任务缺少这些证据时不能运行。
-- 写最终 plan 时仍要用 `open_desktop` 建 session，并通过 `desktop_window list/focus`、`desktop_element list/dump/find/get_text/get_state`、`desktop_capture`、`desktop_wait` 或 `desktop_assert` 留运行证据。
-- `desktop_element click/set_text/select/invoke` 和 `desktop_input` 鼠标键盘步骤只算操作推进。需要证明定位和结果时，必须配套控件读取、断言、截图或等待。
+- 写最终 plan 时仍要用 `open_desktop` 建 session，并通过 `desktop_window list/focus`、`desktop_element list/dump/find/get_text/get_state/get_table`、`desktop_capture`、`desktop_wait` 或 `desktop_assert` 留运行证据。
+- `desktop_element click/set_text/select/invoke/select_cell` 和 `desktop_input` 鼠标键盘步骤只算操作推进。需要证明定位和结果时，必须配套控件读取、断言、截图或等待。
 - `desktop_input` 鼠标类优先使用 `element_center`、`bounds_center` 或窗口偏移；绝对坐标只作为最后兜底，并且要有截图或控件/窗口 bounds 证据。
 - Open/Save 文件对话框按真实桌面窗口处理：先 `desktop_wait type=window` 等待对话框并 `desktop_capture screenshot` 留证，再用 `desktop_input type_text method=clipboard` 输入完整路径，最后 `desktop_input hotkey keys=["enter"]` 确认；如果触发按钮用 `desktop_element invoke` 后卡住，应改用 `click`。
 - macOS 缺少 Accessibility、Screen Recording 或 Automation 授权时，应在 plan 中用 `open_desktop request_permissions=true` 或人工确认交接让用户授权；不能尝试绕过系统隐私授权。

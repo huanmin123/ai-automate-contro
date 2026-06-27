@@ -796,6 +796,159 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-element-get-table-requires-locator",
+            "expected_message": "desktop_element.get_table 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop table locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "get_table",
+                        "title_contains": "Demo",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-get-table-rejects-bad-max-rows",
+            "expected_message": "max_rows 必须大于或等于 1",
+            "plan": {
+                "name": "bad desktop table max rows",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "get_table",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "max_rows": 0,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-get-table-path-rejects-output-prefix",
+            "expected_message": "不要以 output/ 开头",
+            "plan": {
+                "name": "bad desktop table path",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "get_table",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "path": "output/desktop-elements/table.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-cell-requires-locator",
+            "expected_message": "desktop_element.select_cell 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop table cell locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_cell",
+                        "title_contains": "Demo",
+                        "row": 1,
+                        "column_index": 2,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-cell-requires-row",
+            "expected_message": "desktop_element.select_cell 缺少必填字段：row",
+            "plan": {
+                "name": "missing desktop table cell row",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_cell",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "column_index": 2,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-cell-requires-column",
+            "expected_message": "desktop_element.select_cell 需要 column 或 column_index",
+            "plan": {
+                "name": "missing desktop table cell column",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_cell",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "row": 1,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-cell-rejects-bad-column-index",
+            "expected_message": "column_index 必须大于或等于 0",
+            "plan": {
+                "name": "bad desktop table cell column",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_cell",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "row": 1,
+                        "column_index": -1,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-cell-path-rejects-output-prefix",
+            "expected_message": "不要以 output/ 开头",
+            "plan": {
+                "name": "bad desktop table cell path",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_cell",
+                        "title_contains": "Demo",
+                        "automation_id": "OrdersGrid",
+                        "row": 1,
+                        "column_index": 2,
+                        "path": "output/desktop-elements/cell.json",
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-element-wait-rejects-invalid-state",
             "expected_message": "state 不支持的取值",
             "plan": {
@@ -2015,6 +2168,8 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         assert_path = package_dir / "output" / "desktop-elements" / "form-entry-assertion.json"
         clipboard_assert_path = package_dir / "output" / "desktop-elements" / "form-clipboard-assertion.json"
         status_assert_path = package_dir / "output" / "desktop-elements" / "form-status-assertion.json"
+        table_path = package_dir / "output" / "desktop-elements" / "form-orders-table.json"
+        cell_path = package_dir / "output" / "desktop-elements" / "form-orders-cell.json"
         run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
         annotation_dir = run_output_dir / "desktop-annotations"
         set_text_payload = plan.get("variables", {}).get("expected_text", "")
@@ -2043,11 +2198,52 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 "DesktopElementModeCombo",
                 "DesktopElementOptionsList",
                 "DesktopElementMousePanel",
+                "DesktopElementOrdersGrid",
             }
             if system == "Windows"
             else set()
         )
         expected_controls_found = not expected_automation_ids or expected_automation_ids.issubset(automation_ids)
+        table_payload = _read_json(table_path) if table_path.exists() else {}
+        table_data = table_payload.get("table") if isinstance(table_payload.get("table"), dict) else {}
+        table_columns = table_data.get("columns") if isinstance(table_data.get("columns"), list) else []
+        table_cells = table_data.get("cells") if isinstance(table_data.get("cells"), list) else []
+        table_cell_texts = {
+            str(cell.get(field, ""))
+            for cell in table_cells
+            if isinstance(cell, dict)
+            for field in ("text", "value", "name")
+            if str(cell.get(field, ""))
+        }
+        table_ok = (
+            system != "Windows"
+            or (
+                bool(table_payload.get("ok"))
+                and isinstance(table_data, dict)
+                and int(table_data.get("row_count", 0) or 0) >= 3
+                and int(table_data.get("column_count", 0) or 0) >= 3
+                and len(table_cells) >= 9
+                and any("Status" in str(column) for column in table_columns)
+                and "Beta" in table_cell_texts
+                and "Review" in table_cell_texts
+            )
+        )
+        cell_payload = _read_json(cell_path) if cell_path.exists() else {}
+        selected_cell = cell_payload.get("selected_cell") if isinstance(cell_payload.get("selected_cell"), dict) else {}
+        selected_cell_texts = {
+            str(selected_cell.get(field, ""))
+            for field in ("text", "value", "name")
+            if str(selected_cell.get(field, ""))
+        }
+        selected_cell_ok = (
+            system != "Windows"
+            or (
+                bool(cell_payload.get("ok"))
+                and int(selected_cell.get("row", -1) or -1) == 1
+                and int(selected_cell.get("column_index", -1) or -1) == 2
+                and "Review" in selected_cell_texts
+            )
+        )
         status_assertion_ok = system != "Windows" or _file_nonempty_after(status_assert_path, started_at)
         expected_agree = "agree=True" if _module_available("pyautogui") else "agree=False"
         metadata_found = (
@@ -2058,6 +2254,14 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         annotation_pngs = sorted(annotation_dir.glob("*.png")) if annotation_dir.exists() else []
         annotation_jsons = sorted(annotation_dir.glob("*.json")) if annotation_dir.exists() else []
         annotation_payloads = [_read_json(path) for path in annotation_jsons]
+        select_cell_annotation_ok = (
+            system != "Windows"
+            or any(
+                isinstance(payload, dict)
+                and str(payload.get("action", "")).endswith("desktop_element.select_cell")
+                for payload in annotation_payloads
+            )
+        )
         annotation_ok = (
             annotation_dir.exists()
             and bool(annotation_pngs)
@@ -2070,6 +2274,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and isinstance(payload.get("coordinate_space"), dict)
                 for payload in annotation_payloads
             )
+            and select_cell_annotation_ok
         )
         return {
             "name": "desktop_element_set_text_invoke_regression",
@@ -2081,6 +2286,10 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and _file_nonempty_after(dump_path, started_at)
                 and dump_ok
                 and expected_controls_found
+                and _file_nonempty_after(table_path, started_at)
+                and _file_nonempty_after(cell_path, started_at)
+                and table_ok
+                and selected_cell_ok
                 and _file_nonempty_after(assert_path, started_at)
                 and (not clipboard_restore_enabled or _file_nonempty_after(clipboard_assert_path, started_at))
                 and clipboard_restore_ok
@@ -2105,6 +2314,12 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "elements_path": str(elements_path),
             "dump_path": str(dump_path),
             "dump_ok": dump_ok,
+            "table_path": str(table_path),
+            "table_ok": table_ok,
+            "selected_cell_path": str(cell_path),
+            "selected_cell_ok": selected_cell_ok,
+            "table_columns": [str(column) for column in table_columns],
+            "selected_cell": selected_cell,
             "element_assertion_path": str(assert_path),
             "status_assertion_path": str(status_assert_path),
             "set_text_expected": set_text_payload,
@@ -2276,6 +2491,7 @@ def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any]
         list_locator = {"automation_id": "DesktopElementOptionsList", "control_type": "List"}
         panel_locator = {"automation_id": "DesktopElementMousePanel", "control_type": "Pane"}
         status_locator = {"automation_id": "DesktopElementStatus", "control_type": "Text"}
+        grid_locator = {"automation_id": "DesktopElementOrdersGrid"}
         app_command = powershell
         app_args = [
             "-NoProfile",
@@ -2510,6 +2726,32 @@ root.mainloop()
                     "save_as": "options_list_select",
                     "max_depth": 5,
                     "max_elements": 200,
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "get_table",
+                    "title_contains": title,
+                    **grid_locator,
+                    "max_depth": 6,
+                    "max_elements": 300,
+                    "max_rows": 5,
+                    "max_columns": 5,
+                    "path": "form-orders-table.json",
+                    "save_as": "orders_table",
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "select_cell",
+                    "title_contains": title,
+                    **grid_locator,
+                    "row": 1,
+                    "column_index": 2,
+                    "max_depth": 6,
+                    "max_elements": 300,
+                    "path": "form-orders-cell.json",
+                    "save_as": "orders_cell",
                 },
             ]
         )
@@ -2813,8 +3055,8 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object System.Windows.Forms.Form
 $form.Text = {_powershell_string(title)}
-$form.Width = 700
-$form.Height = 430
+$form.Width = 760
+$form.Height = 600
 $form.StartPosition = 'Manual'
 $form.Left = 120
 $form.Top = 120
@@ -2883,18 +3125,41 @@ $button.Text = 'Save'
 $button.Left = 220
 $button.Top = 122
 $button.Width = 100
+$grid = New-Object System.Windows.Forms.DataGridView
+$grid.Name = 'DesktopElementOrdersGrid'
+$grid.AccessibleName = 'DesktopElementOrdersGrid'
+$grid.Left = 20
+$grid.Top = 310
+$grid.Width = 680
+$grid.Height = 145
+$grid.ReadOnly = $true
+$grid.AllowUserToAddRows = $false
+$grid.AllowUserToDeleteRows = $false
+$grid.AllowUserToResizeRows = $false
+$grid.RowHeadersVisible = $false
+$grid.MultiSelect = $false
+$grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::CellSelect
+[void]$grid.Columns.Add('OrderId', 'ID')
+[void]$grid.Columns.Add('OrderName', 'Name')
+[void]$grid.Columns.Add('OrderStatus', 'Status')
+[void]$grid.Rows.Add('A-100', 'Alpha', 'Ready')
+[void]$grid.Rows.Add('B-200', 'Beta', 'Review')
+[void]$grid.Rows.Add('C-300', 'Gamma', 'Done')
+$grid.CurrentCell = $grid.Rows[0].Cells[0]
 $status = New-Object System.Windows.Forms.Label
 $status.Name = 'DesktopElementStatus'
 $status.AutoSize = $true
 $status.Left = 20
-$status.Top = 320
-$status.Width = 620
+$status.Top = 470
+$status.Width = 700
 function Write-RegressionPayload {{
     $optionText = ''
     if ($null -ne $listBox.SelectedItem) {{ $optionText = [string]$listBox.SelectedItem }}
-    $payload = "$($textBox.Text)`nagree=$($checkBox.Checked)`nmode=$($combo.Text)`noption=$optionText`nmouse_double_click=$($mouse['double_click'])`nmouse_right_click=$($mouse['right_click'])`nmouse_scroll=$($mouse['scroll'])`nmouse_drag=$($mouse['drag'])"
+    $gridCell = ''
+    if ($null -ne $grid.CurrentCell) {{ $gridCell = [string]$grid.CurrentCell.Value }}
+    $payload = "$($textBox.Text)`nagree=$($checkBox.Checked)`nmode=$($combo.Text)`noption=$optionText`ngrid_cell=$gridCell`nmouse_double_click=$($mouse['double_click'])`nmouse_right_click=$($mouse['right_click'])`nmouse_scroll=$($mouse['scroll'])`nmouse_drag=$($mouse['drag'])"
     [System.IO.File]::WriteAllText($OutputPath, $payload, [System.Text.Encoding]::UTF8)
-    $status.Text = "Saved: $($textBox.Text) | agree=$($checkBox.Checked) | mode=$($combo.Text) | option=$optionText | mouse=$($mouse['double_click'])/$($mouse['right_click'])/$($mouse['scroll'])/$($mouse['drag'])"
+    $status.Text = "Saved: $($textBox.Text) | agree=$($checkBox.Checked) | mode=$($combo.Text) | option=$optionText | grid=$gridCell | mouse=$($mouse['double_click'])/$($mouse['right_click'])/$($mouse['scroll'])/$($mouse['drag'])"
 }}
 $button.Add_Click({{
     Write-RegressionPayload
@@ -2947,6 +3212,7 @@ $form.Add_MouseWheel({{
 [void]$form.Controls.Add($listBox)
 [void]$form.Controls.Add($mousePanel)
 [void]$form.Controls.Add($button)
+[void]$form.Controls.Add($grid)
 [void]$form.Controls.Add($status)
 [void][System.Windows.Forms.Application]::Run($form)
 """.strip()

@@ -1369,6 +1369,42 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         }
                     )
                 )
+                desktop_table_evidence_plan = {
+                    "name": "desktop table evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "get_table",
+                            "title_contains": "Demo",
+                            "automation_id": "OrdersGrid",
+                            "path": "orders-table.json",
+                            "save_as": "orders_table",
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_table_evidence_plan,
+                        }
+                    )
+                )
+                desktop_table_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "读取桌面 App 订单表格并保存 orders-table.json。",
+                            "evidence_summary": f"{desktop_inspection_summary} desktop_element get_table 输出订单表格。",
+                            "planned_output_path": "orders-table.json",
+                        }
+                    )
+                )
                 desktop_assert_element_evidence_plan = {
                     "name": "desktop assert element evidence",
                     "automation_type": "desktop",
@@ -1469,6 +1505,41 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         {
                             "plan_path": str(plan_path),
                             "user_request": "触发桌面 App 上的 Login 控件。",
+                            "evidence_summary": desktop_inspection_summary,
+                        }
+                    )
+                )
+                desktop_select_cell_no_evidence_plan = {
+                    "name": "desktop select cell no evidence",
+                    "automation_type": "desktop",
+                    "steps": [
+                        {"action": "open_desktop", "name": "desktop"},
+                        {
+                            "action": "desktop_element",
+                            "desktop": "desktop",
+                            "type": "select_cell",
+                            "title_contains": "Demo",
+                            "automation_id": "OrdersGrid",
+                            "row": 1,
+                            "column_index": 2,
+                        },
+                        {"action": "close_desktop", "desktop": "desktop"},
+                    ],
+                }
+                json.loads(
+                    write_plan_package_file_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "relative_path": "plan.json",
+                            "json_value": desktop_select_cell_no_evidence_plan,
+                        }
+                    )
+                )
+                desktop_select_cell_no_evidence_result = json.loads(
+                    review_plan_quality_tool.invoke(
+                        {
+                            "plan_path": str(plan_path),
+                            "user_request": "选择桌面订单表格的 Review 单元格。",
                             "evidence_summary": desktop_inspection_summary,
                         }
                     )
@@ -1658,6 +1729,9 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and desktop_element_dump_evidence_result.get("ok") is True
                     and "missing_desktop_evidence_step"
                     not in {issue.get("code") for issue in desktop_element_dump_evidence_result.get("issues", [])}
+                    and desktop_table_evidence_result.get("ok") is True
+                    and "missing_desktop_evidence_step"
+                    not in {issue.get("code") for issue in desktop_table_evidence_result.get("issues", [])}
                     and desktop_assert_element_evidence_result.get("ok") is True
                     and "missing_desktop_evidence_step"
                     not in {issue.get("code") for issue in desktop_assert_element_evidence_result.get("issues", [])}
@@ -1669,6 +1743,10 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and desktop_element_invoke_no_evidence_result.get("severity") == "fail"
                     and "missing_desktop_evidence_step"
                     in {issue.get("code") for issue in desktop_element_invoke_no_evidence_result.get("issues", [])}
+                    and desktop_select_cell_no_evidence_result.get("ok") is False
+                    and desktop_select_cell_no_evidence_result.get("severity") == "fail"
+                    and "missing_desktop_evidence_step"
+                    in {issue.get("code") for issue in desktop_select_cell_no_evidence_result.get("issues", [])}
                     and desktop_credentials_result.get("ok") is True
                     and "missing_account_fill"
                     not in {issue.get("code") for issue in desktop_credentials_result.get("issues", [])}
@@ -1713,8 +1791,14 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "desktop_dump_evidence_codes": [
                         issue.get("code") for issue in desktop_element_dump_evidence_result.get("issues", [])
                     ],
+                    "desktop_table_evidence_codes": [
+                        issue.get("code") for issue in desktop_table_evidence_result.get("issues", [])
+                    ],
                     "desktop_credentials_codes": [
                         issue.get("code") for issue in desktop_credentials_result.get("issues", [])
+                    ],
+                    "desktop_select_cell_codes": [
+                        issue.get("code") for issue in desktop_select_cell_no_evidence_result.get("issues", [])
                     ],
                     "desktop_no_submit_codes": [
                         issue.get("code") for issue in desktop_no_submit_result.get("issues", [])

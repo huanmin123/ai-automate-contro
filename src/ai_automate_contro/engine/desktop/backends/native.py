@@ -618,6 +618,103 @@ class NativeDesktopBackend:
         }
         return {**payload, "element_state": state_payload}
 
+    def get_table(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+        max_rows: int = 50,
+        max_columns: int = 20,
+        text_limit: int = 160,
+        visible_only: bool = True,
+    ) -> dict[str, Any]:
+        payload = self.find_element(
+            window_query,
+            locator,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        if self.platform_name == "windows":
+            table_payload = _table_element_windows(
+                int(window["id"]),
+                locator,
+                operation="get_table",
+                runtime_id=str(element.get("runtime_id") or element.get("id") or ""),
+                max_depth=max_depth,
+                max_elements=max_elements,
+                max_rows=max_rows,
+                max_columns=max_columns,
+                text_limit=text_limit,
+                visible_only=visible_only,
+            )
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持表格控件读取：{self.platform_name}")
+        return {
+            **payload,
+            **_normalized_table_payload(table_payload),
+            "table_read": True,
+            "fallback_used": False,
+        }
+
+    def select_table_cell(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        row: int,
+        column: str = "",
+        column_index: int | None = None,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        payload = self.find_element(
+            window_query,
+            locator,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        normalized_column_index = _optional_int(column_index)
+        if self.platform_name == "windows":
+            action_payload = _table_element_windows(
+                int(window["id"]),
+                locator,
+                operation="select_cell",
+                runtime_id=str(element.get("runtime_id") or element.get("id") or ""),
+                row=max(0, int(row)),
+                column=str(column or ""),
+                column_index=normalized_column_index,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持表格单元格选择：{self.platform_name}")
+        normalized = _normalized_table_payload(action_payload)
+        return {
+            **payload,
+            **normalized,
+            "selected": True,
+            "row": max(0, int(row)),
+            "column": str(column or ""),
+            "column_index": normalized_column_index,
+            "fallback_used": bool(action_payload.get("fallback_required", False)),
+        }
+
     def launch_app(
         self,
         *,
@@ -1450,6 +1547,356 @@ if ($operation -eq 'invoke') {
 """
 
 
+_WINDOWS_UIA_TABLE_ELEMENT_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$payloadText = [Console]::In.ReadToEnd()
+$payload = $payloadText | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+$hwnd = [IntPtr]([Int64]$payload.window_id)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $root) { throw "UIAutomation root not found: $($payload.window_id)" }
+$maxDepth = [int]$payload.max_depth
+$maxElements = [int]$payload.max_elements
+$maxRows = [int]$payload.max_rows
+$maxColumns = [int]$payload.max_columns
+$textLimit = [int]$payload.text_limit
+$visibleOnly = [bool]$payload.visible_only
+$locator = $payload.locator
+if ($null -eq $locator) { $locator = [pscustomobject]@{} }
+$operation = [string]$payload.operation
+$runtimeId = [string]$payload.runtime_id
+$targetRow = [int]$payload.row
+$columnName = [string]$payload.column
+$targetColumnIndex = $null
+if ($null -ne $payload.column_index) {
+  try { $targetColumnIndex = [int]$payload.column_index } catch { $targetColumnIndex = $null }
+}
+$matchIndex = 0
+try { $matchIndex = [int]$locator.element_match_index } catch {}
+
+function Get-PropText($obj, [string]$name) {
+  $prop = $obj.PSObject.Properties[$name]
+  if ($null -eq $prop -or $null -eq $prop.Value) { return '' }
+  return [string]$prop.Value
+}
+
+function Limit-Text([string]$value, [int]$limit) {
+  if ($limit -le 0 -or $value.Length -le $limit) { return $value }
+  if ($limit -le 3) { return $value.Substring(0, $limit) }
+  return $value.Substring(0, $limit - 3) + '...'
+}
+
+function Test-RegexValue([string]$pattern, [string]$value) {
+  if ([string]::IsNullOrEmpty($pattern)) { return $true }
+  try { return [regex]::IsMatch($value, $pattern) } catch { return $false }
+}
+
+function Test-TypeMatch($obj, [string]$expected) {
+  if ([string]::IsNullOrEmpty($expected)) { return $true }
+  $expectedLower = $expected.ToLowerInvariant()
+  foreach ($field in @('control_type', 'localized_control_type', 'role')) {
+    $candidate = (Get-PropText $obj $field).ToLowerInvariant()
+    if ($candidate -eq $expectedLower -or $candidate.Contains($expectedLower)) { return $true }
+  }
+  return $false
+}
+
+function Get-UiaRuntimeId([System.Windows.Automation.AutomationElement]$element) {
+  try { return ($element.GetRuntimeId() -join '.') } catch { return '' }
+}
+
+function Get-UiaValue([System.Windows.Automation.AutomationElement]$element) {
+  try {
+    $patternObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$patternObj)) {
+      return [string]$patternObj.Current.Value
+    }
+  } catch {}
+  return ''
+}
+
+function Convert-UiaElement(
+  [System.Windows.Automation.AutomationElement]$element,
+  [int]$depth,
+  [string]$parentId
+) {
+  $current = $element.Current
+  $rect = $current.BoundingRectangle
+  $runtime = Get-UiaRuntimeId $element
+  $uiaValue = Get-UiaValue $element
+  $controlType = ''
+  try {
+    $controlType = [string]$current.ControlType.ProgrammaticName
+    $controlType = $controlType -replace '^ControlType\.', ''
+  } catch {}
+  return [ordered]@{
+    id = $runtime
+    runtime_id = $runtime
+    name = [string]$current.Name
+    value = $uiaValue
+    text = $(if ($uiaValue) { $uiaValue } else { [string]$current.Name })
+    automation_id = [string]$current.AutomationId
+    control_type = $controlType
+    localized_control_type = [string]$current.LocalizedControlType
+    role = $controlType
+    class_name = [string]$current.ClassName
+    enabled = [bool]$current.IsEnabled
+    visible = -not [bool]$current.IsOffscreen
+    focused = [bool]$current.HasKeyboardFocus
+    bounds = @{
+      x = [int][Math]::Round($rect.X)
+      y = [int][Math]::Round($rect.Y)
+      width = [int][Math]::Round($rect.Width)
+      height = [int][Math]::Round($rect.Height)
+    }
+    depth = $depth
+    parent_id = $parentId
+  }
+}
+
+function Test-LocatorMatch($obj, $locator) {
+  $names = $locator.PSObject.Properties.Name
+  if ($names -contains 'element_id' -and (Get-PropText $obj 'id') -ne [string]$locator.element_id) { return $false }
+  if ($names -contains 'automation_id' -and (Get-PropText $obj 'automation_id') -ne [string]$locator.automation_id) { return $false }
+  if ($names -contains 'name' -and (Get-PropText $obj 'name') -ne [string]$locator.name) { return $false }
+  if ($names -contains 'name_contains' -and -not (Get-PropText $obj 'name').Contains([string]$locator.name_contains)) { return $false }
+  if ($names -contains 'name_regex' -and -not (Test-RegexValue ([string]$locator.name_regex) (Get-PropText $obj 'name'))) { return $false }
+  $elementText = Get-PropText $obj 'text'
+  if ($names -contains 'text' -and $elementText -ne [string]$locator.text) { return $false }
+  if ($names -contains 'text_contains' -and -not $elementText.Contains([string]$locator.text_contains)) { return $false }
+  if ($names -contains 'text_regex' -and -not (Test-RegexValue ([string]$locator.text_regex) $elementText)) { return $false }
+  if ($names -contains 'control_type' -and -not (Test-TypeMatch $obj ([string]$locator.control_type))) { return $false }
+  if ($names -contains 'role' -and -not (Test-TypeMatch $obj ([string]$locator.role))) { return $false }
+  if ($names -contains 'element_class_name') {
+    $expected = ([string]$locator.element_class_name).ToLowerInvariant()
+    $actual = (Get-PropText $obj 'class_name').ToLowerInvariant()
+    if (-not $actual.Contains($expected)) { return $false }
+  }
+  return $true
+}
+
+function Find-ElementByLocator(
+  [System.Windows.Automation.AutomationElement]$searchRoot,
+  $locator,
+  [string]$runtimeId,
+  [int]$maxDepth,
+  [int]$maxElements,
+  [int]$matchIndex
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $queue.Enqueue([pscustomobject]@{ Element = $searchRoot; Depth = 0; Parent = '' })
+  $matched = 0
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt $maxElements) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      $obj = Convert-UiaElement $element ([int]$item.Depth) ([string]$item.Parent)
+      $visited += 1
+      $isRuntimeMatch = -not [string]::IsNullOrEmpty($runtimeId) -and [string]$obj.runtime_id -eq $runtimeId
+      if ($isRuntimeMatch -or (Test-LocatorMatch $obj $locator)) {
+        if ($isRuntimeMatch -or $matched -eq $matchIndex) {
+          return [pscustomobject]@{ Element = $element; Payload = $obj; Visited = $visited }
+        }
+        $matched += 1
+      }
+      if ($item.Depth -lt $maxDepth) {
+        $child = $walker.GetFirstChild($element)
+        while ($null -ne $child) {
+          $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = ([int]$item.Depth + 1); Parent = [string]$obj.runtime_id })
+          $child = $walker.GetNextSibling($child)
+        }
+      }
+    } catch {}
+  }
+  return $null
+}
+
+function Get-CellPayload(
+  [System.Windows.Automation.AutomationElement]$cell,
+  [int]$rowIndex,
+  [int]$columnIndex,
+  [int]$textLimit
+) {
+  $obj = Convert-UiaElement $cell 0 ''
+  $rowName = ''
+  try {
+    $gridItem = $null
+    if ($cell.TryGetCurrentPattern([System.Windows.Automation.GridItemPattern]::Pattern, [ref]$gridItem)) {
+      $rowIndex = [int]$gridItem.Current.Row
+      $columnIndex = [int]$gridItem.Current.Column
+    }
+  } catch {}
+  try {
+    $tableItem = $null
+    if ($cell.TryGetCurrentPattern([System.Windows.Automation.TableItemPattern]::Pattern, [ref]$tableItem)) {
+      $rowHeaders = $tableItem.Current.GetRowHeaderItems()
+      if ($rowHeaders -and $rowHeaders.Length -gt 0) { $rowName = [string]$rowHeaders[0].Current.Name }
+    }
+  } catch {}
+  return [ordered]@{
+    row = $rowIndex
+    column_index = $columnIndex
+    row_name = $rowName
+    name = Limit-Text ([string]$obj.name) $textLimit
+    value = Limit-Text ([string]$obj.value) $textLimit
+    text = Limit-Text ([string]$obj.text) $textLimit
+    automation_id = [string]$obj.automation_id
+    control_type = [string]$obj.control_type
+    runtime_id = [string]$obj.runtime_id
+    enabled = [bool]$obj.enabled
+    visible = [bool]$obj.visible
+    focused = [bool]$obj.focused
+    bounds = $obj.bounds
+  }
+}
+
+function Get-ColumnHeaders(
+  [System.Windows.Automation.AutomationElement]$tableElement,
+  [int]$columnCount
+) {
+  $headers = New-Object System.Collections.ArrayList
+  try {
+    $tablePattern = $null
+    if ($tableElement.TryGetCurrentPattern([System.Windows.Automation.TablePattern]::Pattern, [ref]$tablePattern)) {
+      $headerItems = $tablePattern.Current.GetColumnHeaders()
+      if ($headerItems) {
+        for ($i = 0; $i -lt $headerItems.Length; $i++) {
+          [void]$headers.Add([string]$headerItems[$i].Current.Name)
+        }
+      }
+    }
+  } catch {}
+  while ($headers.Count -lt $columnCount) {
+    [void]$headers.Add("Column $($headers.Count)")
+  }
+  return $headers
+}
+
+function Resolve-ColumnIndex($headers, [string]$columnName, $columnIndex) {
+  if ($null -ne $columnIndex) { return [int]$columnIndex }
+  if (-not [string]::IsNullOrEmpty($columnName)) {
+    for ($i = 0; $i -lt $headers.Count; $i++) {
+      if ([string]$headers[$i] -eq $columnName) { return $i }
+    }
+    for ($i = 0; $i -lt $headers.Count; $i++) {
+      if (([string]$headers[$i]).Contains($columnName)) { return $i }
+    }
+  }
+  throw "Table column not found: $columnName"
+}
+
+$match = Find-ElementByLocator $root $locator $runtimeId $maxDepth $maxElements $matchIndex
+if ($null -eq $match) { throw "UIAutomation table element not found: locator=$($locator | ConvertTo-Json -Compress)" }
+$tableElement = $match.Element
+$tablePayload = $match.Payload
+$gridPattern = $null
+if (-not $tableElement.TryGetCurrentPattern([System.Windows.Automation.GridPattern]::Pattern, [ref]$gridPattern)) {
+  throw "UIAutomation GridPattern unavailable for table element: locator=$($locator | ConvertTo-Json -Compress)"
+}
+$rowCount = [int]$gridPattern.Current.RowCount
+$columnCount = [int]$gridPattern.Current.ColumnCount
+$readRows = [Math]::Min($rowCount, [Math]::Max(0, $maxRows))
+$readColumns = [Math]::Min($columnCount, [Math]::Max(0, $maxColumns))
+$headers = Get-ColumnHeaders $tableElement $columnCount
+$cells = New-Object System.Collections.ArrayList
+$rows = New-Object System.Collections.ArrayList
+for ($r = 0; $r -lt $readRows; $r++) {
+  $rowCells = New-Object System.Collections.ArrayList
+  for ($c = 0; $c -lt $readColumns; $c++) {
+    try {
+      $cell = $gridPattern.GetItem($r, $c)
+      $cellPayload = Get-CellPayload $cell $r $c $textLimit
+      if ((-not $visibleOnly) -or [bool]$cellPayload.visible) {
+        [void]$cells.Add($cellPayload)
+        [void]$rowCells.Add($cellPayload)
+      }
+    } catch {}
+  }
+  [void]$rows.Add([ordered]@{ index = $r; cells = $rowCells })
+}
+
+if ($operation -eq 'get_table') {
+  [ordered]@{
+    ok = $true
+    operation = $operation
+    method = 'uia_grid_pattern'
+    fallback_required = $false
+    fallback_error = ''
+    element = $tablePayload
+    table = [ordered]@{
+      row_count = $rowCount
+      column_count = $columnCount
+      read_row_count = $readRows
+      read_column_count = $readColumns
+      columns = $headers
+      rows = $rows
+      cells = $cells
+      visible_only = $visibleOnly
+      truncated = ($rowCount -gt $readRows -or $columnCount -gt $readColumns)
+    }
+  } | ConvertTo-Json -Depth 10 -Compress
+  return
+}
+
+if ($operation -eq 'select_cell') {
+  $resolvedColumn = Resolve-ColumnIndex $headers $columnName $targetColumnIndex
+  if ($targetRow -lt 0 -or $targetRow -ge $rowCount) { throw "Table row out of range: $targetRow" }
+  if ($resolvedColumn -lt 0 -or $resolvedColumn -ge $columnCount) { throw "Table column out of range: $resolvedColumn" }
+  $targetCell = $gridPattern.GetItem($targetRow, $resolvedColumn)
+  $selectedCell = Get-CellPayload $targetCell $targetRow $resolvedColumn $textLimit
+  $method = ''
+  $fallbackRequired = $false
+  $fallbackError = ''
+  try {
+    $selectionObj = $null
+    if ($targetCell.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObj)) {
+      $selectionObj.Select()
+      $method = 'uia_selection_item_pattern'
+    } else {
+      $invokeObj = $null
+      if ($targetCell.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeObj)) {
+        $invokeObj.Invoke()
+        $method = 'uia_invoke_pattern'
+      } else {
+        $targetCell.SetFocus()
+        $method = 'uia_set_focus'
+        $fallbackRequired = $true
+        $fallbackError = 'SelectionItemPattern and InvokePattern unavailable'
+      }
+    }
+  } catch {
+    try {
+      $targetCell.SetFocus()
+      $method = 'uia_set_focus'
+    } catch {
+      $method = 'bounds_click_fallback'
+    }
+    $fallbackRequired = $true
+    $fallbackError = $_.Exception.Message
+  }
+  [ordered]@{
+    ok = $true
+    operation = $operation
+    method = $method
+    fallback_required = $fallbackRequired
+    fallback_error = $fallbackError
+    element = $tablePayload
+    selected_cell = $selectedCell
+    table = [ordered]@{
+      row_count = $rowCount
+      column_count = $columnCount
+      columns = $headers
+    }
+  } | ConvertTo-Json -Depth 10 -Compress
+  return
+}
+
+throw "Unsupported UIAutomation table operation: $operation"
+"""
+
+
 def _run_powershell_json(script: str, payload: dict[str, Any], *, timeout: int = 15) -> dict[str, Any]:
     stdin = json.dumps(payload, ensure_ascii=False)
     command_script = (
@@ -1528,6 +1975,42 @@ def _action_element_windows(
             "runtime_id": runtime_id,
             "max_depth": max(0, int(max_depth)),
             "max_elements": max(1, int(max_elements)),
+        },
+    )
+
+
+def _table_element_windows(
+    hwnd: int,
+    locator: dict[str, Any],
+    *,
+    operation: str,
+    runtime_id: str = "",
+    row: int = 0,
+    column: str = "",
+    column_index: int | None = None,
+    max_depth: int,
+    max_elements: int,
+    max_rows: int = 50,
+    max_columns: int = 20,
+    text_limit: int = 160,
+    visible_only: bool = True,
+) -> dict[str, Any]:
+    return _run_powershell_json(
+        _WINDOWS_UIA_TABLE_ELEMENT_SCRIPT,
+        {
+            "window_id": hwnd,
+            "locator": locator,
+            "operation": operation,
+            "runtime_id": runtime_id,
+            "row": max(0, int(row)),
+            "column": str(column or ""),
+            "column_index": column_index,
+            "max_depth": max(0, int(max_depth)),
+            "max_elements": max(1, int(max_elements)),
+            "max_rows": max(1, int(max_rows)),
+            "max_columns": max(1, int(max_columns)),
+            "text_limit": max(0, int(text_limit)),
+            "visible_only": bool(visible_only),
         },
     )
 
@@ -2496,3 +2979,75 @@ def _normalized_action_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(native_element, dict):
         result["action_element"] = _normalize_element(native_element, index=0)
     return result
+
+
+def _normalized_table_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "operation": str(payload.get("operation") or ""),
+        "method": str(payload.get("method") or ""),
+        "fallback_required": bool(payload.get("fallback_required", False)),
+    }
+    if payload.get("fallback_error") not in (None, ""):
+        result["fallback_error"] = str(payload.get("fallback_error"))
+    native_element = payload.get("element")
+    if isinstance(native_element, dict):
+        result["action_element"] = _normalize_element(native_element, index=0)
+    table = payload.get("table")
+    if isinstance(table, dict):
+        result["table"] = _normalize_table(table)
+    selected_cell = payload.get("selected_cell")
+    if isinstance(selected_cell, dict):
+        result["selected_cell"] = _normalize_table_cell(selected_cell)
+    return result
+
+
+def _normalize_table(table: dict[str, Any]) -> dict[str, Any]:
+    columns = table.get("columns") if isinstance(table.get("columns"), list) else []
+    rows = table.get("rows") if isinstance(table.get("rows"), list) else []
+    cells = table.get("cells") if isinstance(table.get("cells"), list) else []
+    return {
+        "row_count": _safe_int(table.get("row_count"), default=0),
+        "column_count": _safe_int(table.get("column_count"), default=0),
+        "read_row_count": _safe_int(table.get("read_row_count"), default=_safe_int(table.get("row_count"), default=0)),
+        "read_column_count": _safe_int(
+            table.get("read_column_count"),
+            default=_safe_int(table.get("column_count"), default=0),
+        ),
+        "columns": [str(column) for column in columns],
+        "rows": [_normalize_table_row(row) for row in rows if isinstance(row, dict)],
+        "cells": [_normalize_table_cell(cell) for cell in cells if isinstance(cell, dict)],
+        "visible_only": bool(table.get("visible_only", False)),
+        "truncated": bool(table.get("truncated", False)),
+    }
+
+
+def _normalize_table_row(row: dict[str, Any]) -> dict[str, Any]:
+    cells = row.get("cells") if isinstance(row.get("cells"), list) else []
+    return {
+        "index": _safe_int(row.get("index"), default=0),
+        "cells": [_normalize_table_cell(cell) for cell in cells if isinstance(cell, dict)],
+    }
+
+
+def _normalize_table_cell(cell: dict[str, Any]) -> dict[str, Any]:
+    bounds = cell.get("bounds") if isinstance(cell.get("bounds"), dict) else {}
+    return {
+        "row": _safe_int(cell.get("row"), default=0),
+        "column_index": _safe_int(cell.get("column_index"), default=0),
+        "row_name": str(cell.get("row_name") or ""),
+        "name": str(cell.get("name") or ""),
+        "value": str(cell.get("value") or ""),
+        "text": str(cell.get("text") or cell.get("value") or cell.get("name") or ""),
+        "automation_id": str(cell.get("automation_id") or ""),
+        "control_type": str(cell.get("control_type") or ""),
+        "runtime_id": str(cell.get("runtime_id") or ""),
+        "enabled": bool(cell.get("enabled", False)),
+        "visible": bool(cell.get("visible", False)),
+        "focused": bool(cell.get("focused", False)),
+        "bounds": {
+            "x": _safe_int(bounds.get("x"), default=0),
+            "y": _safe_int(bounds.get("y"), default=0),
+            "width": _safe_int(bounds.get("width"), default=0),
+            "height": _safe_int(bounds.get("height"), default=0),
+        },
+    }

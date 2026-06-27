@@ -10,9 +10,11 @@
 - `wait`: 等待控件存在、不存在、可用、不可用或聚焦。
 - `get_text`: 读取控件文本。
 - `get_state`: 读取控件状态和 bounds。
+- `get_table`: 读取表格控件的列、行和单元格文本。
 - `click`: 点击控件 bounds 中心。
 - `set_text`: 先定位控件，再优先使用原生 UIA/AX 写入文本；原生不可用时退到聚焦、全选和剪贴板粘贴。
 - `select`: 选择 ComboBox、ListBox、列表项或可选项。
+- `select_cell`: 选择表格中的一个单元格。
 - `invoke`: 先定位控件，再优先使用 Windows InvokePattern 或 macOS AXPress 触发；原生不可用时退到控件 bounds 中心点击。
 
 ## Window Query
@@ -33,7 +35,7 @@
 
 ## Element Locator
 
-除 `list`/`dump` 外，所有类型都必须提供至少一种控件定位字段。`dump` 可选 Element Locator；提供后会标记命中控件并生成 near match 诊断。
+除 `list`/`dump` 外，所有类型都必须提供至少一种控件定位字段。`dump` 可选 Element Locator；提供后会标记命中控件并生成 near match 诊断。`get_table` 和 `select_cell` 的 Element Locator 定位的是表格控件本身。
 
 - `element_id`: backend 返回的控件 id/runtime id。
 - `automation_id`: Windows UI Automation AutomationId；macOS 通常为空。
@@ -52,11 +54,11 @@
 
 - `max_depth`: 控件树最大深度，默认 `6`。
 - `max_elements`: 最多返回控件数，默认 `200`。
-- `timeout_ms`: `find/wait/get_text/get_state/click/set_text/select/invoke` 的等待超时，默认 `1000`。
+- `timeout_ms`: `find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell` 的等待超时，默认 `1000`。
 - `interval_ms`: 重试间隔，默认 `100`。
 - `include_tree`: `dump` 是否输出嵌套控件树，默认 `true`。
 - `include_selector_hints`: `dump` 是否输出稳定 locator 建议，默认 `true`。
-- `text_limit`: `dump` 中单个文本字段最大长度，默认 `160`，`0` 表示不裁剪。
+- `text_limit`: `dump/get_table` 中单个文本字段最大长度，默认 `160`，`0` 表示不裁剪。
 - `path`: 可选，写入 `output/desktop-elements/`。
 - `save_as`: 可选，保存 payload。
 
@@ -110,7 +112,7 @@
 
 `selector_hints` 中 `automation_id + control_type` 通常最稳定；`element_id` 只适合同一次会话调试，不适合长期 plan。`dump` 是桌面识别证据，可用于 AI 终端质量门禁。
 
-当 `find`、`wait`、`get_text`、`get_state`、`click`、`set_text`、`select`、`invoke` 或 `desktop_assert type=element` 找不到控件时，失败现场会写入 `failure-desktop-state/`，并尽量包含 `diagnostics.window`、`diagnostics.element`、`near_matches`、`selector_hints` 和推荐 locator。窗口未命中时，AI 应优先根据候选窗口修正 Window Query。
+当 `find`、`wait`、`get_text`、`get_state`、`get_table`、`click`、`set_text`、`select`、`select_cell`、`invoke` 或 `desktop_assert type=element` 找不到控件时，失败现场会写入 `failure-desktop-state/`，并尽量包含 `diagnostics.window`、`diagnostics.element`、`near_matches`、`selector_hints` 和推荐 locator。窗口未命中时，AI 应优先根据候选窗口修正 Window Query。
 
 ## type=find
 
@@ -194,6 +196,40 @@
 ```
 
 `get_state` 是桌面识别证据。
+
+## type=get_table
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "get_table",
+  "title_contains": "Orders",
+  "automation_id": "OrdersGrid",
+  "max_rows": 50,
+  "max_columns": 20,
+  "path": "orders-table.json",
+  "save_as": "orders_table"
+}
+```
+
+字段：
+
+- `max_rows`: 可选，最多读取多少行，默认 `50`。
+- `max_columns`: 可选，最多读取多少列，默认 `20`。
+- `visible_only`: 可选，只返回当前可见单元格，默认 `true`。
+- `text_limit`: 可选，单元格文本最大长度，默认 `160`。
+
+主要 payload 字段：
+
+- `table.row_count`: 表格总行数。
+- `table.column_count`: 表格总列数。
+- `table.columns`: 列名数组。
+- `table.rows`: 按行组织的单元格。
+- `table.cells`: 扁平单元格列表，每个单元格包含 `row`、`column_index`、`text`、`value`、`name`、`bounds`。
+- `table.truncated`: 行列被 `max_rows/max_columns` 截断时为 `true`。
+
+`get_table` 是桌面识别/读取证据。需要从桌面 App 表格提取数据时，优先使用它；如果表格是自绘或只加载可见行，先用 `desktop_capture` 或 `desktop_vision` 补截图证据。
 
 ## type=click
 
@@ -282,6 +318,56 @@
 
 `select` 是操作推进步骤，不是桌面识别证据。需要验证选中结果时，继续使用 `desktop_assert type=element`、`get_text/get_state` 或截图。
 
+## type=select_cell
+
+按行号和列名选择：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "select_cell",
+  "title_contains": "Orders",
+  "automation_id": "OrdersGrid",
+  "row": 1,
+  "column": "Status",
+  "path": "orders-selected-cell.json",
+  "save_as": "orders_selected_cell"
+}
+```
+
+按行号和列序号选择：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "select_cell",
+  "title_contains": "Orders",
+  "automation_id": "OrdersGrid",
+  "row": 1,
+  "column_index": 2
+}
+```
+
+字段：
+
+- `row`: 必填，从 `0` 开始的行号。
+- `column`: 可选，按列名精确或包含匹配。
+- `column_index`: 可选，从 `0` 开始的列序号。
+- `column` 和 `column_index` 至少提供一个；两者都有时优先使用 `column_index`。
+
+主要 payload 字段：
+
+- `selected_cell.row`
+- `selected_cell.column_index`
+- `selected_cell.text`
+- `selected_cell.value`
+- `selected_cell.bounds`
+- `table.columns`
+
+`select_cell` 是操作推进步骤，不是桌面识别证据。选择前可用 `get_table` 读取列名和目标单元格；选择后如需验证结果，继续使用 `get_table`、`desktop_assert type=element`、截图或业务状态控件断言。
+
 ## type=invoke
 
 ```json
@@ -307,7 +393,7 @@
 
 ## 标注输出
 
-`click`、`set_text`、`select`、`invoke` 成功后会尽力写入控件位置标注：
+`click`、`set_text`、`select`、`select_cell`、`invoke` 成功后会尽力写入控件位置标注：
 
 - `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.png`
 - `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.json`
@@ -325,4 +411,5 @@ JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.loc
 - `element_id`/`runtime_id` 不是跨运行稳定句柄。长期 plan 应优先使用 `automation_id`、`name`、`text`、`control_type`、`role` 等语义定位。
 - `set_text` fallback 会短暂改变焦点和剪贴板；需要强一致验证时，写入后继续做 `desktop_assert type=element` 或 `get_text`。
 - `select/invoke` fallback 仍受遮挡、窗口位置、多显示器和权限影响；可先用 `desktop_window focus`。
+- 大表格、虚拟滚动表格或懒加载表格可能只返回当前已加载或可见的单元格；需要翻页或滚动时，先保留截图/表格读取证据，再用滚动或业务控件推进。
 - 浏览器网页控件继续使用浏览器线 `element`。不要在 desktop plan 里写 Playwright selector。

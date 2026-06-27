@@ -139,6 +139,37 @@ class DesktopBackend(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def get_table(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+        max_rows: int = 50,
+        max_columns: int = 20,
+        text_limit: int = 160,
+        visible_only: bool = True,
+    ) -> dict[str, Any]:
+        ...
+
+    def select_table_cell(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        row: int,
+        column: str = "",
+        column_index: int | None = None,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        ...
+
     def launch_app(
         self,
         *,
