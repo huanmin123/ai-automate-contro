@@ -41,7 +41,7 @@ def cleanup_temporary_desktop_form_case(package_dir: Path, system: str | None = 
     _cleanup_temporary_form_case(package_dir, system or platform.system())
 
 
-def self_check_desktop_components(project_root: Path) -> dict[str, Any]:
+def self_check_desktop_components(project_root: Path, *, require_vision: bool = False) -> dict[str, Any]:
     resolved_root = Path(project_root).resolve()
     schema_cases = _run_schema_cases(resolved_root)
     runtime_case = _run_runtime_case(resolved_root)
@@ -53,6 +53,7 @@ def self_check_desktop_components(project_root: Path) -> dict[str, Any]:
     element_action_case = _run_element_action_case(resolved_root)
     input_probe_case = _run_input_dependency_probe_case()
     capability_diagnostics_case = _run_capability_diagnostics_case()
+    required_vision_case = _run_required_vision_case(vision_case, element_action_case) if require_vision else None
     schema_ok = all(case["ok"] for case in schema_cases)
     runtime_ok = bool(runtime_case["ok"])
     failure_ok = bool(failure_case["ok"])
@@ -63,6 +64,25 @@ def self_check_desktop_components(project_root: Path) -> dict[str, Any]:
     element_action_ok = bool(element_action_case["ok"])
     input_probe_ok = bool(input_probe_case["ok"])
     capability_diagnostics_ok = bool(capability_diagnostics_case["ok"])
+    required_vision_ok = required_vision_case is None or bool(required_vision_case["ok"])
+    checks = [
+        {
+            "name": "desktop_schema_and_execution_line_validation",
+            "ok": schema_ok,
+            "cases": schema_cases,
+        },
+        runtime_case,
+        failure_case,
+        element_failure_case,
+        launch_only_case,
+        vision_case,
+        real_app_case,
+        element_action_case,
+        input_probe_case,
+        capability_diagnostics_case,
+    ]
+    if required_vision_case is not None:
+        checks.append(required_vision_case)
     return {
         "ok": schema_ok
         and runtime_ok
@@ -73,25 +93,13 @@ def self_check_desktop_components(project_root: Path) -> dict[str, Any]:
         and real_app_ok
         and element_action_ok
         and input_probe_ok
-        and capability_diagnostics_ok,
-        "checks": [
-            {
-                "name": "desktop_schema_and_execution_line_validation",
-                "ok": schema_ok,
-                "cases": schema_cases,
-            },
-            runtime_case,
-            failure_case,
-            element_failure_case,
-            launch_only_case,
-            vision_case,
-            real_app_case,
-            element_action_case,
-            input_probe_case,
-            capability_diagnostics_case,
-        ],
+        and capability_diagnostics_ok
+        and required_vision_ok,
+        "require_vision": require_vision,
+        "checks": checks,
         "commands": {
             "run": f"python {_cplan_script_path()} self-check desktop-components",
+            "run_require_vision": f"python {_cplan_script_path()} self-check desktop-components --require-vision",
             "create_desktop_plan": f"python {_cplan_script_path()} create --path .\\plans\\desktop-demo --automation-type desktop",
         },
     }
@@ -108,6 +116,45 @@ def self_check_desktop_real_app(project_root: Path) -> dict[str, Any]:
             "full_desktop_components": f"python {_cplan_script_path()} self-check desktop-components",
         },
     }
+
+
+def _run_required_vision_case(vision_case: dict[str, Any], element_action_case: dict[str, Any]) -> dict[str, Any]:
+    dependency_reason = _desktop_vision_dependency_skip_reason()
+    basic_vision_ok = bool(vision_case.get("ok")) and not bool(vision_case.get("skipped"))
+    source_target_enabled = bool(element_action_case.get("vision_source_target_enabled"))
+    source_target_ok = (
+        bool(element_action_case.get("ok"))
+        and source_target_enabled
+        and bool(element_action_case.get("window_vision_ok"))
+        and bool(element_action_case.get("element_vision_ok"))
+    )
+    issues: list[str] = []
+    if dependency_reason:
+        issues.append(dependency_reason)
+    if not basic_vision_ok:
+        issues.append("desktop_vision locate_image base regression did not run successfully.")
+    if not source_target_enabled:
+        issues.append("desktop_vision source_target=window/element regression was skipped.")
+    elif not source_target_ok:
+        issues.append("desktop_vision source_target=window/element regression did not pass.")
+    return {
+        "name": "desktop_vision_required_regression",
+        "ok": not issues,
+        "require_vision": True,
+        "dependencies_ok": not dependency_reason,
+        "basic_vision_ok": basic_vision_ok,
+        "source_target_enabled": source_target_enabled,
+        "source_target_ok": source_target_ok,
+        "issues": issues,
+    }
+
+
+def _desktop_vision_dependency_skip_reason() -> str:
+    if not _module_available("cv2"):
+        return "opencv-python is not installed; desktop_vision locate_image is unavailable."
+    if not _module_available("PIL"):
+        return "Pillow is not installed; desktop_vision fixture images cannot be generated."
+    return ""
 
 
 def _run_schema_cases(project_root: Path) -> list[dict[str, Any]]:
@@ -556,6 +603,169 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-vision-source-target-window-requires-query",
+            "expected_message": "desktop_vision.locate_image 需要至少一种窗口定位字段",
+            "plan": {
+                "name": "missing desktop vision source window query",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "window",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-source-target-window-rejects-invalid-query-type",
+            "expected_message": "title_contains 必须是非空字符串",
+            "plan": {
+                "name": "bad desktop vision source window query type",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "window",
+                        "title_contains": 123,
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-source-target-window-rejects-invalid-window-match-index",
+            "expected_message": "window_match_index 必须是整数",
+            "plan": {
+                "name": "bad desktop vision source window match index",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "window",
+                        "title_contains": "Demo",
+                        "window_match_index": "second",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-source-target-element-requires-locator",
+            "expected_message": "desktop_vision.locate_image 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop vision source element locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "element",
+                        "title_contains": "Demo",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-source-target-element-rejects-invalid-locator-type",
+            "expected_message": "automation_id 必须是非空字符串",
+            "plan": {
+                "name": "bad desktop vision source element locator type",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "element",
+                        "title_contains": "Demo",
+                        "automation_id": [],
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-rejects-source-path-and-source-target",
+            "expected_message": "desktop_vision.locate_image 不能同时使用 source_path 和 source_target",
+            "plan": {
+                "name": "bad desktop vision source mix",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_path": "resources/source.png",
+                        "source_target": "window",
+                        "title_contains": "Demo",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-rejects-invalid-source-target",
+            "expected_message": "source_target 不支持的取值",
+            "plan": {
+                "name": "bad desktop vision source target",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "dialog",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-source-target-element-rejects-not-exists-state",
+            "expected_message": "state 不支持的取值",
+            "plan": {
+                "name": "bad desktop vision source element state",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "source_target": "element",
+                        "title_contains": "Demo",
+                        "automation_id": "DemoButton",
+                        "state": "not_exists",
+                        "path": "vision.json",
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-capture-rejects-invalid-region",
             "expected_message": "region.width 必须大于 0",
             "plan": {
@@ -569,6 +779,123 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "type": "screenshot",
                         "path": "screen.png",
                         "region": {"x": 0, "y": 0, "width": 0, "height": 20},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-window-target-requires-query",
+            "expected_message": "desktop_capture.screenshot 需要至少一种窗口定位字段",
+            "plan": {
+                "name": "missing desktop capture window query",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "window",
+                        "path": "window.png",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-element-target-requires-locator",
+            "expected_message": "desktop_capture.screenshot 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop capture element locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "element",
+                        "title_contains": "Demo",
+                        "path": "element.png",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-region-target-requires-region",
+            "expected_message": "desktop_capture.screenshot target=region 缺少必填字段：region",
+            "plan": {
+                "name": "missing desktop capture region target region",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "region",
+                        "path": "region.png",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-element-target-rejects-region",
+            "expected_message": "desktop_capture.screenshot target=window/element 不能同时使用 region",
+            "plan": {
+                "name": "bad desktop capture element region mix",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "element",
+                        "title_contains": "Demo",
+                        "automation_id": "DemoButton",
+                        "path": "element.png",
+                        "region": {"x": 0, "y": 0, "width": 20, "height": 20},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-window-target-rejects-region",
+            "expected_message": "desktop_capture.screenshot target=window/element 不能同时使用 region",
+            "plan": {
+                "name": "bad desktop capture window region mix",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "window",
+                        "title_contains": "Demo",
+                        "path": "window.png",
+                        "region": {"x": 0, "y": 0, "width": 20, "height": 20},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-element-target-rejects-not-exists-state",
+            "expected_message": "state 不支持的取值",
+            "plan": {
+                "name": "bad desktop capture element state",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "element",
+                        "title_contains": "Demo",
+                        "automation_id": "DemoButton",
+                        "state": "not_exists",
+                        "path": "element.png",
                     },
                 ],
             },
@@ -944,6 +1271,133 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "row": 1,
                         "column_index": 2,
                         "path": "output/desktop-elements/cell.json",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-get-tree-requires-locator",
+            "expected_message": "desktop_element.get_tree 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop tree locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "get_tree",
+                        "title_contains": "Demo",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-expand-tree-requires-path",
+            "expected_message": "desktop_element.expand_tree 缺少必填字段：tree_path",
+            "plan": {
+                "name": "missing desktop tree path",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "expand_tree",
+                        "title_contains": "Demo",
+                        "automation_id": "NavTree",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-select-tree-rejects-empty-path",
+            "expected_message": "tree_path 必须是非空字符串数组",
+            "plan": {
+                "name": "bad desktop tree path",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "select_tree",
+                        "title_contains": "Demo",
+                        "automation_id": "NavTree",
+                        "tree_path": [],
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-invoke-menu-requires-path",
+            "expected_message": "desktop_element.invoke_menu 缺少必填字段：menu_path",
+            "plan": {
+                "name": "missing desktop menu path",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "invoke_menu",
+                        "title_contains": "Demo",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-invoke-context-menu-requires-locator",
+            "expected_message": "desktop_element.invoke_menu 需要至少一种控件定位字段",
+            "plan": {
+                "name": "missing desktop context menu locator",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "invoke_menu",
+                        "title_contains": "Demo",
+                        "open_context_menu": True,
+                        "menu_path": ["Mark Context"],
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-scroll-element-requires-amount-or-target",
+            "expected_message": "desktop_element.scroll_element 需要 amount 或 scroll_to",
+            "plan": {
+                "name": "missing desktop scroll amount",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "scroll_element",
+                        "title_contains": "Demo",
+                        "automation_id": "ScrollPanel",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-element-scroll-element-rejects-zero",
+            "expected_message": "desktop_element.scroll_element amount 不能为 0",
+            "plan": {
+                "name": "bad desktop scroll amount",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "scroll_element",
+                        "title_contains": "Demo",
+                        "automation_id": "ScrollPanel",
+                        "amount": 0,
                     },
                 ],
             },
@@ -1542,19 +1996,13 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
             "skipped": True,
             "reason": f"desktop vision regression only runs on Windows/macOS, current={system}",
         }
-    if not _module_available("cv2"):
+    dependency_reason = _desktop_vision_dependency_skip_reason()
+    if dependency_reason:
         return {
             "name": "desktop_vision_locate_image_regression",
             "ok": True,
             "skipped": True,
-            "reason": "opencv-python is not installed; desktop_vision locate_image is unavailable.",
-        }
-    if not _module_available("PIL"):
-        return {
-            "name": "desktop_vision_locate_image_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": "Pillow is not installed; desktop_vision fixture images cannot be generated.",
+            "reason": dependency_reason,
         }
     with tempfile.TemporaryDirectory(prefix="desktop-components-vision-") as raw_temp_dir:
         package_dir = Path(raw_temp_dir)
@@ -2170,6 +2618,20 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         status_assert_path = package_dir / "output" / "desktop-elements" / "form-status-assertion.json"
         table_path = package_dir / "output" / "desktop-elements" / "form-orders-table.json"
         cell_path = package_dir / "output" / "desktop-elements" / "form-orders-cell.json"
+        tree_path = package_dir / "output" / "desktop-elements" / "form-nav-tree.json"
+        tree_expand_path = package_dir / "output" / "desktop-elements" / "form-nav-tree-expand.json"
+        tree_select_path = package_dir / "output" / "desktop-elements" / "form-nav-tree-select.json"
+        tree_collapse_path = package_dir / "output" / "desktop-elements" / "form-nav-tree-collapse.json"
+        menu_path = package_dir / "output" / "desktop-elements" / "form-menu-invoke.json"
+        context_menu_path = package_dir / "output" / "desktop-elements" / "form-context-menu-invoke.json"
+        scroll_path = package_dir / "output" / "desktop-elements" / "form-scroll-panel.json"
+        scroll_target_path = package_dir / "output" / "desktop-elements" / "form-scroll-target-state.json"
+        window_capture_path = package_dir / "output" / "desktop-screenshots" / "form-window-screen.png"
+        element_capture_path = package_dir / "output" / "desktop-screenshots" / "form-entry-element-screen.png"
+        window_capture_payload_path = package_dir / "output" / "json" / "form-window-capture.json"
+        element_capture_payload_path = package_dir / "output" / "json" / "form-entry-capture.json"
+        window_vision_path = package_dir / "output" / "desktop-vision" / "form-entry-window-vision.json"
+        element_vision_path = package_dir / "output" / "desktop-vision" / "form-entry-element-vision.json"
         run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
         annotation_dir = run_output_dir / "desktop-annotations"
         set_text_payload = plan.get("variables", {}).get("expected_text", "")
@@ -2198,7 +2660,10 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 "DesktopElementModeCombo",
                 "DesktopElementOptionsList",
                 "DesktopElementMousePanel",
+                "DesktopElementContextPanel",
                 "DesktopElementOrdersGrid",
+                "DesktopElementNavTree",
+                "DesktopElementScrollPanel",
             }
             if system == "Windows"
             else set()
@@ -2244,10 +2709,160 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and "Review" in selected_cell_texts
             )
         )
+        tree_payload = _read_json(tree_path) if tree_path.exists() else {}
+        tree_data = tree_payload.get("tree") if isinstance(tree_payload.get("tree"), dict) else {}
+        tree_nodes = tree_data.get("nodes") if isinstance(tree_data.get("nodes"), list) else []
+        tree_node_names = {str(node.get("name", "")) for node in tree_nodes if isinstance(node, dict)}
+        tree_expand_payload = _read_json(tree_expand_path) if tree_expand_path.exists() else {}
+        tree_select_payload = _read_json(tree_select_path) if tree_select_path.exists() else {}
+        selected_tree_node = tree_select_payload.get("tree_node") if isinstance(tree_select_payload.get("tree_node"), dict) else {}
+        tree_collapse_payload = _read_json(tree_collapse_path) if tree_collapse_path.exists() else {}
+        selected_tree_path = selected_tree_node.get("path") if isinstance(selected_tree_node.get("path"), list) else []
+        tree_ok = (
+            system != "Windows"
+            or (
+                bool(tree_payload.get("ok"))
+                and {"Settings", "Accounts", "Security", "Reports", "Monthly"}.issubset(tree_node_names)
+                and bool(tree_expand_payload.get("ok"))
+                and bool(tree_select_payload.get("ok"))
+                and selected_tree_path == ["Settings", "Accounts"]
+                and bool(tree_collapse_payload.get("ok"))
+            )
+        )
+        menu_payload = _read_json(menu_path) if menu_path.exists() else {}
+        menu_item = menu_payload.get("menu_item") if isinstance(menu_payload.get("menu_item"), dict) else {}
+        menu_ok = (
+            system != "Windows"
+            or (
+                bool(menu_payload.get("ok"))
+                and menu_payload.get("menu_path") == ["File", "Mark Menu"]
+                and str(menu_item.get("name", "")) == "Mark Menu"
+            )
+        )
+        context_menu_payload = _read_json(context_menu_path) if context_menu_path.exists() else {}
+        context_menu_item = (
+            context_menu_payload.get("menu_item") if isinstance(context_menu_payload.get("menu_item"), dict) else {}
+        )
+        context_menu_expected = system == "Windows" and _module_available("pyautogui")
+        context_menu_ok = (
+            not context_menu_expected
+            or (
+                bool(context_menu_payload.get("ok"))
+                and context_menu_payload.get("open_context_menu") is True
+                and context_menu_payload.get("menu_path") == ["Mark Context"]
+                and str(context_menu_item.get("name", "")) == "Mark Context"
+                and isinstance(context_menu_payload.get("context_target"), dict)
+            )
+        )
+        scroll_payload = _read_json(scroll_path) if scroll_path.exists() else {}
+        scroll_target_payload = _read_json(scroll_target_path) if scroll_target_path.exists() else {}
+        scroll_target_state = (
+            scroll_target_payload.get("element_state") if isinstance(scroll_target_payload.get("element_state"), dict) else {}
+        )
+        scroll_ok = (
+            system != "Windows"
+            or (
+                _module_available("pyautogui")
+                and bool(scroll_payload.get("ok"))
+                and bool(scroll_target_payload.get("ok"))
+                and bool(scroll_target_state.get("visible", False))
+            )
+        )
+        window_capture_payload = _read_json(window_capture_payload_path) if window_capture_payload_path.exists() else {}
+        element_capture_payload = _read_json(element_capture_payload_path) if element_capture_payload_path.exists() else {}
+        window_capture_bounds = (
+            window_capture_payload.get("source_bounds")
+            if isinstance(window_capture_payload.get("source_bounds"), dict)
+            else {}
+        )
+        element_capture_bounds = (
+            element_capture_payload.get("source_bounds")
+            if isinstance(element_capture_payload.get("source_bounds"), dict)
+            else {}
+        )
+        window_capture_size = _image_size(window_capture_path)
+        element_capture_size = _image_size(element_capture_path)
+        window_capture_ok = (
+            bool(window_capture_payload.get("ok"))
+            and window_capture_payload.get("target") == "window"
+            and isinstance(window_capture_payload.get("coordinate_space"), dict)
+            and _file_nonempty_after(window_capture_path, started_at)
+            and _image_size_matches_bounds(window_capture_size, window_capture_bounds)
+        )
+        element_capture_ok = (
+            bool(element_capture_payload.get("ok"))
+            and element_capture_payload.get("target") == "element"
+            and isinstance(element_capture_payload.get("coordinate_space"), dict)
+            and isinstance(element_capture_payload.get("element"), dict)
+            and _file_nonempty_after(element_capture_path, started_at)
+            and _image_size_matches_bounds(element_capture_size, element_capture_bounds)
+        )
+        vision_source_target_enabled = bool(plan["variables"].get("vision_source_target_enabled"))
+        window_vision_payload = _read_json(window_vision_path) if window_vision_path.exists() else {}
+        element_vision_payload = _read_json(element_vision_path) if element_vision_path.exists() else {}
+        window_vision_match = (
+            window_vision_payload.get("match") if isinstance(window_vision_payload.get("match"), dict) else {}
+        )
+        element_vision_match = (
+            element_vision_payload.get("match") if isinstance(element_vision_payload.get("match"), dict) else {}
+        )
+        window_vision_target_query = (
+            window_vision_payload.get("target_query")
+            if isinstance(window_vision_payload.get("target_query"), dict)
+            else {}
+        )
+        element_vision_target_query = (
+            element_vision_payload.get("target_query")
+            if isinstance(element_vision_payload.get("target_query"), dict)
+            else {}
+        )
+        expected_window_local_bounds = _bounds_relative_to(element_capture_bounds, window_capture_bounds)
+        expected_element_local_bounds = {
+            "x": 0,
+            "y": 0,
+            "width": int(element_capture_bounds.get("width", 0) or 0),
+            "height": int(element_capture_bounds.get("height", 0) or 0),
+        }
+        expected_global_point = _point_center_from_bounds(element_capture_bounds)
+        expected_window_local_point = _point_center_from_bounds(expected_window_local_bounds)
+        expected_element_local_point = _point_center_from_bounds(expected_element_local_bounds)
+        window_vision_ok = (
+            not vision_source_target_enabled
+            or (
+                bool(window_vision_payload.get("ok"))
+                and window_vision_payload.get("source_target") == "window"
+                and _file_nonempty_after(window_vision_path, started_at)
+                and window_vision_target_query.get("match_index") == 0
+                and _bounds_match(window_vision_payload.get("source_bounds"), window_capture_bounds)
+                and _bounds_match(window_vision_match.get("bounds"), element_capture_bounds)
+                and _bounds_match(window_vision_match.get("local_bounds"), expected_window_local_bounds)
+                and _point_match(window_vision_match.get("point"), expected_global_point)
+                and _point_match(window_vision_match.get("local_point"), expected_window_local_point)
+            )
+        )
+        element_vision_ok = (
+            not vision_source_target_enabled
+            or (
+                bool(element_vision_payload.get("ok"))
+                and element_vision_payload.get("source_target") == "element"
+                and _file_nonempty_after(element_vision_path, started_at)
+                and element_vision_target_query.get("match_index") == 0
+                and _bounds_match(element_vision_payload.get("source_bounds"), element_capture_bounds)
+                and _bounds_match(element_vision_match.get("bounds"), element_capture_bounds)
+                and _bounds_match(element_vision_match.get("local_bounds"), expected_element_local_bounds)
+                and _point_match(element_vision_match.get("point"), expected_global_point)
+                and _point_match(element_vision_match.get("local_point"), expected_element_local_point)
+            )
+        )
         status_assertion_ok = system != "Windows" or _file_nonempty_after(status_assert_path, started_at)
         expected_agree = "agree=True" if _module_available("pyautogui") else "agree=False"
+        expected_context = "context_marked=True" if context_menu_expected else "context_marked=False"
         metadata_found = (
-            expected_agree in content and "mode=Audit" in content and "option=Green" in content
+            expected_agree in content
+            and "mode=Audit" in content
+            and "option=Green" in content
+            and "menu_marked=True" in content
+            and expected_context in content
             if system == "Windows"
             else True
         )
@@ -2260,6 +2875,22 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 isinstance(payload, dict)
                 and str(payload.get("action", "")).endswith("desktop_element.select_cell")
                 for payload in annotation_payloads
+            )
+        )
+        complex_control_annotation_ok = (
+            system != "Windows"
+            or {
+                "desktop_element.expand_tree",
+                "desktop_element.select_tree",
+                "desktop_element.collapse_tree",
+                "desktop_element.invoke_menu",
+                "desktop_element.scroll_element",
+            }.issubset(
+                {
+                    str(payload.get("action", ""))
+                    for payload in annotation_payloads
+                    if isinstance(payload, dict)
+                }
             )
         )
         annotation_ok = (
@@ -2275,6 +2906,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 for payload in annotation_payloads
             )
             and select_cell_annotation_ok
+            and complex_control_annotation_ok
         )
         return {
             "name": "desktop_element_set_text_invoke_regression",
@@ -2290,6 +2922,24 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and _file_nonempty_after(cell_path, started_at)
                 and table_ok
                 and selected_cell_ok
+                and _file_nonempty_after(tree_path, started_at)
+                and _file_nonempty_after(tree_expand_path, started_at)
+                and _file_nonempty_after(tree_select_path, started_at)
+                and _file_nonempty_after(tree_collapse_path, started_at)
+                and _file_nonempty_after(menu_path, started_at)
+                and (not context_menu_expected or _file_nonempty_after(context_menu_path, started_at))
+                and _file_nonempty_after(scroll_path, started_at)
+                and _file_nonempty_after(scroll_target_path, started_at)
+                and _file_nonempty_after(window_capture_payload_path, started_at)
+                and _file_nonempty_after(element_capture_payload_path, started_at)
+                and window_capture_ok
+                and element_capture_ok
+                and window_vision_ok
+                and element_vision_ok
+                and tree_ok
+                and menu_ok
+                and context_menu_ok
+                and scroll_ok
                 and _file_nonempty_after(assert_path, started_at)
                 and (not clipboard_restore_enabled or _file_nonempty_after(clipboard_assert_path, started_at))
                 and clipboard_restore_ok
@@ -2320,6 +2970,44 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "selected_cell_ok": selected_cell_ok,
             "table_columns": [str(column) for column in table_columns],
             "selected_cell": selected_cell,
+            "tree_path": str(tree_path),
+            "tree_ok": tree_ok,
+            "tree_node_names": sorted(tree_node_names),
+            "selected_tree_path": selected_tree_path,
+            "menu_path": str(menu_path),
+            "menu_ok": menu_ok,
+            "menu_item": menu_item,
+            "context_menu_path": str(context_menu_path),
+            "context_menu_expected": context_menu_expected,
+            "context_menu_ok": context_menu_ok,
+            "context_menu_item": context_menu_item,
+            "scroll_path": str(scroll_path),
+            "scroll_ok": scroll_ok,
+            "scroll_target_path": str(scroll_target_path),
+            "scroll_target_state": scroll_target_state,
+            "window_capture_path": str(window_capture_path),
+            "window_capture_ok": window_capture_ok,
+            "window_capture_size": window_capture_size,
+            "window_capture_bounds": window_capture_bounds,
+            "window_capture_payload_path": str(window_capture_payload_path),
+            "element_capture_path": str(element_capture_path),
+            "element_capture_ok": element_capture_ok,
+            "element_capture_size": element_capture_size,
+            "element_capture_bounds": element_capture_bounds,
+            "element_capture_payload_path": str(element_capture_payload_path),
+            "vision_source_target_enabled": vision_source_target_enabled,
+            "window_vision_path": str(window_vision_path),
+            "window_vision_ok": window_vision_ok,
+            "window_vision_match": window_vision_match,
+            "window_vision_target_query": window_vision_target_query,
+            "expected_window_local_bounds": expected_window_local_bounds,
+            "expected_window_local_point": expected_window_local_point,
+            "element_vision_path": str(element_vision_path),
+            "element_vision_ok": element_vision_ok,
+            "element_vision_match": element_vision_match,
+            "element_vision_target_query": element_vision_target_query,
+            "expected_element_local_bounds": expected_element_local_bounds,
+            "expected_element_local_point": expected_element_local_point,
             "element_assertion_path": str(assert_path),
             "status_assertion_path": str(status_assert_path),
             "set_text_expected": set_text_payload,
@@ -2467,6 +3155,73 @@ def _image_size(path: Path) -> dict[str, int]:
         return {}
 
 
+def _image_size_matches_bounds(size: dict[str, int], bounds: dict[str, Any], *, tolerance: int = 4) -> bool:
+    if not size or not bounds:
+        return False
+    try:
+        width = int(size.get("width", 0) or 0)
+        height = int(size.get("height", 0) or 0)
+        expected_width = int(float(bounds.get("width", 0) or 0))
+        expected_height = int(float(bounds.get("height", 0) or 0))
+    except (TypeError, ValueError):
+        return False
+    return (
+        width > 0
+        and height > 0
+        and expected_width > 0
+        and expected_height > 0
+        and abs(width - expected_width) <= tolerance
+        and abs(height - expected_height) <= tolerance
+    )
+
+
+def _bounds_match(actual: Any, expected: Any, *, tolerance: int = 4) -> bool:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    try:
+        return all(
+            abs(int(float(actual.get(field, 0) or 0)) - int(float(expected.get(field, 0) or 0))) <= tolerance
+            for field in ("x", "y", "width", "height")
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _point_match(actual: Any, expected: Any, *, tolerance: int = 4) -> bool:
+    if not isinstance(actual, dict) or not isinstance(expected, dict):
+        return False
+    try:
+        return all(
+            abs(int(float(actual.get(field, 0) or 0)) - int(float(expected.get(field, 0) or 0))) <= tolerance
+            for field in ("x", "y")
+        )
+    except (TypeError, ValueError):
+        return False
+
+
+def _point_center_from_bounds(bounds: dict[str, Any]) -> dict[str, int]:
+    try:
+        x = int(float(bounds.get("x", 0) or 0))
+        y = int(float(bounds.get("y", 0) or 0))
+        width = int(float(bounds.get("width", 0) or 0))
+        height = int(float(bounds.get("height", 0) or 0))
+        return {"x": x + width // 2, "y": y + height // 2}
+    except (TypeError, ValueError):
+        return {"x": 0, "y": 0}
+
+
+def _bounds_relative_to(bounds: dict[str, Any], source_bounds: dict[str, Any]) -> dict[str, int]:
+    try:
+        return {
+            "x": int(float(bounds.get("x", 0) or 0)) - int(float(source_bounds.get("x", 0) or 0)),
+            "y": int(float(bounds.get("y", 0) or 0)) - int(float(source_bounds.get("y", 0) or 0)),
+            "width": int(float(bounds.get("width", 0) or 0)),
+            "height": int(float(bounds.get("height", 0) or 0)),
+        }
+    except (TypeError, ValueError):
+        return {"x": 0, "y": 0, "width": 0, "height": 0}
+
+
 def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any], Path, str]:
     title = "AI Automate Desktop Element Form"
     expected_text = "desktop element set_text regression input"
@@ -2490,8 +3245,12 @@ def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any]
         combo_locator = {"automation_id": "DesktopElementModeCombo", "control_type": "ComboBox"}
         list_locator = {"automation_id": "DesktopElementOptionsList", "control_type": "List"}
         panel_locator = {"automation_id": "DesktopElementMousePanel", "control_type": "Pane"}
+        context_panel_locator = {"automation_id": "DesktopElementContextPanel", "control_type": "Pane"}
         status_locator = {"automation_id": "DesktopElementStatus", "control_type": "Text"}
         grid_locator = {"automation_id": "DesktopElementOrdersGrid"}
+        tree_locator = {"automation_id": "DesktopElementNavTree", "control_type": "Tree"}
+        scroll_locator = {"automation_id": "DesktopElementScrollPanel", "control_type": "Pane"}
+        scroll_target_locator = {"automation_id": "DesktopElementScrollTargetButton", "control_type": "Button"}
         app_command = powershell
         app_args = [
             "-NoProfile",
@@ -2511,6 +3270,7 @@ def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any]
         combo_locator = {}
         list_locator = {}
         panel_locator = {}
+        context_panel_locator = {}
         status_locator = {}
         app_script = f"""
 import pathlib
@@ -2540,8 +3300,50 @@ root.mainloop()
         cleanup_hint = f"temporary tkinter app title={title}; pid file={absolute_pid_file}"
     extra_control_steps: list[dict[str, Any]] = []
     clipboard_steps: list[dict[str, Any]] = []
+    vision_source_target_steps: list[dict[str, Any]] = []
     status_assert_steps: list[dict[str, Any]] = []
     expected_content_fragments = ["{{expected_text}}"]
+    include_vision_source_target_steps = _module_available("cv2") and _module_available("PIL")
+    if include_vision_source_target_steps:
+        vision_source_target_steps.extend(
+            [
+                {
+                    "action": "desktop_vision",
+                    "desktop": "desktop",
+                    "type": "locate_image",
+                    "template_path": "output/desktop-screenshots/form-entry-element-screen.png",
+                    "source_target": "window",
+                    "title_contains": title,
+                    "window_match_index": 0,
+                    "threshold": 0.95,
+                    "match_index": 0,
+                    "max_matches": 3,
+                    "path": "form-entry-window-vision.json",
+                    "save_as": "entry_window_vision",
+                    "timeout_ms": 2000,
+                    "interval_ms": 100,
+                },
+                {
+                    "action": "desktop_vision",
+                    "desktop": "desktop",
+                    "type": "locate_image",
+                    "template_path": "output/desktop-screenshots/form-entry-element-screen.png",
+                    "source_target": "element",
+                    "title_contains": title,
+                    "window_match_index": 0,
+                    **entry_locator,
+                    "threshold": 0.95,
+                    "match_index": 0,
+                    "max_matches": 3,
+                    "path": "form-entry-element-vision.json",
+                    "save_as": "entry_element_vision",
+                    "timeout_ms": 2000,
+                    "interval_ms": 100,
+                    "max_depth": 5,
+                    "max_elements": 200,
+                },
+            ]
+        )
     if system == "Windows":
         if include_clipboard_steps:
             clipboard_steps.extend(
@@ -2613,6 +3415,19 @@ root.mainloop()
         if include_mouse_steps:
             extra_control_steps.extend(
                 [
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "invoke_menu",
+                        "title_contains": title,
+                        **context_panel_locator,
+                        "open_context_menu": True,
+                        "menu_path": ["Mark Context"],
+                        "max_depth": 8,
+                        "max_elements": 800,
+                        "path": "form-context-menu-invoke.json",
+                        "save_as": "context_menu_invoke",
+                    },
                     {
                         "action": "desktop_element",
                         "desktop": "desktop",
@@ -2755,6 +3570,97 @@ root.mainloop()
                 },
             ]
         )
+        extra_control_steps.extend(
+            [
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "get_tree",
+                    "title_contains": title,
+                    **tree_locator,
+                    "max_depth": 8,
+                    "max_elements": 400,
+                    "max_nodes": 50,
+                    "path": "form-nav-tree.json",
+                    "save_as": "nav_tree",
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "expand_tree",
+                    "title_contains": title,
+                    **tree_locator,
+                    "tree_path": ["Settings"],
+                    "max_depth": 8,
+                    "max_elements": 400,
+                    "path": "form-nav-tree-expand.json",
+                    "save_as": "nav_tree_expand",
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "select_tree",
+                    "title_contains": title,
+                    **tree_locator,
+                    "tree_path": ["Settings", "Accounts"],
+                    "max_depth": 8,
+                    "max_elements": 400,
+                    "path": "form-nav-tree-select.json",
+                    "save_as": "nav_tree_select",
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "collapse_tree",
+                    "title_contains": title,
+                    **tree_locator,
+                    "tree_path": ["Settings"],
+                    "max_depth": 8,
+                    "max_elements": 400,
+                    "path": "form-nav-tree-collapse.json",
+                    "save_as": "nav_tree_collapse",
+                },
+                {
+                    "action": "desktop_element",
+                    "desktop": "desktop",
+                    "type": "invoke_menu",
+                    "title_contains": title,
+                    "menu_path": ["File", "Mark Menu"],
+                    "max_depth": 8,
+                    "max_elements": 400,
+                    "path": "form-menu-invoke.json",
+                    "save_as": "menu_invoke",
+                },
+            ]
+        )
+        if include_mouse_steps:
+            extra_control_steps.extend(
+                [
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "scroll_element",
+                        "title_contains": title,
+                        **scroll_locator,
+                        "scroll_to": "end",
+                        "max_depth": 8,
+                        "max_elements": 400,
+                        "path": "form-scroll-panel.json",
+                        "save_as": "scroll_panel",
+                    },
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "get_state",
+                        "title_contains": title,
+                        **scroll_target_locator,
+                        "max_depth": 8,
+                        "max_elements": 400,
+                        "path": "form-scroll-target-state.json",
+                        "save_as": "scroll_target_state",
+                    },
+                ]
+            )
         status_assert_steps.append(
             {
                 "action": "desktop_assert",
@@ -2776,6 +3682,8 @@ root.mainloop()
                 "agree=True" if include_mouse_steps else "agree=False",
                 "mode=Audit",
                 "option=Green",
+                "menu_marked=True",
+                "context_marked=True" if include_mouse_steps else "context_marked=False",
             ]
         )
         if include_mouse_steps:
@@ -2795,6 +3703,7 @@ root.mainloop()
             "clipboard_restore_enabled": include_clipboard_steps,
             "clipboard_sentinel": clipboard_sentinel,
             "clipboard_text": clipboard_text,
+            "vision_source_target_enabled": include_vision_source_target_steps,
         },
         "steps": [
             {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
@@ -2836,6 +3745,40 @@ root.mainloop()
                 "title_contains": title,
                 "save_as": "app_focus",
             },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": title,
+                "path": "form-window-screen.png",
+                "save_as": "form_window_capture",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-window-capture.json",
+                "value": "{{form_window_capture}}",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "element",
+                "title_contains": title,
+                **entry_locator,
+                "path": "form-entry-element-screen.png",
+                "save_as": "form_entry_capture",
+                "max_depth": 5,
+                "max_elements": 200,
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-entry-capture.json",
+                "value": "{{form_entry_capture}}",
+            },
+            *vision_source_target_steps,
             {
                 "action": "desktop_element",
                 "desktop": "desktop",
@@ -3055,11 +3998,32 @@ Add-Type -AssemblyName System.Drawing
 [System.Windows.Forms.Application]::EnableVisualStyles()
 $form = New-Object System.Windows.Forms.Form
 $form.Text = {_powershell_string(title)}
-$form.Width = 760
-$form.Height = 600
+$form.Width = 1040
+$form.Height = 760
 $form.StartPosition = 'Manual'
 $form.Left = 120
 $form.Top = 120
+$menuState = @{{
+    marked = $false
+}}
+$contextMenuState = @{{
+    marked = $false
+}}
+$menuStrip = New-Object System.Windows.Forms.MenuStrip
+$fileMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+$fileMenu.Name = 'DesktopElementFileMenu'
+$fileMenu.Text = 'File'
+$markMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+$markMenu.Name = 'DesktopElementMarkMenuItem'
+$markMenu.Text = 'Mark Menu'
+[void]$fileMenu.DropDownItems.Add($markMenu)
+[void]$menuStrip.Items.Add($fileMenu)
+$form.MainMenuStrip = $menuStrip
+$contextMenu = New-Object System.Windows.Forms.ContextMenuStrip
+$contextMarkMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+$contextMarkMenu.Name = 'DesktopElementContextMarkMenuItem'
+$contextMarkMenu.Text = 'Mark Context'
+[void]$contextMenu.Items.Add($contextMarkMenu)
 $label = New-Object System.Windows.Forms.Label
 $label.Text = 'Value'
 $label.AutoSize = $true
@@ -3104,6 +4068,7 @@ $mouse = @{{
     dragging = $false
     start_x = 0
     start_y = 0
+    last_left_up_ms = 0
 }}
 $mousePanel = New-Object System.Windows.Forms.Panel
 $mousePanel.Name = 'DesktopElementMousePanel'
@@ -3119,6 +4084,23 @@ $mouseLabel.AutoSize = $true
 $mouseLabel.Left = 12
 $mouseLabel.Top = 12
 [void]$mousePanel.Controls.Add($mouseLabel)
+$contextPanel = New-Object System.Windows.Forms.Panel
+$contextPanel.Name = 'DesktopElementContextPanel'
+$contextPanel.AccessibleName = 'DesktopElementContextPanel'
+$contextPanel.Left = 510
+$contextPanel.Top = 48
+$contextPanel.Width = 170
+$contextPanel.Height = 44
+$contextPanel.TabStop = $true
+$contextPanel.BackColor = [System.Drawing.Color]::FromArgb(245, 247, 232)
+$contextPanel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$contextPanel.ContextMenuStrip = $contextMenu
+$contextLabel = New-Object System.Windows.Forms.Label
+$contextLabel.Text = 'Context Menu'
+$contextLabel.AutoSize = $true
+$contextLabel.Left = 12
+$contextLabel.Top = 12
+[void]$contextPanel.Controls.Add($contextLabel)
 $button = New-Object System.Windows.Forms.Button
 $button.Name = 'DesktopElementSaveButton'
 $button.Text = 'Save'
@@ -3146,26 +4128,82 @@ $grid.SelectionMode = [System.Windows.Forms.DataGridViewSelectionMode]::CellSele
 [void]$grid.Rows.Add('B-200', 'Beta', 'Review')
 [void]$grid.Rows.Add('C-300', 'Gamma', 'Done')
 $grid.CurrentCell = $grid.Rows[0].Cells[0]
+$tree = New-Object System.Windows.Forms.TreeView
+$tree.Name = 'DesktopElementNavTree'
+$tree.AccessibleName = 'DesktopElementNavTree'
+$tree.Left = 720
+$tree.Top = 48
+$tree.Width = 280
+$tree.Height = 180
+$settingsNode = New-Object System.Windows.Forms.TreeNode('Settings')
+[void]$settingsNode.Nodes.Add('Accounts')
+[void]$settingsNode.Nodes.Add('Security')
+$reportsNode = New-Object System.Windows.Forms.TreeNode('Reports')
+[void]$reportsNode.Nodes.Add('Monthly')
+[void]$tree.Nodes.Add($settingsNode)
+[void]$tree.Nodes.Add($reportsNode)
+$tree.ExpandAll()
+$scrollPanel = New-Object System.Windows.Forms.Panel
+$scrollPanel.Name = 'DesktopElementScrollPanel'
+$scrollPanel.AccessibleName = 'DesktopElementScrollPanel'
+$scrollPanel.Left = 720
+$scrollPanel.Top = 250
+$scrollPanel.Width = 280
+$scrollPanel.Height = 210
+$scrollPanel.AutoScroll = $true
+$scrollPanel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
+$scrollPanel.AutoScrollMinSize = New-Object System.Drawing.Size(240, 520)
+$scrollLabel = New-Object System.Windows.Forms.Label
+$scrollLabel.Text = 'Scroll Area'
+$scrollLabel.AutoSize = $true
+$scrollLabel.Left = 12
+$scrollLabel.Top = 12
+$scrollTarget = New-Object System.Windows.Forms.Button
+$scrollTarget.Name = 'DesktopElementScrollTargetButton'
+$scrollTarget.AccessibleName = 'DesktopElementScrollTargetButton'
+$scrollTarget.Text = 'Scroll Target'
+$scrollTarget.Left = 24
+$scrollTarget.Top = 430
+$scrollTarget.Width = 180
+$scrollTarget.Height = 32
+[void]$scrollPanel.Controls.Add($scrollLabel)
+[void]$scrollPanel.Controls.Add($scrollTarget)
 $status = New-Object System.Windows.Forms.Label
 $status.Name = 'DesktopElementStatus'
 $status.AutoSize = $true
 $status.Left = 20
-$status.Top = 470
-$status.Width = 700
+$status.Top = 650
+$status.Width = 980
 function Write-RegressionPayload {{
     $optionText = ''
     if ($null -ne $listBox.SelectedItem) {{ $optionText = [string]$listBox.SelectedItem }}
     $gridCell = ''
     if ($null -ne $grid.CurrentCell) {{ $gridCell = [string]$grid.CurrentCell.Value }}
-    $payload = "$($textBox.Text)`nagree=$($checkBox.Checked)`nmode=$($combo.Text)`noption=$optionText`ngrid_cell=$gridCell`nmouse_double_click=$($mouse['double_click'])`nmouse_right_click=$($mouse['right_click'])`nmouse_scroll=$($mouse['scroll'])`nmouse_drag=$($mouse['drag'])"
+    $treePath = ''
+    if ($null -ne $tree.SelectedNode) {{ $treePath = $tree.SelectedNode.FullPath -replace '\\', '/' }}
+    $payload = "$($textBox.Text)`nagree=$($checkBox.Checked)`nmode=$($combo.Text)`noption=$optionText`ngrid_cell=$gridCell`ntree_path=$treePath`nmenu_marked=$($menuState['marked'])`ncontext_marked=$($contextMenuState['marked'])`nscroll_value=$($scrollPanel.VerticalScroll.Value)`nmouse_double_click=$($mouse['double_click'])`nmouse_right_click=$($mouse['right_click'])`nmouse_scroll=$($mouse['scroll'])`nmouse_drag=$($mouse['drag'])"
     [System.IO.File]::WriteAllText($OutputPath, $payload, [System.Text.Encoding]::UTF8)
-    $status.Text = "Saved: $($textBox.Text) | agree=$($checkBox.Checked) | mode=$($combo.Text) | option=$optionText | grid=$gridCell | mouse=$($mouse['double_click'])/$($mouse['right_click'])/$($mouse['scroll'])/$($mouse['drag'])"
+    $status.Text = "Saved: $($textBox.Text) | agree=$($checkBox.Checked) | mode=$($combo.Text) | option=$optionText | grid=$gridCell | tree=$treePath | menu=$($menuState['marked'])/$($contextMenuState['marked']) | mouse=$($mouse['double_click'])/$($mouse['right_click'])/$($mouse['scroll'])/$($mouse['drag'])"
 }}
+$markMenu.Add_Click({{
+    $menuState['marked'] = $true
+    Write-RegressionPayload
+}})
+$contextMarkMenu.Add_Click({{
+    $contextMenuState['marked'] = $true
+    Write-RegressionPayload
+}})
+$tree.Add_AfterSelect({{
+    Write-RegressionPayload
+}})
 $button.Add_Click({{
     Write-RegressionPayload
 }})
 $mousePanel.Add_Click({{
     $mousePanel.Focus()
+}})
+$contextPanel.Add_Click({{
+    $contextPanel.Focus()
 }})
 $mousePanel.Add_MouseDoubleClick({{
     $mouse['double_click'] = $true
@@ -3189,6 +4227,21 @@ $mousePanel.Add_MouseMove({{
     }}
 }})
 $mousePanel.Add_MouseUp({{
+    if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) {{
+        $now_ms = [Environment]::TickCount64
+        $previous_ms = [int64]$mouse['last_left_up_ms']
+        if ($previous_ms -gt 0 -and ($now_ms - $previous_ms) -le 700) {{
+            $mouse['double_click'] = $true
+        }}
+        if ($mouse['dragging']) {{
+            $dx = [Math]::Abs($_.X - [int]$mouse['start_x'])
+            $dy = [Math]::Abs($_.Y - [int]$mouse['start_y'])
+            if (($dx + $dy) -ge 8) {{
+                $mouse['drag'] = $true
+            }}
+        }}
+        $mouse['last_left_up_ms'] = $now_ms
+    }}
     if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Right) {{
         $mouse['right_click'] = $true
     }}
@@ -3211,8 +4264,12 @@ $form.Add_MouseWheel({{
 [void]$form.Controls.Add($combo)
 [void]$form.Controls.Add($listBox)
 [void]$form.Controls.Add($mousePanel)
+[void]$form.Controls.Add($contextPanel)
 [void]$form.Controls.Add($button)
 [void]$form.Controls.Add($grid)
+[void]$form.Controls.Add($tree)
+[void]$form.Controls.Add($scrollPanel)
+[void]$form.Controls.Add($menuStrip)
 [void]$form.Controls.Add($status)
 [void][System.Windows.Forms.Application]::Run($form)
 """.strip()

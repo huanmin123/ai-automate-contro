@@ -11,11 +11,17 @@
 - `get_text`: 读取控件文本。
 - `get_state`: 读取控件状态和 bounds。
 - `get_table`: 读取表格控件的列、行和单元格文本。
+- `get_tree`: 读取树控件的节点结构。
 - `click`: 点击控件 bounds 中心。
 - `set_text`: 先定位控件，再优先使用原生 UIA/AX 写入文本；原生不可用时退到聚焦、全选和剪贴板粘贴。
 - `select`: 选择 ComboBox、ListBox、列表项或可选项。
 - `select_cell`: 选择表格中的一个单元格。
 - `invoke`: 先定位控件，再优先使用 Windows InvokePattern 或 macOS AXPress 触发；原生不可用时退到控件 bounds 中心点击。
+- `expand_tree`: 按 `tree_path` 展开树节点。
+- `collapse_tree`: 按 `tree_path` 折叠树节点。
+- `select_tree`: 按 `tree_path` 选择树节点。
+- `invoke_menu`: 按 `menu_path` 触发菜单栏或上下文菜单项。
+- `scroll_element`: 对滚动容器做语义滚动。
 
 ## Window Query
 
@@ -35,7 +41,7 @@
 
 ## Element Locator
 
-除 `list`/`dump` 外，所有类型都必须提供至少一种控件定位字段。`dump` 可选 Element Locator；提供后会标记命中控件并生成 near match 诊断。`get_table` 和 `select_cell` 的 Element Locator 定位的是表格控件本身。
+除 `list`/`dump`/`invoke_menu` 外，所有类型都必须提供至少一种控件定位字段。`dump` 可选 Element Locator；提供后会标记命中控件并生成 near match 诊断。`get_table` 和 `select_cell` 的 Element Locator 定位表格控件；`get_tree`、`expand_tree`、`collapse_tree` 和 `select_tree` 的 Element Locator 定位树控件；`scroll_element` 的 Element Locator 定位滚动容器。`invoke_menu` 默认使用 Window Query 和 `menu_path` 定位菜单栏；`open_context_menu=true` 时必须提供 Element Locator，先右键目标控件再触发上下文菜单项。
 
 - `element_id`: backend 返回的控件 id/runtime id。
 - `automation_id`: Windows UI Automation AutomationId；macOS 通常为空。
@@ -54,11 +60,12 @@
 
 - `max_depth`: 控件树最大深度，默认 `6`。
 - `max_elements`: 最多返回控件数，默认 `200`。
-- `timeout_ms`: `find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell` 的等待超时，默认 `1000`。
+- `timeout_ms`: `find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 的等待超时，默认 `1000`。
 - `interval_ms`: 重试间隔，默认 `100`。
 - `include_tree`: `dump` 是否输出嵌套控件树，默认 `true`。
 - `include_selector_hints`: `dump` 是否输出稳定 locator 建议，默认 `true`。
-- `text_limit`: `dump/get_table` 中单个文本字段最大长度，默认 `160`，`0` 表示不裁剪。
+- `text_limit`: `dump/get_table/get_tree` 中单个文本字段最大长度，默认 `160`，`0` 表示不裁剪。
+- `max_nodes`: `get_tree` 最多返回树节点数，默认 `200`。
 - `path`: 可选，写入 `output/desktop-elements/`。
 - `save_as`: 可选，保存 payload。
 
@@ -79,7 +86,7 @@
 
 `list` 可以不写 Element Locator；如果写了 `name_contains`、`control_type` 等字段，会在枚举后过滤结果。
 
-`list` 是桌面识别证据，可用于 AI 终端质量门禁。
+`list` 是桌面识别证据。
 
 ## type=dump
 
@@ -110,9 +117,9 @@
 - `selector_hints`: 面向匹配控件的 locator 建议，包含 `stability`、`match_count`、`unique`。
 - `diagnostics`: 是否歧义、backend 限制、推荐修正方式和枚举深度信息。
 
-`selector_hints` 中 `automation_id + control_type` 通常最稳定；`element_id` 只适合同一次会话调试，不适合长期 plan。`dump` 是桌面识别证据，可用于 AI 终端质量门禁。
+`selector_hints` 中 `automation_id + control_type` 通常最稳定；`element_id` 只适合同一次会话调试，不适合长期 plan。`dump` 是桌面识别证据。
 
-当 `find`、`wait`、`get_text`、`get_state`、`get_table`、`click`、`set_text`、`select`、`select_cell`、`invoke` 或 `desktop_assert type=element` 找不到控件时，失败现场会写入 `failure-desktop-state/`，并尽量包含 `diagnostics.window`、`diagnostics.element`、`near_matches`、`selector_hints` 和推荐 locator。窗口未命中时，AI 应优先根据候选窗口修正 Window Query。
+当 `find`、`wait`、`get_text`、`get_state`、`get_table`、`get_tree`、`click`、`set_text`、`select`、`select_cell`、`invoke`、`expand_tree`、`collapse_tree`、`select_tree`、`invoke_menu`、`scroll_element` 或 `desktop_assert type=element` 找不到控件时，失败现场会写入 `failure-desktop-state/`，并尽量包含 `diagnostics.window`、`diagnostics.element`、`near_matches`、`selector_hints` 和推荐 locator。窗口未命中时，AI 应优先根据候选窗口修正 Window Query。
 
 ## type=find
 
@@ -231,6 +238,34 @@
 
 `get_table` 是桌面识别/读取证据。需要从桌面 App 表格提取数据时，优先使用它；如果表格是自绘或只加载可见行，先用 `desktop_capture` 或 `desktop_vision` 补截图证据。
 
+## type=get_tree
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "get_tree",
+  "title_contains": "Settings",
+  "automation_id": "NavigationTree",
+  "max_nodes": 100,
+  "path": "navigation-tree.json",
+  "save_as": "navigation_tree"
+}
+```
+
+字段：
+
+- `max_nodes`: 可选，最多返回树节点数，默认 `200`。
+- `text_limit`: 可选，节点文本最大长度，默认 `160`。
+
+主要 payload 字段：
+
+- `tree.nodes`: 扁平树节点列表，每项包含 `name`、`text`、`path`、`expanded`、`leaf`、`selected`、`bounds`。
+- `tree.count`: 返回节点数。
+- `tree.truncated`: 节点数被 `max_nodes` 截断时为 `true`。
+
+`get_tree` 是桌面识别/读取证据。需要操作树节点前，优先用它确认节点名称和 `tree_path`。
+
 ## type=click
 
 ```json
@@ -245,7 +280,7 @@
 }
 ```
 
-`click` 先定位控件，再点击控件 bounds 中心。它是操作推进步骤，不是桌面识别证据；需要质量门禁通过时，应在它前后补 `list/dump/find/get_text/get_state`、截图、等待或断言。
+`click` 先定位控件，再点击控件 bounds 中心。它是操作推进步骤，不是桌面识别证据；需要确认桌面状态时，应在它前后补 `list/dump/find/get_text/get_state`、截图、等待或断言。
 
 ## type=set_text
 
@@ -368,6 +403,49 @@
 
 `select_cell` 是操作推进步骤，不是桌面识别证据。选择前可用 `get_table` 读取列名和目标单元格；选择后如需验证结果，继续使用 `get_table`、`desktop_assert type=element`、截图或业务状态控件断言。
 
+## type=expand_tree / collapse_tree / select_tree
+
+展开节点：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "expand_tree",
+  "title_contains": "Settings",
+  "automation_id": "NavigationTree",
+  "tree_path": ["Settings"]
+}
+```
+
+选择子节点：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "select_tree",
+  "title_contains": "Settings",
+  "automation_id": "NavigationTree",
+  "tree_path": ["Settings", "Accounts"],
+  "path": "selected-tree-node.json",
+  "save_as": "selected_tree_node"
+}
+```
+
+字段：
+
+- `tree_path`: 必填，非空字符串数组，按树层级从根节点到目标节点填写。
+
+主要 payload 字段：
+
+- `tree_path`: 请求的路径。
+- `tree_node.path`: 命中的节点路径。
+- `tree_node.name`: 命中的节点名称。
+- `method`: 使用的原生操作或 fallback 方法。
+
+`expand_tree`、`collapse_tree` 和 `select_tree` 是操作推进步骤，不是桌面识别证据。操作前用 `get_tree` 确认路径；操作后用 `get_tree`、`desktop_assert type=element`、截图、状态文本或业务结果验证。
+
 ## type=invoke
 
 ```json
@@ -391,9 +469,96 @@
 
 `invoke` 和 `click/select` 一样是操作推进步骤，不是桌面识别证据。
 
+## type=invoke_menu
+
+菜单栏：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "invoke_menu",
+  "title_contains": "Demo",
+  "menu_path": ["File", "Save"],
+  "path": "menu-save.json",
+  "save_as": "menu_save"
+}
+```
+
+上下文菜单：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "invoke_menu",
+  "title_contains": "Demo",
+  "automation_id": "OrderList",
+  "control_type": "List",
+  "open_context_menu": true,
+  "menu_path": ["Open"],
+  "path": "context-open.json",
+  "save_as": "context_open"
+}
+```
+
+字段：
+
+- `menu_path`: 必填，非空字符串数组，按菜单层级填写，例如 `["File", "Save As"]`。
+- `open_context_menu`: 可选布尔值，默认 `false`。为 `true` 时先右键 Element Locator 命中的控件，再在弹出的上下文菜单中按 `menu_path` 找菜单项。
+- Element Locator: 仅 `open_context_menu=true` 时必填，用来定位要右键打开上下文菜单的控件。
+
+主要 payload 字段：
+
+- `menu_path`: 请求的菜单路径。
+- `open_context_menu`: 是否使用上下文菜单模式。
+- `menu_item.name`: 命中的菜单项名称。
+- `context_target`: 上下文菜单模式下被右键的控件。
+- `context_open`: 上下文菜单模式下的右键触发点。
+- `method`: 使用的触发方法。
+
+`invoke_menu` 是操作推进步骤，不是桌面识别证据。触发菜单后继续用窗口等待、控件断言、截图或业务状态验证结果。只需要打开菜单但不点菜单项时，用 `desktop_input type=right_click`。
+
+## type=scroll_element
+
+滚动到底部：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "scroll_element",
+  "title_contains": "Demo",
+  "automation_id": "ResultsPanel",
+  "scroll_to": "end",
+  "path": "results-panel-scroll.json"
+}
+```
+
+按偏移滚动：
+
+```json
+{
+  "action": "desktop_element",
+  "desktop": "desk",
+  "type": "scroll_element",
+  "title_contains": "Demo",
+  "automation_id": "ResultsPanel",
+  "amount": -5
+}
+```
+
+字段：
+
+- `amount`: 可选，整数，不能为 `0`。
+- `scroll_to`: 可选，取值 `start`、`end`、`top`、`bottom`、`left`、`right`。
+- `amount` 和 `scroll_to` 至少提供一个。
+
+`scroll_element` 是滚动容器的语义滚动步骤。需要系统级坐标滚轮时使用 [desktop_input](./desktop_input.md) 的 `type=scroll`。滚动后用 `get_state`、`desktop_assert type=element`、截图或业务状态验证目标是否可见。
+
 ## 标注输出
 
-`click`、`set_text`、`select`、`select_cell`、`invoke` 成功后会尽力写入控件位置标注：
+`click`、`set_text`、`select`、`select_cell`、`invoke`、`expand_tree`、`collapse_tree`、`select_tree`、`invoke_menu`、`scroll_element` 成功后会尽力写入控件位置标注：
 
 - `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.png`
 - `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.json`
@@ -402,8 +567,8 @@ JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.loc
 
 ## 平台行为
 
-- Windows: 使用系统 UIAutomationClient 枚举控件树；`set_text` 优先 ValuePattern，`select` 优先 SelectionItemPattern，`invoke` 优先 InvokePattern；坐标 fallback 通过 `pyautogui` 发送鼠标输入。
-- macOS: 使用 System Events/Accessibility 做有限深度控件枚举；`set_text` 优先 AX value，`select` 优先 AX 可选项或 System Events，`invoke` 优先 AXPress；坐标/键盘 fallback 通常需要 Accessibility 权限。
+- Windows: 使用系统 UIAutomationClient 枚举控件树；`set_text` 优先 ValuePattern，`select` 优先 SelectionItemPattern，`invoke` 优先 InvokePattern；表格、树、菜单和滚动容器优先使用对应 UIA pattern；坐标 fallback 通过 `pyautogui` 发送鼠标输入。
+- macOS: 使用 System Events/Accessibility 做有限深度控件枚举；`set_text` 优先 AX value，`select` 优先 AX 可选项或 System Events，`invoke` 优先 AXPress；坐标/键盘 fallback 通常需要 Accessibility 权限。高级控件能力先看 `capability_matrix.capabilities.semantic`，缺能力时用截图、图像定位或人工确认兜底。
 
 ## 边界
 
@@ -411,5 +576,6 @@ JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.loc
 - `element_id`/`runtime_id` 不是跨运行稳定句柄。长期 plan 应优先使用 `automation_id`、`name`、`text`、`control_type`、`role` 等语义定位。
 - `set_text` fallback 会短暂改变焦点和剪贴板；需要强一致验证时，写入后继续做 `desktop_assert type=element` 或 `get_text`。
 - `select/invoke` fallback 仍受遮挡、窗口位置、多显示器和权限影响；可先用 `desktop_window focus`。
-- 大表格、虚拟滚动表格或懒加载表格可能只返回当前已加载或可见的单元格；需要翻页或滚动时，先保留截图/表格读取证据，再用滚动或业务控件推进。
+- 大表格、大树、虚拟滚动表格或懒加载列表可能只返回当前已加载或可见内容；需要翻页或滚动时，先保留截图/表格/树读取证据，再用滚动或业务控件推进。
+- 菜单和滚动容器容易受焦点、短生命周期弹出层、窗口遮挡和自绘 UI 影响；必要时配合 `desktop_wait`、`desktop_capture`、`desktop_vision` 或 `manual_confirm`。
 - 浏览器网页控件继续使用浏览器线 `element`。不要在 desktop plan 里写 Playwright selector。

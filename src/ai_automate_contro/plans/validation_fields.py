@@ -216,6 +216,11 @@ def validate_type_specific_required_fields(
             "select",
             "get_table",
             "select_cell",
+            "get_tree",
+            "expand_tree",
+            "collapse_tree",
+            "select_tree",
+            "scroll_element",
         }:
             _validate_desktop_element_locator(step, action, step_type, location, issues)
         if step_type == "set_text":
@@ -227,6 +232,14 @@ def validate_type_specific_required_fields(
                 issues.append(ValidationIssue(location, "desktop_element.select_cell 缺少必填字段：row"))
             if "column" not in step and "column_index" not in step:
                 issues.append(ValidationIssue(location, "desktop_element.select_cell 需要 column 或 column_index"))
+        if step_type in {"expand_tree", "collapse_tree", "select_tree"} and "tree_path" not in step:
+            issues.append(ValidationIssue(location, f"desktop_element.{step_type} 缺少必填字段：tree_path"))
+        if step_type == "invoke_menu" and "menu_path" not in step:
+            issues.append(ValidationIssue(location, "desktop_element.invoke_menu 缺少必填字段：menu_path"))
+        if step_type == "invoke_menu" and step.get("open_context_menu") is True:
+            _validate_desktop_element_locator(step, action, step_type, location, issues)
+        if step_type == "scroll_element" and "amount" not in step and "scroll_to" not in step:
+            issues.append(ValidationIssue(location, "desktop_element.scroll_element 需要 amount 或 scroll_to"))
     elif action == "desktop_input" and step_type == "type_text":
         required = ("value",)
     elif action == "desktop_input" and step_type == "hotkey":
@@ -244,8 +257,23 @@ def validate_type_specific_required_fields(
             issues.append(
                 ValidationIssue(location, "desktop_input.drag 需要 target+delta_x/delta_y 或 start_x/start_y/end_x/end_y")
             )
+    elif action == "desktop_capture" and step_type == "screenshot":
+        capture_target = step.get("target")
+        if capture_target == "window":
+            _validate_window_query(step, action, step_type, location, issues)
+        elif capture_target == "element":
+            _validate_window_query(step, action, step_type, location, issues)
+            _validate_desktop_element_locator(step, action, step_type, location, issues)
+        elif capture_target == "region" and "region" not in step:
+            issues.append(ValidationIssue(location, "desktop_capture.screenshot target=region 缺少必填字段：region"))
     elif action == "desktop_vision" and step_type == "locate_image":
         required = ("template_path",)
+        source_target = step.get("source_target")
+        if source_target == "window":
+            _validate_window_query(step, action, step_type, location, issues)
+        elif source_target == "element":
+            _validate_window_query(step, action, step_type, location, issues)
+            _validate_desktop_element_locator(step, action, step_type, location, issues)
     elif action == "desktop_wait" and step_type == "window":
         _validate_window_query(step, action, step_type, location, issues)
     elif action == "desktop_assert" and step_type == "window":
@@ -758,6 +786,7 @@ def _validate_desktop_element_fields(
     _validate_int(step, "text_limit", location, issues, minimum=0)
     _validate_int(step, "max_rows", location, issues, minimum=1)
     _validate_int(step, "max_columns", location, issues, minimum=1)
+    _validate_int(step, "max_nodes", location, issues, minimum=1)
     _validate_bool(step, "visible_only", location, issues)
     if step_type == "wait":
         _validate_enum(step, "state", {"exists", "not_exists", "enabled", "disabled", "focused"}, location, issues)
@@ -773,6 +802,16 @@ def _validate_desktop_element_fields(
         _validate_int(step, "row", location, issues, minimum=0)
         _validate_string(step, "column", location, issues)
         _validate_int(step, "column_index", location, issues, minimum=0)
+    if step_type in {"expand_tree", "collapse_tree", "select_tree"}:
+        _validate_nonempty_string_list(step, "tree_path", location, issues)
+    if step_type == "invoke_menu":
+        _validate_nonempty_string_list(step, "menu_path", location, issues)
+        _validate_bool(step, "open_context_menu", location, issues)
+    if step_type == "scroll_element":
+        _validate_int(step, "amount", location, issues)
+        _validate_enum(step, "scroll_to", {"start", "end", "top", "bottom", "left", "right"}, location, issues)
+        if "amount" in step and not _is_template(step["amount"]) and isinstance(step["amount"], int) and step["amount"] == 0:
+            issues.append(ValidationIssue(location, "desktop_element.scroll_element amount 不能为 0"))
 
 
 def _validate_desktop_input_fields(
@@ -885,8 +924,17 @@ def _validate_desktop_capture_fields(
     issues: list[ValidationIssue],
 ) -> None:
     _validate_region(step, "region", location, issues)
+    _validate_enum(step, "target", {"screen", "region", "window", "element"}, location, issues)
     _validate_bool(step, "include_cursor", location, issues)
     _validate_string(step, "save_as", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "interval_ms", location, issues, minimum=1)
+    _validate_int(step, "max_depth", location, issues, minimum=0)
+    _validate_int(step, "max_elements", location, issues, minimum=1)
+    if step_type == "screenshot" and step.get("target") == "element":
+        _validate_enum(step, "state", {"exists", "enabled", "disabled", "focused"}, location, issues)
+    if step_type == "screenshot" and step.get("target") in {"window", "element"} and "region" in step:
+        issues.append(ValidationIssue(location, "desktop_capture.screenshot target=window/element 不能同时使用 region"))
     if step_type == "snapshot":
         _validate_bool(step, "include_windows", location, issues)
         _validate_bool(step, "include_displays", location, issues)
@@ -904,12 +952,23 @@ def _validate_desktop_vision_fields(
     _validate_string(step, "save_as", location, issues)
     _validate_region(step, "region", location, issues)
     _validate_bool(step, "include_cursor", location, issues)
+    _validate_enum(step, "source_target", {"screen", "window", "element"}, location, issues)
+    _validate_enum(step, "state", {"exists", "enabled", "disabled", "focused"}, location, issues)
     _validate_number(step, "threshold", location, issues)
     _validate_int(step, "match_index", location, issues, minimum=0)
+    _validate_int(step, "window_match_index", location, issues, minimum=0)
     _validate_int(step, "max_matches", location, issues, minimum=1)
     _validate_int(step, "timeout_ms", location, issues, minimum=1)
     _validate_int(step, "interval_ms", location, issues, minimum=1)
+    _validate_int(step, "max_depth", location, issues, minimum=0)
+    _validate_int(step, "max_elements", location, issues, minimum=1)
     if step_type == "locate_image":
+        if step.get("source_target") in {"window", "element"}:
+            _validate_desktop_vision_window_query_fields(step, location, issues)
+        if step.get("source_target") == "element":
+            _validate_desktop_element_locator_fields(step, location, issues)
+        if "source_path" in step and "source_target" in step:
+            issues.append(ValidationIssue(location, "desktop_vision.locate_image 不能同时使用 source_path 和 source_target"))
         threshold = step.get("threshold")
         if (
             threshold is not None
@@ -1002,6 +1061,19 @@ def _validate_window_query_fields(
         if not isinstance(value, (str, int)) or value == "":
             issues.append(ValidationIssue(location, "window_id 必须是非空字符串或整数"))
     _validate_int(step, "match_index", location, issues, minimum=0)
+
+
+def _validate_desktop_vision_window_query_fields(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    for field in ("title", "title_contains", "title_regex", "app", "process", "process_name", "class_name"):
+        _validate_string(step, field, location, issues)
+    if "window_id" in step and not _is_template(step["window_id"]):
+        value = step["window_id"]
+        if not isinstance(value, (str, int)) or value == "":
+            issues.append(ValidationIssue(location, "window_id 必须是非空字符串或整数"))
 
 
 def _validate_desktop_element_locator(
@@ -1136,6 +1208,23 @@ def _validate_list(
         return
     if not isinstance(step[field], list):
         issues.append(ValidationIssue(location, f"{field} 必须是数组"))
+
+
+def _validate_nonempty_string_list(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if not isinstance(value, list) or not value:
+        issues.append(ValidationIssue(location, f"{field} 必须是非空字符串数组"))
+        return
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item:
+            issues.append(ValidationIssue(f"{location}.{field}[{index}]", f"{field} 每一项必须是非空字符串"))
 
 
 def _validate_string(

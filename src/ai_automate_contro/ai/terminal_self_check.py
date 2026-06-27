@@ -264,12 +264,14 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "review_plan_quality 按 `automation_type` 分流",
         "review_plan_quality 对 desktop plan 会检查 `inspect_desktop`/`capability_matrix`/窗口列表/控件树/截图探测证据",
         "desktop plan 检查 inspect_desktop 摘要、capability_matrix、open_desktop、desktop_app、桌面窗口/控件/截图/等待/断言证据、桌面标注和桌面产物",
-        "desktop_element list/dump/find/wait/get_text/get_state/get_table",
-        "desktop_element click/set_text/select/invoke/select_cell",
+        "desktop_element list/dump/find/wait/get_text/get_state/get_table/get_tree",
+        "desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element",
         "desktop_assert type=element",
-        "desktop_element click/set_text/select/invoke/select_cell 是操作推进，不是识别证据",
+        "desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element 是操作推进，不是识别证据",
+        "desktop_element type=invoke_menu open_context_menu=true",
         "Open/Save 文件对话框按真实桌面窗口处理",
         "desktop_input type_text method=clipboard",
+        "capability_matrix.capabilities.semantic",
         "desktop_window 的 close/minimize/maximize/restore 只是窗口控制",
         "不要求 open_browser、navigate 或 inspect_web_page",
         "强制运行门禁",
@@ -2180,6 +2182,15 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         "run_plan",
         {
             "level": "INFO",
+            "message": "desktop tree read",
+            "fields": {"desktop": "desk", "type": "get_tree", "count": 5, "path": "desktop-elements/tree.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
             "message": "desktop element clicked",
             "fields": {"desktop": "desk", "type": "click", "count": 1, "save_as": "button_click"},
         },
@@ -2209,6 +2220,24 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
             "level": "INFO",
             "message": "desktop table cell selected",
             "fields": {"desktop": "desk", "type": "select_cell", "method": "uia_selection_item_pattern", "path": "desktop-elements/cell.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop menu invoked",
+            "fields": {"desktop": "desk", "type": "invoke_menu", "method": "uia_invoke_pattern", "path": "desktop-elements/menu.json"},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
+            "message": "desktop element scrolled",
+            "fields": {"desktop": "desk", "type": "scroll_element", "method": "uia_scroll_pattern", "path": "desktop-elements/scroll.json"},
         },
     )
     AITerminal._handle_plan_run_event(
@@ -2267,8 +2296,8 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
     activity_events = [event for event in events if event.kind == "activity"]
     texts = "\n".join(event.text for event in plan_events)
     passed = (
-        len(plan_events) == 19
-        and len(activity_events) == 19
+        len(plan_events) == 24
+        and len(activity_events) == 24
         and all(event.data.get("source_kind") == "plan_progress" for event in activity_events)
         and activity_events[-1].data.get("phase") == "failed"
         and "plan 开始" in texts
@@ -2287,12 +2316,22 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         and "桌面控件已列出" in texts
         and "桌面控件树已导出" in texts
         and "elements-dump.json" in texts
+        and "桌面表格已读取" in texts
+        and "table.json" in texts
+        and "桌面树已读取" in texts
+        and "tree.json" in texts
         and "desktop-elements" in texts
         and "桌面控件已点击" in texts
         and "button_click" in texts
         and "桌面控件文本已设置" in texts
         and "uia_value_pattern" in texts
         and "桌面控件已触发" in texts
+        and "桌面表格单元格已选择" in texts
+        and "cell.json" in texts
+        and "桌面菜单已触发" in texts
+        and "menu.json" in texts
+        and "桌面控件已滚动" in texts
+        and "scroll.json" in texts
         and "桌面控件断言通过" in texts
         and "桌面输入已发送" in texts
         and "click" in texts

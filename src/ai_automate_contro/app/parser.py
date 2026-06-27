@@ -258,6 +258,11 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     release_matrix_parser.add_argument("--max-attempts", type=int, default=5, help="真实模型外层最大尝试次数。")
     release_matrix_parser.add_argument("--retry-delay-seconds", type=float, default=3.0, help="真实模型外层重试基础等待秒数。")
     release_matrix_parser.add_argument("--step-timeout-seconds", type=int, default=900, help="单个矩阵步骤超时秒数。")
+    release_matrix_parser.add_argument(
+        "--require-desktop-vision",
+        action="store_true",
+        help="运行 desktop-components 时要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过。",
+    )
     release_matrix_parser.add_argument("--list", action="store_true", help="只列出矩阵步骤，不执行。")
     release_matrix_parser.add_argument(
         "--only",
@@ -267,7 +272,15 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     release_matrix_parser.add_argument("--fail-fast", action="store_true", help="任一步骤失败后立即停止后续矩阵。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
-    self_check_subparsers.add_parser("desktop-components", help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。")
+    desktop_components_parser = self_check_subparsers.add_parser(
+        "desktop-components",
+        help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。",
+    )
+    desktop_components_parser.add_argument(
+        "--require-vision",
+        action="store_true",
+        help="要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过；缺依赖或跳过时失败。",
+    )
     self_check_subparsers.add_parser("desktop-real-app", help="运行真实桌面 App 回归；Windows 使用 Notepad，macOS 使用 TextEdit。")
 
 

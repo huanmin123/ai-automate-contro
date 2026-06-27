@@ -83,7 +83,7 @@
 - 涉及登录、验证码、二次验证、后台菜单、弹窗、权限页或动态页面时，继续创建并运行 `open_browser.headed=true` 的探索 plan。
 - 需要用户介入时，必须用 `manual_confirm` 停在同一个 Playwright 浏览器窗口里交接，不要求用户另开本机浏览器、登录后发 URL、截图或 HTML 来替代自动化交接。
 - 用户明确同意并提供账号密码或一次性验证信息时，AI 可以按页面正常流程填写、点击和提交；不得破解、绕过或代解验证码、人机验证、二次验证或登录安全策略。
-- AI 为真实桌面应用创建最终 plan 前，优先调用 `inspect_desktop` 获取平台、backend、权限/依赖、窗口列表、可选控件树摘要和截图路径，并继续获取窗口列表、控件树、`desktop_element dump`/selector hints、控件读取/断言、截图、图像定位结果或人工确认等运行证据，不能只按用户文字猜窗口标题、控件 selector 或坐标；`desktop_element click/set_text/select/invoke` 是操作推进，不单独算识别证据。
+- AI 为真实桌面应用创建最终 plan 前，优先调用 `inspect_desktop` 获取平台、backend、权限/依赖、窗口列表、可选控件树摘要和截图路径，并继续获取窗口列表、控件树、`desktop_element dump`/selector hints、控件读取/断言、表格/树读取、截图、图像定位结果或人工确认等运行证据，不能只按用户文字猜窗口标题、控件 selector 或坐标；`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 是操作推进，不单独算识别证据。
 - 桌面控制按当前运行环境选择平台能力：Windows 环境使用 UI Automation / Win32 控件语义，macOS 环境使用 Accessibility/AX 能力；`set_text` 和 `invoke` 优先走 UIA/AX 原生 pattern，坐标、键盘、剪贴板和图像定位只作为兜底；UAC、安全桌面、管理员权限、macOS TCC 授权和不同用户会话边界不做绕过。
 - macOS 桌面控制必须检测 Accessibility、Screen Recording、Automation 等权限。代码可以触发授权提示、打开系统设置并暂停等待，但不能静默替用户授权，也不能自动点击系统隐私授权。
 

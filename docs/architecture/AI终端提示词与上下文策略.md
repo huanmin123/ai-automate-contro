@@ -149,7 +149,7 @@ AI 终端应按下面顺序决策：
 
 - 在系统提示词中加入“开工前判断”和“自主取证优先”规则。
 - 明确只有关键缺口才问用户，且应在开始执行前一次性问清楚。
-- 保留真实网页最终 plan 创建前必须 `inspect_web_page` 取入口证据、必要时运行 headed 探索 plan 的硬规则；同时新增 desktop plan 创建前优先 `inspect_desktop` 探测，以及 `capability_matrix`、窗口、控件、控件树 dump、控件断言、截图、权限、状态和标注证据规则，质量门禁按 `automation_type` 分流；缺少桌面探测证据或运行证据时 fail，`desktop_element click/set_text/select/invoke` 只算操作推进，不算识别证据。
+- 保留真实网页最终 plan 创建前必须 `inspect_web_page` 取入口证据、必要时运行 headed 探索 plan 的硬规则；同时新增 desktop plan 创建前优先 `inspect_desktop` 探测，以及 `capability_matrix`、窗口、控件、控件树 dump、控件断言、截图、权限、状态和标注证据规则，质量门禁按 `automation_type` 分流；缺少桌面探测证据或运行证据时 fail，`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 只算操作推进，不算识别证据，`desktop_element get_table/get_tree` 算控件读取证据。
 - 新增执行线判定规则：创建 plan 前必须明确 `automation_type`，不明确时先问用户；browser 和 desktop 分别读取对应 handbook 入口。
 
 中期改造：

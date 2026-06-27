@@ -94,7 +94,7 @@ AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 
 
 `inspect_desktop` 是 plan 级只读探测工具，用于真实桌面 plan 创建前获取平台、backend、权限/依赖、窗口列表、可选控件树摘要和截图路径。它不写入 plan steps，也不替代最终 plan 里的 `open_desktop`、窗口/控件/截图/断言证据。
 
-除受保护工具和 `run_plan` 外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；门禁按 `automation_type` 分流，browser 使用网页探测/探索证据，desktop 使用 `inspect_desktop` 摘要、`open_desktop`、`desktop_app`、窗口、`desktop_element` 控件识别/dump/读取、`desktop_assert element`、截图、状态快照、权限诊断和桌面产物证据，不能互相替代；`desktop_element click/set_text/select/invoke` 是操作推进，不单独算识别证据。无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
+除受保护工具和 `run_plan` 外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；门禁按 `automation_type` 分流，browser 使用网页探测/探索证据，desktop 使用 `inspect_desktop` 摘要、`open_desktop`、`desktop_app`、窗口、`desktop_element` 控件识别/dump/读取/表格/树、`desktop_assert element`、截图、状态快照、权限诊断和桌面产物证据，不能互相替代；`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 是操作推进，不单独算识别证据。无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
 
 其中 `patch_debug_workspace_json` 用于对 `injected-plan/` 下的 JSON 文件做路径级最小修改，例如只替换 `["steps",0,"message"]`。`write_debug_workspace_file` 保留为整文件写入、文档、资源、notes 和 report 的受限写入工具。
 

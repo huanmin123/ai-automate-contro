@@ -41,7 +41,7 @@
 `capability_matrix` 用于 AI 判断当前桌面线可用能力：
 
 - `schema_version`: 当前为 `1`。
-- `capabilities.semantic`: 窗口/控件树/文本/状态/写值/选择/触发是否可用。
+- `capabilities.semantic`: 窗口/控件树/文本/状态/写值/选择/触发/表格/树/菜单/滚动容器是否可用。
 - `capabilities.input`: 鼠标、键盘、快捷键、拖拽、滚轮、剪贴板是否可用。
 - `capabilities.screenshot`: 全屏截图、区域截图、标注截图是否可用。
 - `permissions`: `accessibility`、`screen_recording`、`input_control`。

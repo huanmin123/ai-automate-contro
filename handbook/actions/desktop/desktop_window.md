@@ -76,7 +76,7 @@ payload 主要字段：
 }
 ```
 
-`list` 是桌面证据步骤，可用于 AI 终端质量门禁。
+`list` 是桌面证据步骤。
 
 ## type=focus
 
@@ -172,4 +172,4 @@ payload 主要字段：
 - Windows 控制高完整性级别窗口、UAC 安全桌面或管理员窗口可能失败。
 - macOS 首次控制窗口通常需要 Accessibility/Automation 权限；runtime 可以触发系统提示或打开设置，但授权必须由用户点击。
 - `close` 不会绕过未保存确认框；遇到确认框时应使用 `desktop_wait`、截图和 `manual_confirm` 明确交接。
-- `desktop_window close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据。需要质量门禁通过时，仍应使用 `desktop_window list`、`desktop_element list/dump/find/get_text/get_state`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。
+- `desktop_window close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据。需要确认桌面状态时，仍应使用 `desktop_window list`、`desktop_element list/dump/find/get_text/get_state/get_table/get_tree`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。

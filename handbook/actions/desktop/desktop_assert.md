@@ -108,6 +108,6 @@
 - 带 `expected` 时，断言会读取命中控件的文本并按 `mode` 比较。
 - 成功 payload 包含 `element`、`matches`、`candidates_count`、`state` 和可选 `text_assertion`。
 
-`desktop_assert type=element` 是桌面识别/验证证据，可用于 AI 终端质量门禁。
+`desktop_assert type=element` 是桌面识别和验证证据。
 
 - 不存在窗口触发失败后生成桌面失败截图和状态 JSON。

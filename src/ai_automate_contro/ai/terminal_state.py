@@ -1017,6 +1017,12 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
         "desktop element selected",
         "desktop table read",
         "desktop table cell selected",
+        "desktop tree read",
+        "desktop tree expanded",
+        "desktop tree collapsed",
+        "desktop tree selected",
+        "desktop menu invoked",
+        "desktop element scrolled",
         "desktop element tree dumped",
     }:
         labels = {
@@ -1032,6 +1038,12 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
             "desktop element selected": "桌面控件已选择",
             "desktop table read": "桌面表格已读取",
             "desktop table cell selected": "桌面表格单元格已选择",
+            "desktop tree read": "桌面树已读取",
+            "desktop tree expanded": "桌面树节点已展开",
+            "desktop tree collapsed": "桌面树节点已折叠",
+            "desktop tree selected": "桌面树节点已选择",
+            "desktop menu invoked": "桌面菜单已触发",
+            "desktop element scrolled": "桌面控件已滚动",
         }
         desktop = _compact_tool_value(fields.get("desktop"), limit=48)
         element_type = _compact_tool_value(fields.get("type"), limit=32)

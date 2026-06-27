@@ -43,7 +43,7 @@ def paste_text_with_clipboard(text: str, *, preserve_clipboard: bool) -> None:
                 pass
 
 
-def click_element_center(element: dict[str, Any], *, locator: dict[str, Any]) -> tuple[int, int]:
+def click_element_center(element: dict[str, Any], *, locator: dict[str, Any], button: str = "left") -> tuple[int, int]:
     bounds = element.get("bounds") if isinstance(element, dict) else None
     if not isinstance(bounds, dict):
         raise DesktopBackendError(f"控件缺少 bounds，无法点击：locator={locator}")
@@ -54,7 +54,7 @@ def click_element_center(element: dict[str, Any], *, locator: dict[str, Any]) ->
     x = int(bounds.get("x", 0) or 0) + width // 2
     y = int(bounds.get("y", 0) or 0) + height // 2
     pyautogui = require_pyautogui()
-    pyautogui.click(x=x, y=y)
+    pyautogui.click(x=x, y=y, button=button)
     return x, y
 
 

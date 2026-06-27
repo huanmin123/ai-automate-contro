@@ -39,5 +39,5 @@
 ## 注意
 
 - `desktop_wait type=window` 成功时会更新当前 session 的 `current_window`。
-- 它是桌面状态采集证据，可用于质量门禁。
+- 它是桌面状态采集证据。
 - 控件级等待使用 `desktop_element type=wait`。

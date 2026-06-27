@@ -715,6 +715,260 @@ class NativeDesktopBackend:
             "fallback_used": bool(action_payload.get("fallback_required", False)),
         }
 
+    def get_tree(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+        max_nodes: int = 200,
+        text_limit: int = 160,
+    ) -> dict[str, Any]:
+        payload = self.find_element(
+            window_query,
+            locator,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        if self.platform_name == "windows":
+            tree_payload = _tree_element_windows(
+                int(window["id"]),
+                locator,
+                operation="get_tree",
+                runtime_id=str(element.get("runtime_id") or element.get("id") or ""),
+                max_depth=max_depth,
+                max_elements=max_elements,
+                max_nodes=max_nodes,
+                text_limit=text_limit,
+            )
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持树控件读取：{self.platform_name}")
+        return {
+            **payload,
+            **_normalized_tree_payload(tree_payload),
+            "tree_read": True,
+            "fallback_used": False,
+        }
+
+    def tree_element_action(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        operation: str,
+        tree_path: list[str],
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        if operation not in {"expand_tree", "collapse_tree", "select_tree"}:
+            raise DesktopBackendError(f"不支持的树控件操作：{operation}")
+        normalized_path = [str(part) for part in tree_path]
+        payload = self.find_element(
+            window_query,
+            locator,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        if self.platform_name == "windows":
+            action_payload = _tree_element_windows(
+                int(window["id"]),
+                locator,
+                operation=operation,
+                runtime_id=str(element.get("runtime_id") or element.get("id") or ""),
+                tree_path=normalized_path,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持树控件操作：{self.platform_name}")
+        normalized = _normalized_tree_payload(action_payload)
+        fallback_payload: dict[str, Any] = {}
+        fallback_used = bool(action_payload.get("fallback_required", False))
+        if operation == "select_tree":
+            tree_node = normalized.get("tree_node") if isinstance(normalized.get("tree_node"), dict) else {}
+            fallback_element = tree_node or element
+            bounds = fallback_element.get("bounds") if isinstance(fallback_element, dict) else {}
+            if (
+                isinstance(bounds, dict)
+                and _safe_int(bounds.get("width"), default=0) > 0
+                and _safe_int(bounds.get("height"), default=0) > 0
+            ):
+                x, y = _click_element_center(fallback_element, locator=locator)
+                fallback_method = "bounds_click_fallback" if fallback_used else f"{normalized.get('method', 'uia_select')}+bounds_click"
+                fallback_payload = {"method": fallback_method, "x": x, "y": y}
+                fallback_used = True
+        return {
+            **payload,
+            **normalized,
+            **fallback_payload,
+            "tree_path": normalized_path,
+            "fallback_used": fallback_used,
+        }
+
+    def invoke_menu(
+        self,
+        window_query: dict[str, Any],
+        *,
+        locator: dict[str, Any] | None = None,
+        menu_path: list[str],
+        open_context_menu: bool = False,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        normalized_path = [str(part) for part in menu_path]
+        normalized_locator = locator or {}
+        window = self.wait_window(
+            window_query,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+        ).get("window")
+        if not isinstance(window, dict):
+            raise DesktopBackendError(f"未找到匹配菜单窗口：{window_query}")
+        context_open: dict[str, Any] = {}
+        context_target: dict[str, Any] = {}
+        if open_context_menu:
+            if not normalized_locator:
+                raise DesktopBackendError("desktop_element.invoke_menu open_context_menu 需要 Element Locator")
+            target_payload = self.find_element(
+                window_query,
+                normalized_locator,
+                state="exists",
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
+            context_target = (
+                target_payload.get("element") if isinstance(target_payload.get("element"), dict) else {}
+            )
+            x, y = _click_element_center(context_target, locator=normalized_locator, button="right")
+            time.sleep(0.2)
+            context_open = {"ok": True, "x": x, "y": y, "button": "right"}
+        if self.platform_name == "windows":
+            action_payload = _menu_element_windows(
+                int(window["id"]),
+                menu_path=normalized_path,
+                search_global=bool(open_context_menu),
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持菜单路径触发：{self.platform_name}")
+        normalized = _normalized_action_payload(action_payload)
+        menu_item = normalized.pop("action_element", None)
+        payload: dict[str, Any] = {
+            "ok": True,
+            "platform": self.platform_name,
+            "backend": self.backend_name,
+            "window": window,
+            **normalized,
+            "invoked": True,
+            "menu_path": normalized_path,
+            "open_context_menu": bool(open_context_menu),
+            "fallback_used": bool(action_payload.get("fallback_required", False)),
+        }
+        if isinstance(menu_item, dict):
+            payload["menu_item"] = menu_item
+        if context_open:
+            payload["context_open"] = context_open
+        if context_target:
+            payload["context_target"] = context_target
+        return payload
+
+    def scroll_element(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        amount: int | None = None,
+        scroll_to: str = "",
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        payload = self.find_element(
+            window_query,
+            locator,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        normalized_amount = _optional_int(amount)
+        normalized_scroll_to = str(scroll_to or "")
+        if normalized_amount == 0:
+            raise DesktopBackendError("desktop_element.scroll_element amount 不能为 0")
+        action_payload: dict[str, Any] = {}
+        if self.platform_name == "windows":
+            try:
+                action_payload = _scroll_element_windows(
+                    int(window["id"]),
+                    locator,
+                    runtime_id=str(element.get("runtime_id") or element.get("id") or ""),
+                    amount=normalized_amount,
+                    scroll_to=normalized_scroll_to,
+                    max_depth=max_depth,
+                    max_elements=max_elements,
+                )
+            except DesktopBackendError as error:
+                action_payload = {
+                    "ok": True,
+                    "operation": "scroll_element",
+                    "method": "mouse_wheel_fallback",
+                    "fallback_required": True,
+                    "fallback_error": str(error),
+                    "element": element,
+                }
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持滚动容器操作：{self.platform_name}")
+        normalized = _normalized_action_payload(action_payload)
+        scroll_target = normalized.pop("action_element", None)
+        if bool(action_payload.get("fallback_required")):
+            fallback_amount = _fallback_scroll_amount(normalized_amount, normalized_scroll_to)
+            x, y = _element_center(element, locator=locator)
+            fallback = self.scroll(x=x, y=y, amount=fallback_amount)
+            return {
+                **payload,
+                **normalized,
+                **fallback,
+                "method": "mouse_wheel_fallback",
+                "scroll_to": normalized_scroll_to,
+                "fallback_used": True,
+                "scroll_target": scroll_target if isinstance(scroll_target, dict) else element,
+            }
+        result: dict[str, Any] = {
+            **payload,
+            **normalized,
+            "amount": normalized_amount,
+            "scroll_to": normalized_scroll_to,
+            "fallback_used": False,
+        }
+        if isinstance(scroll_target, dict):
+            result["scroll_target"] = scroll_target
+        return result
+
     def launch_app(
         self,
         *,
@@ -1897,6 +2151,810 @@ throw "Unsupported UIAutomation table operation: $operation"
 """
 
 
+_WINDOWS_UIA_TREE_ELEMENT_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$payloadText = [Console]::In.ReadToEnd()
+$payload = $payloadText | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+$hwnd = [IntPtr]([Int64]$payload.window_id)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $root) { throw "UIAutomation root not found: $($payload.window_id)" }
+$maxDepth = [int]$payload.max_depth
+$maxElements = [int]$payload.max_elements
+$maxNodes = [int]$payload.max_nodes
+$textLimit = [int]$payload.text_limit
+$locator = $payload.locator
+if ($null -eq $locator) { $locator = [pscustomobject]@{} }
+$operation = [string]$payload.operation
+$runtimeId = [string]$payload.runtime_id
+$treePath = @()
+if ($null -ne $payload.tree_path) { $treePath = @($payload.tree_path) }
+$matchIndex = 0
+try { $matchIndex = [int]$locator.element_match_index } catch {}
+
+function Get-PropText($obj, [string]$name) {
+  $prop = $obj.PSObject.Properties[$name]
+  if ($null -eq $prop -or $null -eq $prop.Value) { return '' }
+  return [string]$prop.Value
+}
+
+function Limit-Text([string]$value, [int]$limit) {
+  if ($limit -le 0 -or $value.Length -le $limit) { return $value }
+  if ($limit -le 3) { return $value.Substring(0, $limit) }
+  return $value.Substring(0, $limit - 3) + '...'
+}
+
+function Test-RegexValue([string]$pattern, [string]$value) {
+  if ([string]::IsNullOrEmpty($pattern)) { return $true }
+  try { return [regex]::IsMatch($value, $pattern) } catch { return $false }
+}
+
+function Test-TypeMatch($obj, [string]$expected) {
+  if ([string]::IsNullOrEmpty($expected)) { return $true }
+  $expectedLower = $expected.ToLowerInvariant()
+  foreach ($field in @('control_type', 'localized_control_type', 'role')) {
+    $candidate = (Get-PropText $obj $field).ToLowerInvariant()
+    if ($candidate -eq $expectedLower -or $candidate.Contains($expectedLower)) { return $true }
+  }
+  return $false
+}
+
+function Get-UiaRuntimeId([System.Windows.Automation.AutomationElement]$element) {
+  try { return ($element.GetRuntimeId() -join '.') } catch { return '' }
+}
+
+function Safe-Int($value) {
+  try {
+    $number = [double]$value
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return 0 }
+    return [int][Math]::Round($number)
+  } catch {
+    return 0
+  }
+}
+
+function Convert-UiaElement(
+  [System.Windows.Automation.AutomationElement]$element,
+  [int]$depth,
+  [string]$parentId
+) {
+  $current = $element.Current
+  $rect = $current.BoundingRectangle
+  $runtime = Get-UiaRuntimeId $element
+  $controlType = ''
+  try {
+    $controlType = [string]$current.ControlType.ProgrammaticName
+    $controlType = $controlType -replace '^ControlType\.', ''
+  } catch {}
+  return [ordered]@{
+    id = $runtime
+    runtime_id = $runtime
+    name = [string]$current.Name
+    value = ''
+    text = [string]$current.Name
+    automation_id = [string]$current.AutomationId
+    control_type = $controlType
+    localized_control_type = [string]$current.LocalizedControlType
+    role = $controlType
+    class_name = [string]$current.ClassName
+    enabled = [bool]$current.IsEnabled
+    visible = -not [bool]$current.IsOffscreen
+    focused = [bool]$current.HasKeyboardFocus
+    bounds = @{
+      x = Safe-Int $rect.X
+      y = Safe-Int $rect.Y
+      width = Safe-Int $rect.Width
+      height = Safe-Int $rect.Height
+    }
+    depth = $depth
+    parent_id = $parentId
+  }
+}
+
+function Test-LocatorMatch($obj, $locator) {
+  $names = $locator.PSObject.Properties.Name
+  if ($names -contains 'element_id' -and (Get-PropText $obj 'id') -ne [string]$locator.element_id) { return $false }
+  if ($names -contains 'automation_id' -and (Get-PropText $obj 'automation_id') -ne [string]$locator.automation_id) { return $false }
+  if ($names -contains 'name' -and (Get-PropText $obj 'name') -ne [string]$locator.name) { return $false }
+  if ($names -contains 'name_contains' -and -not (Get-PropText $obj 'name').Contains([string]$locator.name_contains)) { return $false }
+  if ($names -contains 'name_regex' -and -not (Test-RegexValue ([string]$locator.name_regex) (Get-PropText $obj 'name'))) { return $false }
+  $elementText = Get-PropText $obj 'text'
+  if ($names -contains 'text' -and $elementText -ne [string]$locator.text) { return $false }
+  if ($names -contains 'text_contains' -and -not $elementText.Contains([string]$locator.text_contains)) { return $false }
+  if ($names -contains 'text_regex' -and -not (Test-RegexValue ([string]$locator.text_regex) $elementText)) { return $false }
+  if ($names -contains 'control_type' -and -not (Test-TypeMatch $obj ([string]$locator.control_type))) { return $false }
+  if ($names -contains 'role' -and -not (Test-TypeMatch $obj ([string]$locator.role))) { return $false }
+  if ($names -contains 'element_class_name') {
+    $expected = ([string]$locator.element_class_name).ToLowerInvariant()
+    $actual = (Get-PropText $obj 'class_name').ToLowerInvariant()
+    if (-not $actual.Contains($expected)) { return $false }
+  }
+  return $true
+}
+
+function Find-ElementByLocator(
+  [System.Windows.Automation.AutomationElement]$searchRoot,
+  $locator,
+  [string]$runtimeId,
+  [int]$maxDepth,
+  [int]$maxElements,
+  [int]$matchIndex
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $queue.Enqueue([pscustomobject]@{ Element = $searchRoot; Depth = 0; Parent = '' })
+  $matched = 0
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt $maxElements) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      $obj = Convert-UiaElement $element ([int]$item.Depth) ([string]$item.Parent)
+      $visited += 1
+      $isRuntimeMatch = -not [string]::IsNullOrEmpty($runtimeId) -and [string]$obj.runtime_id -eq $runtimeId
+      if ($isRuntimeMatch -or (Test-LocatorMatch $obj $locator)) {
+        if ($isRuntimeMatch -or $matched -eq $matchIndex) {
+          return [pscustomobject]@{ Element = $element; Payload = $obj; Visited = $visited }
+        }
+        $matched += 1
+      }
+      if ($item.Depth -lt $maxDepth) {
+        $child = $walker.GetFirstChild($element)
+        while ($null -ne $child) {
+          $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = ([int]$item.Depth + 1); Parent = [string]$obj.runtime_id })
+          $child = $walker.GetNextSibling($child)
+        }
+      }
+    } catch {}
+  }
+  return $null
+}
+
+function Get-TreeNodePayload(
+  [System.Windows.Automation.AutomationElement]$element,
+  [int]$depth,
+  [string]$parentId,
+  [object[]]$pathPrefix
+) {
+  $obj = Convert-UiaElement $element $depth $parentId
+  $expanded = $false
+  $leaf = $false
+  try {
+    $expandObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObj)) {
+      $state = $expandObj.Current.ExpandCollapseState
+      $expanded = $state -eq [System.Windows.Automation.ExpandCollapseState]::Expanded
+      $leaf = $state -eq [System.Windows.Automation.ExpandCollapseState]::LeafNode
+    }
+  } catch {}
+  $selected = $false
+  try {
+    $selectionObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObj)) {
+      $selected = [bool]$selectionObj.Current.IsSelected
+    }
+  } catch {}
+  $nodePath = @($pathPrefix) + @([string]$obj.name)
+  return [ordered]@{
+    id = [string]$obj.id
+    runtime_id = [string]$obj.runtime_id
+    name = Limit-Text ([string]$obj.name) $textLimit
+    text = Limit-Text ([string]$obj.text) $textLimit
+    automation_id = [string]$obj.automation_id
+    control_type = [string]$obj.control_type
+    role = [string]$obj.role
+    class_name = [string]$obj.class_name
+    enabled = [bool]$obj.enabled
+    visible = [bool]$obj.visible
+    focused = [bool]$obj.focused
+    expanded = $expanded
+    leaf = $leaf
+    selected = $selected
+    path = $nodePath
+    bounds = $obj.bounds
+    depth = $depth
+    parent_id = $parentId
+  }
+}
+
+function Try-Expand([System.Windows.Automation.AutomationElement]$element) {
+  try {
+    $expandObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObj)) {
+      if ($expandObj.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) {
+        $expandObj.Expand()
+        Start-Sleep -Milliseconds 120
+      }
+      return $true
+    }
+  } catch {}
+  return $false
+}
+
+function Find-TreeChildByName(
+  [System.Windows.Automation.AutomationElement]$parent,
+  [string]$name,
+  [int]$maxDepth,
+  [int]$maxElements
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $child = $walker.GetFirstChild($parent)
+  while ($null -ne $child) {
+    $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = 1; Parent = '' })
+    $child = $walker.GetNextSibling($child)
+  }
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt $maxElements) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      $current = $element.Current
+      $visited += 1
+      if ($current.ControlType -eq [System.Windows.Automation.ControlType]::TreeItem -and [string]$current.Name -eq $name) {
+        return $element
+      }
+      if ($item.Depth -lt $maxDepth) {
+        $grandChild = $walker.GetFirstChild($element)
+        while ($null -ne $grandChild) {
+          $queue.Enqueue([pscustomobject]@{ Element = $grandChild; Depth = ([int]$item.Depth + 1); Parent = '' })
+          $grandChild = $walker.GetNextSibling($grandChild)
+        }
+      }
+    } catch {}
+  }
+  return $null
+}
+
+function Resolve-TreePath(
+  [System.Windows.Automation.AutomationElement]$treeElement,
+  [object[]]$path,
+  [int]$maxDepth,
+  [int]$maxElements
+) {
+  $current = $treeElement
+  foreach ($part in $path) {
+    Try-Expand $current | Out-Null
+    $next = Find-TreeChildByName $current ([string]$part) $maxDepth $maxElements
+    if ($null -eq $next) { throw "Tree node not found: $part path=$($path -join '/')" }
+    $current = $next
+  }
+  return $current
+}
+
+function Read-TreeNodes(
+  [System.Windows.Automation.AutomationElement]$treeElement,
+  [int]$maxDepth,
+  [int]$maxNodes
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $treePayload = Convert-UiaElement $treeElement 0 ''
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $child = $walker.GetFirstChild($treeElement)
+  while ($null -ne $child) {
+    $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = 0; Parent = [string]$treePayload.runtime_id; Path = @() })
+    $child = $walker.GetNextSibling($child)
+  }
+  $nodes = New-Object System.Collections.ArrayList
+  while ($queue.Count -gt 0 -and $nodes.Count -lt $maxNodes) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      if ($element.Current.ControlType -eq [System.Windows.Automation.ControlType]::TreeItem) {
+        $node = Get-TreeNodePayload $element ([int]$item.Depth) ([string]$item.Parent) @($item.Path)
+        [void]$nodes.Add($node)
+        if ($item.Depth -lt $maxDepth) {
+          $child = $walker.GetFirstChild($element)
+          while ($null -ne $child) {
+            $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = ([int]$item.Depth + 1); Parent = [string]$node.runtime_id; Path = @($node.path) })
+            $child = $walker.GetNextSibling($child)
+          }
+        }
+      }
+    } catch {}
+  }
+  return [pscustomobject]@{ Nodes = $nodes; Truncated = ($queue.Count -gt 0) }
+}
+
+$match = Find-ElementByLocator $root $locator $runtimeId $maxDepth $maxElements $matchIndex
+if ($null -eq $match) { throw "UIAutomation tree element not found: locator=$($locator | ConvertTo-Json -Compress)" }
+$treeElement = $match.Element
+$treePayload = $match.Payload
+
+if ($operation -eq 'get_tree') {
+  $treeResult = Read-TreeNodes $treeElement $maxDepth $maxNodes
+  [ordered]@{
+    ok = $true
+    operation = $operation
+    method = 'uia_tree_walker'
+    fallback_required = $false
+    fallback_error = ''
+    element = $treePayload
+    tree = [ordered]@{
+      nodes = $treeResult.Nodes
+      count = $treeResult.Nodes.Count
+      max_nodes = $maxNodes
+      truncated = [bool]$treeResult.Truncated
+    }
+  } | ConvertTo-Json -Depth 10 -Compress
+  return
+}
+
+$targetNode = Resolve-TreePath $treeElement $treePath $maxDepth $maxElements
+$targetPayload = Get-TreeNodePayload $targetNode 0 '' @()
+$targetPayload['path'] = @($treePath)
+$method = ''
+$fallbackRequired = $false
+$fallbackError = ''
+try {
+  if ($operation -eq 'expand_tree') {
+    $expandObj = $null
+    if ($targetNode.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObj)) {
+      $expandObj.Expand()
+      $method = 'uia_expand_collapse_pattern'
+    } else {
+      $targetNode.SetFocus()
+      $method = 'uia_set_focus'
+      $fallbackRequired = $true
+      $fallbackError = 'ExpandCollapsePattern unavailable'
+    }
+  } elseif ($operation -eq 'collapse_tree') {
+    $expandObj = $null
+    if ($targetNode.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObj)) {
+      $expandObj.Collapse()
+      $method = 'uia_expand_collapse_pattern'
+    } else {
+      $targetNode.SetFocus()
+      $method = 'uia_set_focus'
+      $fallbackRequired = $true
+      $fallbackError = 'ExpandCollapsePattern unavailable'
+    }
+  } elseif ($operation -eq 'select_tree') {
+    $selectionObj = $null
+    if ($targetNode.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObj)) {
+      $selectionObj.Select()
+      $method = 'uia_selection_item_pattern'
+      try {
+        $legacyObj = $null
+        if ($targetNode.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyObj)) {
+          $legacyObj.DoDefaultAction()
+          $method = 'uia_selection_item_pattern+legacy_iaccessible_default_action'
+        }
+      } catch {}
+    } else {
+      $legacyObj = $null
+      if ($targetNode.TryGetCurrentPattern([System.Windows.Automation.LegacyIAccessiblePattern]::Pattern, [ref]$legacyObj)) {
+        $legacyObj.DoDefaultAction()
+        $method = 'legacy_iaccessible_default_action'
+      } else {
+        $targetNode.SetFocus()
+        $method = 'uia_set_focus'
+        $fallbackRequired = $true
+        $fallbackError = 'SelectionItemPattern unavailable'
+      }
+    }
+  } else {
+    throw "Unsupported UIAutomation tree operation: $operation"
+  }
+} catch {
+  try {
+    $targetNode.SetFocus()
+    $method = 'uia_set_focus'
+  } catch {
+    $method = 'bounds_click_fallback'
+  }
+  $fallbackRequired = $true
+  $fallbackError = $_.Exception.Message
+}
+
+[ordered]@{
+  ok = $true
+  operation = $operation
+  method = $method
+  fallback_required = $fallbackRequired
+  fallback_error = $fallbackError
+  element = $treePayload
+  tree_node = $targetPayload
+} | ConvertTo-Json -Depth 10 -Compress
+"""
+
+
+_WINDOWS_UIA_MENU_ELEMENT_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$payloadText = [Console]::In.ReadToEnd()
+$payload = $payloadText | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+$hwnd = [IntPtr]([Int64]$payload.window_id)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $root) { throw "UIAutomation root not found: $($payload.window_id)" }
+$menuPath = @()
+if ($null -ne $payload.menu_path) { $menuPath = @($payload.menu_path) }
+if ($menuPath.Count -lt 1) { throw "menu_path is required" }
+$maxDepth = [int]$payload.max_depth
+$maxElements = [int]$payload.max_elements
+$searchGlobal = [bool]$payload.search_global
+$desktopRoot = [System.Windows.Automation.AutomationElement]::RootElement
+
+function Get-UiaRuntimeId([System.Windows.Automation.AutomationElement]$element) {
+  try { return ($element.GetRuntimeId() -join '.') } catch { return '' }
+}
+
+function Safe-Int($value) {
+  try {
+    $number = [double]$value
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return 0 }
+    return [int][Math]::Round($number)
+  } catch {
+    return 0
+  }
+}
+
+function Convert-UiaElement(
+  [System.Windows.Automation.AutomationElement]$element,
+  [int]$depth,
+  [string]$parentId
+) {
+  $current = $element.Current
+  $rect = $current.BoundingRectangle
+  $runtime = Get-UiaRuntimeId $element
+  $controlType = ''
+  try {
+    $controlType = [string]$current.ControlType.ProgrammaticName
+    $controlType = $controlType -replace '^ControlType\.', ''
+  } catch {}
+  return [ordered]@{
+    id = $runtime
+    runtime_id = $runtime
+    name = [string]$current.Name
+    value = ''
+    text = [string]$current.Name
+    automation_id = [string]$current.AutomationId
+    control_type = $controlType
+    localized_control_type = [string]$current.LocalizedControlType
+    role = $controlType
+    class_name = [string]$current.ClassName
+    enabled = [bool]$current.IsEnabled
+    visible = -not [bool]$current.IsOffscreen
+    focused = [bool]$current.HasKeyboardFocus
+    bounds = @{
+      x = Safe-Int $rect.X
+      y = Safe-Int $rect.Y
+      width = Safe-Int $rect.Width
+      height = Safe-Int $rect.Height
+    }
+    depth = $depth
+    parent_id = $parentId
+  }
+}
+
+function Find-MenuItemByName(
+  [System.Windows.Automation.AutomationElement]$searchRoot,
+  [string]$name,
+  [int]$maxDepth,
+  [int]$maxElements
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $queue.Enqueue([pscustomobject]@{ Element = $searchRoot; Depth = 0; Parent = '' })
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt $maxElements) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      $current = $element.Current
+      $visited += 1
+      if ($current.ControlType -eq [System.Windows.Automation.ControlType]::MenuItem -and [string]$current.Name -eq $name) {
+        return $element
+      }
+      if ($item.Depth -lt $maxDepth) {
+        $child = $walker.GetFirstChild($element)
+        while ($null -ne $child) {
+          $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = ([int]$item.Depth + 1); Parent = '' })
+          $child = $walker.GetNextSibling($child)
+        }
+      }
+    } catch {}
+  }
+  return $null
+}
+
+function Try-OpenMenu([System.Windows.Automation.AutomationElement]$element) {
+  try {
+    $expandObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern, [ref]$expandObj)) {
+      if ($expandObj.Current.ExpandCollapseState -ne [System.Windows.Automation.ExpandCollapseState]::Expanded) {
+        $expandObj.Expand()
+        Start-Sleep -Milliseconds 160
+      }
+      return 'uia_expand_collapse_pattern'
+    }
+  } catch {}
+  try {
+    $invokeObj = $null
+    if ($element.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeObj)) {
+      $invokeObj.Invoke()
+      Start-Sleep -Milliseconds 160
+      return 'uia_invoke_pattern'
+    }
+  } catch {}
+  try {
+    $element.SetFocus()
+    return 'uia_set_focus'
+  } catch {}
+  return 'none'
+}
+
+$currentRoot = $root
+$target = $null
+$openMethods = New-Object System.Collections.ArrayList
+for ($i = 0; $i -lt $menuPath.Count; $i++) {
+  $segment = [string]$menuPath[$i]
+  $target = Find-MenuItemByName $currentRoot $segment $maxDepth $maxElements
+  if ($null -eq $target -and $currentRoot -ne $root) {
+    $target = Find-MenuItemByName $root $segment $maxDepth $maxElements
+  }
+  if ($null -eq $target -and $searchGlobal -and $null -ne $desktopRoot) {
+    $globalDepth = [Math]::Max($maxDepth + 4, $maxDepth)
+    $globalElements = [Math]::Max($maxElements * 4, $maxElements)
+    $target = Find-MenuItemByName $desktopRoot $segment $globalDepth $globalElements
+  }
+  if ($null -eq $target) { throw "Menu item not found: $segment path=$($menuPath -join '/')" }
+  if ($i -lt ($menuPath.Count - 1)) {
+    [void]$openMethods.Add((Try-OpenMenu $target))
+    $currentRoot = $target
+  }
+}
+
+$targetPayload = Convert-UiaElement $target 0 ''
+$targetPayload['path'] = @($menuPath)
+$method = ''
+$fallbackRequired = $false
+$fallbackError = ''
+try {
+  $invokeObj = $null
+  if ($target.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$invokeObj)) {
+    $invokeObj.Invoke()
+    $method = 'uia_invoke_pattern'
+  } else {
+    $selectionObj = $null
+    if ($target.TryGetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern, [ref]$selectionObj)) {
+      $selectionObj.Select()
+      $method = 'uia_selection_item_pattern'
+    } else {
+      $target.SetFocus()
+      $method = 'uia_set_focus'
+      $fallbackRequired = $true
+      $fallbackError = 'InvokePattern unavailable'
+    }
+  }
+} catch {
+  try {
+    $target.SetFocus()
+    $method = 'uia_set_focus'
+  } catch {
+    $method = 'bounds_click_fallback'
+  }
+  $fallbackRequired = $true
+  $fallbackError = $_.Exception.Message
+}
+
+[ordered]@{
+  ok = $true
+  operation = 'invoke_menu'
+  method = $method
+  open_methods = $openMethods
+  search_scope = $(if ($searchGlobal) { 'desktop_root' } else { 'window' })
+  fallback_required = $fallbackRequired
+  fallback_error = $fallbackError
+  element = $targetPayload
+} | ConvertTo-Json -Depth 8 -Compress
+"""
+
+
+_WINDOWS_UIA_SCROLL_ELEMENT_SCRIPT = r"""
+$ErrorActionPreference = 'Stop'
+$payloadText = [Console]::In.ReadToEnd()
+$payload = $payloadText | ConvertFrom-Json
+Add-Type -AssemblyName UIAutomationClient
+$hwnd = [IntPtr]([Int64]$payload.window_id)
+$root = [System.Windows.Automation.AutomationElement]::FromHandle($hwnd)
+if ($null -eq $root) { throw "UIAutomation root not found: $($payload.window_id)" }
+$maxDepth = [int]$payload.max_depth
+$maxElements = [int]$payload.max_elements
+$locator = $payload.locator
+if ($null -eq $locator) { $locator = [pscustomobject]@{} }
+$runtimeId = [string]$payload.runtime_id
+$amount = $null
+if ($null -ne $payload.amount) {
+  try { $amount = [int]$payload.amount } catch { $amount = $null }
+}
+$scrollTo = [string]$payload.scroll_to
+$matchIndex = 0
+try { $matchIndex = [int]$locator.element_match_index } catch {}
+
+function Get-PropText($obj, [string]$name) {
+  $prop = $obj.PSObject.Properties[$name]
+  if ($null -eq $prop -or $null -eq $prop.Value) { return '' }
+  return [string]$prop.Value
+}
+
+function Test-RegexValue([string]$pattern, [string]$value) {
+  if ([string]::IsNullOrEmpty($pattern)) { return $true }
+  try { return [regex]::IsMatch($value, $pattern) } catch { return $false }
+}
+
+function Test-TypeMatch($obj, [string]$expected) {
+  if ([string]::IsNullOrEmpty($expected)) { return $true }
+  $expectedLower = $expected.ToLowerInvariant()
+  foreach ($field in @('control_type', 'localized_control_type', 'role')) {
+    $candidate = (Get-PropText $obj $field).ToLowerInvariant()
+    if ($candidate -eq $expectedLower -or $candidate.Contains($expectedLower)) { return $true }
+  }
+  return $false
+}
+
+function Get-UiaRuntimeId([System.Windows.Automation.AutomationElement]$element) {
+  try { return ($element.GetRuntimeId() -join '.') } catch { return '' }
+}
+
+function Safe-Int($value) {
+  try {
+    $number = [double]$value
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return 0 }
+    return [int][Math]::Round($number)
+  } catch {
+    return 0
+  }
+}
+
+function Convert-UiaElement(
+  [System.Windows.Automation.AutomationElement]$element,
+  [int]$depth,
+  [string]$parentId
+) {
+  $current = $element.Current
+  $rect = $current.BoundingRectangle
+  $runtime = Get-UiaRuntimeId $element
+  $controlType = ''
+  try {
+    $controlType = [string]$current.ControlType.ProgrammaticName
+    $controlType = $controlType -replace '^ControlType\.', ''
+  } catch {}
+  return [ordered]@{
+    id = $runtime
+    runtime_id = $runtime
+    name = [string]$current.Name
+    value = ''
+    text = [string]$current.Name
+    automation_id = [string]$current.AutomationId
+    control_type = $controlType
+    localized_control_type = [string]$current.LocalizedControlType
+    role = $controlType
+    class_name = [string]$current.ClassName
+    enabled = [bool]$current.IsEnabled
+    visible = -not [bool]$current.IsOffscreen
+    focused = [bool]$current.HasKeyboardFocus
+    bounds = @{
+      x = Safe-Int $rect.X
+      y = Safe-Int $rect.Y
+      width = Safe-Int $rect.Width
+      height = Safe-Int $rect.Height
+    }
+    depth = $depth
+    parent_id = $parentId
+  }
+}
+
+function Test-LocatorMatch($obj, $locator) {
+  $names = $locator.PSObject.Properties.Name
+  if ($names -contains 'element_id' -and (Get-PropText $obj 'id') -ne [string]$locator.element_id) { return $false }
+  if ($names -contains 'automation_id' -and (Get-PropText $obj 'automation_id') -ne [string]$locator.automation_id) { return $false }
+  if ($names -contains 'name' -and (Get-PropText $obj 'name') -ne [string]$locator.name) { return $false }
+  if ($names -contains 'name_contains' -and -not (Get-PropText $obj 'name').Contains([string]$locator.name_contains)) { return $false }
+  if ($names -contains 'name_regex' -and -not (Test-RegexValue ([string]$locator.name_regex) (Get-PropText $obj 'name'))) { return $false }
+  $elementText = Get-PropText $obj 'text'
+  if ($names -contains 'text' -and $elementText -ne [string]$locator.text) { return $false }
+  if ($names -contains 'text_contains' -and -not $elementText.Contains([string]$locator.text_contains)) { return $false }
+  if ($names -contains 'text_regex' -and -not (Test-RegexValue ([string]$locator.text_regex) $elementText)) { return $false }
+  if ($names -contains 'control_type' -and -not (Test-TypeMatch $obj ([string]$locator.control_type))) { return $false }
+  if ($names -contains 'role' -and -not (Test-TypeMatch $obj ([string]$locator.role))) { return $false }
+  if ($names -contains 'element_class_name') {
+    $expected = ([string]$locator.element_class_name).ToLowerInvariant()
+    $actual = (Get-PropText $obj 'class_name').ToLowerInvariant()
+    if (-not $actual.Contains($expected)) { return $false }
+  }
+  return $true
+}
+
+function Find-ElementByLocator(
+  [System.Windows.Automation.AutomationElement]$searchRoot,
+  $locator,
+  [string]$runtimeId,
+  [int]$maxDepth,
+  [int]$maxElements,
+  [int]$matchIndex
+) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $queue = New-Object 'System.Collections.Generic.Queue[object]'
+  $queue.Enqueue([pscustomobject]@{ Element = $searchRoot; Depth = 0; Parent = '' })
+  $matched = 0
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt $maxElements) {
+    $item = $queue.Dequeue()
+    $element = $item.Element
+    try {
+      $obj = Convert-UiaElement $element ([int]$item.Depth) ([string]$item.Parent)
+      $visited += 1
+      $isRuntimeMatch = -not [string]::IsNullOrEmpty($runtimeId) -and [string]$obj.runtime_id -eq $runtimeId
+      if ($isRuntimeMatch -or (Test-LocatorMatch $obj $locator)) {
+        if ($isRuntimeMatch -or $matched -eq $matchIndex) {
+          return [pscustomobject]@{ Element = $element; Payload = $obj; Visited = $visited }
+        }
+        $matched += 1
+      }
+      if ($item.Depth -lt $maxDepth) {
+        $child = $walker.GetFirstChild($element)
+        while ($null -ne $child) {
+          $queue.Enqueue([pscustomobject]@{ Element = $child; Depth = ([int]$item.Depth + 1); Parent = [string]$obj.runtime_id })
+          $child = $walker.GetNextSibling($child)
+        }
+      }
+    } catch {}
+  }
+  return $null
+}
+
+$match = Find-ElementByLocator $root $locator $runtimeId $maxDepth $maxElements $matchIndex
+if ($null -eq $match) { throw "UIAutomation scroll element not found: locator=$($locator | ConvertTo-Json -Compress)" }
+$targetElement = $match.Element
+$targetPayload = $match.Payload
+$method = ''
+$fallbackRequired = $false
+$fallbackError = ''
+try {
+  $scrollObj = $null
+  if ($targetElement.TryGetCurrentPattern([System.Windows.Automation.ScrollPattern]::Pattern, [ref]$scrollObj)) {
+    if (-not [string]::IsNullOrEmpty($scrollTo)) {
+      $noScroll = [System.Windows.Automation.ScrollPattern]::NoScroll
+      $horizontal = $noScroll
+      $vertical = $noScroll
+      if ($scrollTo -eq 'start' -or $scrollTo -eq 'top') { $vertical = 0 }
+      elseif ($scrollTo -eq 'end' -or $scrollTo -eq 'bottom') { $vertical = 100 }
+      elseif ($scrollTo -eq 'left') { $horizontal = 0 }
+      elseif ($scrollTo -eq 'right') { $horizontal = 100 }
+      $scrollObj.SetScrollPercent($horizontal, $vertical)
+    } else {
+      if ($null -eq $amount -or $amount -eq 0) { throw "amount or scroll_to is required" }
+      $verticalAmount = [System.Windows.Automation.ScrollAmount]::LargeDecrement
+      if ($amount -lt 0) { $verticalAmount = [System.Windows.Automation.ScrollAmount]::LargeIncrement }
+      $steps = [Math]::Min([Math]::Abs($amount), 8)
+      for ($i = 0; $i -lt $steps; $i++) {
+        $scrollObj.Scroll([System.Windows.Automation.ScrollAmount]::NoAmount, $verticalAmount)
+      }
+    }
+    $method = 'uia_scroll_pattern'
+  } else {
+    $fallbackRequired = $true
+    $method = 'mouse_wheel_fallback'
+    $fallbackError = 'ScrollPattern unavailable'
+  }
+} catch {
+  $fallbackRequired = $true
+  $method = 'mouse_wheel_fallback'
+  $fallbackError = $_.Exception.Message
+}
+
+[ordered]@{
+  ok = $true
+  operation = 'scroll_element'
+  method = $method
+  fallback_required = $fallbackRequired
+  fallback_error = $fallbackError
+  element = $targetPayload
+} | ConvertTo-Json -Depth 8 -Compress
+"""
+
+
 def _run_powershell_json(script: str, payload: dict[str, Any], *, timeout: int = 15) -> dict[str, Any]:
     stdin = json.dumps(payload, ensure_ascii=False)
     command_script = (
@@ -2011,6 +3069,78 @@ def _table_element_windows(
             "max_columns": max(1, int(max_columns)),
             "text_limit": max(0, int(text_limit)),
             "visible_only": bool(visible_only),
+        },
+    )
+
+
+def _tree_element_windows(
+    hwnd: int,
+    locator: dict[str, Any],
+    *,
+    operation: str,
+    runtime_id: str = "",
+    tree_path: list[str] | None = None,
+    max_depth: int,
+    max_elements: int,
+    max_nodes: int = 200,
+    text_limit: int = 160,
+) -> dict[str, Any]:
+    return _run_powershell_json(
+        _WINDOWS_UIA_TREE_ELEMENT_SCRIPT,
+        {
+            "window_id": hwnd,
+            "locator": locator,
+            "operation": operation,
+            "runtime_id": runtime_id,
+            "tree_path": [str(part) for part in (tree_path or [])],
+            "max_depth": max(0, int(max_depth)),
+            "max_elements": max(1, int(max_elements)),
+            "max_nodes": max(1, int(max_nodes)),
+            "text_limit": max(0, int(text_limit)),
+        },
+    )
+
+
+def _menu_element_windows(
+    hwnd: int,
+    *,
+    menu_path: list[str],
+    search_global: bool = False,
+    max_depth: int,
+    max_elements: int,
+) -> dict[str, Any]:
+    return _run_powershell_json(
+        _WINDOWS_UIA_MENU_ELEMENT_SCRIPT,
+        {
+            "window_id": hwnd,
+            "menu_path": [str(part) for part in menu_path],
+            "search_global": bool(search_global),
+            "max_depth": max(0, int(max_depth)),
+            "max_elements": max(1, int(max_elements)),
+        },
+    )
+
+
+def _scroll_element_windows(
+    hwnd: int,
+    locator: dict[str, Any],
+    *,
+    runtime_id: str = "",
+    amount: int | None = None,
+    scroll_to: str = "",
+    max_depth: int,
+    max_elements: int,
+) -> dict[str, Any]:
+    return _run_powershell_json(
+        _WINDOWS_UIA_SCROLL_ELEMENT_SCRIPT,
+        {
+            "window_id": hwnd,
+            "locator": locator,
+            "runtime_id": runtime_id,
+            "amount": amount,
+            "scroll_to": str(scroll_to or ""),
+            "max_depth": max(0, int(max_depth)),
+            "max_elements": max(1, int(max_elements)),
         },
     )
 
@@ -2649,6 +3779,30 @@ def _optional_int(value: Any) -> int | None:
         return None
 
 
+def _element_center(element: dict[str, Any], *, locator: dict[str, Any]) -> tuple[int, int]:
+    bounds = element.get("bounds") if isinstance(element, dict) else None
+    if not isinstance(bounds, dict):
+        raise DesktopBackendError(f"控件缺少 bounds，无法计算中心点：locator={locator}")
+    width = _safe_int(bounds.get("width"), default=0)
+    height = _safe_int(bounds.get("height"), default=0)
+    if width <= 0 or height <= 0:
+        raise DesktopBackendError(f"控件 bounds 无效，无法计算中心点：bounds={bounds}")
+    return (
+        _safe_int(bounds.get("x"), default=0) + width // 2,
+        _safe_int(bounds.get("y"), default=0) + height // 2,
+    )
+
+
+def _fallback_scroll_amount(amount: int | None, scroll_to: str) -> int:
+    if amount:
+        return int(amount)
+    if scroll_to in {"end", "bottom", "right"}:
+        return -8
+    if scroll_to in {"start", "top", "left"}:
+        return 8
+    return -5
+
+
 def _list_windows_windows(*, include_invisible: bool) -> list[dict[str, Any]]:
     user32 = ctypes.windll.user32
     foreground = user32.GetForegroundWindow()
@@ -2975,6 +4129,10 @@ def _normalized_action_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
     if payload.get("fallback_error") not in (None, ""):
         result["fallback_error"] = str(payload.get("fallback_error"))
+    if payload.get("search_scope") not in (None, ""):
+        result["search_scope"] = str(payload.get("search_scope"))
+    if isinstance(payload.get("open_methods"), list):
+        result["open_methods"] = [str(method) for method in payload.get("open_methods", [])]
     native_element = payload.get("element")
     if isinstance(native_element, dict):
         result["action_element"] = _normalize_element(native_element, index=0)
@@ -2999,6 +4157,88 @@ def _normalized_table_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if isinstance(selected_cell, dict):
         result["selected_cell"] = _normalize_table_cell(selected_cell)
     return result
+
+
+def _normalized_tree_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    result: dict[str, Any] = {
+        "operation": str(payload.get("operation") or ""),
+        "method": str(payload.get("method") or ""),
+        "fallback_required": bool(payload.get("fallback_required", False)),
+    }
+    if payload.get("fallback_error") not in (None, ""):
+        result["fallback_error"] = str(payload.get("fallback_error"))
+    native_element = payload.get("element")
+    if isinstance(native_element, dict):
+        result["action_element"] = _normalize_element(native_element, index=0)
+    tree = payload.get("tree")
+    if isinstance(tree, dict):
+        result["tree"] = _normalize_tree(tree)
+    tree_node = payload.get("tree_node")
+    if isinstance(tree_node, dict):
+        result["tree_node"] = _normalize_tree_node(tree_node, index=0)
+    return result
+
+
+def _normalize_tree(tree: dict[str, Any]) -> dict[str, Any]:
+    nodes = tree.get("nodes") if isinstance(tree.get("nodes"), list) else []
+    normalized_nodes = [_normalize_tree_node(node, index=index) for index, node in enumerate(nodes) if isinstance(node, dict)]
+    return {
+        "nodes": normalized_nodes,
+        "root_nodes": _tree_roots_from_flat(normalized_nodes),
+        "count": _safe_int(tree.get("count"), default=len(normalized_nodes)),
+        "max_nodes": _safe_int(tree.get("max_nodes"), default=len(normalized_nodes)),
+        "truncated": bool(tree.get("truncated", False)),
+    }
+
+
+def _normalize_tree_node(node: dict[str, Any], *, index: int) -> dict[str, Any]:
+    bounds = node.get("bounds") if isinstance(node.get("bounds"), dict) else {}
+    raw_path = node.get("path") if isinstance(node.get("path"), list) else []
+    return {
+        "index": index,
+        "id": str(node.get("id") or node.get("runtime_id") or f"tree-node:{index}"),
+        "runtime_id": str(node.get("runtime_id") or node.get("id") or ""),
+        "parent_id": str(node.get("parent_id") or ""),
+        "depth": _safe_int(node.get("depth"), default=0),
+        "name": str(node.get("name") or ""),
+        "text": str(node.get("text") or node.get("name") or ""),
+        "automation_id": str(node.get("automation_id") or ""),
+        "control_type": str(node.get("control_type") or ""),
+        "role": str(node.get("role") or node.get("control_type") or ""),
+        "class_name": str(node.get("class_name") or ""),
+        "enabled": bool(node.get("enabled", False)),
+        "visible": bool(node.get("visible", False)),
+        "focused": bool(node.get("focused", False)),
+        "expanded": bool(node.get("expanded", False)),
+        "leaf": bool(node.get("leaf", False)),
+        "selected": bool(node.get("selected", False)),
+        "path": [str(part) for part in raw_path],
+        "bounds": {
+            "x": _safe_int(bounds.get("x"), default=0),
+            "y": _safe_int(bounds.get("y"), default=0),
+            "width": _safe_int(bounds.get("width"), default=0),
+            "height": _safe_int(bounds.get("height"), default=0),
+        },
+    }
+
+
+def _tree_roots_from_flat(nodes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    by_id: dict[str, dict[str, Any]] = {}
+    roots: list[dict[str, Any]] = []
+    for node in nodes:
+        node_id = str(node.get("id") or node.get("runtime_id") or "")
+        by_id[node_id] = {**node, "children": []}
+    for node in nodes:
+        node_id = str(node.get("id") or node.get("runtime_id") or "")
+        copy = by_id.get(node_id)
+        if copy is None:
+            continue
+        parent = by_id.get(str(node.get("parent_id") or ""))
+        if parent is not None and parent is not copy:
+            parent["children"].append(copy)
+        else:
+            roots.append(copy)
+    return roots
 
 
 def _normalize_table(table: dict[str, Any]) -> dict[str, Any]:

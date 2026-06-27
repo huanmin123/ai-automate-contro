@@ -31,10 +31,6 @@ AI 写 desktop plan 时优先读取本手册的 action 文档。
 - `desktop_wait`
 - `desktop_assert`
 
-规划中 action：
-
-- `desktop_vision type=locate_text`：OCR 定位取证，当前不可写入可运行 plan
-
 通用 action：
 
 - `if`
@@ -77,11 +73,13 @@ handbook/actions/desktop/
 
 ## 取证规则
 
-真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取窗口列表、控件树、截图、图像定位结果、OCR 结果或人工确认。
+真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取窗口列表、控件树、截图、图像定位结果或人工确认。
 
-AI 终端写最终 plan 前先调用 `inspect_desktop` 或使用等价探测上下文，证据里应包含 `capability_matrix`、窗口列表、控件摘要、截图路径、权限/依赖或人工确认。`review_plan_quality` 缺少桌面探测证据会 fail；plan 内还必须用 `desktop_window`、`desktop_element list/dump/find/get_text/get_state/wait`、`desktop_capture`、`desktop_vision`、`desktop_wait` 或 `desktop_assert` 留下运行证据，缺少时也会 fail。`desktop_element click/set_text/select/invoke` 和 `desktop_input` 只算操作推进，不单独算识别证据。
+最终 plan 前先探测 `capability_matrix`、窗口列表、控件摘要、截图路径、权限/依赖或人工确认。plan 内还应使用 `desktop_window`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture`、`desktop_vision`、`desktop_wait` 或 `desktop_assert` 保存运行证据。`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_input` 只算操作推进，不单独算识别证据。
 
 桌面线按当前运行环境选择平台能力：Windows 环境使用 UI Automation / Win32 控件语义，macOS 环境使用 Accessibility/AX 能力；坐标和图像定位只作为兜底。macOS 必须检测 Accessibility、Screen Recording、Automation 等权限；代码可以触发授权提示、打开系统设置并暂停等待用户确认，但不能静默替用户授权。
+
+菜单和滚动容器可能受焦点、短生命周期弹出层或自绘 UI 影响；必要时配合截图、等待、状态断言或人工确认。
 
 ## 能力边界
 

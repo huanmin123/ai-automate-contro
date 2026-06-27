@@ -263,6 +263,27 @@ def _run_desktop_platform_contract_case() -> dict[str, Any]:
         and "windows" not in matrix.get("capabilities", {}).get("semantic", {})
         for matrix in matrices.values()
     )
+    required_semantic_keys = {
+        "window_list",
+        "elements",
+        "get_text",
+        "get_state",
+        "set_text",
+        "select",
+        "invoke",
+        "get_table",
+        "select_cell",
+        "get_tree",
+        "expand_tree",
+        "collapse_tree",
+        "select_tree",
+        "invoke_menu",
+        "scroll_element",
+    }
+    semantic_contract_ok = all(
+        required_semantic_keys.issubset(set(matrix.get("capabilities", {}).get("semantic", {}).keys()))
+        for matrix in matrices.values()
+    )
     shape_ok = (
         top_level_keys["windows"] == top_level_keys["macos"]
         and capability_keys["windows"] == capability_keys["macos"]
@@ -274,7 +295,7 @@ def _run_desktop_platform_contract_case() -> dict[str, Any]:
         )
         for matrix in matrices.values()
     )
-    passed = shape_ok and platform_values_ok and window_contract_ok and permissions_ok
+    passed = shape_ok and platform_values_ok and window_contract_ok and semantic_contract_ok and permissions_ok
     return _self_check_result(
         name="desktop_capability_matrix_contract_is_platform_neutral",
         passed=passed,
@@ -282,6 +303,8 @@ def _run_desktop_platform_contract_case() -> dict[str, Any]:
             "top_level_keys": top_level_keys,
             "capability_keys": capability_keys,
             "semantic_keys": semantic_keys,
+            "required_semantic_keys": sorted(required_semantic_keys),
+            "semantic_contract_ok": semantic_contract_ok,
             "platform_values": {name: matrix.get("platform") for name, matrix in matrices.items()},
             "limitations": {name: matrix.get("limitations", []) for name, matrix in matrices.items()},
         },

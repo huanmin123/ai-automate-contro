@@ -170,6 +170,62 @@ class DesktopBackend(Protocol):
     ) -> dict[str, Any]:
         ...
 
+    def get_tree(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+        max_nodes: int = 200,
+        text_limit: int = 160,
+    ) -> dict[str, Any]:
+        ...
+
+    def tree_element_action(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        operation: str,
+        tree_path: list[str],
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        ...
+
+    def invoke_menu(
+        self,
+        window_query: dict[str, Any],
+        *,
+        locator: dict[str, Any] | None = None,
+        menu_path: list[str],
+        open_context_menu: bool = False,
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        ...
+
+    def scroll_element(
+        self,
+        window_query: dict[str, Any],
+        locator: dict[str, Any],
+        *,
+        amount: int | None = None,
+        scroll_to: str = "",
+        timeout_ms: int = 1_000,
+        interval_ms: int = 100,
+        max_depth: int = 6,
+        max_elements: int = 200,
+    ) -> dict[str, Any]:
+        ...
+
     def launch_app(
         self,
         *,

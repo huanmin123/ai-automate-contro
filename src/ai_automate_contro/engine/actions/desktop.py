@@ -52,6 +52,12 @@ DESKTOP_ELEMENT_MESSAGES = {
     "select": "desktop element selected",
     "get_table": "desktop table read",
     "select_cell": "desktop table cell selected",
+    "get_tree": "desktop tree read",
+    "expand_tree": "desktop tree expanded",
+    "collapse_tree": "desktop tree collapsed",
+    "select_tree": "desktop tree selected",
+    "invoke_menu": "desktop menu invoked",
+    "scroll_element": "desktop element scrolled",
 }
 
 
@@ -256,6 +262,19 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
             include_selector_hints=bool(step.get("include_selector_hints", True)),
             text_limit=int(step.get("text_limit", 160)),
         )
+    elif element_type == "invoke_menu":
+        open_context_menu = step.get("open_context_menu") is True
+        locator = _element_locator(step) if open_context_menu else {}
+        payload = session.backend.invoke_menu(
+            window_query,
+            locator=locator or None,
+            menu_path=_string_list(step.get("menu_path", []), field="menu_path"),
+            open_context_menu=open_context_menu,
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=max_depth,
+            max_elements=max_elements,
+        )
     else:
         locator = _element_locator(step)
         if element_type in {"find", "wait"}:
@@ -351,6 +370,39 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
                 max_depth=max_depth,
                 max_elements=max_elements,
             )
+        elif element_type == "get_tree":
+            payload = session.backend.get_tree(
+                window_query,
+                locator,
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+                max_nodes=int(step.get("max_nodes", 200)),
+                text_limit=int(step.get("text_limit", 160)),
+            )
+        elif element_type in {"expand_tree", "collapse_tree", "select_tree"}:
+            payload = session.backend.tree_element_action(
+                window_query,
+                locator,
+                operation=element_type,
+                tree_path=_string_list(step.get("tree_path", []), field="tree_path"),
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
+        elif element_type == "scroll_element":
+            payload = session.backend.scroll_element(
+                window_query,
+                locator,
+                amount=int(step["amount"]) if "amount" in step else None,
+                scroll_to=str(step.get("scroll_to", "")),
+                timeout_ms=timeout_ms,
+                interval_ms=interval_ms,
+                max_depth=max_depth,
+                max_elements=max_elements,
+            )
         else:
             raise ValueError(f"不支持的 desktop_element.type：{element_type}")
 
@@ -364,7 +416,18 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
     if window:
         session.current_window = dict(window)
-    if element_type in {"click", "set_text", "invoke", "select", "select_cell"}:
+    if element_type in {
+        "click",
+        "set_text",
+        "invoke",
+        "select",
+        "select_cell",
+        "expand_tree",
+        "collapse_tree",
+        "select_tree",
+        "invoke_menu",
+        "scroll_element",
+    }:
         annotation = _capture_element_annotation(
             executor,
             session,
@@ -505,11 +568,20 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
     started = time.monotonic()
     if capture_type == "screenshot":
         output_path = executor._resolve_output_path(step["path"], category="desktop-screenshots")
+        target, region, target_payload = _resolve_capture_region(session, step)
         payload = session.backend.screenshot(
             output_path,
-            region=step.get("region") if isinstance(step.get("region"), dict) else None,
+            region=region,
             include_cursor=bool(step.get("include_cursor", False)),
         )
+        source_bounds = _capture_source_bounds(payload, region)
+        payload = {
+            **payload,
+            "target": target,
+            "source_bounds": source_bounds,
+            "coordinate_space": {"origin": "screen", "unit": "logical_px", "scale": None},
+            **target_payload,
+        }
     elif capture_type == "snapshot":
         output_path = executor._resolve_output_path(step["path"], category="desktop-state")
         payload = session.backend.snapshot(
@@ -549,6 +621,96 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
     )
 
 
+def _resolve_capture_region(
+    session: DesktopSession,
+    step: dict[str, Any],
+) -> tuple[str, dict[str, Any] | None, dict[str, Any]]:
+    raw_target = str(step.get("target", "") or "")
+    explicit_region = step.get("region") if isinstance(step.get("region"), dict) else None
+    timeout_ms = int(step.get("timeout_ms", 1_000))
+    interval_ms = int(step.get("interval_ms", 100))
+
+    if raw_target in {"", "screen"}:
+        if explicit_region:
+            return "region", dict(explicit_region), {"target_query": {}, "locator": {}}
+        return "screen", None, {"target_query": {}, "locator": {}}
+    if raw_target == "region":
+        if not explicit_region:
+            raise ValueError("desktop_capture.screenshot target=region 需要 region。")
+        return "region", dict(explicit_region), {"target_query": {}, "locator": {}}
+    if raw_target == "window":
+        if explicit_region:
+            raise ValueError("desktop_capture.screenshot target=window 不能同时使用 region。")
+        query = _window_query(step)
+        payload = session.backend.wait_window(
+            query,
+            state="exists",
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        if not window:
+            raise ValueError(f"desktop_capture.screenshot target=window 未找到窗口：{query}")
+        session.current_window = dict(window)
+        region = _region_from_bounds(window.get("bounds"), action_label="desktop_capture.screenshot target=window")
+        return "window", region, {"target_query": query, "window": window, "locator": {}}
+    if raw_target == "element":
+        if explicit_region:
+            raise ValueError("desktop_capture.screenshot target=element 不能同时使用 region。")
+        query = _window_query(step)
+        locator = _element_locator(step)
+        payload = session.backend.find_element(
+            query,
+            locator,
+            state=str(step.get("state", "exists")),
+            timeout_ms=timeout_ms,
+            interval_ms=interval_ms,
+            max_depth=int(step.get("max_depth", 6)),
+            max_elements=int(step.get("max_elements", 200)),
+        )
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+        if window:
+            session.current_window = dict(window)
+        if not element:
+            raise ValueError(f"desktop_capture.screenshot target=element 未找到控件：locator={locator}")
+        region = _region_from_bounds(element.get("bounds"), action_label="desktop_capture.screenshot target=element")
+        return "element", region, {"target_query": query, "locator": locator, "window": window, "element": element}
+    raise ValueError(f"不支持的 desktop_capture.screenshot target：{raw_target}")
+
+
+def _region_from_bounds(bounds: Any, *, action_label: str) -> dict[str, int]:
+    if not isinstance(bounds, dict):
+        raise ValueError(f"{action_label} 需要目标 bounds。")
+    region = {
+        "x": _int_coordinate(bounds.get("x", 0), field="bounds.x", action_label=action_label),
+        "y": _int_coordinate(bounds.get("y", 0), field="bounds.y", action_label=action_label),
+        "width": _int_coordinate(bounds.get("width", 0), field="bounds.width", action_label=action_label),
+        "height": _int_coordinate(bounds.get("height", 0), field="bounds.height", action_label=action_label),
+    }
+    if region["width"] <= 0 or region["height"] <= 0:
+        raise ValueError(f"{action_label} bounds 无效：{bounds}")
+    return region
+
+
+def _capture_source_bounds(payload: dict[str, Any], region: dict[str, Any] | None) -> dict[str, int]:
+    if region:
+        return _region_from_bounds(region, action_label="desktop_capture.screenshot source_bounds")
+    return {
+        "x": 0,
+        "y": 0,
+        "width": _int_coordinate(payload.get("width", 0), field="width", action_label="desktop_capture.screenshot"),
+        "height": _int_coordinate(payload.get("height", 0), field="height", action_label="desktop_capture.screenshot"),
+    }
+
+
+def _int_coordinate(value: Any, *, field: str, action_label: str) -> int:
+    try:
+        return int(float(value))
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{action_label} {field} 必须是数字：{value!r}") from error
+
+
 def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
     vision_type = str(step["type"])
@@ -558,6 +720,8 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     output_path = executor._resolve_output_path(step["path"], category="desktop-vision")
     template_path = executor._resolve_path(str(step["template_path"]))
     source_input_path = executor._resolve_path(str(step["source_path"])) if step.get("source_path") else None
+    if source_input_path is not None and step.get("source_target"):
+        raise ValueError("desktop_vision.locate_image 不能同时使用 source_path 和 source_target。")
     threshold = float(step.get("threshold", 0.85))
     match_index = int(step.get("match_index", 0))
     max_matches = int(step.get("max_matches", 10))
@@ -568,11 +732,11 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     last_payload: dict[str, Any] = {}
 
     while True:
-        source_path, source_payload = _prepare_desktop_vision_source(
+        source_path, source_payload, source_bounds, coordinate_origin = _prepare_desktop_vision_source(
             session,
+            step=step,
             source_input_path=source_input_path,
             source_artifact_path=artifacts["source"],
-            region=step.get("region") if isinstance(step.get("region"), dict) else None,
             include_cursor=bool(step.get("include_cursor", False)),
         )
         payload = _locate_image_in_source(
@@ -584,9 +748,10 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
             threshold=threshold,
             match_index=match_index,
             max_matches=max_matches,
-            coordinate_origin="image" if source_input_path else "screen",
+            coordinate_origin=coordinate_origin,
             started=started,
             source_payload=source_payload,
+            source_bounds=source_bounds,
             desktop=session.name,
         )
         last_payload = payload
@@ -784,11 +949,12 @@ def _desktop_vision_artifact_paths(output_path: Path) -> dict[str, Path]:
 def _prepare_desktop_vision_source(
     session: DesktopSession,
     *,
+    step: dict[str, Any],
     source_input_path: Path | None,
     source_artifact_path: Path,
-    region: dict[str, Any] | None,
     include_cursor: bool,
-) -> tuple[Path, dict[str, Any]]:
+) -> tuple[Path, dict[str, Any], dict[str, int], str]:
+    raw_source_target = str(step.get("source_target", "") or "")
     if source_input_path is not None:
         if not source_input_path.exists():
             raise FileNotFoundError(f"desktop_vision.source_path 文件不存在：{source_input_path}")
@@ -797,20 +963,51 @@ def _prepare_desktop_vision_source(
         source_artifact_path.parent.mkdir(parents=True, exist_ok=True)
         with Image.open(source_input_path) as image:
             image.convert("RGB").save(source_artifact_path)
+            source_bounds = {"x": 0, "y": 0, "width": int(image.width), "height": int(image.height)}
             payload = {
                 "ok": True,
                 "path": str(source_artifact_path),
                 "input_path": str(source_input_path),
                 "width": image.width,
                 "height": image.height,
-                "region": region or {},
+                "region": step.get("region") if isinstance(step.get("region"), dict) else {},
                 "include_cursor": False,
                 "source": "source_path",
+                "source_target": "source_path",
+                "source_bounds": source_bounds,
+                "target_query": {},
+                "locator": {},
             }
-        return source_artifact_path, payload
-    payload = session.backend.screenshot(source_artifact_path, region=None, include_cursor=include_cursor)
-    payload = {**payload, "source": "desktop_screenshot"}
-    return source_artifact_path, payload
+        return source_artifact_path, payload, source_bounds, "image"
+
+    source_target = raw_source_target or "screen"
+    if source_target not in {"screen", "window", "element"}:
+        raise ValueError(f"不支持的 desktop_vision.locate_image source_target：{source_target}")
+    region: dict[str, Any] | None = None
+    source_target_payload: dict[str, Any] = {"target_query": {}, "locator": {}}
+    if source_target in {"window", "element"}:
+        capture_step = dict(step)
+        capture_step["target"] = source_target
+        capture_step.pop("source_target", None)
+        capture_step.pop("region", None)
+        if "window_match_index" in capture_step:
+            capture_step["match_index"] = capture_step["window_match_index"]
+        else:
+            capture_step.pop("match_index", None)
+        capture_step.pop("window_match_index", None)
+        _target, region, source_target_payload = _resolve_capture_region(session, capture_step)
+
+    payload = session.backend.screenshot(source_artifact_path, region=region, include_cursor=include_cursor)
+    source_bounds = _capture_source_bounds(payload, region)
+    payload = {
+        **payload,
+        "source": "desktop_screenshot",
+        "source_target": source_target,
+        "window_match_index": step.get("window_match_index", ""),
+        "source_bounds": source_bounds,
+        **source_target_payload,
+    }
+    return source_artifact_path, payload, source_bounds, "screen"
 
 
 def _locate_image_in_source(
@@ -826,6 +1023,7 @@ def _locate_image_in_source(
     coordinate_origin: str,
     started: float,
     source_payload: dict[str, Any],
+    source_bounds: dict[str, int],
     desktop: str,
 ) -> dict[str, Any]:
     if not template_path.exists():
@@ -862,7 +1060,8 @@ def _locate_image_in_source(
                 template_height=template_image.height,
                 region=region_payload,
             )
-            matches = raw_matches
+            local_matches = raw_matches
+            matches = _desktop_vision_global_matches(local_matches, source_bounds)
             diagnostics = {
                 "method": "opencv.matchTemplate",
                 "cv2_version": str(getattr(cv2, "__version__", "")),
@@ -872,23 +1071,31 @@ def _locate_image_in_source(
                 "template_size": {"width": template_image.width, "height": template_image.height},
             }
 
-        selected = matches[match_index] if 0 <= match_index < len(matches) else None
-        if selected is not None:
-            _save_desktop_vision_crop(source_image, selected["bounds"], artifacts["crop"])
-            _save_desktop_vision_annotation(source_image, matches, selected, artifacts["annotation"])
+        local_matches = local_matches if "local_matches" in locals() else []
+        local_selected = local_matches[match_index] if 0 <= match_index < len(local_matches) else None
+        selected = matches[match_index] if "matches" in locals() and 0 <= match_index < len(matches) else None
+        if local_selected is not None:
+            _save_desktop_vision_crop(source_image, local_selected["bounds"], artifacts["crop"])
+            _save_desktop_vision_annotation(source_image, local_matches, local_selected, artifacts["annotation"])
 
     payload = {
         "ok": selected is not None,
         "action": "desktop_vision",
         "type": "locate_image",
         "desktop": desktop,
+        "source_target": str(source_payload.get("source_target", "")),
         "template_path": str(template_path),
         "source_path": str(source_path),
         "threshold": threshold,
         "match_index": match_index,
         "max_matches": max_matches,
         "coordinate_space": {"origin": coordinate_origin, "unit": "logical_px", "scale": None},
+        "source_bounds": source_bounds,
         "region": region_payload if "region_payload" in locals() else region or {},
+        "target_query": source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
+        "locator": source_payload.get("locator") if isinstance(source_payload.get("locator"), dict) else {},
+        "window": source_payload.get("window") if isinstance(source_payload.get("window"), dict) else {},
+        "element": source_payload.get("element") if isinstance(source_payload.get("element"), dict) else {},
         "matches": matches if "matches" in locals() else [],
         "match": selected or {},
         "artifacts": {
@@ -962,6 +1169,30 @@ def _desktop_vision_template_matches(
         suppress_right = min(working.shape[1], local_x + int(template_width) // 2 + 1)
         suppress_bottom = min(working.shape[0], local_y + int(template_height) // 2 + 1)
         working[suppress_top:suppress_bottom, suppress_left:suppress_right] = -1
+    return matches
+
+
+def _desktop_vision_global_matches(
+    local_matches: list[dict[str, Any]],
+    source_bounds: dict[str, int],
+) -> list[dict[str, Any]]:
+    origin_x = int(source_bounds.get("x", 0) or 0)
+    origin_y = int(source_bounds.get("y", 0) or 0)
+    matches: list[dict[str, Any]] = []
+    for match in local_matches:
+        local_bounds = match.get("bounds") if isinstance(match.get("bounds"), dict) else {}
+        local_point = match.get("point") if isinstance(match.get("point"), dict) else {}
+        bounds = {
+            "x": origin_x + int(local_bounds.get("x", 0) or 0),
+            "y": origin_y + int(local_bounds.get("y", 0) or 0),
+            "width": int(local_bounds.get("width", 0) or 0),
+            "height": int(local_bounds.get("height", 0) or 0),
+        }
+        point = {
+            "x": origin_x + int(local_point.get("x", 0) or 0),
+            "y": origin_y + int(local_point.get("y", 0) or 0),
+        }
+        matches.append({**match, "local_bounds": dict(local_bounds), "local_point": dict(local_point), "bounds": bounds, "point": point})
     return matches
 
 
@@ -1052,6 +1283,15 @@ def _element_locator(step: dict[str, Any]) -> dict[str, Any]:
     if not any(field in locator for field in ELEMENT_REQUIRED_LOCATOR_FIELDS):
         raise ValueError("控件操作需要至少一种控件定位字段。")
     return locator
+
+
+def _string_list(value: Any, *, field: str) -> list[str]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{field} 必须是非空字符串数组。")
+    result = [str(item) for item in value]
+    if any(not item for item in result):
+        raise ValueError(f"{field} 每一项必须是非空字符串。")
+    return result
 
 
 def _resolve_input_coordinates(
@@ -1178,10 +1418,12 @@ def _capture_element_annotation(
     query: dict[str, Any],
     locator: dict[str, Any],
 ) -> dict[str, Any]:
-    if element_type == "select_cell" and isinstance(payload.get("selected_cell"), dict):
-        element = payload["selected_cell"]
-    else:
-        element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+    element: dict[str, Any] = {}
+    for key in ("selected_cell", "tree_node", "menu_item", "scroll_target", "action_element", "element"):
+        candidate = payload.get(key)
+        if isinstance(candidate, dict):
+            element = candidate
+            break
     bounds = element.get("bounds") if isinstance(element.get("bounds"), dict) else {}
     points: list[dict[str, Any]] = []
     if "x" in payload and "y" in payload:

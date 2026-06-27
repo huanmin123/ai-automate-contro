@@ -25,7 +25,7 @@
 | `extract` | `actions/browser/data/extract.md` | 从页面提取文本、表格、属性、ARIA |
 | `open_desktop` | `actions/desktop/open_desktop.md` | 创建桌面控制 session |
 | `desktop_window` | `actions/desktop/desktop_window.md` | 列出、聚焦、关闭、最小化、最大化窗口 |
-| `desktop_element` | `actions/desktop/desktop_element.md` | 桌面控件树定位、读取、点击、写值 |
+| `desktop_element` | `actions/desktop/desktop_element.md` | 桌面控件树定位、读取、点击、写值、表格、树、菜单、滚动容器 |
 | `desktop_input` | `actions/desktop/desktop_input.md` | 系统级输入、快捷键、坐标级点击/双击/右键/滚动/拖拽 |
 | `write` | `actions/common/io/write.md` | 写 JSON、文本、CSV、变量快照 |
 | `command` | `actions/common/utility/command.md` | 同步执行本机命令 |

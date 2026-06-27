@@ -50,7 +50,7 @@
 - `wait`: `actions/browser/navigation/wait.md`
 - `extract`: `actions/browser/data/extract.md`
 - `desktop_window`: `actions/desktop/desktop_window.md`
-- `desktop_element`: `actions/desktop/desktop_element.md`
+- `desktop_element`: `actions/desktop/desktop_element.md`，控件定位、读取、写值、选择、表格、树、菜单、滚动容器
 - `desktop_input`: `actions/desktop/desktop_input.md`
 - `desktop 定位策略`: `actions/desktop/locator_strategy.md`
 - `read`: `actions/common/io/read.md`

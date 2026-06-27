@@ -37,6 +37,7 @@ def build_capability_matrix(
     screenshot_available = bool(deps.get("Pillow.ImageGrab"))
     image_locator_available = screenshot_available and bool(deps.get("opencv-python"))
     clipboard_available = bool(deps.get("pyperclip"))
+    advanced_semantic_available = windowing_available and platform_name == "windows"
     semantic = {
         "window_list": windowing_available,
         "elements": windowing_available,
@@ -45,6 +46,14 @@ def build_capability_matrix(
         "set_text": windowing_available,
         "select": windowing_available,
         "invoke": windowing_available,
+        "get_table": advanced_semantic_available,
+        "select_cell": advanced_semantic_available,
+        "get_tree": advanced_semantic_available,
+        "expand_tree": advanced_semantic_available,
+        "collapse_tree": advanced_semantic_available,
+        "select_tree": advanced_semantic_available,
+        "invoke_menu": advanced_semantic_available,
+        "scroll_element": advanced_semantic_available,
     }
     input_control = {
         "keyboard": input_available,
