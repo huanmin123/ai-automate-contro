@@ -276,6 +276,36 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_runtime_config(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "handbook":
+            from ai_automate_contro.app.handbook_check import self_check_handbook_hygiene
+
+            result = self_check_handbook_hygiene(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "workspace-clean":
+            from ai_automate_contro.app.workspace_check import self_check_workspace_clean
+
+            result = self_check_workspace_clean(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "release-matrix":
+            from ai_automate_contro.app.release_matrix_check import self_check_release_matrix
+
+            result = self_check_release_matrix(
+                project_root,
+                include_real_ai=bool(args.include_real_ai),
+                api_key_file=args.api_key_file,
+                model=args.model,
+                timeout_seconds=args.timeout_seconds,
+                max_attempts=args.max_attempts,
+                retry_delay_seconds=args.retry_delay_seconds,
+                step_timeout_seconds=args.step_timeout_seconds,
+                only=list(args.only or []),
+                list_steps=bool(args.list),
+                fail_fast=bool(args.fail_fast),
+            )
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "browser-components":
             from ai_automate_contro.app.browser_component_check import self_check_browser_components
 

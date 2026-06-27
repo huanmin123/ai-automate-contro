@@ -245,6 +245,27 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     self_check_subparsers = self_check_parser.add_subparsers(dest="self_check_command")
     self_check_subparsers.add_parser("cli", help="检查 aic/main.py 与 cplan 的命令边界。")
     self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
+    self_check_subparsers.add_parser("handbook", help="检查 handbook action 分类、内链、旧路径和开发噪音。")
+    self_check_subparsers.add_parser("workspace-clean", help="检查本地产物、日志和密钥类路径没有被 git 跟踪。")
+    release_matrix_parser = self_check_subparsers.add_parser(
+        "release-matrix",
+        help="运行提交前回归矩阵；默认不调用真实 AI。",
+    )
+    release_matrix_parser.add_argument("--include-real-ai", action="store_true", help="同时运行真实模型回归。")
+    release_matrix_parser.add_argument("--api-key-file", default="", help="真实模型回归使用的本机密钥文件。")
+    release_matrix_parser.add_argument("--model", default="gpt-5.5", help="真实模型名，默认 gpt-5.5。")
+    release_matrix_parser.add_argument("--timeout-seconds", type=int, default=240, help="真实模型单次请求超时秒数。")
+    release_matrix_parser.add_argument("--max-attempts", type=int, default=5, help="真实模型外层最大尝试次数。")
+    release_matrix_parser.add_argument("--retry-delay-seconds", type=float, default=3.0, help="真实模型外层重试基础等待秒数。")
+    release_matrix_parser.add_argument("--step-timeout-seconds", type=int, default=900, help="单个矩阵步骤超时秒数。")
+    release_matrix_parser.add_argument("--list", action="store_true", help="只列出矩阵步骤，不执行。")
+    release_matrix_parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        help="只运行指定步骤名；可重复传入，也可用逗号分隔。先用 --list 查看可用步骤。",
+    )
+    release_matrix_parser.add_argument("--fail-fast", action="store_true", help="任一步骤失败后立即停止后续矩阵。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
     self_check_subparsers.add_parser("desktop-components", help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。")
     self_check_subparsers.add_parser("desktop-real-app", help="运行真实桌面 App 回归；Windows 使用 Notepad，macOS 使用 TextEdit。")

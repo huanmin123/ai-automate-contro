@@ -95,7 +95,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         },
         {
             "name": "cplan_self_check_has_component_and_real_app_entries",
-            "passed": {"browser-components", "desktop-components", "desktop-real-app"}.issubset(
+            "passed": {"handbook", "workspace-clean", "release-matrix", "browser-components", "desktop-components", "desktop-real-app"}.issubset(
                 cplan_self_check_commands
             ),
             "detail": {"commands": sorted(cplan_self_check_commands)},
@@ -108,6 +108,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
                 "ai-plan-generation",
                 "ai-desktop-loop",
                 "ai-real-desktop-loop",
+                "ai-real-execution-line",
             }.issubset(main_self_check_commands),
             "detail": {"commands": sorted(main_self_check_commands)},
         },

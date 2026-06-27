@@ -556,6 +556,43 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-capture-rejects-invalid-region",
+            "expected_message": "region.width 必须大于 0",
+            "plan": {
+                "name": "bad desktop capture region",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "path": "screen.png",
+                        "region": {"x": 0, "y": 0, "width": 0, "height": 20},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-vision-rejects-incomplete-region",
+            "expected_message": "region.height 缺少必填字段",
+            "plan": {
+                "name": "bad desktop vision region",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_vision",
+                        "desktop": "desktop",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "path": "vision.json",
+                        "region": {"x": 0, "y": 0, "width": 20},
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-input-rejects-unknown-target",
             "expected_message": "target 不支持的取值",
             "plan": {
@@ -1372,7 +1409,11 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
         resources_dir.mkdir(parents=True, exist_ok=True)
         source_path = resources_dir / "vision-source.png"
         template_path = resources_dir / "vision-template.png"
+        missing_template_path = resources_dir / "vision-missing-template.png"
         expected_bounds = _write_vision_fixture_images(source_path, template_path)
+        _write_vision_missing_template(missing_template_path)
+        region = {"x": 100, "y": 60, "width": 140, "height": 100}
+        capture_region = {"x": 0, "y": 0, "width": 32, "height": 24}
         plan_path = package_dir / "plan.json"
         plan = {
             "name": "desktop vision locate image regression",
@@ -1380,6 +1421,14 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
             "variables": {},
             "steps": [
                 {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
+                {
+                    "action": "desktop_capture",
+                    "desktop": "desktop",
+                    "type": "screenshot",
+                    "path": "region-screen.png",
+                    "region": capture_region,
+                    "save_as": "region_capture",
+                },
                 {
                     "action": "desktop_vision",
                     "desktop": "desktop",
@@ -1391,6 +1440,19 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
                     "max_matches": 3,
                     "path": "vision-match.json",
                     "save_as": "vision_match",
+                },
+                {
+                    "action": "desktop_vision",
+                    "desktop": "desktop",
+                    "type": "locate_image",
+                    "template_path": "resources/vision-template.png",
+                    "source_path": "resources/vision-source.png",
+                    "region": region,
+                    "threshold": 0.98,
+                    "match_index": 0,
+                    "max_matches": 3,
+                    "path": "vision-region-match.json",
+                    "save_as": "vision_region_match",
                 },
                 {"action": "close_desktop", "desktop": "desktop"},
             ],
@@ -1421,35 +1483,143 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
             output_dir = ""
             run_error = str(error)
         vision_path = package_dir / "output" / "desktop-vision" / "vision-match.json"
+        region_vision_path = package_dir / "output" / "desktop-vision" / "vision-region-match.json"
+        region_capture_path = package_dir / "output" / "desktop-screenshots" / "region-screen.png"
         source_artifact_path = package_dir / "output" / "desktop-vision" / "vision-match-source.png"
         crop_path = package_dir / "output" / "desktop-vision" / "vision-match-crop.png"
         annotation_path = package_dir / "output" / "desktop-vision" / "vision-match-annotated.png"
         payload = _read_json(vision_path) if vision_path.exists() else {}
+        region_payload = _read_json(region_vision_path) if region_vision_path.exists() else {}
         match = payload.get("match") if isinstance(payload.get("match"), dict) else {}
         bounds = match.get("bounds") if isinstance(match.get("bounds"), dict) else {}
+        region_match = region_payload.get("match") if isinstance(region_payload.get("match"), dict) else {}
+        region_bounds = region_match.get("bounds") if isinstance(region_match.get("bounds"), dict) else {}
         bounds_ok = all(int(bounds.get(key, -1)) == value for key, value in expected_bounds.items())
+        region_bounds_ok = all(int(region_bounds.get(key, -1)) == value for key, value in expected_bounds.items())
+        region_payload_ok = region_payload.get("region") == region
+        region_capture_size = _image_size(region_capture_path)
+        region_capture_ok = (
+            _file_nonempty_after(region_capture_path, started_at)
+            and region_capture_size == {"width": capture_region["width"], "height": capture_region["height"]}
+        )
         artifacts_ok = all(
             _file_nonempty_after(path, started_at)
             for path in (vision_path, source_artifact_path, crop_path, annotation_path)
         )
         score = float(match.get("score", 0.0) or 0.0) if isinstance(match, dict) else 0.0
+        region_score = float(region_match.get("score", 0.0) or 0.0) if isinstance(region_match, dict) else 0.0
+        miss_result = _run_vision_locator_miss_case(project_root, package_dir)
         return {
             "name": "desktop_vision_locate_image_regression",
-            "ok": run_ok and artifacts_ok and bool(payload.get("ok")) and bounds_ok and score >= 0.98,
+            "ok": (
+                run_ok
+                and artifacts_ok
+                and bool(payload.get("ok"))
+                and bounds_ok
+                and score >= 0.98
+                and region_capture_ok
+                and bool(region_payload.get("ok"))
+                and region_bounds_ok
+                and region_payload_ok
+                and region_score >= 0.98
+                and bool(miss_result.get("ok"))
+            ),
             "validation_ok": True,
             "run_ok": run_ok,
             "output_dir": output_dir,
             "run_error": run_error,
             "vision_path": str(vision_path),
+            "region_vision_path": str(region_vision_path),
+            "region_capture_path": str(region_capture_path),
             "source_artifact_path": str(source_artifact_path),
             "crop_path": str(crop_path),
             "annotation_path": str(annotation_path),
             "artifacts_ok": artifacts_ok,
+            "region_capture_ok": region_capture_ok,
+            "region_capture_size": region_capture_size,
             "bounds_ok": bounds_ok,
+            "region_bounds_ok": region_bounds_ok,
+            "region_payload_ok": region_payload_ok,
             "expected_bounds": expected_bounds,
             "actual_bounds": bounds,
+            "actual_region_bounds": region_bounds,
             "score": score,
+            "region_score": region_score,
+            "miss_case": miss_result,
         }
+
+
+def _run_vision_locator_miss_case(project_root: Path, package_dir: Path) -> dict[str, Any]:
+    plan_path = package_dir / "plan.json"
+    plan = {
+        "name": "desktop vision locate image miss regression",
+        "automation_type": "desktop",
+        "variables": {},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
+            {
+                "action": "desktop_vision",
+                "desktop": "desktop",
+                "type": "locate_image",
+                "template_path": "resources/vision-missing-template.png",
+                "source_path": "resources/vision-source.png",
+                "threshold": 0.99,
+                "match_index": 0,
+                "max_matches": 5,
+                "path": "vision-miss.json",
+                "save_as": "vision_miss",
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    validation = validate_plan_file(plan_path, project_root)
+    if not validation.ok:
+        return {
+            "name": "desktop_vision_locate_image_miss_regression",
+            "ok": False,
+            "validation_ok": False,
+            "errors": [error.format() for error in validation.errors],
+        }
+    started_at = time.time()
+    run_error = ""
+    try:
+        result = execute_plan(
+            plan,
+            project_root,
+            plan_path=plan_path,
+            run_name="desktop-components-vision-miss",
+            run_context_handler=_disable_run_log_echo,
+        )
+        failed_as_expected = result.status == "failed"
+        output_dir = result.output_dir
+    except Exception as error:
+        failed_as_expected = True
+        output_dir = ""
+        run_error = str(error)
+    miss_path = package_dir / "output" / "desktop-vision" / "vision-miss.json"
+    payload = _read_json(miss_path) if miss_path.exists() else {}
+    diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+    source_artifact = payload.get("artifacts", {}).get("source_path") if isinstance(payload.get("artifacts"), dict) else ""
+    diagnostics_ok = (
+        payload.get("ok") is False
+        and isinstance(diagnostics.get("max_score"), (int, float))
+        and isinstance(diagnostics.get("candidate_count"), int)
+        and isinstance(diagnostics.get("source_size"), dict)
+        and isinstance(diagnostics.get("template_size"), dict)
+    )
+    return {
+        "name": "desktop_vision_locate_image_miss_regression",
+        "ok": failed_as_expected and _file_nonempty_after(miss_path, started_at) and diagnostics_ok,
+        "validation_ok": True,
+        "failed_as_expected": failed_as_expected,
+        "output_dir": output_dir,
+        "run_error": run_error,
+        "miss_path": str(miss_path),
+        "source_artifact": str(source_artifact),
+        "diagnostics_ok": diagnostics_ok,
+        "diagnostics": diagnostics,
+    }
 
 
 def _run_real_app_matrix_case(project_root: Path) -> dict[str, Any]:
@@ -1830,9 +2000,20 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             _cleanup_temporary_form_case(package_dir, system)
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
+        clipboard_restore_enabled = bool(plan["variables"].get("clipboard_restore_enabled"))
+        clipboard_after_file = package_dir / "resources" / "desktop-clipboard-after.txt"
+        clipboard_after_text = clipboard_after_file.read_text(encoding="utf-8", errors="replace") if clipboard_after_file.exists() else ""
+        clipboard_restore_ok = (
+            not clipboard_restore_enabled
+            or (
+                _file_nonempty_after(clipboard_after_file, started_at)
+                and clipboard_after_text == str(plan["variables"].get("clipboard_sentinel", ""))
+            )
+        )
         elements_path = package_dir / "output" / "desktop-elements" / "form-elements.json"
         dump_path = package_dir / "output" / "desktop-elements" / "form-elements-dump.json"
         assert_path = package_dir / "output" / "desktop-elements" / "form-entry-assertion.json"
+        clipboard_assert_path = package_dir / "output" / "desktop-elements" / "form-clipboard-assertion.json"
         status_assert_path = package_dir / "output" / "desktop-elements" / "form-status-assertion.json"
         run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
         annotation_dir = run_output_dir / "desktop-annotations"
@@ -1901,6 +2082,8 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and dump_ok
                 and expected_controls_found
                 and _file_nonempty_after(assert_path, started_at)
+                and (not clipboard_restore_enabled or _file_nonempty_after(clipboard_assert_path, started_at))
+                and clipboard_restore_ok
                 and status_assertion_ok
                 and annotation_ok
             ),
@@ -1910,6 +2093,10 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "run_error": run_error,
             "assertion_file": str(assertion_file),
             "expected_text_found": expected_text in content,
+            "clipboard_restore_enabled": clipboard_restore_enabled,
+            "clipboard_restore_ok": clipboard_restore_ok,
+            "clipboard_after_file": str(clipboard_after_file),
+            "clipboard_after_text": clipboard_after_text,
             "metadata_found": metadata_found,
             "content_preview": content[:500],
             "expected_controls_found": expected_controls_found,
@@ -2040,18 +2227,48 @@ def _write_vision_fixture_images(source_path: Path, template_path: Path) -> dict
     return bounds
 
 
+def _write_vision_missing_template(template_path: Path) -> None:
+    from PIL import Image, ImageDraw
+
+    template_path.parent.mkdir(parents=True, exist_ok=True)
+    template = Image.new("RGB", (58, 38), (35, 31, 32))
+    draw = ImageDraw.Draw(template)
+    draw.rectangle((0, 0, 57, 37), outline=(248, 248, 242), width=3)
+    draw.line((5, 5, 52, 33), fill=(165, 42, 214), width=5)
+    draw.line((7, 31, 50, 4), fill=(255, 88, 34), width=3)
+    draw.rectangle((20, 9, 38, 27), fill=(0, 210, 230))
+    template.save(template_path)
+
+
+def _image_size(path: Path) -> dict[str, int]:
+    if not path.exists():
+        return {}
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            return {"width": int(image.width), "height": int(image.height)}
+    except Exception:
+        return {}
+
+
 def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any], Path, str]:
     title = "AI Automate Desktop Element Form"
     expected_text = "desktop element set_text regression input"
+    clipboard_sentinel = f"desktop-clipboard-sentinel-{package_dir.name}"
+    clipboard_text = "desktop clipboard restore regression input"
     assertion_file = Path("resources") / "desktop-element-action-output.txt"
     pid_file = Path("resources") / "desktop-element-action-pid.txt"
+    clipboard_after_file = Path("resources") / "desktop-clipboard-after.txt"
     absolute_assertion_file = str((package_dir / assertion_file).resolve())
     absolute_pid_file = str((package_dir / pid_file).resolve())
+    absolute_clipboard_after_file = str((package_dir / clipboard_after_file).resolve())
     if system == "Windows":
         powershell = _windows_powershell_executable()
         if not powershell:
             raise RuntimeError("PowerShell is required for the Windows desktop element action regression.")
         include_mouse_steps = _module_available("pyautogui")
+        include_clipboard_steps = include_mouse_steps and _module_available("pyperclip")
         entry_locator = {"automation_id": "DesktopElementTextBox", "control_type": "Edit"}
         button_locator = {"automation_id": "DesktopElementSaveButton", "control_type": "Button"}
         checkbox_locator = {"automation_id": "DesktopElementAgreeCheckBox", "control_type": "CheckBox"}
@@ -2071,6 +2288,7 @@ def _temporary_form_plan(package_dir: Path, system: str) -> tuple[dict[str, Any]
         cleanup_hint = f"temporary WinForms app title={title}; pid file={absolute_pid_file}"
     else:
         include_mouse_steps = False
+        include_clipboard_steps = False
         entry_locator = {"role": "AXTextField", "element_match_index": 0}
         button_locator = {"name": "Save", "role": "AXButton"}
         checkbox_locator = {}
@@ -2105,9 +2323,65 @@ root.mainloop()
         app_args = ["-c", app_script, absolute_assertion_file]
         cleanup_hint = f"temporary tkinter app title={title}; pid file={absolute_pid_file}"
     extra_control_steps: list[dict[str, Any]] = []
+    clipboard_steps: list[dict[str, Any]] = []
     status_assert_steps: list[dict[str, Any]] = []
     expected_content_fragments = ["{{expected_text}}"]
     if system == "Windows":
+        if include_clipboard_steps:
+            clipboard_steps.extend(
+                [
+                    {
+                        "action": "command",
+                        "type": "run",
+                        "argv": [
+                            sys.executable,
+                            "-c",
+                            "import pyperclip, sys; pyperclip.copy(sys.argv[1])",
+                            "{{clipboard_sentinel}}",
+                        ],
+                        "timeout_ms": 10000,
+                        "save_as": "clipboard_seed",
+                    },
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "type_text",
+                        "value": "{{clipboard_text}}",
+                        "method": "clipboard",
+                        "preserve_clipboard": True,
+                        "save_as": "clipboard_type_text",
+                    },
+                    {
+                        "action": "command",
+                        "type": "run",
+                        "argv": [
+                            sys.executable,
+                            "-c",
+                            (
+                                "import pathlib, pyperclip, sys; "
+                                "pathlib.Path(sys.argv[1]).write_text(pyperclip.paste(), encoding='utf-8')"
+                            ),
+                            absolute_clipboard_after_file,
+                        ],
+                        "timeout_ms": 10000,
+                        "save_as": "clipboard_after",
+                    },
+                    {
+                        "action": "desktop_assert",
+                        "desktop": "desktop",
+                        "type": "element",
+                        "title_contains": title,
+                        **entry_locator,
+                        "state": "exists",
+                        "expected": "{{clipboard_text}}",
+                        "mode": "equals",
+                        "path": "form-clipboard-assertion.json",
+                        "save_as": "clipboard_assertion",
+                        "max_depth": 5,
+                        "max_elements": 200,
+                    },
+                ]
+            )
         extra_control_steps.append(
             {
                 "action": "desktop_element",
@@ -2274,7 +2548,12 @@ root.mainloop()
     plan = {
         "name": "desktop element set_text invoke regression",
         "automation_type": "desktop",
-        "variables": {"expected_text": expected_text},
+        "variables": {
+            "expected_text": expected_text,
+            "clipboard_restore_enabled": include_clipboard_steps,
+            "clipboard_sentinel": clipboard_sentinel,
+            "clipboard_text": clipboard_text,
+        },
         "steps": [
             {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
             {"action": "write", "type": "json", "path": "desktop-probe.json", "value": "{{desktop_probe}}"},
@@ -2345,6 +2624,7 @@ root.mainloop()
                 "save_as": "entry_bounds_center_click",
             },
             {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["esc"]},
+            *clipboard_steps,
             {
                 "action": "desktop_element",
                 "desktop": "desktop",
