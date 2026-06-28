@@ -5,7 +5,9 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
 from ai_automate_contro.engine.desktop.backends import DesktopBackendError, NativeDesktopBackend
+from ai_automate_contro.plans.config import load_plan_config
 
 
 MAX_DESKTOP_INSPECTION_WINDOWS = 50
@@ -75,7 +77,10 @@ def inspect_desktop_tool(
     )
 
     started = time.monotonic()
-    backend_instance = NativeDesktopBackend(platform_name=resolved_platform)
+    backend_instance = NativeDesktopBackend(
+        platform_name=resolved_platform,
+        desktop_config=_desktop_config_from_project(root),
+    )
     screenshot_payload: dict[str, Any] = {}
     elements_payload: dict[str, Any] = {}
     windows: list[dict[str, Any]] = []
@@ -168,6 +173,14 @@ def _resolve_platform_name(raw_platform: str) -> str:
     if text in {"windows", "macos"}:
         return text
     raise DesktopBackendError(f"不支持的 desktop platform：{raw_platform}")
+
+
+def _desktop_config_from_project(project_root: Path) -> dict[str, Any]:
+    try:
+        config = load_plan_config(project_root, default_ai_config_dir_for_project(project_root))
+    except Exception:
+        return {}
+    return config if isinstance(config, dict) else {}
 
 
 def _current_platform_name() -> str:

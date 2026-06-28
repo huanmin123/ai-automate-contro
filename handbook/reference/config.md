@@ -31,6 +31,30 @@
 
 失败运行不会触发检查等待，会直接清理浏览器资源。
 
+## desktop.ocr
+
+配置桌面 OCR 运行时。只影响 `automation_type: "desktop"` 且使用 `desktop_vision type=locate_text` 的 plan。
+
+```json
+{
+  "desktop": {
+    "ocr": {
+      "tesseract_path": "E:/Tesseract/tesseract.exe",
+      "tessdata_dir": "E:/Tesseract/tessdata",
+      "default_language": "eng"
+    }
+  }
+}
+```
+
+字段：
+
+- `tesseract_path`: 字符串。可选，Tesseract 可执行文件路径或安装目录。
+- `tessdata_dir`: 字符串。可选，`.traineddata` 语言包目录。
+- `default_language`: 字符串。可选，默认 OCR 语言标记；plan action 上的 `language` 仍可显式覆盖。
+
+解析顺序：plan 包 `config.json` 覆盖集合级 `<plan-root>/config.json`；没有配置时运行时再尝试环境变量和系统路径。AI 写需要 OCR 的 desktop plan 前，先确认 `capability_matrix.dependencies.tesseract` 和所需 `tessdata.*` 为 `true`。
+
 ## ai_services
 
 专项 AI 组件和 AI 终端使用的模型服务配置。

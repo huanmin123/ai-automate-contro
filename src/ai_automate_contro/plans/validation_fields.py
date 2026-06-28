@@ -266,8 +266,11 @@ def validate_type_specific_required_fields(
             _validate_desktop_element_locator(step, action, step_type, location, issues)
         elif capture_target == "region" and "region" not in step:
             issues.append(ValidationIssue(location, "desktop_capture.screenshot target=region 缺少必填字段：region"))
-    elif action == "desktop_vision" and step_type == "locate_image":
-        required = ("template_path",)
+    elif action == "desktop_vision" and step_type in {"locate_image", "locate_text"}:
+        if step_type == "locate_image":
+            required = ("template_path",)
+        if step_type == "locate_text" and not any(step.get(field) for field in ("text", "text_contains", "text_regex")):
+            issues.append(ValidationIssue(location, "desktop_vision.locate_text 需要 text、text_contains 或 text_regex 之一"))
         source_target = step.get("source_target")
         if source_target == "window":
             _validate_window_query(step, action, step_type, location, issues)
@@ -946,7 +949,16 @@ def _validate_desktop_vision_fields(
     location: str,
     issues: list[ValidationIssue],
 ) -> None:
-    _validate_string(step, "template_path", location, issues)
+    if step_type == "locate_image":
+        _validate_string(step, "template_path", location, issues)
+    if step_type == "locate_text":
+        for field in ("text", "text_contains", "text_regex", "language"):
+            _validate_string(step, field, location, issues)
+        _validate_enum(step, "provider", {"auto", "tesseract"}, location, issues)
+        _validate_number(step, "min_confidence", location, issues)
+        _validate_bool(step, "case_sensitive", location, issues)
+        if "template_path" in step:
+            issues.append(ValidationIssue(location, "desktop_vision.locate_text 不使用 template_path"))
     _validate_string(step, "source_path", location, issues)
     _validate_string(step, "path", location, issues)
     _validate_string(step, "save_as", location, issues)
@@ -962,13 +974,14 @@ def _validate_desktop_vision_fields(
     _validate_int(step, "interval_ms", location, issues, minimum=1)
     _validate_int(step, "max_depth", location, issues, minimum=0)
     _validate_int(step, "max_elements", location, issues, minimum=1)
-    if step_type == "locate_image":
+    if step_type in {"locate_image", "locate_text"}:
         if step.get("source_target") in {"window", "element"}:
             _validate_desktop_vision_window_query_fields(step, location, issues)
         if step.get("source_target") == "element":
             _validate_desktop_element_locator_fields(step, location, issues)
         if "source_path" in step and "source_target" in step:
-            issues.append(ValidationIssue(location, "desktop_vision.locate_image 不能同时使用 source_path 和 source_target"))
+            issues.append(ValidationIssue(location, f"desktop_vision.{step_type} 不能同时使用 source_path 和 source_target"))
+    if step_type == "locate_image":
         threshold = step.get("threshold")
         if (
             threshold is not None
@@ -977,6 +990,15 @@ def _validate_desktop_vision_fields(
             and not 0 <= float(threshold) <= 1
         ):
             issues.append(ValidationIssue(location, "desktop_vision.locate_image threshold 必须在 0 到 1 之间"))
+    if step_type == "locate_text":
+        min_confidence = step.get("min_confidence")
+        if (
+            min_confidence is not None
+            and not _is_template(min_confidence)
+            and isinstance(min_confidence, (int, float))
+            and not 0 <= float(min_confidence) <= 1
+        ):
+            issues.append(ValidationIssue(location, "desktop_vision.locate_text min_confidence 必须在 0 到 1 之间"))
 
 
 def _validate_desktop_wait_fields(

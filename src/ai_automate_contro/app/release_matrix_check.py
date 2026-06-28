@@ -18,12 +18,19 @@ def self_check_release_matrix(
     retry_delay_seconds: float = 3.0,
     step_timeout_seconds: int = 900,
     require_desktop_vision: bool = False,
+    require_desktop_ocr: bool = False,
+    require_desktop_ocr_zh: bool = False,
     only: list[str] | None = None,
     list_steps: bool = False,
     fail_fast: bool = False,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
-    commands = _deterministic_commands(root, require_desktop_vision=require_desktop_vision)
+    commands = _deterministic_commands(
+        root,
+        require_desktop_vision=require_desktop_vision,
+        require_desktop_ocr=require_desktop_ocr,
+        require_desktop_ocr_zh=require_desktop_ocr_zh,
+    )
     if include_real_ai:
         commands.extend(
             _real_ai_commands(
@@ -44,6 +51,8 @@ def self_check_release_matrix(
             "project_root": str(root),
             "include_real_ai": include_real_ai,
             "require_desktop_vision": require_desktop_vision,
+            "require_desktop_ocr": require_desktop_ocr,
+            "require_desktop_ocr_zh": require_desktop_ocr_zh,
             "available_steps": available_steps,
             "unknown_steps": unknown_steps,
             "results": [],
@@ -56,6 +65,8 @@ def self_check_release_matrix(
             "project_root": str(root),
             "include_real_ai": include_real_ai,
             "require_desktop_vision": require_desktop_vision,
+            "require_desktop_ocr": require_desktop_ocr,
+            "require_desktop_ocr_zh": require_desktop_ocr_zh,
             "available_steps": available_steps,
             "selected_steps": [_step_summary(item) for item in selected_commands],
             "results": [],
@@ -72,6 +83,8 @@ def self_check_release_matrix(
         "project_root": str(root),
         "include_real_ai": include_real_ai,
         "require_desktop_vision": require_desktop_vision,
+        "require_desktop_ocr": require_desktop_ocr,
+        "require_desktop_ocr_zh": require_desktop_ocr_zh,
         "fail_fast": fail_fast,
         "available_steps": available_steps,
         "selected_steps": [_step_summary(item) for item in selected_commands],
@@ -79,10 +92,20 @@ def self_check_release_matrix(
     }
 
 
-def _deterministic_commands(project_root: Path, *, require_desktop_vision: bool = False) -> list[dict[str, Any]]:
+def _deterministic_commands(
+    project_root: Path,
+    *,
+    require_desktop_vision: bool = False,
+    require_desktop_ocr: bool = False,
+    require_desktop_ocr_zh: bool = False,
+) -> list[dict[str, Any]]:
     desktop_components_command = [_python(), "cplan.py", "self-check", "desktop-components"]
     if require_desktop_vision:
         desktop_components_command.append("--require-vision")
+    if require_desktop_ocr:
+        desktop_components_command.append("--require-ocr")
+    if require_desktop_ocr_zh:
+        desktop_components_command.append("--require-ocr-zh")
     return [
         {"name": "compileall", "command": [_python(), "-m", "compileall", "-q", "src", "main.py", "cplan.py"]},
         {"name": "tool_check", "command": [_python(), "main.py", "tool", "check"]},

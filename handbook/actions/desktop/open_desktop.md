@@ -44,11 +44,13 @@
 - `capabilities.semantic`: 窗口/控件树/文本/状态/写值/选择/触发/表格/树/菜单/滚动容器是否可用。
 - `capabilities.input`: 鼠标、键盘、快捷键、拖拽、滚轮、剪贴板是否可用。
 - `capabilities.screenshot`: 全屏截图、区域截图、标注截图是否可用。
+- `capabilities.vision.image_locator`: 是否可使用 `desktop_vision type=locate_image`。
+- `capabilities.vision.ocr`: 是否可使用 `desktop_vision type=locate_text`。
 - `permissions`: `accessibility`、`screen_recording`、`input_control`。
-- `dependencies`: `Pillow.ImageGrab`、`pyautogui`、`pyperclip`。
+- `dependencies`: `Pillow.ImageGrab`、`opencv-python`、`tesseract`、`tessdata.eng`、`tessdata.chi_sim`、`pyautogui`、`pyperclip`。
 - `limitations`: 当前限制，例如缺依赖、窗口列表不可用、macOS 需要用户授权。
 
-AI 写桌面 plan 前应先看 `capability_matrix`，再决定使用 `desktop_element`、`desktop_input`、`desktop_capture` 或人工确认。
+AI 写桌面 plan 前应先看 `capability_matrix`，再决定使用 `desktop_element`、`desktop_input`、`desktop_capture`、`desktop_vision` 或人工确认。
 
 ## 注意
 

@@ -1270,7 +1270,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 write，把运行证据写入当前 plan output/。"
+        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image/locate_text 或 write，把运行证据写入当前 plan output/。"
     return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
 
 
@@ -1330,7 +1330,7 @@ def _data_extraction_issue_message(automation_type: str) -> str:
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image 或 desktop_wait 获取桌面状态，再按需写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image/locate_text 或 desktop_wait 获取桌面状态，再按需写出文件。"
     return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
 
 

@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import csv
+import io
 import json
 import platform
+import re
+import subprocess
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -9,6 +14,11 @@ from typing import Any
 from ai_automate_contro.engine.desktop import DesktopSession
 from ai_automate_contro.engine.desktop.annotations import capture_pointer_annotation
 from ai_automate_contro.engine.desktop.backends import DesktopBackendError, NativeDesktopBackend
+from ai_automate_contro.engine.desktop.backends.capabilities import (
+    resolve_tesseract_binary,
+    tesseract_binary_details,
+    tesseract_common_options,
+)
 
 
 WINDOW_QUERY_FIELDS = {
@@ -67,7 +77,8 @@ def open_desktop(executor: Any, step: dict[str, Any]) -> None:
         raise ValueError(f"桌面会话已存在：{name}")
     platform_name = _resolve_platform_name(str(step.get("platform", "auto")))
     backend_name = str(step.get("backend", "auto"))
-    backend = _create_backend(platform_name=platform_name, backend_name=backend_name)
+    desktop_config = _desktop_runtime_config(executor)
+    backend = _create_backend(platform_name=platform_name, backend_name=backend_name, desktop_config=desktop_config)
     started = time.monotonic()
     probe = backend.probe(request_permissions=bool(step.get("request_permissions", False)))
     capability_matrix = probe.get("capability_matrix") if isinstance(probe.get("capability_matrix"), dict) else {}
@@ -575,11 +586,18 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
             include_cursor=bool(step.get("include_cursor", False)),
         )
         source_bounds = _capture_source_bounds(payload, region)
+        coordinate_space = {"origin": "screen", "unit": "logical_px", "scale": None}
         payload = {
             **payload,
             "target": target,
             "source_bounds": source_bounds,
-            "coordinate_space": {"origin": "screen", "unit": "logical_px", "scale": None},
+            "coordinate_space": coordinate_space,
+            "coordinate_diagnostics": _coordinate_diagnostics(
+                source_bounds=source_bounds,
+                source_size={"width": payload.get("width", 0), "height": payload.get("height", 0)},
+                coordinate_space=coordinate_space,
+                region=region,
+            ),
             **target_payload,
         }
     elif capture_type == "snapshot":
@@ -714,15 +732,20 @@ def _int_coordinate(value: Any, *, field: str, action_label: str) -> int:
 def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
     vision_type = str(step["type"])
-    if vision_type != "locate_image":
+    if vision_type not in {"locate_image", "locate_text"}:
         raise ValueError(f"不支持的 desktop_vision.type：{vision_type}")
     started = time.monotonic()
     output_path = executor._resolve_output_path(step["path"], category="desktop-vision")
-    template_path = executor._resolve_path(str(step["template_path"]))
+    template_path = executor._resolve_path(str(step["template_path"])) if vision_type == "locate_image" else None
     source_input_path = executor._resolve_path(str(step["source_path"])) if step.get("source_path") else None
     if source_input_path is not None and step.get("source_target"):
-        raise ValueError("desktop_vision.locate_image 不能同时使用 source_path 和 source_target。")
+        raise ValueError(f"desktop_vision.{vision_type} 不能同时使用 source_path 和 source_target。")
     threshold = float(step.get("threshold", 0.85))
+    match_query = _desktop_vision_text_query(step) if vision_type == "locate_text" else {}
+    language = str(step.get("language", "eng"))
+    provider = str(step.get("provider", "auto"))
+    min_confidence = float(step.get("min_confidence", 0.60))
+    case_sensitive = bool(step.get("case_sensitive", False))
     match_index = int(step.get("match_index", 0))
     max_matches = int(step.get("max_matches", 10))
     timeout_ms = int(step.get("timeout_ms", 3_000))
@@ -739,29 +762,52 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
             source_artifact_path=artifacts["source"],
             include_cursor=bool(step.get("include_cursor", False)),
         )
-        payload = _locate_image_in_source(
-            template_path=template_path,
-            source_path=source_path,
-            output_path=output_path,
-            artifacts=artifacts,
-            region=step.get("region") if isinstance(step.get("region"), dict) else None,
-            threshold=threshold,
-            match_index=match_index,
-            max_matches=max_matches,
-            coordinate_origin=coordinate_origin,
-            started=started,
-            source_payload=source_payload,
-            source_bounds=source_bounds,
-            desktop=session.name,
-        )
+        if vision_type == "locate_image":
+            if template_path is None:
+                raise ValueError("desktop_vision.locate_image 需要 template_path。")
+            payload = _locate_image_in_source(
+                template_path=template_path,
+                source_path=source_path,
+                output_path=output_path,
+                artifacts=artifacts,
+                region=step.get("region") if isinstance(step.get("region"), dict) else None,
+                threshold=threshold,
+                match_index=match_index,
+                max_matches=max_matches,
+                coordinate_origin=coordinate_origin,
+                started=started,
+                source_payload=source_payload,
+                source_bounds=source_bounds,
+                desktop=session.name,
+            )
+        else:
+            payload = _locate_text_in_source(
+                source_path=source_path,
+                output_path=output_path,
+                artifacts=artifacts,
+                region=step.get("region") if isinstance(step.get("region"), dict) else None,
+                match_query=match_query,
+                language=language,
+                provider=provider,
+                min_confidence=min_confidence,
+                case_sensitive=case_sensitive,
+                match_index=match_index,
+                max_matches=max_matches,
+                coordinate_origin=coordinate_origin,
+                started=started,
+                source_payload=source_payload,
+                source_bounds=source_bounds,
+                desktop=session.name,
+                desktop_config=_desktop_runtime_config(executor),
+            )
         last_payload = payload
         if payload.get("ok"):
             break
         if source_input_path is not None or time.monotonic() >= deadline:
             _write_json(output_path, payload)
             raise TimeoutError(
-                "desktop_vision.locate_image 未找到匹配图像："
-                f"template_path={template_path} threshold={threshold} match_index={match_index}"
+                f"desktop_vision.{vision_type} 未找到匹配目标："
+                f"query={match_query or template_path} match_index={match_index}"
             )
         time.sleep(max(0.001, interval_ms / 1000))
 
@@ -770,8 +816,9 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
         executor.state.variables[str(step["save_as"])] = last_payload
     executor.state.logger.log(
         "info",
-        "desktop image located",
+        "desktop vision located",
         desktop=session.name,
+        type=vision_type,
         path=str(output_path),
         score=last_payload.get("match", {}).get("score", ""),
         save_as=step.get("save_as", ""),
@@ -946,6 +993,49 @@ def _desktop_vision_artifact_paths(output_path: Path) -> dict[str, Path]:
     }
 
 
+def _desktop_vision_text_query(step: dict[str, Any]) -> dict[str, str]:
+    query = {
+        field: str(step[field])
+        for field in ("text", "text_contains", "text_regex")
+        if field in step and step[field] not in (None, "")
+    }
+    if not query:
+        raise ValueError("desktop_vision.locate_text 需要 text、text_contains 或 text_regex 之一。")
+    return query
+
+
+def _coordinate_diagnostics(
+    *,
+    source_bounds: dict[str, Any],
+    coordinate_space: dict[str, Any],
+    source_size: dict[str, Any] | None = None,
+    region: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    bounds = {
+        "x": int(source_bounds.get("x", 0) or 0),
+        "y": int(source_bounds.get("y", 0) or 0),
+        "width": int(source_bounds.get("width", 0) or 0),
+        "height": int(source_bounds.get("height", 0) or 0),
+    }
+    normalized_source_size = dict(source_size or {"width": bounds["width"], "height": bounds["height"]})
+    scale = coordinate_space.get("scale") if isinstance(coordinate_space, dict) else None
+    warnings: list[str] = []
+    if scale is None:
+        warnings.append("scale_unknown")
+    if bounds["x"] < 0 or bounds["y"] < 0:
+        warnings.append("negative_source_origin")
+    return {
+        "source_bounds": bounds,
+        "source_size": normalized_source_size,
+        "coordinate_space": dict(coordinate_space),
+        "global_origin": {"x": bounds["x"], "y": bounds["y"]},
+        "local_to_global_offset": {"x": bounds["x"], "y": bounds["y"]},
+        "scale": scale,
+        "region": dict(region or {}),
+        "warnings": warnings,
+    }
+
+
 def _prepare_desktop_vision_source(
     session: DesktopSession,
     *,
@@ -982,7 +1072,7 @@ def _prepare_desktop_vision_source(
 
     source_target = raw_source_target or "screen"
     if source_target not in {"screen", "window", "element"}:
-        raise ValueError(f"不支持的 desktop_vision.locate_image source_target：{source_target}")
+        raise ValueError(f"不支持的 desktop_vision source_target：{source_target}")
     region: dict[str, Any] | None = None
     source_target_payload: dict[str, Any] = {"target_query": {}, "locator": {}}
     if source_target in {"window", "element"}:
@@ -1078,6 +1168,10 @@ def _locate_image_in_source(
             _save_desktop_vision_crop(source_image, local_selected["bounds"], artifacts["crop"])
             _save_desktop_vision_annotation(source_image, local_matches, local_selected, artifacts["annotation"])
 
+    coordinate_space = {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    source_size = {"width": 0, "height": 0}
+    if "diagnostics" in locals() and isinstance(diagnostics.get("source_size"), dict):
+        source_size = dict(diagnostics["source_size"])
     payload = {
         "ok": selected is not None,
         "action": "desktop_vision",
@@ -1089,7 +1183,13 @@ def _locate_image_in_source(
         "threshold": threshold,
         "match_index": match_index,
         "max_matches": max_matches,
-        "coordinate_space": {"origin": coordinate_origin, "unit": "logical_px", "scale": None},
+        "coordinate_space": coordinate_space,
+        "coordinate_diagnostics": _coordinate_diagnostics(
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region_payload if "region_payload" in locals() else region if isinstance(region, dict) else None,
+        ),
         "source_bounds": source_bounds,
         "region": region_payload if "region_payload" in locals() else region or {},
         "target_query": source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
@@ -1113,6 +1213,359 @@ def _locate_image_in_source(
         "elapsed_ms": _elapsed_ms(started),
     }
     return payload
+
+
+def _locate_text_in_source(
+    *,
+    source_path: Path,
+    output_path: Path,
+    artifacts: dict[str, Path],
+    region: dict[str, Any] | None,
+    match_query: dict[str, str],
+    language: str,
+    provider: str,
+    min_confidence: float,
+    case_sensitive: bool,
+    match_index: int,
+    max_matches: int,
+    coordinate_origin: str,
+    started: float,
+    source_payload: dict[str, Any],
+    source_bounds: dict[str, int],
+    desktop: str,
+    desktop_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        from PIL import Image
+    except Exception as error:
+        raise DesktopBackendError("desktop_vision.locate_text 需要 Pillow。") from error
+
+    with Image.open(source_path) as raw_source:
+        source_image = raw_source.convert("RGB")
+        search_image, region_payload = _desktop_vision_search_image(source_image, region)
+        raw_text, local_blocks, diagnostics = _desktop_vision_ocr_blocks(
+            search_image,
+            language=language,
+            provider=provider,
+            region=region_payload,
+            desktop_config=desktop_config,
+        )
+        ocr_blocks = _desktop_vision_global_matches(local_blocks, source_bounds)
+        local_matches = _desktop_vision_text_matches(
+            local_blocks,
+            match_query=match_query,
+            min_confidence=min_confidence,
+            max_matches=max_matches,
+            case_sensitive=case_sensitive,
+        )
+        matches = _desktop_vision_global_matches(local_matches, source_bounds)
+        local_selected = local_matches[match_index] if 0 <= match_index < len(local_matches) else None
+        selected = matches[match_index] if 0 <= match_index < len(matches) else None
+        if local_selected is not None:
+            _save_desktop_vision_crop(source_image, local_selected["bounds"], artifacts["crop"])
+            _save_desktop_vision_annotation(source_image, local_matches, local_selected, artifacts["annotation"])
+
+    coordinate_space = {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    source_size = {"width": int(source_image.width), "height": int(source_image.height)}
+    payload = {
+        "ok": selected is not None,
+        "action": "desktop_vision",
+        "type": "locate_text",
+        "desktop": desktop,
+        "source_target": str(source_payload.get("source_target", "")),
+        "source_path": str(source_path),
+        "match_query": match_query,
+        "language": language,
+        "provider": diagnostics.get("provider", provider),
+        "min_confidence": min_confidence,
+        "case_sensitive": case_sensitive,
+        "match_index": match_index,
+        "max_matches": max_matches,
+        "raw_text": raw_text,
+        "ocr_blocks": ocr_blocks,
+        "coordinate_space": coordinate_space,
+        "coordinate_diagnostics": _coordinate_diagnostics(
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region_payload,
+        ),
+        "source_bounds": source_bounds,
+        "region": region_payload,
+        "target_query": source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
+        "locator": source_payload.get("locator") if isinstance(source_payload.get("locator"), dict) else {},
+        "window": source_payload.get("window") if isinstance(source_payload.get("window"), dict) else {},
+        "element": source_payload.get("element") if isinstance(source_payload.get("element"), dict) else {},
+        "matches": matches,
+        "match": selected or {},
+        "artifacts": {
+            "json_path": str(output_path),
+            "json_relative_path": _output_relative_path(output_path),
+            "source_path": str(artifacts["source"]),
+            "source_relative_path": _output_relative_path(artifacts["source"]),
+            "crop_path": str(artifacts["crop"]) if selected is not None else "",
+            "crop_relative_path": _output_relative_path(artifacts["crop"]) if selected is not None else "",
+            "annotation_path": str(artifacts["annotation"]) if selected is not None else "",
+            "annotation_relative_path": _output_relative_path(artifacts["annotation"]) if selected is not None else "",
+        },
+        "diagnostics": {
+            **diagnostics,
+            "candidate_count": len(matches),
+            "ocr_block_count": len(ocr_blocks),
+            "source_size": source_size,
+            "match_query": match_query,
+            "min_confidence": min_confidence,
+        },
+        "source": source_payload,
+        "elapsed_ms": _elapsed_ms(started),
+    }
+    return payload
+
+
+def _desktop_vision_ocr_blocks(
+    image: Any,
+    *,
+    language: str,
+    provider: str,
+    region: dict[str, int],
+    desktop_config: dict[str, Any] | None = None,
+) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    normalized_provider = "tesseract" if provider == "auto" else provider
+    if normalized_provider != "tesseract":
+        raise DesktopBackendError(f"desktop_vision.locate_text 不支持的 OCR provider：{provider}")
+    tsv_text, diagnostics = _run_tesseract_tsv(image, language=language, desktop_config=desktop_config)
+    word_blocks = _parse_tesseract_tsv_words(tsv_text, region=region)
+    line_blocks = _merge_ocr_words_to_lines(word_blocks)
+    raw_text = "\n".join(str(block.get("text", "")) for block in line_blocks if block.get("text"))
+    diagnostics.update(
+        {
+            "provider": "tesseract",
+            "language": language,
+            "word_count": len(word_blocks),
+            "line_count": len(line_blocks),
+        }
+    )
+    return raw_text, line_blocks, diagnostics
+
+
+def _run_tesseract_tsv(
+    image: Any,
+    *,
+    language: str,
+    desktop_config: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    binary = resolve_tesseract_binary(desktop_config)
+    if not binary:
+        details = tesseract_binary_details(desktop_config)
+        source = str(details.get("source") or "PATH")
+        raise DesktopBackendError(
+            "desktop_vision.locate_text 需要系统可执行的 tesseract 命令；"
+            "请安装 Tesseract、加入 PATH，或在 config.json 的 desktop.ocr.tesseract_path 指定路径。"
+            f" 当前探测来源：{source}"
+        )
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_file:
+            temp_path = Path(temp_file.name)
+        image.save(temp_path)
+        completed = subprocess.run(
+            [
+                binary,
+                str(temp_path),
+                "stdout",
+                *tesseract_common_options(desktop_config),
+                "-l",
+                language,
+                "--psm",
+                "6",
+                "tsv",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+            check=False,
+        )
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+    if completed.returncode != 0:
+        message = (completed.stderr or completed.stdout or "").strip()
+        raise DesktopBackendError(f"desktop_vision.locate_text OCR 失败：{message}")
+    return completed.stdout, {
+        "method": "tesseract.tsv",
+        "tesseract_path": binary,
+        "tessdata_dir": tesseract_binary_details(desktop_config).get("tessdata_dir", ""),
+        "engine_version": _tesseract_version(binary),
+    }
+
+
+def _tesseract_version(binary: str) -> str:
+    try:
+        completed = subprocess.run(
+            [binary, "--version"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=5,
+            check=False,
+        )
+    except Exception:
+        return ""
+    first_line = (completed.stdout or completed.stderr or "").splitlines()
+    return first_line[0].strip() if first_line else ""
+
+
+def _parse_tesseract_tsv_words(tsv_text: str, *, region: dict[str, int]) -> list[dict[str, Any]]:
+    reader = csv.DictReader(io.StringIO(tsv_text), delimiter="\t")
+    words: list[dict[str, Any]] = []
+    for row in reader:
+        text = str(row.get("text") or "").strip()
+        if not text:
+            continue
+        confidence = _ocr_confidence(row.get("conf"))
+        if confidence < 0:
+            continue
+        try:
+            left = int(float(row.get("left", 0) or 0))
+            top = int(float(row.get("top", 0) or 0))
+            width = int(float(row.get("width", 0) or 0))
+            height = int(float(row.get("height", 0) or 0))
+        except (TypeError, ValueError):
+            continue
+        if width <= 0 or height <= 0:
+            continue
+        local_x = int(region.get("x", 0)) + left
+        local_y = int(region.get("y", 0)) + top
+        bounds = {"x": local_x, "y": local_y, "width": width, "height": height}
+        words.append(
+            {
+                "index": len(words),
+                "level": "word",
+                "text": text,
+                "confidence": confidence,
+                "score": confidence,
+                "bounds": bounds,
+                "point": {"x": local_x + width // 2, "y": local_y + height // 2},
+                "line_key": (
+                    str(row.get("page_num", "")),
+                    str(row.get("block_num", "")),
+                    str(row.get("par_num", "")),
+                    str(row.get("line_num", "")),
+                ),
+            }
+        )
+    return words
+
+
+def _merge_ocr_words_to_lines(words: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str, str], list[dict[str, Any]]] = {}
+    for word in words:
+        grouped.setdefault(tuple(word.get("line_key", ("", "", "", ""))), []).append(word)
+    lines: list[dict[str, Any]] = []
+    for key, line_words in grouped.items():
+        sorted_words = sorted(line_words, key=lambda item: (int(item.get("bounds", {}).get("y", 0)), int(item.get("bounds", {}).get("x", 0))))
+        bounds = _union_bounds([word.get("bounds", {}) for word in sorted_words])
+        confidence_values = [float(word.get("confidence", 0.0) or 0.0) for word in sorted_words]
+        confidence = sum(confidence_values) / len(confidence_values) if confidence_values else 0.0
+        text = " ".join(str(word.get("text", "")) for word in sorted_words if word.get("text"))
+        point = {"x": bounds["x"] + bounds["width"] // 2, "y": bounds["y"] + bounds["height"] // 2}
+        lines.append(
+            {
+                "index": len(lines),
+                "level": "line",
+                "line_key": list(key),
+                "text": text,
+                "confidence": confidence,
+                "score": confidence,
+                "bounds": bounds,
+                "point": point,
+                "words": [
+                    {
+                        "text": str(word.get("text", "")),
+                        "confidence": float(word.get("confidence", 0.0) or 0.0),
+                        "bounds": dict(word.get("bounds", {})),
+                    }
+                    for word in sorted_words
+                ],
+            }
+        )
+    return lines
+
+
+def _desktop_vision_text_matches(
+    blocks: list[dict[str, Any]],
+    *,
+    match_query: dict[str, str],
+    min_confidence: float,
+    max_matches: int,
+    case_sensitive: bool,
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for block in blocks:
+        confidence = float(block.get("confidence", 0.0) or 0.0)
+        if confidence < min_confidence:
+            continue
+        if not _text_query_matches(str(block.get("text", "")), match_query, case_sensitive=case_sensitive):
+            continue
+        match = dict(block)
+        match["index"] = len(matches)
+        match["block_index"] = block.get("index")
+        match["match_query"] = dict(match_query)
+        match["score"] = confidence
+        matches.append(match)
+        if len(matches) >= max(1, max_matches):
+            break
+    return matches
+
+
+def _text_query_matches(text: str, match_query: dict[str, str], *, case_sensitive: bool) -> bool:
+    actual = text if case_sensitive else text.casefold()
+    if "text" in match_query:
+        expected = match_query["text"] if case_sensitive else match_query["text"].casefold()
+        return actual == expected
+    if "text_contains" in match_query:
+        expected = match_query["text_contains"] if case_sensitive else match_query["text_contains"].casefold()
+        return expected in actual
+    if "text_regex" in match_query:
+        flags = 0 if case_sensitive else re.IGNORECASE
+        return re.search(match_query["text_regex"], text, flags=flags) is not None
+    return False
+
+
+def _ocr_confidence(raw_confidence: Any) -> float:
+    try:
+        value = float(raw_confidence)
+    except (TypeError, ValueError):
+        return -1.0
+    if value < 0:
+        return -1.0
+    return max(0.0, min(1.0, value / 100.0))
+
+
+def _union_bounds(bounds_list: list[dict[str, Any]]) -> dict[str, int]:
+    normalized = [
+        {
+            "x": int(bounds.get("x", 0) or 0),
+            "y": int(bounds.get("y", 0) or 0),
+            "width": int(bounds.get("width", 0) or 0),
+            "height": int(bounds.get("height", 0) or 0),
+        }
+        for bounds in bounds_list
+        if isinstance(bounds, dict)
+    ]
+    if not normalized:
+        return {"x": 0, "y": 0, "width": 0, "height": 0}
+    left = min(bounds["x"] for bounds in normalized)
+    top = min(bounds["y"] for bounds in normalized)
+    right = max(bounds["x"] + bounds["width"] for bounds in normalized)
+    bottom = max(bounds["y"] + bounds["height"] for bounds in normalized)
+    return {"x": left, "y": top, "width": right - left, "height": bottom - top}
 
 
 def _desktop_vision_search_image(source_image: Any, region: dict[str, Any] | None) -> tuple[Any, dict[str, int]]:
@@ -1239,14 +1692,24 @@ def _output_relative_path(path: Path) -> str:
     return path.name
 
 
-def _create_backend(*, platform_name: str, backend_name: str) -> NativeDesktopBackend:
+def _desktop_runtime_config(executor: Any) -> dict[str, Any]:
+    config = executor.state.variables.get("config") if hasattr(executor, "state") else {}
+    return dict(config) if isinstance(config, dict) else {}
+
+
+def _create_backend(
+    *,
+    platform_name: str,
+    backend_name: str,
+    desktop_config: dict[str, Any] | None = None,
+) -> NativeDesktopBackend:
     if platform_name not in {"windows", "macos"}:
         raise DesktopBackendError(f"桌面控制 Phase 0 仅支持 Windows 和 macOS：{platform_name}")
     current = _current_platform_name()
     if platform_name != current:
         raise DesktopBackendError(f"当前系统是 {current}，不能打开 platform={platform_name} 的桌面会话。")
     if backend_name in {"auto", "native"}:
-        return NativeDesktopBackend(platform_name=platform_name)
+        return NativeDesktopBackend(platform_name=platform_name, desktop_config=desktop_config)
     raise DesktopBackendError(f"桌面 backend 尚未接入：{backend_name}。Phase 0 请使用 backend=auto 或 backend=native。")
 
 

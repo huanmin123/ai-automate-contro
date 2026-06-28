@@ -28,8 +28,9 @@ from ai_automate_contro.engine.desktop.backends.input_driver import (
 class NativeDesktopBackend:
     backend_name = "native"
 
-    def __init__(self, *, platform_name: str | None = None) -> None:
+    def __init__(self, *, platform_name: str | None = None, desktop_config: dict[str, Any] | None = None) -> None:
         self.platform_name = platform_name or _current_platform_name()
+        self.desktop_config = dict(desktop_config or {})
         self.last_window_list_error = ""
 
     def probe(self, *, request_permissions: bool = False) -> dict[str, Any]:
@@ -57,7 +58,7 @@ class NativeDesktopBackend:
             except Exception as error:
                 screenshot_error = str(error)
                 permissions["screen_recording"] = "not_granted_or_unavailable"
-        dependencies = desktop_dependencies()
+        dependencies = desktop_dependencies(self.desktop_config)
         pyautogui_available = dependencies.get("pyautogui", False)
         if pyautogui_available:
             permissions["input_control"] = "available_or_not_required"
@@ -1149,7 +1150,7 @@ class NativeDesktopBackend:
         }
 
     def snapshot(self, *, include_windows: bool = True, include_displays: bool = True) -> dict[str, Any]:
-        dependencies = desktop_dependencies()
+        dependencies = desktop_dependencies(self.desktop_config)
         payload: dict[str, Any] = {
             "platform": self.platform_name,
             "system": platform.system(),

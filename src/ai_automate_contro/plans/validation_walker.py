@@ -324,7 +324,7 @@ def validate_action_specific_fields(
         )
         validate_package_cwd(step.get("cwd"), f"{location}.cwd", package_root, issues, step=step)
 
-    if action == "desktop_vision":
+    if action == "desktop_vision" and step.get("type") == "locate_image":
         validate_package_input_path(
             step.get("template_path"),
             f"{location}.template_path",
@@ -333,6 +333,7 @@ def validate_action_specific_fields(
             step=step,
             must_exist=False,
         )
+    if action == "desktop_vision":
         validate_package_input_path(
             step.get("source_path"),
             f"{location}.source_path",

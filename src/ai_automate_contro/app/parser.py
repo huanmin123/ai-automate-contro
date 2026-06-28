@@ -263,6 +263,16 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="运行 desktop-components 时要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过。",
     )
+    release_matrix_parser.add_argument(
+        "--require-desktop-ocr",
+        action="store_true",
+        help="运行 desktop-components 时要求 Tesseract OCR 和英文 locate_text 回归真实通过。",
+    )
+    release_matrix_parser.add_argument(
+        "--require-desktop-ocr-zh",
+        action="store_true",
+        help="运行 desktop-components 时要求 Tesseract 简体中文 OCR 回归真实通过。",
+    )
     release_matrix_parser.add_argument("--list", action="store_true", help="只列出矩阵步骤，不执行。")
     release_matrix_parser.add_argument(
         "--only",
@@ -280,6 +290,16 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--require-vision",
         action="store_true",
         help="要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过；缺依赖或跳过时失败。",
+    )
+    desktop_components_parser.add_argument(
+        "--require-ocr",
+        action="store_true",
+        help="要求 Tesseract OCR 和英文 locate_text 回归真实通过；缺依赖或跳过时失败。",
+    )
+    desktop_components_parser.add_argument(
+        "--require-ocr-zh",
+        action="store_true",
+        help="要求 Tesseract 简体中文 OCR 回归真实通过；缺 chi_sim 或跳过时失败。",
     )
     self_check_subparsers.add_parser("desktop-real-app", help="运行真实桌面 App 回归；Windows 使用 Notepad，macOS 使用 TextEdit。")
 

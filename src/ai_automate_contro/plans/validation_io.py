@@ -39,6 +39,7 @@ def validate_config(project_root: Path, plan_dir: Path, issues: list[ValidationI
             )
         )
     validate_post_run_inspection_config(config.get("post_run_inspection"), plan_dir, issues)
+    validate_desktop_config(config.get("desktop"), plan_dir, issues)
 
 
 def validate_post_run_inspection_config(value: Any, plan_dir: Path, issues: list[ValidationIssue]) -> None:
@@ -54,3 +55,23 @@ def validate_post_run_inspection_config(value: Any, plan_dir: Path, issues: list
     prompt = value.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
         issues.append(ValidationIssue(location, "prompt 必须是字符串"))
+
+
+def validate_desktop_config(value: Any, plan_dir: Path, issues: list[ValidationIssue]) -> None:
+    if value is None:
+        return
+    location = str(plan_dir / "config.json") + ":desktop"
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, "desktop 必须是 JSON 对象"))
+        return
+    ocr = value.get("ocr")
+    if ocr is None:
+        return
+    ocr_location = location + ".ocr"
+    if not isinstance(ocr, dict):
+        issues.append(ValidationIssue(ocr_location, "desktop.ocr 必须是 JSON 对象"))
+        return
+    for field in ("tesseract_path", "tessdata_dir", "default_language"):
+        field_value = ocr.get(field)
+        if field_value is not None and not isinstance(field_value, str):
+            issues.append(ValidationIssue(f"{ocr_location}.{field}", f"desktop.ocr.{field} 必须是字符串"))

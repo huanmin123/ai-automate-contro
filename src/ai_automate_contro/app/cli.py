@@ -301,6 +301,8 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 retry_delay_seconds=args.retry_delay_seconds,
                 step_timeout_seconds=args.step_timeout_seconds,
                 require_desktop_vision=bool(args.require_desktop_vision),
+                require_desktop_ocr=bool(args.require_desktop_ocr),
+                require_desktop_ocr_zh=bool(args.require_desktop_ocr_zh),
                 only=list(args.only or []),
                 list_steps=bool(args.list),
                 fail_fast=bool(args.fail_fast),
@@ -316,7 +318,12 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
         if args.self_check_command == "desktop-components":
             from ai_automate_contro.app.desktop_component_check import self_check_desktop_components
 
-            result = self_check_desktop_components(project_root, require_vision=bool(args.require_vision))
+            result = self_check_desktop_components(
+                project_root,
+                require_vision=bool(args.require_vision),
+                require_ocr=bool(args.require_ocr),
+                require_ocr_zh=bool(args.require_ocr_zh),
+            )
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "desktop-real-app":

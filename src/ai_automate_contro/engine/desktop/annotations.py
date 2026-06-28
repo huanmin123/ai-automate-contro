@@ -31,6 +31,17 @@ def capture_pointer_annotation(
     normalized_warnings = warnings or []
     screenshot = backend.screenshot(png_path)
     _draw_annotation(png_path, points=points, bounds=normalized_bounds, connect_points=connect_points, label=label)
+    coordinate_space = {
+        "origin": "screen",
+        "unit": "logical_px",
+        "scale": None,
+    }
+    source_bounds = {
+        "x": 0,
+        "y": 0,
+        "width": int(screenshot.get("width", 0) or 0) if isinstance(screenshot, dict) else 0,
+        "height": int(screenshot.get("height", 0) or 0) if isinstance(screenshot, dict) else 0,
+    }
     payload = {
         "schema_version": 1,
         "ok": True,
@@ -42,10 +53,16 @@ def capture_pointer_annotation(
         "annotated_screenshot_relative_path": str(Path("desktop-annotations") / png_filename),
         "json_path": str(json_path),
         "json_relative_path": str(Path("desktop-annotations") / json_filename),
-        "coordinate_space": {
-            "origin": "screen",
-            "unit": "logical_px",
+        "coordinate_space": coordinate_space,
+        "coordinate_diagnostics": {
+            "source_bounds": source_bounds,
+            "source_size": {"width": source_bounds["width"], "height": source_bounds["height"]},
+            "coordinate_space": coordinate_space,
+            "global_origin": {"x": 0, "y": 0},
+            "local_to_global_offset": {"x": 0, "y": 0},
             "scale": None,
+            "region": {},
+            "warnings": ["scale_unknown"],
         },
         "target": target or {},
         "points": points,
