@@ -1354,14 +1354,16 @@ def _run_tesseract_tsv(
     language: str,
     desktop_config: dict[str, Any] | None = None,
 ) -> tuple[str, dict[str, Any]]:
+    tesseract_details = tesseract_binary_details(desktop_config)
     binary = resolve_tesseract_binary(desktop_config)
     if not binary:
-        details = tesseract_binary_details(desktop_config)
-        source = str(details.get("source") or "PATH")
+        source = str(tesseract_details.get("source") or "PATH")
+        configured_path = str(tesseract_details.get("configured_path") or "")
+        configured_detail = f" 配置路径：{configured_path}" if configured_path else ""
         raise DesktopBackendError(
             "desktop_vision.locate_text 需要系统可执行的 tesseract 命令；"
             "请安装 Tesseract、加入 PATH，或在 config.json 的 desktop.ocr.tesseract_path 指定路径。"
-            f" 当前探测来源：{source}"
+            f" 当前探测来源：{source}.{configured_detail}"
         )
     temp_path: Path | None = None
     try:
@@ -1399,7 +1401,9 @@ def _run_tesseract_tsv(
     return completed.stdout, {
         "method": "tesseract.tsv",
         "tesseract_path": binary,
-        "tessdata_dir": tesseract_binary_details(desktop_config).get("tessdata_dir", ""),
+        "tesseract_source": str(tesseract_details.get("source") or ""),
+        "configured_tesseract_path": str(tesseract_details.get("configured_path") or ""),
+        "tessdata_dir": str(tesseract_details.get("tessdata_dir") or ""),
         "engine_version": _tesseract_version(binary),
     }
 

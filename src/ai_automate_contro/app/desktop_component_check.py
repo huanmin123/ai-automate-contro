@@ -65,6 +65,8 @@ def self_check_desktop_components(
     vision_case = _run_vision_locator_case(resolved_root)
     ocr_case = _run_ocr_locator_case(resolved_root)
     ocr_zh_case = _run_ocr_zh_locator_case(resolved_root)
+    ocr_config_case = _run_ocr_config_path_case(resolved_root)
+    ocr_bad_config_case = _run_ocr_bad_config_path_case(resolved_root)
     real_app_case = _run_real_app_matrix_case(resolved_root)
     element_action_case = _run_element_action_case(resolved_root)
     input_probe_case = _run_input_dependency_probe_case()
@@ -80,6 +82,8 @@ def self_check_desktop_components(
     vision_ok = bool(vision_case["ok"])
     ocr_ok = bool(ocr_case["ok"])
     ocr_zh_ok = bool(ocr_zh_case["ok"])
+    ocr_config_ok = bool(ocr_config_case["ok"])
+    ocr_bad_config_ok = bool(ocr_bad_config_case["ok"])
     real_app_ok = bool(real_app_case["ok"])
     element_action_ok = bool(element_action_case["ok"])
     input_probe_ok = bool(input_probe_case["ok"])
@@ -100,6 +104,8 @@ def self_check_desktop_components(
         vision_case,
         ocr_case,
         ocr_zh_case,
+        ocr_config_case,
+        ocr_bad_config_case,
         real_app_case,
         element_action_case,
         input_probe_case,
@@ -120,6 +126,8 @@ def self_check_desktop_components(
         and vision_ok
         and ocr_ok
         and ocr_zh_ok
+        and ocr_config_ok
+        and ocr_bad_config_ok
         and real_app_ok
         and element_action_ok
         and input_probe_ok
@@ -2455,6 +2463,158 @@ def _run_ocr_zh_locator_case(project_root: Path) -> dict[str, Any]:
     )
 
 
+def _run_ocr_config_path_case(project_root: Path) -> dict[str, Any]:
+    system = platform.system()
+    if system not in {"Windows", "Darwin"}:
+        return {
+            "name": "desktop_vision_locate_text_config_path_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": f"desktop OCR config path regression only runs on Windows/macOS, current={system}",
+        }
+    dependency_reason = _desktop_ocr_dependency_skip_reason("eng", project_root)
+    if dependency_reason:
+        return {
+            "name": "desktop_vision_locate_text_config_path_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": dependency_reason,
+        }
+    tesseract = tesseract_binary_details(_desktop_ocr_config(project_root))
+    tesseract_path = str(tesseract.get("path") or "")
+    if not tesseract_path:
+        return {
+            "name": "desktop_vision_locate_text_config_path_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "tesseract path could not be resolved for config-path regression.",
+        }
+    tessdata_dir = Path(tesseract_path).resolve().parent / "tessdata"
+    ocr_config: dict[str, Any] = {"tesseract_path": tesseract_path}
+    if tessdata_dir.exists():
+        ocr_config["tessdata_dir"] = str(tessdata_dir)
+    return _run_ocr_locator_language_case(
+        project_root,
+        case_name="desktop_vision_locate_text_config_path_regression",
+        temp_prefix="desktop-components-ocr-config-",
+        plan_name="desktop vision locate text config path regression",
+        run_name="desktop-components-ocr-config",
+        source_filename="ocr-config-source.png",
+        output_filename="ocr-config-match.json",
+        fixture_text="AI DESKTOP OCR READY",
+        fixture_language="latin",
+        text_query={"text_contains": "OCR READY"},
+        language="eng",
+        min_confidence=0.30,
+        raw_text_checks=("OCR", "READY"),
+        local_config={"desktop": {"ocr": ocr_config}},
+        expected_tesseract_source="config.desktop.ocr.tesseract_path",
+        expected_tesseract_path=tesseract_path,
+        expected_tessdata_dir=str(tessdata_dir) if tessdata_dir.exists() else "",
+    )
+
+
+def _run_ocr_bad_config_path_case(project_root: Path) -> dict[str, Any]:
+    system = platform.system()
+    if system not in {"Windows", "Darwin"}:
+        return {
+            "name": "desktop_vision_locate_text_bad_config_path_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": f"desktop OCR bad config path regression only runs on Windows/macOS, current={system}",
+        }
+    if not _module_available("PIL"):
+        return {
+            "name": "desktop_vision_locate_text_bad_config_path_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "Pillow is not installed; desktop_vision locate_text fixture images cannot be generated.",
+        }
+    with tempfile.TemporaryDirectory(prefix="desktop-components-ocr-bad-config-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        source_filename = "ocr-bad-config-source.png"
+        output_filename = "ocr-bad-config-match.json"
+        source_path = resources_dir / source_filename
+        _write_ocr_fixture_image(source_path, text="AI DESKTOP OCR READY", language="latin")
+        missing_binary = resources_dir / "missing-tesseract" / ("tesseract.exe" if system == "Windows" else "tesseract")
+        missing_tessdata = resources_dir / "missing-tessdata"
+        local_config = {
+            "desktop": {
+                "ocr": {
+                    "tesseract_path": str(missing_binary),
+                    "tessdata_dir": str(missing_tessdata),
+                }
+            }
+        }
+        (package_dir / "config.json").write_text(
+            json.dumps(local_config, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        plan_path = package_dir / "plan.json"
+        plan = {
+            "name": "desktop vision locate text bad config path regression",
+            "automation_type": "desktop",
+            "variables": {},
+            "steps": [
+                {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
+                {
+                    "action": "desktop_vision",
+                    "desktop": "desktop",
+                    "type": "locate_text",
+                    "source_path": f"resources/{source_filename}",
+                    "text_contains": "OCR READY",
+                    "language": "eng",
+                    "provider": "tesseract",
+                    "min_confidence": 0.30,
+                    "match_index": 0,
+                    "max_matches": 5,
+                    "path": output_filename,
+                    "save_as": "ocr_match",
+                },
+                {"action": "close_desktop", "desktop": "desktop"},
+            ],
+        }
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return {
+                "name": "desktop_vision_locate_text_bad_config_path_regression",
+                "ok": False,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        output_dir = ""
+        run_error = ""
+        failed_as_expected = False
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-ocr-bad-config",
+                run_context_handler=_disable_run_log_echo,
+            )
+            output_dir = result.output_dir
+            run_error = str(result.error or "")
+            failed_as_expected = result.status == "failed"
+        except Exception as error:
+            run_error = str(error)
+            failed_as_expected = True
+        message_ok = "desktop.ocr.tesseract_path" in run_error and str(missing_binary) in run_error
+        return {
+            "name": "desktop_vision_locate_text_bad_config_path_regression",
+            "ok": failed_as_expected and message_ok,
+            "validation_ok": True,
+            "failed_as_expected": failed_as_expected,
+            "message_ok": message_ok,
+            "run_error": run_error,
+            "output_dir": output_dir,
+            "configured_tesseract_path": str(missing_binary),
+        }
+
+
 def _run_ocr_locator_language_case(
     project_root: Path,
     *,
@@ -2470,6 +2630,10 @@ def _run_ocr_locator_language_case(
     language: str,
     min_confidence: float,
     raw_text_checks: tuple[str, ...],
+    local_config: dict[str, Any] | None = None,
+    expected_tesseract_source: str = "",
+    expected_tesseract_path: str = "",
+    expected_tessdata_dir: str = "",
 ) -> dict[str, Any]:
     system = platform.system()
     if system not in {"Windows", "Darwin"}:
@@ -2493,6 +2657,11 @@ def _run_ocr_locator_language_case(
         resources_dir.mkdir(parents=True, exist_ok=True)
         source_path = resources_dir / source_filename
         _write_ocr_fixture_image(source_path, text=fixture_text, language=fixture_language)
+        if local_config is not None:
+            (package_dir / "config.json").write_text(
+                json.dumps(local_config, ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
         plan_path = package_dir / "plan.json"
         plan = {
             "name": plan_name,
@@ -2570,6 +2739,18 @@ def _run_ocr_locator_language_case(
             and isinstance(coordinate_diagnostics.get("local_to_global_offset"), dict)
         )
         raw_text_ok = all(_ocr_raw_text_contains(normalized_raw_text, item) for item in raw_text_checks)
+        tesseract_source_ok = (
+            not expected_tesseract_source
+            or str(diagnostics.get("tesseract_source") or "") == expected_tesseract_source
+        )
+        tesseract_path_ok = (
+            not expected_tesseract_path
+            or _same_path(str(diagnostics.get("tesseract_path") or ""), expected_tesseract_path)
+        )
+        tessdata_dir_ok = (
+            not expected_tessdata_dir
+            or _same_path(str(diagnostics.get("tessdata_dir") or ""), expected_tessdata_dir)
+        )
         return {
             "name": case_name,
             "ok": (
@@ -2583,6 +2764,9 @@ def _run_ocr_locator_language_case(
                 and bool(payload.get("ocr_blocks"))
                 and coordinate_ok
                 and diagnostics.get("provider") == "tesseract"
+                and tesseract_source_ok
+                and tesseract_path_ok
+                and tessdata_dir_ok
             ),
             "validation_ok": True,
             "run_ok": run_ok,
@@ -2595,6 +2779,9 @@ def _run_ocr_locator_language_case(
             "artifacts_ok": artifacts_ok,
             "coordinate_ok": coordinate_ok,
             "raw_text_ok": raw_text_ok,
+            "tesseract_source_ok": tesseract_source_ok,
+            "tesseract_path_ok": tesseract_path_ok,
+            "tessdata_dir_ok": tessdata_dir_ok,
             "raw_text": raw_text,
             "match": match,
             "diagnostics": diagnostics,
@@ -5530,6 +5717,20 @@ def _desktop_elements_file_ok(path: Path, started_at: float) -> bool:
 
 def _file_nonempty_after(path: Path, started_at: float) -> bool:
     return path.exists() and path.is_file() and path.stat().st_size > 0 and path.stat().st_mtime >= started_at - 1.0
+
+
+def _same_path(left: str, right: str) -> bool:
+    if not left or not right:
+        return False
+    try:
+        left_path = str(Path(left).resolve())
+        right_path = str(Path(right).resolve())
+    except Exception:
+        left_path = left
+        right_path = right
+    if platform.system() == "Windows":
+        return left_path.casefold() == right_path.casefold()
+    return left_path == right_path
 
 
 def _latest_result_payload(output_root: Path) -> dict[str, Any]:
