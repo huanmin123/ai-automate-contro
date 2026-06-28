@@ -10,7 +10,7 @@
 - 修改 `AGENTS.md`、AI 协作规则、资源路径策略或验证矩阵：读 [develop/AI协作开发规范](./develop/AI协作开发规范.md)。
 - 修改 AI 终端、上下文、图片附件或调试修复：读 [architecture/AI终端与交互式执行架构](./architecture/AI终端与交互式执行架构.md)、[architecture/AI终端提示词与上下文策略](./architecture/AI终端提示词与上下文策略.md)、[architecture/AI调试修复工作流](./architecture/AI调试修复工作流.md)。
 - 修改功能能力或专项 AI 边界：读 [functions/核心功能设计](./functions/核心功能设计.md) 和 [functions/AI能力重构设计](./functions/AI能力重构设计.md)。
-- 本地运行、自检和回归：读 [develop/运行说明](./develop/运行说明.md) 和 [develop/测试与验证说明](./develop/测试与验证说明.md)；桌面控制依赖、Tesseract 和 OCR 语言包安装读 [develop/桌面依赖安装说明](./develop/桌面依赖安装说明.md)。
+- 本地运行、自检和回归：读 [develop/运行说明](./develop/运行说明.md) 和 [develop/测试与验证说明](./develop/测试与验证说明.md)；桌面控制依赖、Tesseract 和 OCR 语言包安装读 [develop/桌面依赖安装说明](./develop/桌面依赖安装说明.md)，Windows 当前已验证能力读 [develop/Windows桌面能力清单](./develop/Windows桌面能力清单.md)。
 - 计划、问题和重构记录：按需进入 [plans](./plans/README.md)、[bug](./bug/README.md)、[refactors](./refactors/README.md)。
 
 教学入口只有 `handbook/`，这里不承担组件教学职责。

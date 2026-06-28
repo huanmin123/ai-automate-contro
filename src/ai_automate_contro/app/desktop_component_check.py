@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import platform
 import re
@@ -20,6 +21,13 @@ from ai_automate_contro.engine.desktop.backends.capabilities import (
     resolve_tesseract_binary,
     tesseract_binary_details,
     tesseract_language_available,
+)
+from ai_automate_contro.engine.desktop.coordinates import (
+    build_coordinate_profile,
+    local_to_screen_bounds,
+    local_to_screen_point,
+    screen_to_local_bounds,
+    screen_to_local_point,
 )
 from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.config import load_plan_config
@@ -58,6 +66,7 @@ def self_check_desktop_components(
 ) -> dict[str, Any]:
     resolved_root = Path(project_root).resolve()
     schema_cases = _run_schema_cases(resolved_root)
+    coordinate_case = _run_coordinate_profile_case()
     runtime_case = _run_runtime_case(resolved_root)
     failure_case = _run_failure_capture_case(resolved_root)
     element_failure_case = _run_element_failure_capture_case(resolved_root)
@@ -75,6 +84,7 @@ def self_check_desktop_components(
     required_ocr_case = _run_required_ocr_case(ocr_case, resolved_root) if require_ocr else None
     required_ocr_zh_case = _run_required_ocr_zh_case(ocr_zh_case, resolved_root) if require_ocr_zh else None
     schema_ok = all(case["ok"] for case in schema_cases)
+    coordinate_ok = bool(coordinate_case["ok"])
     runtime_ok = bool(runtime_case["ok"])
     failure_ok = bool(failure_case["ok"])
     element_failure_ok = bool(element_failure_case["ok"])
@@ -97,6 +107,7 @@ def self_check_desktop_components(
             "ok": schema_ok,
             "cases": schema_cases,
         },
+        coordinate_case,
         runtime_case,
         failure_case,
         element_failure_case,
@@ -119,6 +130,7 @@ def self_check_desktop_components(
         checks.append(required_ocr_zh_case)
     return {
         "ok": schema_ok
+        and coordinate_ok
         and runtime_ok
         and failure_ok
         and element_failure_ok
@@ -144,7 +156,7 @@ def self_check_desktop_components(
             "run_require_vision": f"python {_cplan_script_path()} self-check desktop-components --require-vision",
             "run_require_ocr": f"python {_cplan_script_path()} self-check desktop-components --require-ocr",
             "run_require_ocr_zh": f"python {_cplan_script_path()} self-check desktop-components --require-ocr-zh",
-            "create_desktop_plan": f"python {_cplan_script_path()} create --path .\\plans\\desktop-demo --automation-type desktop",
+            "create_desktop_plan": f"python {_cplan_script_path()} create --path plans/desktop-demo --automation-type desktop",
         },
     }
 
@@ -159,6 +171,69 @@ def self_check_desktop_real_app(project_root: Path) -> dict[str, Any]:
             "run": f"python {_cplan_script_path()} self-check desktop-real-app",
             "full_desktop_components": f"python {_cplan_script_path()} self-check desktop-components",
         },
+    }
+
+
+def _run_coordinate_profile_case() -> dict[str, Any]:
+    display = {
+        "width": 1920,
+        "height": 1080,
+        "virtual_x": -1280,
+        "virtual_y": 0,
+        "virtual_width": 3200,
+        "virtual_height": 1080,
+        "monitor_count": 2,
+        "dpi": {"x": 120, "y": 120},
+        "scale": 1.25,
+    }
+    source_bounds = {"x": -320, "y": 80, "width": 640, "height": 360}
+    local_bounds = {"x": 12, "y": 20, "width": 50, "height": 30}
+    local_point = {"x": 37, "y": 35}
+    screen_bounds = local_to_screen_bounds(local_bounds, source_bounds=source_bounds)
+    screen_point = local_to_screen_point(local_point, source_bounds=source_bounds)
+    roundtrip_bounds = screen_to_local_bounds(screen_bounds, source_bounds=source_bounds)
+    roundtrip_point = screen_to_local_point(screen_point, source_bounds=source_bounds)
+    screen_profile = build_coordinate_profile(
+        platform="windows",
+        backend="native",
+        display=display,
+        source_kind="window",
+        source_bounds=source_bounds,
+        source_size={"width": 640, "height": 360},
+        coordinate_space={"origin": "screen", "unit": "logical_px", "scale": 1.25},
+        screen_clickable=True,
+    )
+    offline_profile = build_coordinate_profile(
+        platform="windows",
+        backend="native",
+        display=screen_profile.get("display") if isinstance(screen_profile.get("display"), dict) else {},
+        source_kind="source_path",
+        source_bounds={"x": 0, "y": 0, "width": 200, "height": 100},
+        source_size={"width": 200, "height": 100},
+        coordinate_space={"origin": "source_path", "unit": "logical_px", "scale": None},
+        screen_clickable=False,
+    )
+    passed = (
+        screen_bounds == {"x": -308, "y": 100, "width": 50, "height": 30}
+        and screen_point == {"x": -283, "y": 115}
+        and roundtrip_bounds == local_bounds
+        and roundtrip_point == local_point
+        and _coordinate_profile_ok(screen_profile, screen_clickable=True)
+        and screen_profile.get("display", {}).get("virtual_bounds", {}).get("x") == -1280
+        and screen_profile.get("display", {}).get("scale") == 1.25
+        and "negative_source_origin" in screen_profile.get("warnings", [])
+        and _coordinate_profile_ok(offline_profile, screen_clickable=False)
+        and "not_screen_clickable" in offline_profile.get("warnings", [])
+    )
+    return {
+        "name": "desktop_coordinate_profile_mapper",
+        "ok": passed,
+        "screen_bounds": screen_bounds,
+        "screen_point": screen_point,
+        "roundtrip_bounds": roundtrip_bounds,
+        "roundtrip_point": roundtrip_point,
+        "screen_profile": screen_profile,
+        "offline_profile": offline_profile,
     }
 
 
@@ -325,6 +400,36 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                 "steps": [
                     {"action": "open_desktop", "name": "desktop"},
                     {"action": "desktop_window", "desktop": "desktop", "type": "focus"},
+                ],
+            },
+        },
+        {
+            "name": "desktop-find-requires-query",
+            "expected_message": "desktop_window.find 需要至少一种窗口定位字段",
+            "plan": {
+                "name": "missing window find query",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {"action": "desktop_window", "desktop": "desktop", "type": "find"},
+                ],
+            },
+        },
+        {
+            "name": "desktop-app-wait-for-window-requires-query",
+            "expected_message": "desktop_app.launch wait_for_window 需要至少一种窗口定位字段",
+            "plan": {
+                "name": "missing launch wait window query",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_app",
+                        "desktop": "desktop",
+                        "type": "launch",
+                        "command": "notepad.exe",
+                        "wait_for_window": True,
+                    },
                 ],
             },
         },
@@ -497,6 +602,85 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "type": "click",
                         "target": "bounds_center",
                         "bounds": {"x": 1, "y": 1, "width": 0, "height": 10},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-requires-target-candidates",
+            "expected_message": "desktop_input.click target=candidate 缺少必填字段：target_candidates",
+            "plan": {
+                "name": "missing desktop candidate source",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "candidate_id": "element_match-0",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-requires-candidate-id",
+            "expected_message": "desktop_input.click target=candidate 缺少必填字段：candidate_id",
+            "plan": {
+                "name": "missing desktop candidate id",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "target_candidates": {"kind": "desktop_target_candidates", "candidates": []},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-rejects-expanded-bounds",
+            "expected_message": "target=candidate 不能同时展开 bounds",
+            "plan": {
+                "name": "mixed desktop candidate bounds",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "target_candidates": {"kind": "desktop_target_candidates", "candidates": []},
+                        "candidate_id": "element_match-0",
+                        "bounds": {"x": 1, "y": 1, "width": 10, "height": 10},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop candidate click",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "target_candidates": {
+                            "kind": "desktop_target_candidates",
+                            "best_candidate": {"id": "element_match-0", "candidate_id": "element_match-0"},
+                            "candidates": [{"id": "element_match-0", "candidate_id": "element_match-0"}],
+                        },
+                        "candidate_id": "element_match-0",
                     },
                 ],
             },
@@ -983,6 +1167,25 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "type": "screenshot",
                         "path": "screen.png",
                         "region": {"x": 0, "y": 0, "width": 0, "height": 20},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-capture-allows-negative-region-origin",
+            "expected_ok": True,
+            "plan": {
+                "name": "desktop region negative origin",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_capture",
+                        "desktop": "desktop",
+                        "type": "screenshot",
+                        "target": "region",
+                        "region": {"x": -120, "y": -80, "width": 40, "height": 30},
+                        "path": "negative-region.png",
                     },
                 ],
             },
@@ -1760,6 +1963,15 @@ def _run_schema_case(project_root: Path, temp_dir: Path, case: dict[str, Any]) -
         target_path.write_text(json.dumps(value, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     validation = validate_plan_file(plan_path, project_root)
     errors = [error.format() for error in validation.errors]
+    if case.get("expected_ok") is True:
+        return {
+            "name": str(case["name"]),
+            "ok": validation.ok,
+            "validation_ok": validation.ok,
+            "matched": validation.ok,
+            "expected_message": "",
+            "errors": errors,
+        }
     matched = any(str(case["expected_message"]) in error for error in errors)
     return {
         "name": str(case["name"]),
@@ -1827,8 +2039,11 @@ def _desktop_basic_evidence(project_root: Path, started_at: float) -> list[dict[
     windows_path = package_dir / "output" / "desktop-windows" / "windows.json"
     screenshot_path = package_dir / "output" / "desktop-screenshots" / "screen.png"
     snapshot_path = package_dir / "output" / "desktop-state" / "snapshot.json"
+    observe_path = package_dir / "output" / "desktop-state" / "observe.json"
+    observe_screenshot_path = package_dir / "output" / "desktop-state" / "observe.png"
     windows = _read_json(windows_path) if windows_path.exists() else {}
     snapshot = _read_json(snapshot_path) if snapshot_path.exists() else {}
+    observation = _read_json(observe_path) if observe_path.exists() else {}
     return [
         _expect("windows_artifact_fresh", _file_nonempty_after(windows_path, started_at)),
         _expect("windows_payload_shape", isinstance(windows.get("windows"), list)),
@@ -1839,7 +2054,27 @@ def _desktop_basic_evidence(project_root: Path, started_at: float) -> list[dict[
             "snapshot_capability_matrix_shape",
             isinstance(snapshot.get("capability_matrix"), dict)
             and snapshot["capability_matrix"].get("schema_version") == 1
-            and isinstance(snapshot["capability_matrix"].get("capabilities"), dict),
+            and isinstance(snapshot["capability_matrix"].get("capabilities"), dict)
+            and isinstance(snapshot["capability_matrix"].get("capabilities", {}).get("coordinates"), dict),
+        ),
+        _expect("snapshot_coordinate_profile_shape", _coordinate_profile_ok(snapshot.get("coordinate_profile"))),
+        _expect("observe_artifact_fresh", _file_nonempty_after(observe_path, started_at)),
+        _expect("observe_screenshot_artifact_fresh", _file_nonempty_after(observe_screenshot_path, started_at)),
+        _expect(
+            "observe_payload_shape",
+            observation.get("kind") == "desktop_observation"
+            and observation.get("schema_version") == 1
+            and observation.get("type") == "observe"
+            and isinstance(observation.get("summary"), dict)
+            and isinstance(observation.get("windows"), list)
+            and isinstance(observation.get("capability_matrix"), dict)
+            and isinstance(observation.get("screenshot"), dict)
+            and _coordinate_profile_ok(observation.get("coordinate_profile"))
+            and _coordinate_profile_ok(observation["screenshot"].get("coordinate_profile"), screen_clickable=True)
+            and isinstance(observation.get("target_candidates"), dict)
+            and observation["target_candidates"].get("kind") == "desktop_target_candidates"
+            and int(observation["target_candidates"].get("candidate_count", 0) or 0) >= 1
+            and observation["screenshot"].get("path") == str(observe_screenshot_path),
         ),
     ]
 
@@ -1924,10 +2159,25 @@ def _run_failure_capture_case(project_root: Path) -> dict[str, Any]:
             and isinstance(payload["diagnostics"].get("element"), dict)
             for payload in state_payloads
         )
+        target_candidates_ok = any(
+            isinstance(payload, dict)
+            and isinstance(payload.get("target_candidates"), dict)
+            and payload["target_candidates"].get("kind") == "desktop_target_candidates"
+            and int(payload["target_candidates"].get("candidate_count", 0) or 0) >= 1
+            for payload in state_payloads
+        )
         capability_matrix_ok = any(
             isinstance(payload, dict)
             and isinstance(payload.get("capability_matrix"), dict)
             and payload["capability_matrix"].get("schema_version") == 1
+            and isinstance(payload["capability_matrix"].get("capabilities", {}).get("coordinates"), dict)
+            for payload in state_payloads
+        )
+        coordinate_profile_ok = any(
+            isinstance(payload, dict)
+            and _coordinate_profile_ok(payload.get("coordinate_profile"))
+            and isinstance(payload.get("diagnostics"), dict)
+            and _coordinate_profile_ok(payload["diagnostics"].get("coordinate_profile"))
             for payload in state_payloads
         )
         analysis = _analyze_failure_for_self_check(plan_path, package_dir / "output")
@@ -1939,6 +2189,9 @@ def _run_failure_capture_case(project_root: Path) -> dict[str, Any]:
                 isinstance(item, dict)
                 and item.get("window", {}).get("query", {}).get("title_contains")
                 == "__ai_automate_contro_missing_window__"
+                and isinstance(item.get("target_candidates"), dict)
+                and int(item["target_candidates"].get("candidate_count", 0) or 0) >= 1
+                and _coordinate_profile_ok(item.get("coordinate_profile"))
                 for item in analysis_diagnostics
             )
             and bool(analysis.get("desktop_repair_suggestions"))
@@ -1954,7 +2207,9 @@ def _run_failure_capture_case(project_root: Path) -> dict[str, Any]:
                 and target_ok
                 and error_ok
                 and diagnostics_ok
+                and target_candidates_ok
                 and capability_matrix_ok
+                and coordinate_profile_ok
                 and analysis_ok
             ),
             "validation_ok": True,
@@ -1968,7 +2223,9 @@ def _run_failure_capture_case(project_root: Path) -> dict[str, Any]:
             "target_ok": target_ok,
             "error_ok": error_ok,
             "diagnostics_ok": diagnostics_ok,
+            "target_candidates_ok": target_candidates_ok,
             "capability_matrix_ok": capability_matrix_ok,
+            "coordinate_profile_ok": coordinate_profile_ok,
             "analysis_ok": analysis_ok,
             "analysis_desktop_diagnostics_count": len(analysis_diagnostics) if isinstance(analysis_diagnostics, list) else 0,
             "analysis_desktop_repair_suggestions": analysis.get("desktop_repair_suggestions", []),
@@ -2054,10 +2311,25 @@ def _run_element_failure_capture_case(project_root: Path) -> dict[str, Any]:
             and payload["diagnostics"].get("element", {}).get("locator", {}).get("name_contains") == missing_element
             for payload in state_payloads
         )
+        target_candidates_ok = any(
+            isinstance(payload, dict)
+            and isinstance(payload.get("target_candidates"), dict)
+            and payload["target_candidates"].get("kind") == "desktop_target_candidates"
+            and int(payload["target_candidates"].get("candidate_count", 0) or 0) >= 1
+            for payload in state_payloads
+        )
         capability_matrix_ok = any(
             isinstance(payload, dict)
             and isinstance(payload.get("capability_matrix"), dict)
             and payload["capability_matrix"].get("schema_version") == 1
+            and isinstance(payload["capability_matrix"].get("capabilities", {}).get("coordinates"), dict)
+            for payload in state_payloads
+        )
+        coordinate_profile_ok = any(
+            isinstance(payload, dict)
+            and _coordinate_profile_ok(payload.get("coordinate_profile"))
+            and isinstance(payload.get("diagnostics"), dict)
+            and _coordinate_profile_ok(payload["diagnostics"].get("coordinate_profile"))
             for payload in state_payloads
         )
         analysis = _analyze_failure_for_self_check(plan_path, package_dir / "output")
@@ -2069,6 +2341,9 @@ def _run_element_failure_capture_case(project_root: Path) -> dict[str, Any]:
                 isinstance(item, dict)
                 and item.get("window", {}).get("query", {}).get("title_contains") == missing_window
                 and item.get("element", {}).get("locator", {}).get("name_contains") == missing_element
+                and isinstance(item.get("target_candidates"), dict)
+                and int(item["target_candidates"].get("candidate_count", 0) or 0) >= 1
+                and _coordinate_profile_ok(item.get("coordinate_profile"))
                 for item in analysis_diagnostics
             )
             and bool(analysis.get("desktop_repair_suggestions"))
@@ -2081,7 +2356,9 @@ def _run_element_failure_capture_case(project_root: Path) -> dict[str, Any]:
                 and target_ok
                 and error_ok
                 and diagnostics_ok
+                and target_candidates_ok
                 and capability_matrix_ok
+                and coordinate_profile_ok
                 and analysis_ok
             ),
             "validation_ok": True,
@@ -2092,7 +2369,9 @@ def _run_element_failure_capture_case(project_root: Path) -> dict[str, Any]:
             "target_ok": target_ok,
             "error_ok": error_ok,
             "diagnostics_ok": diagnostics_ok,
+            "target_candidates_ok": target_candidates_ok,
             "capability_matrix_ok": capability_matrix_ok,
+            "coordinate_profile_ok": coordinate_profile_ok,
             "analysis_ok": analysis_ok,
             "analysis_desktop_diagnostics_count": len(analysis_diagnostics) if isinstance(analysis_diagnostics, list) else 0,
             "analysis_desktop_repair_suggestions": analysis.get("desktop_repair_suggestions", []),
@@ -2302,6 +2581,15 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
         bounds_ok = all(int(bounds.get(key, -1)) == value for key, value in expected_bounds.items())
         region_bounds_ok = all(int(region_bounds.get(key, -1)) == value for key, value in expected_bounds.items())
         region_payload_ok = region_payload.get("region") == region
+        target_candidates = payload.get("target_candidates") if isinstance(payload.get("target_candidates"), dict) else {}
+        best_target = target_candidates.get("best_candidate") if isinstance(target_candidates.get("best_candidate"), dict) else {}
+        coordinate_profile_ok = (
+            _coordinate_profile_ok(payload.get("coordinate_profile"), screen_clickable=False)
+            and _coordinate_profile_ok(region_payload.get("coordinate_profile"), screen_clickable=False)
+            and target_candidates.get("kind") == "desktop_target_candidates"
+            and best_target.get("screen_clickable") is False
+            and not best_target.get("action_templates")
+        )
         region_capture_size = _image_size(region_capture_path)
         region_capture_ok = (
             _file_nonempty_after(region_capture_path, started_at)
@@ -2326,6 +2614,7 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
                 and bool(region_payload.get("ok"))
                 and region_bounds_ok
                 and region_payload_ok
+                and coordinate_profile_ok
                 and region_score >= 0.98
                 and bool(miss_result.get("ok"))
             ),
@@ -2345,6 +2634,7 @@ def _run_vision_locator_case(project_root: Path) -> dict[str, Any]:
             "bounds_ok": bounds_ok,
             "region_bounds_ok": region_bounds_ok,
             "region_payload_ok": region_payload_ok,
+            "coordinate_profile_ok": coordinate_profile_ok,
             "expected_bounds": expected_bounds,
             "actual_bounds": bounds,
             "actual_region_bounds": region_bounds,
@@ -2725,6 +3015,7 @@ def _run_ocr_locator_language_case(
         coordinate_diagnostics = (
             payload.get("coordinate_diagnostics") if isinstance(payload.get("coordinate_diagnostics"), dict) else {}
         )
+        coordinate_profile_ok = _coordinate_profile_ok(payload.get("coordinate_profile"), screen_clickable=False)
         raw_text = str(payload.get("raw_text", ""))
         normalized_raw_text = re.sub(r"\s+", "", raw_text)
         artifacts_ok = all(
@@ -2763,6 +3054,7 @@ def _run_ocr_locator_language_case(
                 and isinstance(payload.get("ocr_blocks"), list)
                 and bool(payload.get("ocr_blocks"))
                 and coordinate_ok
+                and coordinate_profile_ok
                 and diagnostics.get("provider") == "tesseract"
                 and tesseract_source_ok
                 and tesseract_path_ok
@@ -2778,6 +3070,7 @@ def _run_ocr_locator_language_case(
             "annotation_path": str(annotation_path),
             "artifacts_ok": artifacts_ok,
             "coordinate_ok": coordinate_ok,
+            "coordinate_profile_ok": coordinate_profile_ok,
             "raw_text_ok": raw_text_ok,
             "tesseract_source_ok": tesseract_source_ok,
             "tesseract_path_ok": tesseract_path_ok,
@@ -2793,6 +3086,7 @@ def _run_real_app_matrix_case(project_root: Path) -> dict[str, Any]:
     cases = [_run_real_app_case(project_root)]
     if system == "Windows":
         cases.append(_run_windows_explorer_real_app_case(project_root))
+        cases.append(_run_windows_terminal_real_app_case(project_root))
         cases.append(_run_windows_file_dialog_real_app_case(project_root))
     return {
         "name": "desktop_real_app_matrix",
@@ -2885,18 +3179,51 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             _cleanup_real_app_case(package_dir, system)
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
+        expected_window_title = assertion_file.name
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "real-app-screen.png"
         elements_path = package_dir / "output" / "desktop-elements" / "real-app-elements.json"
+        active_window_path = package_dir / "output" / "desktop-windows" / "real-app-active-window.json"
+        window_find_path = package_dir / "output" / "desktop-windows" / "real-app-window-find.json"
+        restored_active_window_path = package_dir / "output" / "desktop-windows" / "real-app-restored-active-window.json"
+        maximized_screenshot_path = package_dir / "output" / "desktop-screenshots" / "real-app-maximized-window.png"
         elements_payload = _read_json(elements_path) if elements_path.exists() else {}
+        active_window_payload = _read_json(active_window_path) if active_window_path.exists() else {}
+        window_find_payload = _read_json(window_find_path) if window_find_path.exists() else {}
+        restored_active_window_payload = (
+            _read_json(restored_active_window_path) if restored_active_window_path.exists() else {}
+        )
         element_output_ok = (
             _file_nonempty_after(elements_path, started_at)
             and isinstance(elements_payload, dict)
             and isinstance(elements_payload.get("elements"), list)
             and int(elements_payload.get("count", 0) or 0) > 0
         )
+        active_window_ok = (
+            _file_nonempty_after(active_window_path, started_at)
+            and isinstance(active_window_payload.get("window"), dict)
+            and expected_window_title in str(active_window_payload.get("window", {}).get("title", ""))
+        )
+        window_find_ok = (
+            _file_nonempty_after(window_find_path, started_at)
+            and int(window_find_payload.get("match_count", 0) or 0) > 0
+            and isinstance(window_find_payload.get("selected_window"), dict)
+            and expected_window_title in str(window_find_payload.get("selected_window", {}).get("title", ""))
+        )
+        window_lifecycle_ok = (
+            _file_nonempty_after(maximized_screenshot_path, started_at)
+            and _file_nonempty_after(restored_active_window_path, started_at)
+            and isinstance(restored_active_window_payload.get("window"), dict)
+            and expected_window_title in str(restored_active_window_payload.get("window", {}).get("title", ""))
+        )
         return {
             "name": "desktop_real_app_regression",
-            "ok": run_ok and expected_text in content and _file_nonempty_after(screenshot_path, started_at) and element_output_ok,
+            "ok": run_ok
+            and expected_text in content
+            and _file_nonempty_after(screenshot_path, started_at)
+            and element_output_ok
+            and active_window_ok
+            and window_find_ok
+            and window_lifecycle_ok,
             "validation_ok": True,
             "run_ok": run_ok,
             "output_dir": output_dir,
@@ -2907,6 +3234,13 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             "screenshot_ok": _file_nonempty_after(screenshot_path, 0),
             "element_output_ok": element_output_ok,
             "elements_path": str(elements_path),
+            "active_window_ok": active_window_ok,
+            "active_window_path": str(active_window_path),
+            "window_find_ok": window_find_ok,
+            "window_find_path": str(window_find_path),
+            "window_lifecycle_ok": window_lifecycle_ok,
+            "maximized_screenshot_path": str(maximized_screenshot_path),
+            "restored_active_window_path": str(restored_active_window_path),
             "cleanup": cleanup_hint,
         }
 
@@ -2955,25 +3289,40 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             output_dir = ""
             run_error = str(error)
         windows_path = package_dir / "output" / "desktop-windows" / "explorer-windows.json"
+        window_find_path = package_dir / "output" / "desktop-windows" / "explorer-window-find.json"
         elements_path = package_dir / "output" / "desktop-elements" / "explorer-elements.json"
+        sample_file_path = package_dir / "output" / "desktop-elements" / "explorer-sample-file.json"
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "explorer-screen.png"
         windows_payload = _read_json(windows_path) if windows_path.exists() else {}
+        window_find_payload = _read_json(window_find_path) if window_find_path.exists() else {}
         elements_payload = _read_json(elements_path) if elements_path.exists() else {}
+        sample_file_payload = _read_json(sample_file_path) if sample_file_path.exists() else {}
         window_found = any(
             folder_name in str(window.get("title", ""))
             for window in windows_payload.get("windows", [])
             if isinstance(window, dict)
+        )
+        window_find_ok = (
+            _file_nonempty_after(window_find_path, started_at)
+            and int(window_find_payload.get("match_count", 0) or 0) > 0
         )
         elements_ok = (
             _file_nonempty_after(elements_path, started_at)
             and isinstance(elements_payload, dict)
             and isinstance(elements_payload.get("elements"), list)
         )
+        sample_file_ok = (
+            _file_nonempty_after(sample_file_path, started_at)
+            and isinstance(sample_file_payload.get("element"), dict)
+            and "sample.txt" in str(sample_file_payload.get("element", {}).get("name", ""))
+        )
         return {
             "name": "desktop_windows_explorer_real_app_regression",
             "ok": run_ok
             and window_found
+            and window_find_ok
             and elements_ok
+            and sample_file_ok
             and _file_nonempty_after(windows_path, started_at)
             and _file_nonempty_after(screenshot_path, started_at),
             "validation_ok": True,
@@ -2984,10 +3333,120 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             "window_title_contains": folder_name,
             "window_found": window_found,
             "windows_path": str(windows_path),
+            "window_find_ok": window_find_ok,
+            "window_find_path": str(window_find_path),
             "elements_path": str(elements_path),
             "elements_ok": elements_ok,
+            "sample_file_ok": sample_file_ok,
+            "sample_file_path": str(sample_file_path),
             "screenshot_path": str(screenshot_path),
             "cleanup": "Explorer window is closed by desktop_window.close; no explorer.exe process kill fallback is used.",
+        }
+
+
+def _run_windows_terminal_real_app_case(project_root: Path) -> dict[str, Any]:
+    if platform.system() != "Windows":
+        return {
+            "name": "desktop_windows_terminal_real_app_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "Windows terminal regression only runs on Windows.",
+        }
+    powershell = _windows_powershell_executable()
+    if not powershell:
+        return {
+            "name": "desktop_windows_terminal_real_app_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "PowerShell is unavailable; skipping Windows terminal regression.",
+        }
+    if not _module_available("pyautogui") or not _module_available("pyperclip"):
+        return {
+            "name": "desktop_windows_terminal_real_app_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "pyautogui and pyperclip are required for stable terminal keyboard input.",
+        }
+    with tempfile.TemporaryDirectory(prefix="desktop-components-terminal-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        suffix = package_dir.name.rsplit("-", 1)[-1]
+        title = f"AI Automate Terminal {suffix}"
+        result_file = resources_dir / "desktop-terminal-result.txt"
+        expected_text = "desktop terminal regression ok"
+        plan_path = package_dir / "plan.json"
+        plan = _windows_terminal_plan(
+            powershell=powershell,
+            package_dir=package_dir,
+            title=title,
+            result_file=result_file,
+            expected_text=expected_text,
+        )
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return {
+                "name": "desktop_windows_terminal_real_app_regression",
+                "ok": False,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        run_error = ""
+        started_at = time.time()
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-terminal",
+                run_context_handler=_disable_run_log_echo,
+            )
+            run_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            run_ok = False
+            output_dir = ""
+            run_error = str(error)
+        finally:
+            _cleanup_windows_terminal_case(package_dir)
+        content = result_file.read_text(encoding="utf-8", errors="replace") if result_file.exists() else ""
+        windows_path = package_dir / "output" / "desktop-windows" / "terminal-window-find.json"
+        active_path = package_dir / "output" / "desktop-windows" / "terminal-active-window.json"
+        screenshot_path = package_dir / "output" / "desktop-screenshots" / "terminal-window.png"
+        windows_payload = _read_json(windows_path) if windows_path.exists() else {}
+        active_payload = _read_json(active_path) if active_path.exists() else {}
+        window_find_ok = (
+            _file_nonempty_after(windows_path, started_at)
+            and int(windows_payload.get("match_count", 0) or 0) > 0
+            and title in str(windows_payload.get("selected_window", {}).get("title", ""))
+        )
+        active_ok = (
+            _file_nonempty_after(active_path, started_at)
+            and title in str(active_payload.get("window", {}).get("title", ""))
+        )
+        result_ok = expected_text in content
+        return {
+            "name": "desktop_windows_terminal_real_app_regression",
+            "ok": run_ok
+            and result_ok
+            and window_find_ok
+            and active_ok
+            and _file_nonempty_after(screenshot_path, started_at),
+            "validation_ok": True,
+            "run_ok": run_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+            "terminal_title": title,
+            "result_file": str(result_file),
+            "result_ok": result_ok,
+            "content_preview": content[:500],
+            "window_find_ok": window_find_ok,
+            "window_find_path": str(windows_path),
+            "active_ok": active_ok,
+            "active_path": str(active_path),
+            "screenshot_path": str(screenshot_path),
+            "cleanup": "terminal exits after the typed command; fallback cleanup kills only its recorded PowerShell pid.",
         }
 
 
@@ -3166,6 +3625,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             _cleanup_temporary_form_case(package_dir, system)
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
+        form_title = "AI Automate Desktop Element Form"
         clipboard_restore_enabled = bool(plan["variables"].get("clipboard_restore_enabled"))
         clipboard_after_file = package_dir / "resources" / "desktop-clipboard-after.txt"
         clipboard_after_text = clipboard_after_file.read_text(encoding="utf-8", errors="replace") if clipboard_after_file.exists() else ""
@@ -3191,12 +3651,17 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         context_menu_path = package_dir / "output" / "desktop-elements" / "form-context-menu-invoke.json"
         scroll_path = package_dir / "output" / "desktop-elements" / "form-scroll-panel.json"
         scroll_target_path = package_dir / "output" / "desktop-elements" / "form-scroll-target-state.json"
+        observe_path = package_dir / "output" / "desktop-state" / "form-observe.json"
+        observe_screenshot_path = package_dir / "output" / "desktop-state" / "form-observe.png"
         window_capture_path = package_dir / "output" / "desktop-screenshots" / "form-window-screen.png"
         element_capture_path = package_dir / "output" / "desktop-screenshots" / "form-entry-element-screen.png"
+        vision_capture_path = package_dir / "output" / "desktop-screenshots" / "form-vision-element-screen.png"
         window_capture_payload_path = package_dir / "output" / "json" / "form-window-capture.json"
         element_capture_payload_path = package_dir / "output" / "json" / "form-entry-capture.json"
-        window_vision_path = package_dir / "output" / "desktop-vision" / "form-entry-window-vision.json"
-        element_vision_path = package_dir / "output" / "desktop-vision" / "form-entry-element-vision.json"
+        vision_capture_payload_path = package_dir / "output" / "json" / "form-vision-capture.json"
+        candidate_click_payload_path = package_dir / "output" / "json" / "form-entry-candidate-click.json"
+        window_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-window-vision.json"
+        element_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-element-vision.json"
         run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
         annotation_dir = run_output_dir / "desktop-annotations"
         set_text_payload = plan.get("variables", {}).get("expected_text", "")
@@ -3234,6 +3699,58 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             else set()
         )
         expected_controls_found = not expected_automation_ids or expected_automation_ids.issubset(automation_ids)
+        observe_payload = _read_json(observe_path) if observe_path.exists() else {}
+        observe_elements = observe_payload.get("elements") if isinstance(observe_payload.get("elements"), dict) else {}
+        observe_matches = observe_elements.get("matches") if isinstance(observe_elements.get("matches"), list) else []
+        observe_targeting = (
+            observe_payload.get("target_candidates")
+            if isinstance(observe_payload.get("target_candidates"), dict)
+            else {}
+        )
+        observe_best_target = (
+            observe_targeting.get("best_candidate") if isinstance(observe_targeting.get("best_candidate"), dict) else {}
+        )
+        observe_best_candidate_id = str(observe_best_target.get("candidate_id") or observe_best_target.get("id") or "")
+        observe_selected_window = (
+            observe_payload.get("selected_window") if isinstance(observe_payload.get("selected_window"), dict) else {}
+        )
+        observe_elements_ok = (
+            bool(observe_elements.get("ok"))
+            and int(observe_elements.get("match_count", 0) or 0) >= 1
+            and any(
+                isinstance(match, dict)
+                and str(match.get("automation_id", "")) == "DesktopElementTextBox"
+                for match in observe_matches
+            )
+        )
+        observe_targeting_ok = (
+            bool(observe_targeting)
+            and observe_targeting.get("kind") == "desktop_target_candidates"
+            and int(observe_targeting.get("candidate_count", 0) or 0) >= 1
+            and (
+                system != "Windows"
+                or (
+                    observe_best_target.get("strategy") == "semantic_locator"
+                    and observe_best_candidate_id
+                    and observe_best_target.get("confidence") in {"high", "medium"}
+                    and observe_best_target.get("locator", {}).get("automation_id") == "DesktopElementTextBox"
+                    and isinstance(observe_best_target.get("action_templates"), list)
+                    and bool(observe_best_target.get("action_templates"))
+                )
+            )
+        )
+        observe_ok = (
+            bool(observe_payload.get("ok"))
+            and observe_payload.get("kind") == "desktop_observation"
+            and observe_payload.get("type") == "observe"
+            and isinstance(observe_payload.get("summary"), dict)
+            and isinstance(observe_payload.get("capability_matrix"), dict)
+            and str(observe_selected_window.get("title", "")).find(form_title) >= 0
+            and (system != "Windows" or observe_elements_ok)
+            and observe_targeting_ok
+            and _file_nonempty_after(observe_path, started_at)
+            and _file_nonempty_after(observe_screenshot_path, started_at)
+        )
         table_payload = _read_json(table_path) if table_path.exists() else {}
         table_data = table_payload.get("table") if isinstance(table_payload.get("table"), dict) else {}
         table_columns = table_data.get("columns") if isinstance(table_data.get("columns"), list) else []
@@ -3335,6 +3852,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         )
         window_capture_payload = _read_json(window_capture_payload_path) if window_capture_payload_path.exists() else {}
         element_capture_payload = _read_json(element_capture_payload_path) if element_capture_payload_path.exists() else {}
+        vision_capture_payload = _read_json(vision_capture_payload_path) if vision_capture_payload_path.exists() else {}
         window_capture_bounds = (
             window_capture_payload.get("source_bounds")
             if isinstance(window_capture_payload.get("source_bounds"), dict)
@@ -3345,12 +3863,19 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             if isinstance(element_capture_payload.get("source_bounds"), dict)
             else {}
         )
+        vision_capture_bounds = (
+            vision_capture_payload.get("source_bounds")
+            if isinstance(vision_capture_payload.get("source_bounds"), dict)
+            else {}
+        )
         window_capture_size = _image_size(window_capture_path)
         element_capture_size = _image_size(element_capture_path)
+        vision_capture_size = _image_size(vision_capture_path)
         window_capture_ok = (
             bool(window_capture_payload.get("ok"))
             and window_capture_payload.get("target") == "window"
             and isinstance(window_capture_payload.get("coordinate_space"), dict)
+            and _coordinate_profile_ok(window_capture_payload.get("coordinate_profile"), screen_clickable=True)
             and _file_nonempty_after(window_capture_path, started_at)
             and _image_size_matches_bounds(window_capture_size, window_capture_bounds)
         )
@@ -3358,11 +3883,51 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             bool(element_capture_payload.get("ok"))
             and element_capture_payload.get("target") == "element"
             and isinstance(element_capture_payload.get("coordinate_space"), dict)
+            and _coordinate_profile_ok(element_capture_payload.get("coordinate_profile"), screen_clickable=True)
             and isinstance(element_capture_payload.get("element"), dict)
             and _file_nonempty_after(element_capture_path, started_at)
             and _image_size_matches_bounds(element_capture_size, element_capture_bounds)
         )
         vision_source_target_enabled = bool(plan["variables"].get("vision_source_target_enabled"))
+        vision_capture_ok = (
+            not vision_source_target_enabled
+            or (
+                bool(vision_capture_payload.get("ok"))
+                and vision_capture_payload.get("target") == "element"
+                and isinstance(vision_capture_payload.get("coordinate_space"), dict)
+                and _coordinate_profile_ok(vision_capture_payload.get("coordinate_profile"), screen_clickable=True)
+                and isinstance(vision_capture_payload.get("element"), dict)
+                and _file_nonempty_after(vision_capture_path, started_at)
+                and _image_size_matches_bounds(vision_capture_size, vision_capture_bounds)
+            )
+        )
+        candidate_click_payload = _read_json(candidate_click_payload_path) if candidate_click_payload_path.exists() else {}
+        candidate_click_resolution = (
+            candidate_click_payload.get("input_resolution")
+            if isinstance(candidate_click_payload.get("input_resolution"), dict)
+            else {}
+        )
+        candidate_click_safety = (
+            candidate_click_payload.get("safety_check")
+            if isinstance(candidate_click_payload.get("safety_check"), dict)
+            else {}
+        )
+        candidate_click_candidate = (
+            candidate_click_resolution.get("candidate")
+            if isinstance(candidate_click_resolution.get("candidate"), dict)
+            else {}
+        )
+        candidate_click_ok = (
+            system != "Windows"
+            or (
+                bool(candidate_click_payload.get("ok"))
+                and candidate_click_payload.get("target") == "candidate"
+                and candidate_click_resolution.get("mode") == "candidate_semantic_locator"
+                and candidate_click_candidate.get("candidate_id") == observe_best_candidate_id
+                and candidate_click_safety.get("ok") is True
+                and _file_nonempty_after(candidate_click_payload_path, started_at)
+            )
+        )
         window_vision_payload = _read_json(window_vision_path) if window_vision_path.exists() else {}
         element_vision_payload = _read_json(element_vision_path) if element_vision_path.exists() else {}
         window_vision_match = (
@@ -3370,6 +3935,26 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         )
         element_vision_match = (
             element_vision_payload.get("match") if isinstance(element_vision_payload.get("match"), dict) else {}
+        )
+        window_vision_targeting = (
+            window_vision_payload.get("target_candidates")
+            if isinstance(window_vision_payload.get("target_candidates"), dict)
+            else {}
+        )
+        element_vision_targeting = (
+            element_vision_payload.get("target_candidates")
+            if isinstance(element_vision_payload.get("target_candidates"), dict)
+            else {}
+        )
+        window_vision_best_target = (
+            window_vision_targeting.get("best_candidate")
+            if isinstance(window_vision_targeting.get("best_candidate"), dict)
+            else {}
+        )
+        element_vision_best_target = (
+            element_vision_targeting.get("best_candidate")
+            if isinstance(element_vision_targeting.get("best_candidate"), dict)
+            else {}
         )
         window_vision_target_query = (
             window_vision_payload.get("target_query")
@@ -3381,14 +3966,14 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             if isinstance(element_vision_payload.get("target_query"), dict)
             else {}
         )
-        expected_window_local_bounds = _bounds_relative_to(element_capture_bounds, window_capture_bounds)
+        expected_window_local_bounds = _bounds_relative_to(vision_capture_bounds, window_capture_bounds)
         expected_element_local_bounds = {
             "x": 0,
             "y": 0,
-            "width": int(element_capture_bounds.get("width", 0) or 0),
-            "height": int(element_capture_bounds.get("height", 0) or 0),
+            "width": int(vision_capture_bounds.get("width", 0) or 0),
+            "height": int(vision_capture_bounds.get("height", 0) or 0),
         }
-        expected_global_point = _point_center_from_bounds(element_capture_bounds)
+        expected_global_point = _point_center_from_bounds(vision_capture_bounds)
         expected_window_local_point = _point_center_from_bounds(expected_window_local_bounds)
         expected_element_local_point = _point_center_from_bounds(expected_element_local_bounds)
         window_vision_ok = (
@@ -3399,10 +3984,17 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and _file_nonempty_after(window_vision_path, started_at)
                 and window_vision_target_query.get("match_index") == 0
                 and _bounds_match(window_vision_payload.get("source_bounds"), window_capture_bounds)
-                and _bounds_match(window_vision_match.get("bounds"), element_capture_bounds)
+                and _bounds_match(window_vision_match.get("bounds"), vision_capture_bounds)
                 and _bounds_match(window_vision_match.get("local_bounds"), expected_window_local_bounds)
                 and _point_match(window_vision_match.get("point"), expected_global_point)
                 and _point_match(window_vision_match.get("local_point"), expected_window_local_point)
+                and _coordinate_profile_ok(window_vision_payload.get("coordinate_profile"), screen_clickable=True)
+                and window_vision_targeting.get("kind") == "desktop_target_candidates"
+                and window_vision_best_target.get("strategy") == "visual_bounds"
+                and window_vision_best_target.get("screen_clickable") is True
+                and _bounds_match(window_vision_best_target.get("bounds"), vision_capture_bounds)
+                and isinstance(window_vision_best_target.get("action_templates"), list)
+                and bool(window_vision_best_target.get("action_templates"))
             )
         )
         element_vision_ok = (
@@ -3412,11 +4004,18 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and element_vision_payload.get("source_target") == "element"
                 and _file_nonempty_after(element_vision_path, started_at)
                 and element_vision_target_query.get("match_index") == 0
-                and _bounds_match(element_vision_payload.get("source_bounds"), element_capture_bounds)
-                and _bounds_match(element_vision_match.get("bounds"), element_capture_bounds)
+                and _bounds_match(element_vision_payload.get("source_bounds"), vision_capture_bounds)
+                and _bounds_match(element_vision_match.get("bounds"), vision_capture_bounds)
                 and _bounds_match(element_vision_match.get("local_bounds"), expected_element_local_bounds)
                 and _point_match(element_vision_match.get("point"), expected_global_point)
                 and _point_match(element_vision_match.get("local_point"), expected_element_local_point)
+                and _coordinate_profile_ok(element_vision_payload.get("coordinate_profile"), screen_clickable=True)
+                and element_vision_targeting.get("kind") == "desktop_target_candidates"
+                and element_vision_best_target.get("strategy") == "visual_bounds"
+                and element_vision_best_target.get("screen_clickable") is True
+                and _bounds_match(element_vision_best_target.get("bounds"), vision_capture_bounds)
+                and isinstance(element_vision_best_target.get("action_templates"), list)
+                and bool(element_vision_best_target.get("action_templates"))
             )
         )
         status_assertion_ok = system != "Windows" or _file_nonempty_after(status_assert_path, started_at)
@@ -3458,6 +4057,18 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 }
             )
         )
+        candidate_click_annotation_ok = (
+            system != "Windows"
+            or any(
+                isinstance(payload, dict)
+                and str(payload.get("action", "")).endswith("desktop_input.click")
+                and isinstance(payload.get("target"), dict)
+                and isinstance(payload["target"].get("input_resolution"), dict)
+                and isinstance(payload["target"]["input_resolution"].get("candidate"), dict)
+                and payload["target"]["input_resolution"]["candidate"].get("candidate_id") == observe_best_candidate_id
+                for payload in annotation_payloads
+            )
+        )
         annotation_ok = (
             annotation_dir.exists()
             and bool(annotation_pngs)
@@ -3468,10 +4079,12 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and payload.get("schema_version") == 1
                 and isinstance(payload.get("overlays"), list)
                 and isinstance(payload.get("coordinate_space"), dict)
+                and _coordinate_profile_ok(payload.get("coordinate_profile"), screen_clickable=True)
                 for payload in annotation_payloads
             )
             and select_cell_annotation_ok
             and complex_control_annotation_ok
+            and candidate_click_annotation_ok
         )
         return {
             "name": "desktop_element_set_text_invoke_regression",
@@ -3495,10 +4108,13 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and (not context_menu_expected or _file_nonempty_after(context_menu_path, started_at))
                 and _file_nonempty_after(scroll_path, started_at)
                 and _file_nonempty_after(scroll_target_path, started_at)
+                and observe_ok
                 and _file_nonempty_after(window_capture_payload_path, started_at)
                 and _file_nonempty_after(element_capture_payload_path, started_at)
                 and window_capture_ok
                 and element_capture_ok
+                and vision_capture_ok
+                and candidate_click_ok
                 and window_vision_ok
                 and element_vision_ok
                 and tree_ok
@@ -3524,6 +4140,14 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "metadata_found": metadata_found,
             "content_preview": content[:500],
             "expected_controls_found": expected_controls_found,
+            "observe_path": str(observe_path),
+            "observe_screenshot_path": str(observe_screenshot_path),
+            "observe_ok": observe_ok,
+            "observe_elements_ok": observe_elements_ok,
+            "observe_targeting_ok": observe_targeting_ok,
+            "observe_best_target": observe_best_target,
+            "observe_selected_window": observe_selected_window,
+            "observe_match_count": observe_elements.get("match_count", 0) if isinstance(observe_elements, dict) else 0,
             "status_assertion_ok": status_assertion_ok,
             "automation_ids": sorted(value for value in automation_ids if value),
             "elements_path": str(elements_path),
@@ -3560,16 +4184,26 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "element_capture_size": element_capture_size,
             "element_capture_bounds": element_capture_bounds,
             "element_capture_payload_path": str(element_capture_payload_path),
+            "vision_capture_path": str(vision_capture_path),
+            "vision_capture_ok": vision_capture_ok,
+            "vision_capture_size": vision_capture_size,
+            "vision_capture_bounds": vision_capture_bounds,
+            "vision_capture_payload_path": str(vision_capture_payload_path),
+            "candidate_click_payload_path": str(candidate_click_payload_path),
+            "candidate_click_ok": candidate_click_ok,
+            "candidate_click_payload": candidate_click_payload,
             "vision_source_target_enabled": vision_source_target_enabled,
             "window_vision_path": str(window_vision_path),
             "window_vision_ok": window_vision_ok,
             "window_vision_match": window_vision_match,
+            "window_vision_best_target": window_vision_best_target,
             "window_vision_target_query": window_vision_target_query,
             "expected_window_local_bounds": expected_window_local_bounds,
             "expected_window_local_point": expected_window_local_point,
             "element_vision_path": str(element_vision_path),
             "element_vision_ok": element_vision_ok,
             "element_vision_match": element_vision_match,
+            "element_vision_best_target": element_vision_best_target,
             "element_vision_target_query": element_vision_target_query,
             "expected_element_local_bounds": expected_element_local_bounds,
             "expected_element_local_point": expected_element_local_point,
@@ -3577,6 +4211,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "status_assertion_path": str(status_assert_path),
             "set_text_expected": set_text_payload,
             "annotation_ok": annotation_ok,
+            "candidate_click_annotation_ok": candidate_click_annotation_ok,
             "annotation_png_count": len(annotation_pngs),
             "annotation_json_count": len(annotation_jsons),
             "annotation_dir": str(annotation_dir),
@@ -3809,6 +4444,28 @@ def _image_size_matches_bounds(size: dict[str, int], bounds: dict[str, Any], *, 
     )
 
 
+def _coordinate_profile_ok(value: Any, *, screen_clickable: bool | None = None) -> bool:
+    if not isinstance(value, dict):
+        return False
+    source = value.get("source") if isinstance(value.get("source"), dict) else {}
+    transforms = value.get("transforms") if isinstance(value.get("transforms"), dict) else {}
+    local_to_screen = transforms.get("local_to_screen") if isinstance(transforms.get("local_to_screen"), dict) else {}
+    screen_to_local = transforms.get("screen_to_local") if isinstance(transforms.get("screen_to_local"), dict) else {}
+    if (
+        value.get("kind") != "desktop_coordinate_profile"
+        or value.get("schema_version") != 1
+        or not isinstance(value.get("space"), dict)
+        or not isinstance(value.get("display"), dict)
+        or not isinstance(source.get("bounds"), dict)
+        or not isinstance(local_to_screen.get("offset"), dict)
+        or not isinstance(screen_to_local.get("offset"), dict)
+    ):
+        return False
+    if screen_clickable is not None and bool(source.get("screen_clickable")) is not bool(screen_clickable):
+        return False
+    return True
+
+
 def _bounds_match(actual: Any, expected: Any, *, tolerance: int = 4) -> bool:
     if not isinstance(actual, dict) or not isinstance(expected, dict):
         return False
@@ -3932,6 +4589,7 @@ root.mainloop()
         app_command = sys.executable
         app_args = ["-c", app_script, absolute_assertion_file]
         cleanup_hint = f"temporary tkinter app title={title}; pid file={absolute_pid_file}"
+    vision_locator = context_panel_locator if system == "Windows" else entry_locator
     extra_control_steps: list[dict[str, Any]] = []
     clipboard_steps: list[dict[str, Any]] = []
     vision_source_target_steps: list[dict[str, Any]] = []
@@ -3945,14 +4603,14 @@ root.mainloop()
                     "action": "desktop_vision",
                     "desktop": "desktop",
                     "type": "locate_image",
-                    "template_path": "output/desktop-screenshots/form-entry-element-screen.png",
+                    "template_path": "output/desktop-screenshots/form-vision-element-screen.png",
                     "source_target": "window",
                     "title_contains": title,
                     "window_match_index": 0,
-                    "threshold": 0.95,
+                    "threshold": 0.80,
                     "match_index": 0,
                     "max_matches": 3,
-                    "path": "form-entry-window-vision.json",
+                    "path": "form-vision-window-vision.json",
                     "save_as": "entry_window_vision",
                     "timeout_ms": 2000,
                     "interval_ms": 100,
@@ -3961,15 +4619,15 @@ root.mainloop()
                     "action": "desktop_vision",
                     "desktop": "desktop",
                     "type": "locate_image",
-                    "template_path": "output/desktop-screenshots/form-entry-element-screen.png",
+                    "template_path": "output/desktop-screenshots/form-vision-element-screen.png",
                     "source_target": "element",
                     "title_contains": title,
                     "window_match_index": 0,
-                    **entry_locator,
-                    "threshold": 0.95,
+                    **vision_locator,
+                    "threshold": 0.80,
                     "match_index": 0,
                     "max_matches": 3,
-                    "path": "form-entry-element-vision.json",
+                    "path": "form-vision-element-vision.json",
                     "save_as": "entry_element_vision",
                     "timeout_ms": 2000,
                     "interval_ms": 100,
@@ -4382,6 +5040,20 @@ root.mainloop()
             {
                 "action": "desktop_capture",
                 "desktop": "desktop",
+                "type": "observe",
+                "title_contains": title,
+                **entry_locator,
+                "path": "form-observe.json",
+                "include_windows": True,
+                "include_elements": True,
+                "include_screenshot": True,
+                "max_depth": 5,
+                "max_elements": 200,
+                "save_as": "form_observation",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
                 "type": "screenshot",
                 "target": "window",
                 "title_contains": title,
@@ -4412,6 +5084,24 @@ root.mainloop()
                 "path": "form-entry-capture.json",
                 "value": "{{form_entry_capture}}",
             },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "element",
+                "title_contains": title,
+                **vision_locator,
+                "path": "form-vision-element-screen.png",
+                "save_as": "form_vision_capture",
+                "max_depth": 5,
+                "max_elements": 200,
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-vision-capture.json",
+                "value": "{{form_vision_capture}}",
+            },
             *vision_source_target_steps,
             {
                 "action": "desktop_element",
@@ -4433,6 +5123,22 @@ root.mainloop()
                 "save_as": "form_elements_dump",
                 "max_depth": 5,
                 "max_elements": 200,
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "click",
+                "target": "candidate",
+                "target_candidates": "{{form_observation.target_candidates}}",
+                "candidate_id": "{{form_observation.target_candidates.best_candidate.candidate_id}}",
+                "min_confidence": "medium",
+                "save_as": "entry_candidate_click",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-entry-candidate-click.json",
+                "value": "{{entry_candidate_click}}",
             },
             {
                 "action": "desktop_input",
@@ -4557,6 +5263,8 @@ $form.Height = 260
 $form.StartPosition = 'Manual'
 $form.Left = 160
 $form.Top = 160
+$form.KeyPreview = $true
+$form.TopMost = $true
 $openButton = New-Object System.Windows.Forms.Button
 $openButton.Name = 'DesktopFileDialogOpenButton'
 $openButton.Text = 'Open File'
@@ -4620,6 +5328,16 @@ $saveButton.Add_Click({{
 [void]$form.Controls.Add($openButton)
 [void]$form.Controls.Add($saveButton)
 [void]$form.Controls.Add($status)
+$form.Add_KeyDown({{
+    param($sender, $eventArgs)
+    if ($eventArgs.Control -and $eventArgs.KeyCode -eq [System.Windows.Forms.Keys]::O) {{
+        $eventArgs.SuppressKeyPress = $true
+        $openButton.PerformClick()
+    }} elseif ($eventArgs.Control -and $eventArgs.KeyCode -eq [System.Windows.Forms.Keys]::S) {{
+        $eventArgs.SuppressKeyPress = $true
+        $saveButton.PerformClick()
+    }}
+}})
 [void][System.Windows.Forms.Application]::Run($form)
 """.strip()
 
@@ -4941,6 +5659,11 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "type": "launch",
                 "app": "notepad.exe",
                 "args": [absolute_assertion_file],
+                "title_contains": file_name,
+                "wait_for_window": True,
+                "focus": True,
+                "window_timeout_ms": 8000,
+                "interval_ms": 100,
                 "save_as": "app_launch",
             },
             {
@@ -4948,6 +5671,22 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "type": "run",
                 "command": "Set-Content -LiteralPath 'resources\\\\desktop-app-pid.txt' -Value '{{app_launch.pid}}'",
                 "timeout_ms": 10000,
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "active",
+                "path": "real-app-active-window.json",
+                "save_as": "active_window",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "find",
+                "title_contains": file_name,
+                "process_name": "notepad.exe",
+                "path": "real-app-window-find.json",
+                "save_as": "found_window",
             },
             {
                 "action": "desktop_wait",
@@ -4973,6 +5712,62 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "title_contains": file_name,
                 "timeout_ms": 2000,
                 "save_as": "app_focused_assertion",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "maximize",
+                "title_contains": file_name,
+                "save_as": "app_maximize",
+            },
+            {"action": "sleep", "seconds": 0.2},
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": file_name,
+                "path": "real-app-maximized-window.png",
+                "save_as": "app_maximized_screenshot",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "minimize",
+                "title_contains": file_name,
+                "save_as": "app_minimize",
+            },
+            {"action": "sleep", "seconds": 0.2},
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "restore",
+                "title_contains": file_name,
+                "save_as": "app_restore",
+            },
+            {"action": "sleep", "seconds": 0.2},
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": file_name,
+                "save_as": "app_refocus_after_restore",
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "window",
+                "state": "focused",
+                "title_contains": file_name,
+                "timeout_ms": 2000,
+                "save_as": "app_restored_focused_assertion",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "active",
+                "path": "real-app-restored-active-window.json",
+                "save_as": "restored_active_window",
             },
             {
                 "action": "desktop_element",
@@ -5103,6 +5898,12 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "type": "launch",
                 "app": "explorer.exe",
                 "args": [absolute_target_dir],
+                "title_contains": "{{folder_name}}",
+                "process_name": "explorer.exe",
+                "wait_for_window": True,
+                "focus": True,
+                "window_timeout_ms": 7000,
+                "interval_ms": 150,
                 "save_as": "explorer_launch",
             },
             {
@@ -5143,6 +5944,15 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "save_as": "explorer_windows",
             },
             {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "find",
+                "title_contains": "{{folder_name}}",
+                "process_name": "explorer.exe",
+                "path": "explorer-window-find.json",
+                "save_as": "explorer_found_window",
+            },
+            {
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
@@ -5152,6 +5962,18 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "save_as": "explorer_elements",
                 "max_depth": 4,
                 "max_elements": 300,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "find",
+                "title_contains": "{{folder_name}}",
+                "process_name": "explorer.exe",
+                "name_contains": "sample.txt",
+                "path": "explorer-sample-file.json",
+                "save_as": "explorer_sample_file",
+                "max_depth": 6,
+                "max_elements": 500,
             },
             {
                 "action": "desktop_capture",
@@ -5185,6 +6007,134 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "timeout_ms": 5000,
                 "interval_ms": 150,
                 "save_as": "explorer_closed",
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+
+
+def _windows_terminal_plan(
+    *,
+    powershell: str,
+    package_dir: Path,
+    title: str,
+    result_file: Path,
+    expected_text: str,
+) -> dict[str, Any]:
+    pid_file = package_dir / "resources" / "desktop-terminal-pid.txt"
+    terminal_bootstrap = (
+        f"$host.UI.RawUI.WindowTitle = {_powershell_string(title)}; "
+        f"Set-Location -LiteralPath {_powershell_string(str((package_dir / 'resources').resolve()))}; "
+        "Write-Host 'AI Automate terminal regression ready'"
+    )
+    encoded_bootstrap = base64.b64encode(terminal_bootstrap.encode("utf-16le")).decode("ascii")
+    launcher_script = (
+        "$childArgs = @('-NoLogo', '-NoExit', '-EncodedCommand', "
+        f"{_powershell_string(encoded_bootstrap)}); "
+        f"$process = Start-Process -FilePath {_powershell_string(powershell)} "
+        "-ArgumentList $childArgs -PassThru -WindowStyle Normal; "
+        f"Set-Content -LiteralPath {_powershell_string(str(pid_file.resolve()))} -Value $process.Id"
+    )
+    typed_command = (
+        "Set-Content -LiteralPath '{{result_file}}' -Value '{{expected_text}}'; "
+        "exit"
+    )
+    return {
+        "name": "desktop Windows terminal regression",
+        "automation_type": "desktop",
+        "variables": {
+            "terminal_title": title,
+            "result_file": str(result_file.resolve()),
+            "expected_text": expected_text,
+        },
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
+            {
+                "action": "desktop_app",
+                "desktop": "desktop",
+                "type": "launch",
+                "path": powershell,
+                "args": ["-NoProfile", "-Command", launcher_script],
+                "wait": True,
+                "timeout_ms": 10000,
+                "title_contains": "{{terminal_title}}",
+                "wait_for_window": True,
+                "focus": True,
+                "window_timeout_ms": 10000,
+                "interval_ms": 150,
+                "save_as": "terminal_launch",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "find",
+                "title_contains": "{{terminal_title}}",
+                "path": "terminal-window-find.json",
+                "save_as": "terminal_window",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "active",
+                "path": "terminal-active-window.json",
+                "save_as": "terminal_active",
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{terminal_title}}",
+                "state": "focused",
+                "timeout_ms": 3000,
+                "interval_ms": 100,
+                "save_as": "terminal_focused",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": "{{terminal_title}}",
+                "path": "terminal-window.png",
+                "save_as": "terminal_screenshot",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "click",
+                "target": "current_window_center",
+                "save_as": "terminal_click",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "type_text",
+                "value": typed_command,
+                "method": "clipboard",
+                "preserve_clipboard": False,
+                "save_as": "terminal_command_typed",
+            },
+            {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["enter"]},
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{terminal_title}}",
+                "state": "not_exists",
+                "timeout_ms": 10000,
+                "interval_ms": 150,
+                "save_as": "terminal_closed",
+            },
+            {
+                "action": "command",
+                "type": "run",
+                "command": (
+                    "$content = Get-Content -Raw -LiteralPath '{{result_file}}'; "
+                    "if ($content -notlike '*{{expected_text}}*') { "
+                    "Write-Error ('terminal output missing: ' + $content); exit 9 }"
+                ),
+                "timeout_ms": 10000,
+                "save_as": "terminal_result_assertion",
             },
             {"action": "close_desktop", "desktop": "desktop"},
         ],
@@ -5273,6 +6223,14 @@ def _windows_file_dialog_plan(
                 "save_as": "app_focus",
             },
             {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "click",
+                "target": "bounds_center",
+                "bounds": {"x": 160, "y": 160, "width": 660, "height": 260},
+                "save_as": "app_focus_click",
+            },
+            {
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
@@ -5283,15 +6241,26 @@ def _windows_file_dialog_plan(
                 "max_elements": 250,
             },
             {
-                "action": "desktop_element",
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": title,
+                "save_as": "app_refocus_before_open",
+            },
+            {
+                "action": "desktop_input",
                 "desktop": "desktop",
                 "type": "click",
-                "title_contains": title,
-                "automation_id": "DesktopFileDialogOpenButton",
-                "control_type": "Button",
+                "target": "bounds_center",
+                "bounds": {"x": 160, "y": 160, "width": 660, "height": 260},
+                "save_as": "app_focus_click_before_open",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "hotkey",
+                "keys": ["ctrl", "o"],
                 "save_as": "open_button_click",
-                "max_depth": 5,
-                "max_elements": 250,
             },
             {
                 "action": "desktop_wait",
@@ -5309,6 +6278,16 @@ def _windows_file_dialog_plan(
                 "type": "focus",
                 "title_contains": open_dialog_title,
                 "save_as": "open_dialog_focus",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": open_dialog_title,
+                "path": "open-dialog-elements.json",
+                "save_as": "open_dialog_elements",
+                "max_depth": 4,
+                "max_elements": 250,
             },
             {
                 "action": "desktop_capture",
@@ -5359,15 +6338,26 @@ def _windows_file_dialog_plan(
                 "max_elements": 250,
             },
             {
-                "action": "desktop_element",
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": title,
+                "save_as": "app_refocus_before_save",
+            },
+            {
+                "action": "desktop_input",
                 "desktop": "desktop",
                 "type": "click",
-                "title_contains": title,
-                "automation_id": "DesktopFileDialogSaveButton",
-                "control_type": "Button",
+                "target": "bounds_center",
+                "bounds": {"x": 160, "y": 160, "width": 660, "height": 260},
+                "save_as": "app_focus_click_before_save",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "hotkey",
+                "keys": ["ctrl", "s"],
                 "save_as": "save_button_click",
-                "max_depth": 5,
-                "max_elements": 250,
             },
             {
                 "action": "desktop_wait",
@@ -5385,6 +6375,16 @@ def _windows_file_dialog_plan(
                 "type": "focus",
                 "title_contains": save_dialog_title,
                 "save_as": "save_dialog_focus",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": save_dialog_title,
+                "path": "save-dialog-elements.json",
+                "save_as": "save_dialog_elements",
+                "max_depth": 4,
+                "max_elements": 250,
             },
             {
                 "action": "desktop_capture",
@@ -5671,6 +6671,27 @@ def _cleanup_temporary_form_case(package_dir: Path, system: str) -> None:
             )
         else:
             subprocess.run(["kill", "-TERM", str(pid)], capture_output=True, check=False, timeout=5)
+    except Exception:
+        return
+
+
+def _cleanup_windows_terminal_case(package_dir: Path) -> None:
+    pid_path = package_dir / "resources" / "desktop-terminal-pid.txt"
+    if not pid_path.exists():
+        return
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except Exception:
+        return
+    try:
+        import subprocess
+
+        subprocess.run(
+            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
     except Exception:
         return
 

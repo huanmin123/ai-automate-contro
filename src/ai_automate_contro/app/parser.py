@@ -224,7 +224,17 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--preset",
         action="append",
         required=True,
-        choices=["print", "variables", "manual_confirm", "screenshot", "html", "desktop_screenshot", "desktop_snapshot", "desktop_windows"],
+        choices=[
+            "print",
+            "variables",
+            "manual_confirm",
+            "screenshot",
+            "html",
+            "desktop_screenshot",
+            "desktop_snapshot",
+            "desktop_observe",
+            "desktop_windows",
+        ],
         help="要注入的诊断预设；可重复传入。",
     )
     inject_parser.add_argument("--message", help="print/manual_confirm 预设使用的消息。")
@@ -259,19 +269,35 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     release_matrix_parser.add_argument("--retry-delay-seconds", type=float, default=3.0, help="真实模型外层重试基础等待秒数。")
     release_matrix_parser.add_argument("--step-timeout-seconds", type=int, default=900, help="单个矩阵步骤超时秒数。")
     release_matrix_parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="重复执行选中矩阵步骤的次数，用于定位桌面焦点、窗口和视觉类偶发问题。",
+    )
+    release_matrix_parser.add_argument(
+        "--strict-desktop",
+        action="store_true",
+        help="按当前机器发布标准强制桌面输入、视觉、英文 OCR 和简体中文 OCR 门禁。",
+    )
+    release_matrix_parser.add_argument(
+        "--require-desktop-input",
+        action="store_true",
+        help="运行 desktop-env 时要求 native backend、Windows PowerShell 7 和 pyautogui/pyperclip 桌面输入依赖可用。",
+    )
+    release_matrix_parser.add_argument(
         "--require-desktop-vision",
         action="store_true",
-        help="运行 desktop-components 时要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过。",
+        help="运行 desktop-env/desktop-examples/desktop-components 时要求 native backend、Windows PowerShell 7、桌面视觉依赖和回归真实通过。",
     )
     release_matrix_parser.add_argument(
         "--require-desktop-ocr",
         action="store_true",
-        help="运行 desktop-components 时要求 Tesseract OCR 和英文 locate_text 回归真实通过。",
+        help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7、Tesseract OCR 和英文 locate_text 回归真实通过。",
     )
     release_matrix_parser.add_argument(
         "--require-desktop-ocr-zh",
         action="store_true",
-        help="运行 desktop-components 时要求 Tesseract 简体中文 OCR 回归真实通过。",
+        help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7 和 Tesseract 简体中文 OCR 回归真实通过。",
     )
     release_matrix_parser.add_argument("--list", action="store_true", help="只列出矩阵步骤，不执行。")
     release_matrix_parser.add_argument(
@@ -282,6 +308,19 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     release_matrix_parser.add_argument("--fail-fast", action="store_true", help="任一步骤失败后立即停止后续矩阵。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
+    desktop_env_parser = self_check_subparsers.add_parser(
+        "desktop-env",
+        help="检查桌面控制依赖、OCR、视觉、输入和 native 后端能力。",
+    )
+    desktop_env_parser.add_argument("--require-input", action="store_true", help="要求 pyautogui/pyperclip 可用。")
+    desktop_env_parser.add_argument("--require-vision", action="store_true", help="要求 Pillow.ImageGrab 和 OpenCV 可用。")
+    desktop_env_parser.add_argument("--require-ocr", action="store_true", help="要求 Tesseract 英文 OCR 可用。")
+    desktop_env_parser.add_argument("--require-ocr-zh", action="store_true", help="要求 Tesseract 简体中文 OCR 可用。")
+    desktop_env_parser.add_argument(
+        "--request-permissions",
+        action="store_true",
+        help="探测截图权限；macOS 可能触发系统授权提示。",
+    )
     desktop_components_parser = self_check_subparsers.add_parser(
         "desktop-components",
         help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。",
@@ -301,7 +340,19 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="要求 Tesseract 简体中文 OCR 回归真实通过；缺 chi_sim 或跳过时失败。",
     )
-    self_check_subparsers.add_parser("desktop-real-app", help="运行真实桌面 App 回归；Windows 使用 Notepad，macOS 使用 TextEdit。")
+    desktop_examples_parser = self_check_subparsers.add_parser(
+        "desktop-examples",
+        help="校验并运行 test-plans/desktop 下的静态桌面示例。",
+    )
+    desktop_examples_parser.add_argument(
+        "--require-vision",
+        action="store_true",
+        help="要求静态离线视觉示例真实运行通过；缺 OpenCV/Pillow 时失败。",
+    )
+    self_check_subparsers.add_parser(
+        "desktop-real-app",
+        help="运行真实桌面 App 回归；Windows 覆盖 Notepad、Explorer、可见 PowerShell 终端和 Open/Save 文件对话框，macOS 使用 TextEdit 或系统可用轻量 App。",
+    )
 
 
 def _friendly_argparse_message(message: str) -> str:

@@ -23,6 +23,7 @@ from ai_automate_contro.engine.desktop.backends.input_driver import (
     select_element_keyboard_fallback as _select_element_keyboard_fallback,
     set_element_text_keyboard_fallback as _set_element_text_keyboard_fallback,
 )
+from ai_automate_contro.engine.desktop.coordinates import build_coordinate_profile
 
 
 class NativeDesktopBackend:
@@ -62,6 +63,7 @@ class NativeDesktopBackend:
         pyautogui_available = dependencies.get("pyautogui", False)
         if pyautogui_available:
             permissions["input_control"] = "available_or_not_required"
+        display = self._display_info()
         capability_matrix = build_capability_matrix(
             platform_name=self.platform_name,
             backend_name=self.backend_name,
@@ -70,6 +72,23 @@ class NativeDesktopBackend:
             dependencies=dependencies,
             window_list_error=window_error or self.last_window_list_error,
         )
+        coordinate_profile = build_coordinate_profile(
+            platform=self.platform_name,
+            backend=self.backend_name,
+            display=display,
+            source_kind="screen",
+            source_bounds={
+                "x": 0,
+                "y": 0,
+                "width": int(display.get("width", 0) or 0),
+                "height": int(display.get("height", 0) or 0),
+            },
+            coordinate_space={
+                "origin": "screen",
+                "unit": "logical_px",
+                "scale": display.get("scale") if isinstance(display, dict) else None,
+            },
+        )
         return {
             "platform": self.platform_name,
             "system": platform.system(),
@@ -77,7 +96,8 @@ class NativeDesktopBackend:
             "permissions": permissions,
             "dependencies": dependencies,
             "capability_matrix": capability_matrix,
-            "display": self._display_info(),
+            "display": display,
+            "coordinate_profile": coordinate_profile,
             "window_list_error": window_error or self.last_window_list_error,
         }
 
@@ -93,6 +113,15 @@ class NativeDesktopBackend:
         windows = self.list_windows()
         matches = _matching_windows(windows, query)
         return _window_diagnostics(windows, query, matches)
+
+    def find_windows(self, query: dict[str, Any], *, include_invisible: bool = False) -> list[dict[str, Any]]:
+        windows = self.list_windows(include_invisible=include_invisible)
+        return [dict(window) for window in _matching_windows(windows, query)]
+
+    def get_active_window(self) -> dict[str, Any]:
+        windows = self.list_windows(include_invisible=True)
+        focused = next((window for window in windows if bool(window.get("focused"))), None)
+        return dict(focused) if isinstance(focused, dict) else {}
 
     def focus_window(self, query: dict[str, Any]) -> dict[str, Any]:
         window = self._select_window(query)
@@ -1146,7 +1175,9 @@ class NativeDesktopBackend:
             "width": image.width,
             "height": image.height,
             "region": region or {},
-            "include_cursor": include_cursor,
+            "include_cursor": False,
+            "include_cursor_requested": bool(include_cursor),
+            "cursor_included": False,
         }
 
     def snapshot(self, *, include_windows: bool = True, include_displays: bool = True) -> dict[str, Any]:
@@ -1157,8 +1188,9 @@ class NativeDesktopBackend:
             "backend": self.backend_name,
             "dependencies": dependencies,
         }
+        display = self._display_info() if include_displays else {}
         if include_displays:
-            payload["display"] = self._display_info()
+            payload["display"] = display
         if include_windows:
             try:
                 payload["windows"] = self.list_windows()
@@ -1172,6 +1204,23 @@ class NativeDesktopBackend:
             permissions={},
             dependencies=dependencies,
             window_list_error=str(payload.get("window_list_error") or self.last_window_list_error or ""),
+        )
+        payload["coordinate_profile"] = build_coordinate_profile(
+            platform=self.platform_name,
+            backend=self.backend_name,
+            display=display,
+            source_kind="screen",
+            source_bounds={
+                "x": 0,
+                "y": 0,
+                "width": int(display.get("width", 0) or 0) if isinstance(display, dict) else 0,
+                "height": int(display.get("height", 0) or 0) if isinstance(display, dict) else 0,
+            },
+            coordinate_space={
+                "origin": "screen",
+                "unit": "logical_px",
+                "scale": display.get("scale") if isinstance(display, dict) else None,
+            },
         )
         return payload
 
@@ -1190,15 +1239,17 @@ class NativeDesktopBackend:
             windows = self.list_windows()
             last_windows = windows
             last_matches = _matching_windows(windows, query)
-            if state == "exists" and last_matches:
-                return {"ok": True, "state": state, "window": last_matches[0], "matches": last_matches}
-            if state == "not_exists" and not last_matches:
-                return {"ok": True, "state": state, "window": None, "matches": []}
-            if state == "focused" and any(bool(window.get("focused")) for window in last_matches):
-                focused = next(window for window in last_matches if bool(window.get("focused")))
-                return {"ok": True, "state": state, "window": focused, "matches": last_matches}
+            match_index = int(query.get("match_index", 0) or 0)
+            selected = last_matches[match_index] if 0 <= match_index < len(last_matches) else None
+            if state == "exists" and selected is not None:
+                return {"ok": True, "state": state, "window": selected, "matches": last_matches}
+            if state == "not_exists" and selected is None:
+                return {"ok": True, "state": state, "window": None, "matches": last_matches}
+            if state == "focused" and selected is not None and bool(selected.get("focused")):
+                return {"ok": True, "state": state, "window": selected, "matches": last_matches}
             if time.monotonic() >= deadline:
                 diagnostics = _window_diagnostics(last_windows, query, last_matches)
+                diagnostics["match_index"] = match_index
                 raise TimeoutError(
                     f"等待窗口超时：state={state} query={query} "
                     f"matches={len(last_matches)} diagnostics={diagnostics}"
@@ -1390,11 +1441,22 @@ class NativeDesktopBackend:
     def _display_info(self) -> dict[str, Any]:
         if self.platform_name == "windows":
             user32 = ctypes.windll.user32
+            dpi = 0
+            try:
+                dpi = int(user32.GetDpiForSystem())
+            except Exception:
+                dpi = 0
+            scale = round(dpi / 96, 4) if dpi > 0 else None
             return {
                 "width": int(user32.GetSystemMetrics(0)),
                 "height": int(user32.GetSystemMetrics(1)),
+                "virtual_x": int(user32.GetSystemMetrics(76)),
+                "virtual_y": int(user32.GetSystemMetrics(77)),
                 "virtual_width": int(user32.GetSystemMetrics(78)),
                 "virtual_height": int(user32.GetSystemMetrics(79)),
+                "monitor_count": int(user32.GetSystemMetrics(80)),
+                "dpi": {"x": dpi, "y": dpi} if dpi > 0 else {},
+                "scale": scale,
             }
         try:
             import pyautogui

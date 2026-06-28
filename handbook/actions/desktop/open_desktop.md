@@ -11,8 +11,6 @@
 | `platform` | 否 | `auto`、`windows`、`macos`，默认 `auto` |
 | `backend` | 否 | `auto`、`native`，默认 `auto` |
 | `request_permissions` | 否 | 是否触发权限提示或打开设置，默认 `false` |
-| `permissions` | 否 | 需要检测的权限列表 |
-| `timeout_ms` | 否 | 初始化或权限等待超时 |
 | `save_as` | 否 | 保存 probe payload 的变量名 |
 
 ## 场景

@@ -1,6 +1,6 @@
 # desktop_app
 
-`desktop_app` 只用于 `automation_type: "desktop"`。它负责在当前操作系统桌面会话里启动本机 App 或命令；它不负责等待窗口出现，也不做窗口定位。启动后应继续使用 `desktop_wait`、`desktop_window`、`desktop_capture` 或 `desktop_assert` 获取桌面证据。
+`desktop_app` 只用于 `automation_type: "desktop"`。它负责在当前操作系统桌面会话里启动本机 App 或命令；启动后可选等待并聚焦匹配窗口。窗口状态仍应继续使用 `desktop_wait`、`desktop_window`、`desktop_capture` 或 `desktop_assert` 获取桌面证据。
 
 支持类型：
 
@@ -17,6 +17,11 @@
   "args": ["C:/tmp/demo.txt"],
   "wait": false,
   "timeout_ms": 10000,
+  "wait_for_window": true,
+  "title_contains": "demo.txt",
+  "focus": true,
+  "window_timeout_ms": 10000,
+  "interval_ms": 250,
   "save_as": "app_launch"
 }
 ```
@@ -29,6 +34,11 @@
 - `args`: 可选，非空字符串数组，作为启动参数传给目标。
 - `wait`: 可选，默认 `false`。为 `true` 时等待进程退出。
 - `timeout_ms`: 可选，`wait=true` 时的等待超时，默认 `10000`。
+- `wait_for_window`: 可选，默认 `false`。为 `true` 时，启动后等待匹配窗口出现。
+- Window Query: `wait_for_window=true` 时必填；可用 `title_contains`、`process_name`、`app`、`window_id` 等字段。
+- `focus`: 可选，默认 `false`。为 `true` 且 `wait_for_window=true` 时，等待窗口后聚焦该窗口。
+- `window_timeout_ms`: 可选，等待窗口超时，默认沿用 `timeout_ms` 或 `10000`。
+- `interval_ms`: 可选，等待窗口轮询间隔，默认 `250`。
 - `save_as`: 可选，保存启动 payload。
 
 `save_as` payload 主要字段：
@@ -45,6 +55,12 @@
   "command_line": ["notepad.exe", "C:/tmp/demo.txt"],
   "pid": 1234,
   "wait": false,
+  "wait_for_window": true,
+  "focus": true,
+  "window_query": {"app": "notepad.exe", "title_contains": "demo.txt"},
+  "window": {"title": "demo.txt - Notepad"},
+  "window_wait": {"state": "exists"},
+  "window_focus": {"title": "demo.txt - Notepad"},
   "desktop": "desk",
   "type": "launch",
   "elapsed_ms": 10
@@ -74,7 +90,16 @@
     "type": "launch",
     "app": "TextEdit",
     "args": ["/tmp/demo.txt"],
+    "title_contains": "demo.txt",
+    "wait_for_window": true,
+    "focus": true,
     "save_as": "app_launch"
+  },
+  {
+    "action": "desktop_window",
+    "desktop": "desk",
+    "type": "active",
+    "save_as": "active_window"
   },
   {
     "action": "desktop_wait",

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ai_automate_contro.engine.desktop.targeting import build_failure_targeting
+from ai_automate_contro.engine.desktop.coordinates import build_coordinate_profile
 from ai_automate_contro.engine.runtime import RuntimeState
 
 
@@ -160,7 +162,45 @@ def capture_desktop_failure_state(
             window_diagnostics = _desktop_window_diagnostics(session, step or {})
             element_diagnostics = _desktop_element_diagnostics(session, step or {})
             snapshot = session.backend.snapshot()
+            active_window = _desktop_active_window(session)
+            pointer_position = _desktop_pointer_position()
             capability_matrix = _desktop_capability_matrix(session, snapshot)
+            coordinate_profile = (
+                snapshot.get("coordinate_profile")
+                if isinstance(snapshot.get("coordinate_profile"), dict)
+                else session.coordinate_profile
+                if isinstance(getattr(session, "coordinate_profile", {}), dict)
+                else {}
+            )
+            if not coordinate_profile:
+                display = snapshot.get("display") if isinstance(snapshot.get("display"), dict) else {}
+                coordinate_profile = build_coordinate_profile(
+                    platform=session.platform,
+                    backend=session.backend_name,
+                    display=display,
+                    source_kind="failure_state",
+                    source_bounds={
+                        "x": 0,
+                        "y": 0,
+                        "width": int(display.get("width", 0) or 0) if isinstance(display, dict) else 0,
+                        "height": int(display.get("height", 0) or 0) if isinstance(display, dict) else 0,
+                    },
+                    coordinate_space={
+                        "origin": "screen",
+                        "unit": "logical_px",
+                        "scale": display.get("scale") if isinstance(display, dict) else None,
+                    },
+                )
+            target_payload = _desktop_target_payload(step or {})
+            screenshot = str(screenshot_path) if screenshot_path.exists() else ""
+            target_candidates = build_failure_targeting(
+                desktop=desktop_name,
+                target=target_payload,
+                window_diagnostics=window_diagnostics,
+                element_diagnostics=element_diagnostics,
+                capability_matrix=capability_matrix,
+                screenshot_path=screenshot,
+            )
             desktop_state = {
                 "step": step_number,
                 "action": action,
@@ -168,25 +208,33 @@ def capture_desktop_failure_state(
                 "step_summary": step_summary,
                 "error": str(error) if error is not None else "",
                 "error_type": type(error).__name__ if error is not None else "",
-                "target": _desktop_target_payload(step or {}),
+                "target": target_payload,
                 "desktop": desktop_name,
                 "platform": session.platform,
                 "backend": session.backend_name,
                 "capability_matrix": capability_matrix,
+                "coordinate_profile": coordinate_profile,
                 "current_window": session.current_window or {},
-                "screenshot": str(screenshot_path) if screenshot_path.exists() else "",
+                "active_window": active_window,
+                "pointer_position": pointer_position,
+                "screenshot": screenshot,
                 "element_diagnostics": element_diagnostics,
                 "window_diagnostics": window_diagnostics,
+                "target_candidates": target_candidates,
                 "diagnostics": {
                     "window": window_diagnostics,
                     "element": element_diagnostics,
+                    "target_candidates": target_candidates,
                     "permissions": getattr(session, "permissions", {}) or {},
                     "capability_matrix": capability_matrix,
+                    "coordinate_profile": coordinate_profile,
                     "current_window": session.current_window or {},
+                    "active_window": active_window,
+                    "pointer_position": pointer_position,
                     "snapshot": snapshot,
                 },
                 "artifacts": {
-                    "screenshot_path": str(screenshot_path) if screenshot_path.exists() else "",
+                    "screenshot_path": screenshot,
                     "state_path": str(desktop_state_path),
                 },
                 "snapshot": snapshot,
@@ -383,6 +431,29 @@ def _desktop_window_diagnostics(session: Any, step: dict[str, Any]) -> dict[str,
             "error": str(error),
             "error_type": type(error).__name__,
         }
+
+
+def _desktop_active_window(session: Any) -> dict[str, Any]:
+    try:
+        get_active_window = getattr(session.backend, "get_active_window", None)
+        if callable(get_active_window):
+            payload = get_active_window()
+            return dict(payload) if isinstance(payload, dict) else {}
+        windows = session.backend.list_windows(include_invisible=True)
+        focused = next((window for window in windows if bool(window.get("focused"))), None)
+        return dict(focused) if isinstance(focused, dict) else {}
+    except Exception as error:
+        return {"ok": False, "error": str(error), "error_type": type(error).__name__}
+
+
+def _desktop_pointer_position() -> dict[str, Any]:
+    try:
+        import pyautogui
+
+        position = pyautogui.position()
+        return {"ok": True, "x": int(position.x), "y": int(position.y)}
+    except Exception as error:
+        return {"ok": False, "error": str(error), "error_type": type(error).__name__}
 
 
 def _desktop_element_diagnostics(session: Any, step: dict[str, Any]) -> dict[str, Any]:

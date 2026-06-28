@@ -22,7 +22,7 @@
 ## 取证规则
 
 - 真实网页流程不能凭描述猜 selector。最终 browser plan 前先获取页面证据。
-- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取窗口列表、控件树、截图、OCR/图像结果或人工确认。
+- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、OCR/图像结果或人工确认。
 - 需要登录、验证码、二次验证、安全弹窗或权限确认时，用 `manual_confirm` 交给用户。
 - macOS Accessibility、Screen Recording、Automation 权限只能触发提示、打开设置并等待用户确认，不能静默授权。
 
@@ -52,6 +52,7 @@
 - `desktop_window`: `actions/desktop/desktop_window.md`
 - `desktop_element`: `actions/desktop/desktop_element.md`，控件定位、读取、写值、选择、表格、树、菜单、滚动容器
 - `desktop_input`: `actions/desktop/desktop_input.md`
+- `desktop_capture`: `actions/desktop/desktop_capture.md`，截图、状态快照、统一观察
 - `desktop 定位策略`: `actions/desktop/locator_strategy.md`
 - `read`: `actions/common/io/read.md`
 - `write`: `actions/common/io/write.md`

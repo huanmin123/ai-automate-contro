@@ -19,6 +19,16 @@
     {
       "action": "desktop_capture",
       "desktop": "desktop",
+      "type": "observe",
+      "path": "observe.json",
+      "include_windows": true,
+      "include_elements": false,
+      "include_screenshot": true,
+      "save_as": "desktop_observation"
+    },
+    {
+      "action": "desktop_capture",
+      "desktop": "desktop",
       "type": "screenshot",
       "path": "screen.png",
       "save_as": "desktop_screenshot"

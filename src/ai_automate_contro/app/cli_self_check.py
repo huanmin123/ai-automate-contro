@@ -95,8 +95,30 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         },
         {
             "name": "cplan_self_check_has_component_and_real_app_entries",
-            "passed": {"handbook", "workspace-clean", "release-matrix", "browser-components", "desktop-components", "desktop-real-app"}.issubset(
+            "passed": {
+                "handbook",
+                "workspace-clean",
+                "release-matrix",
+                "browser-components",
+                "desktop-env",
+                "desktop-components",
+                "desktop-examples",
+                "desktop-real-app",
+            }.issubset(
                 cplan_self_check_commands
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                [
+                    "self-check",
+                    "release-matrix",
+                    "--only",
+                    "compileall",
+                    "--repeat",
+                    "2",
+                    "--fail-fast",
+                    "--strict-desktop",
+                ],
             ),
             "detail": {"commands": sorted(cplan_self_check_commands)},
         },

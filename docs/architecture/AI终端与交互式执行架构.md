@@ -284,7 +284,7 @@ AI 终端只能通过工具操作项目。
 当前工具清单以 `src/ai_automate_contro/ai/terminal_tool_registry.py` 里的 `AI_TERMINAL_TOOL_SPECS` 为准，也可以用 `python .\main.py tool list` 查看；文档不再维护容易过期的完整静态枚举。工具按职责分为几类：
 
 - plan 包发现、读取、创建、资源导入和受控写入：用于新建 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；用户提供本机输入文件时默认通过导入工具复制到当前 plan 包 `resources/`；拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
-- 执行线取证和质量门禁：browser plan 面向真实网站时，`inspect_web_page` 必须在最终 plan 前优先使用；desktop plan 面向真实桌面 App 时，`inspect_desktop` 应优先用于获取平台、backend、`capability_matrix`、权限/依赖、窗口列表、可选控件树摘要和截图路径；`review_plan_quality` 会结合最近探测上下文、用户需求和 plan 内容做门禁。desktop plan 不要求 `inspect_web_page`、`open_browser` 或 `navigate`，质量门禁使用 `inspect_desktop` 摘要、`open_desktop`、`capability_matrix`、`desktop_app`、窗口列表、控件列表/dump/定位/文本/状态/表格/树、控件断言、截图、状态快照、权限诊断、桌面标注、桌面断言和运行产物做证据；App 启动、窗口生命周期控制和 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 本身不能替代窗口、控件、截图、等待或断言证据。
+- 执行线取证和质量门禁：browser plan 面向真实网站时，`inspect_web_page` 必须在最终 plan 前优先使用；desktop plan 面向真实桌面 App 时，`inspect_desktop` 应优先用于获取平台、backend、`capability_matrix`、权限/依赖、窗口列表、可选控件树摘要和截图路径；`inspect_desktop` 返回结构与 plan 内 `desktop_capture type=observe` 的统一观察 payload 对齐。`review_plan_quality` 会结合最近探测上下文、用户需求和 plan 内容做门禁。desktop plan 不要求 `inspect_web_page`、`open_browser` 或 `navigate`，质量门禁使用 `inspect_desktop` 摘要、`open_desktop`、`capability_matrix`、`desktop_app`、`desktop_capture type=observe`、窗口列表、控件列表/dump/定位/文本/状态/表格/树、控件断言、截图、状态快照、权限诊断、桌面标注、桌面断言和运行产物做证据；App 启动、窗口生命周期控制和 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 本身不能替代窗口、控件、截图、等待或断言证据。
 - 运行、产物和失败分析：运行证据仍留在当前 plan 包 `output/`；用户明确要求 Downloads、桌面或绝对路径时，最终交付通过 `export_local_file` 写出，不要求用户手动复制。
 - debug workspace 和补丁：无 AI 人工调试走 `cplan debug-*`；AI 修复先写 `injected-plan/`、`notes.md` 或 `report.md`，生成补丁后再经审批应用。
 - 渐进式读取、会话召回和可见计划：文本搜索、文件切片、压缩归档读取和 `update_work_plan` 都属于 AI 终端内部工作流能力，不放入 `cplan`。
@@ -316,7 +316,7 @@ AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必
 
 `self-check ai-real-desktop-loop` 调用真实模型，适合在有临时中转账户时跑端到端验收。它把密钥文件中的 URL 和 `sk-*` key 解析到当前进程环境变量，在临时项目根里让模型调用 `inspect_desktop`、创建 desktop smoke plan、校验、质量复查、运行并读取产物；连接、超时或中转服务瞬态错误默认最多尝试 5 次，每次外层重试按 `--retry-delay-seconds` 线性退避等待，可用 `--max-attempts` 和 `--retry-delay-seconds` 调整；缺密钥或非 Windows/macOS 时跳过。
 
-`self-check ai-real-execution-line` 调用真实模型，只回归执行线确认，不创建 plan。它覆盖明确网页、明确桌面、混合不明确、平台词浏览器和 Open/Save 文件对话框，要求不明确场景先问用户确认，且不得调用 plan 写入或运行工具。
+`self-check ai-real-execution-line` 调用真实模型，只回归执行线确认，不创建 plan。它覆盖明确网页、明确桌面、PowerShell 终端窗口、Windows Explorer、混合不明确、平台词浏览器和 Open/Save 文件对话框，要求不明确场景先问用户确认，且不得调用 plan 写入或运行工具。
 
 `self-check ai-terminal` 不调用真实模型，用本地夹具验证会话摘要、`resume` 选择器、常用命令流、压缩归档、图片附件 metadata 和图片 data URL 原文保留。
 

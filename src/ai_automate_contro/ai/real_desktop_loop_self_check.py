@@ -201,6 +201,9 @@ def _run_real_loop(
         result = terminal.ask_once(_real_loop_prompt(), event_sink=lambda event: events.append(_compact_event(event)))
         tool_sequence = _tool_sequence(events)
         tool_results = _latest_tool_results(events)
+        inspect_args = _tool_started_arguments(events, "inspect_desktop")
+        json_artifact_reads = _json_artifact_read_arguments(events)
+        inspect_result = tool_results.get("inspect_desktop", {})
         run_result = tool_results.get("run_plan", {})
         context_state = result.get("context_state") if isinstance(result.get("context_state"), dict) else {}
         plan_path = _context_or_tool_plan_path(context_state, tool_results)
@@ -224,13 +227,25 @@ def _run_real_loop(
                 {"tool_sequence": tool_sequence},
             ),
             _check(
-                "artifact_tools_used",
-                any(name in tool_sequence for name in {"list_output_artifacts", "read_output_artifact", "read_latest_run_state"}),
-                {"tool_sequence": tool_sequence},
+                "inspect_desktop_arguments",
+                _inspect_desktop_arguments_ok(inspect_args),
+                {"inspect_desktop_arguments": inspect_args},
+            ),
+            _check(
+                "inspect_desktop_result_shape",
+                _inspect_desktop_result_ok(inspect_result),
+                {"inspect_desktop": inspect_result},
+            ),
+            _check(
+                "json_artifact_read",
+                bool(json_artifact_reads),
+                {"json_artifact_reads": json_artifact_reads, "tool_sequence": tool_sequence},
             ),
             _check("run_plan_passed", _run_plan_passed(run_result), {"run_result": _compact_tool_result(run_result)}),
             _check("desktop_plan_written", evidence.get("automation_type") == "desktop", evidence),
             _check("desktop_artifacts_exist", bool(evidence.get("artifacts_ok")), evidence),
+            _check("desktop_artifact_structures", bool(evidence.get("artifact_structures_ok")), evidence),
+            _check("result_json_passed", evidence.get("result_status") == "passed", evidence),
         ]
         return {
             "ok": all(check["passed"] for check in checks),
@@ -296,6 +311,16 @@ def _real_loop_prompt() -> str:
             {
                 "action": "desktop_capture",
                 "desktop": "desktop",
+                "type": "observe",
+                "path": "observe.json",
+                "include_windows": True,
+                "include_elements": False,
+                "include_screenshot": True,
+                "save_as": "desktop_observation",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
                 "type": "screenshot",
                 "path": "screen.png",
                 "save_as": "desktop_screenshot",
@@ -327,8 +352,8 @@ def _real_loop_prompt() -> str:
         "4. 调用 write_plan_package_file 写入 plan.json，JSON 必须完全使用下面这个 desktop plan：\n"
         f"{json.dumps(plan, ensure_ascii=False, indent=2)}\n"
         "5. 调用 validate_plan；如果失败就修正后重试。\n"
-        "6. 调用 review_plan_quality，user_request='只读探测本机桌面窗口并保存截图和 snapshot 证据'，"
-        "evidence_summary 必须引用 inspect_desktop 的平台、backend、capability_matrix 和窗口数量。\n"
+        "6. 调用 review_plan_quality，user_request='只读探测本机桌面窗口并保存 observe、截图和 snapshot 证据'，"
+        "evidence_summary 必须引用 inspect_desktop 的平台、backend、capability_matrix、coordinate_profile 和窗口数量。\n"
         "7. 质量复查通过后调用 run_plan，run_name='real-ai-desktop-loop'。\n"
         "8. 调用 read_latest_run_state 或 list_output_artifacts，并读取至少一个 JSON 产物来确认结果。\n"
         "9. 最终只用简短中文总结：是否通过、plan_path、output_dir、关键产物。"
@@ -470,13 +495,13 @@ def _compact_event(event: Any) -> dict[str, Any]:
         if kind == "tool_finished":
             result["ok"] = bool(data.get("ok"))
             tool_result = data.get("result") if isinstance(data.get("result"), dict) else {}
-            result["result"] = _compact_tool_result(tool_result)
+            result["result"] = _compact_tool_result(tool_result, tool_name=str(data.get("tool_name") or ""))
         elif kind == "tool_started":
             result["arguments"] = _compact_arguments(data.get("arguments"))
     return result
 
 
-def _compact_tool_result(result: Any) -> dict[str, Any]:
+def _compact_tool_result(result: Any, *, tool_name: str = "") -> dict[str, Any]:
     if not isinstance(result, dict):
         return {}
     compacted: dict[str, Any] = {
@@ -485,6 +510,22 @@ def _compact_tool_result(result: Any) -> dict[str, Any]:
         "plan_path": result.get("plan_path"),
         "output_dir": result.get("output_dir"),
     }
+    if tool_name == "inspect_desktop" or result.get("tool") == "inspect_desktop":
+        capability_matrix = result.get("capability_matrix") if isinstance(result.get("capability_matrix"), dict) else {}
+        coordinate_profile = result.get("coordinate_profile") if isinstance(result.get("coordinate_profile"), dict) else {}
+        compacted.update(
+            {
+                "tool": result.get("tool"),
+                "platform": result.get("platform"),
+                "backend": result.get("backend"),
+                "schema_version": result.get("schema_version"),
+                "kind": result.get("kind"),
+                "window_count": result.get("window_count"),
+                "windows_returned": len(result.get("windows", [])) if isinstance(result.get("windows"), list) else 0,
+                "capability_matrix_schema_version": capability_matrix.get("schema_version"),
+                "coordinate_profile_present": bool(coordinate_profile),
+            }
+        )
     for key in ("summary", "result", "latest_state"):
         value = result.get(key)
         if isinstance(value, dict):
@@ -513,6 +554,25 @@ def _tool_sequence(events: list[dict[str, Any]]) -> list[str]:
         for event in events
         if event.get("kind") == "tool_started" and event.get("tool_name")
     ]
+
+
+def _tool_started_arguments(events: list[dict[str, Any]], tool_name: str) -> list[dict[str, Any]]:
+    return [
+        dict(event.get("arguments") or {})
+        for event in events
+        if event.get("kind") == "tool_started"
+        and event.get("tool_name") == tool_name
+        and isinstance(event.get("arguments"), dict)
+    ]
+
+
+def _json_artifact_read_arguments(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    reads: list[dict[str, Any]] = []
+    for arguments in _tool_started_arguments(events, "read_output_artifact"):
+        relative_path = str(arguments.get("relative_path") or "")
+        if relative_path.lower().endswith(".json"):
+            reads.append(arguments)
+    return reads
 
 
 def _latest_tool_results(events: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -554,6 +614,26 @@ def _context_or_tool_output_dir(context_state: dict[str, Any], run_result: dict[
     return ""
 
 
+def _inspect_desktop_arguments_ok(arguments_list: list[dict[str, Any]]) -> bool:
+    return any(
+        arguments.get("include_windows", True) is True
+        and arguments.get("include_screenshot", False) is False
+        and arguments.get("request_permissions", False) is False
+        for arguments in arguments_list
+    )
+
+
+def _inspect_desktop_result_ok(result: dict[str, Any]) -> bool:
+    return (
+        result.get("ok") is not False
+        and result.get("tool") == "inspect_desktop"
+        and result.get("kind") == "desktop_observation"
+        and result.get("capability_matrix_schema_version") == 1
+        and result.get("coordinate_profile_present") is True
+        and isinstance(result.get("window_count"), int)
+    )
+
+
 def _local_evidence(plan_path: str, output_dir: str) -> dict[str, Any]:
     evidence: dict[str, Any] = {"plan_path": plan_path, "output_dir": output_dir}
     if plan_path:
@@ -567,6 +647,7 @@ def _local_evidence(plan_path: str, output_dir: str) -> dict[str, Any]:
             package_dir = path.parent
             expected_artifacts = [
                 package_dir / "output" / "desktop-windows" / "windows.json",
+                package_dir / "output" / "desktop-state" / "observe.json",
                 package_dir / "output" / "desktop-screenshots" / "screen.png",
                 package_dir / "output" / "desktop-state" / "snapshot.json",
             ]
@@ -575,6 +656,10 @@ def _local_evidence(plan_path: str, output_dir: str) -> dict[str, Any]:
                 for item in expected_artifacts
             ]
             evidence["artifacts_ok"] = all(item.exists() and item.stat().st_size > 0 for item in expected_artifacts)
+            evidence["artifact_shapes"] = _desktop_artifact_shapes(package_dir)
+            evidence["artifact_structures_ok"] = all(
+                bool(item.get("ok")) for item in evidence["artifact_shapes"].values()
+            )
     if output_dir:
         result_path = Path(output_dir) / "result.json"
         evidence["result_json_exists"] = result_path.exists()
@@ -585,6 +670,85 @@ def _local_evidence(plan_path: str, output_dir: str) -> dict[str, Any]:
                 result_payload = {}
             evidence["result_status"] = result_payload.get("status") if isinstance(result_payload, dict) else ""
     return evidence
+
+
+def _desktop_artifact_shapes(package_dir: Path) -> dict[str, dict[str, Any]]:
+    windows_path = package_dir / "output" / "desktop-windows" / "windows.json"
+    observe_path = package_dir / "output" / "desktop-state" / "observe.json"
+    screenshot_path = package_dir / "output" / "desktop-screenshots" / "screen.png"
+    snapshot_path = package_dir / "output" / "desktop-state" / "snapshot.json"
+    windows = _read_json_artifact(windows_path)
+    observe = _read_json_artifact(observe_path)
+    snapshot = _read_json_artifact(snapshot_path)
+    windows_payload = windows.get("payload") if isinstance(windows.get("payload"), dict) else {}
+    observe_payload = observe.get("payload") if isinstance(observe.get("payload"), dict) else {}
+    snapshot_payload = snapshot.get("payload") if isinstance(snapshot.get("payload"), dict) else {}
+    observe_capability_matrix = (
+        observe_payload.get("capability_matrix") if isinstance(observe_payload.get("capability_matrix"), dict) else {}
+    )
+    observe_coordinate_profile = (
+        observe_payload.get("coordinate_profile") if isinstance(observe_payload.get("coordinate_profile"), dict) else {}
+    )
+    snapshot_capability_matrix = (
+        snapshot_payload.get("capability_matrix") if isinstance(snapshot_payload.get("capability_matrix"), dict) else {}
+    )
+    return {
+        "windows": {
+            "ok": bool(windows.get("ok"))
+            and windows_payload.get("ok") is True
+            and windows_payload.get("type") == "list"
+            and isinstance(windows_payload.get("windows"), list)
+            and isinstance(windows_payload.get("count"), int)
+            and isinstance(windows_payload.get("total_count"), int),
+            "path": str(windows_path),
+            "count": windows_payload.get("count"),
+            "total_count": windows_payload.get("total_count"),
+        },
+        "observe": {
+            "ok": bool(observe.get("ok"))
+            and observe_payload.get("kind") == "desktop_observation"
+            and observe_payload.get("schema_version") == 1
+            and observe_capability_matrix.get("schema_version") == 1
+            and bool(observe_coordinate_profile)
+            and isinstance(observe_payload.get("target_candidates"), dict),
+            "path": str(observe_path),
+            "kind": observe_payload.get("kind"),
+            "capability_matrix_schema_version": observe_capability_matrix.get("schema_version"),
+            "coordinate_profile_present": bool(observe_coordinate_profile),
+        },
+        "screenshot": {
+            "ok": _png_file_ok(screenshot_path),
+            "path": str(screenshot_path),
+            "size": screenshot_path.stat().st_size if screenshot_path.exists() else 0,
+        },
+        "snapshot": {
+            "ok": bool(snapshot.get("ok"))
+            and snapshot_payload.get("ok") is True
+            and snapshot_payload.get("type") == "snapshot"
+            and snapshot_capability_matrix.get("schema_version") == 1
+            and isinstance(snapshot_payload.get("snapshot"), dict),
+            "path": str(snapshot_path),
+            "capability_matrix_schema_version": snapshot_capability_matrix.get("schema_version"),
+        },
+    }
+
+
+def _read_json_artifact(path: Path) -> dict[str, Any]:
+    if not path.exists() or path.stat().st_size <= 0:
+        return {"ok": False, "error": "missing_or_empty"}
+    try:
+        return {"ok": True, "payload": json.loads(path.read_text(encoding="utf-8"))}
+    except Exception as error:
+        return {"ok": False, "error": str(error)}
+
+
+def _png_file_ok(path: Path) -> bool:
+    if not path.exists() or path.stat().st_size <= 8:
+        return False
+    try:
+        return path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+    except Exception:
+        return False
 
 
 def _run_plan_passed(run_result: dict[str, Any]) -> bool:

@@ -26,7 +26,7 @@
 | `schema` | 部分类型必填 | 输出 JSON Schema；`extract_data` 必填 |
 | `labels` | 分类必填 | `classify_text` 的候选标签；如果已提供 `schema` 可省略 |
 | `save_as` | 是 | 保存解析结果的变量名 |
-| `path` | 否 | 调试产物路径，相对于 `output/ai/` |
+| `path` | 否 | 输出产物路径，相对于 `output/ai/` |
 
 ## 配置
 
@@ -49,13 +49,13 @@ AI 服务注册在集合级或局部 `config.json`：
 }
 ```
 
-`response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。框架只按当前配置调用模型服务；如果用户提供的模型、余额、网关或 OpenAI-compatible 协议返回错误，会直接失败，不做自动降级、手动重试或格式兜底。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
+`response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。框架只按当前配置调用模型服务；如果用户提供的模型、余额、网关或 OpenAI-compatible 协议返回错误，会直接失败，不做自动降级、手动重试或格式兜底。需要调整传输重试时在服务配置里设置 `max_retries`。
 
 配置可以直接写真实密钥，也可以通过 `api_key_env` 引用环境变量。plan 会按配置调用模型服务。
 
 ## 输出
 
-所有 `ai` 调试产物必须写入当前 plan 包：
+所有 `ai` 输出产物必须写入当前 plan 包：
 
 ```text
 output/ai/
@@ -90,4 +90,4 @@ output/ai/
 执行后：
 
 - 解析后的 JSON 保存到变量 `ticket_fields`。
-- 调试产物保存到 `output/ai/extract-data/ticket-fields.json`。
+- 输出产物保存到 `output/ai/extract-data/ticket-fields.json`。

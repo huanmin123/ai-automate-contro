@@ -141,6 +141,15 @@ FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "
 BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
 FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_capture", "desktop_assert", "desktop_vision", "ai", "command"}
 DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_capture", "desktop_wait", "desktop_assert", "desktop_vision", "ai", "command"}
+DESKTOP_COORDINATE_INPUT_TYPES = {"click", "double_click", "right_click", "scroll", "drag"}
+DESKTOP_COORDINATE_TARGETS = {
+    "bounds_center",
+    "candidate",
+    "current_window_center",
+    "focused_window_center",
+    "current_window_offset",
+    "focused_window_offset",
+}
 BROWSER_POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
 DESKTOP_POST_MANUAL_ACTIONS = {
     "desktop_app",
@@ -474,11 +483,129 @@ def _review_desktop_flow(
                 "missing_desktop_evidence_step",
                 "desktop plan 没有窗口、控件、截图、等待或断言类证据步骤，运行后难以判断桌面状态。",
                 ", ".join(desktop_action_locations[:8]) or "无桌面证据 action",
-                "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_capture screenshot/snapshot、desktop_wait window 或 desktop_assert。",
+                "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_capture observe/screenshot/snapshot、desktop_wait window 或 desktop_assert。",
             )
         )
     else:
         facts.append("已覆盖桌面窗口、控件或截图证据")
+
+    coordinate_actions = _desktop_coordinate_action_records(steps)
+    coordinate_locations = [record["location"] for _index, record in coordinate_actions]
+    coordinate_evidence_ok = not coordinate_actions or _has_desktop_coordinate_evidence(evidence_summary, evidence_context)
+    result_evidence_ok = not coordinate_actions or all(
+        _has_later_desktop_result_evidence(steps, index) for index, _record in coordinate_actions
+    )
+    checks.append(
+        {
+            "name": "desktop_coordinate_evidence",
+            "passed": coordinate_evidence_ok,
+            "detail": {
+                "coordinate_action_locations": coordinate_locations,
+                "evidence_summary_present": bool(str(evidence_summary or "").strip()),
+            },
+        }
+    )
+    if not coordinate_evidence_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_coordinate_evidence",
+                "desktop plan 使用鼠标坐标类操作，但缺少 target_candidates、coordinate_profile、coordinate_diagnostics、窗口/控件 bounds 或人工确认等坐标证据。",
+                ", ".join(coordinate_locations[:8]),
+                "先用 inspect_desktop、desktop_capture observe、desktop_element find/dump、desktop_vision 或 manual_confirm 获取定位证据；裸 x/y 必须说明坐标来源和坐标空间。",
+            )
+        )
+        missing_facts.append("桌面坐标/定位候选证据")
+    elif coordinate_actions:
+        facts.append("已有桌面坐标/定位候选证据")
+
+    raw_coordinate_locations = [record["location"] for _index, record in coordinate_actions if _is_raw_desktop_coordinate_step(record)]
+    if raw_coordinate_locations and not coordinate_evidence_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "unsafe_raw_desktop_coordinates",
+                "desktop_input 直接使用 x/y 或 drag 绝对坐标，但没有坐标空间和截图/控件 bounds 证据。",
+                ", ".join(raw_coordinate_locations[:8]),
+                "优先使用 semantic locator、target=element_center 或 target=bounds_center；必须用 x/y 时，在 evidence_summary 中写明 target_candidates/coordinate_profile/截图来源。",
+            )
+        )
+    if coordinate_actions and _has_low_confidence_coordinate_evidence(evidence_summary, evidence_context) and not _has_manual_confirm_after_coordinate(steps, coordinate_actions):
+        issues.append(
+            _issue(
+                "fail",
+                "low_confidence_coordinate_without_handoff",
+                "桌面定位候选低置信或建议人工确认，但 plan 直接执行坐标操作。",
+                str(evidence_summary or "").strip()[:500],
+                "低置信 visual_bounds、visual_evidence 或 manual_confirm_recommended=true 时，先 manual_confirm 或补充 desktop_vision/desktop_element 证据后再操作。",
+            )
+        )
+    if coordinate_actions and _has_non_clickable_coordinate_evidence(evidence_summary, evidence_context):
+        issues.append(
+            _issue(
+                "fail",
+                "non_clickable_candidate_used_as_coordinate",
+                "证据显示候选来自离线图片或 screen_clickable=false，但 plan 仍执行坐标类输入。",
+                str(evidence_summary or "").strip()[:500],
+                "source_path、visual_evidence、not_screen_clickable 或 screen_clickable=false 只能作为证据；请重新 observe/vision 当前屏幕，或加入 manual_confirm。",
+            )
+        )
+    candidate_actions = [record for _index, record in coordinate_actions if str(record["step"].get("target", "")) == "candidate"]
+    candidate_evidence_ok = not candidate_actions or _has_candidate_target_evidence(evidence_summary, evidence_context)
+    checks.append(
+        {
+            "name": "desktop_candidate_target_evidence",
+            "passed": candidate_evidence_ok,
+            "detail": {
+                "candidate_action_locations": [record["location"] for record in candidate_actions],
+                "evidence_summary_present": bool(str(evidence_summary or "").strip()),
+            },
+        }
+    )
+    if not candidate_evidence_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_candidate_target_evidence",
+                "desktop_input target=candidate 缺少 candidate_id、strategy、confidence、screen_clickable 或 target_candidates 证据。",
+                ", ".join(record["location"] for record in candidate_actions[:8]),
+                "使用 target=candidate 前，evidence_summary 必须说明 candidate_id、strategy、confidence、screen_clickable 和坐标/语义来源；低置信或不可点击候选不能直接执行。",
+            )
+        )
+    legacy_coordinate_actions = [
+        record
+        for _index, record in coordinate_actions
+        if str(record["step"].get("target", "")) not in {"candidate", "element_center"}
+    ]
+    if legacy_coordinate_actions and _has_high_confidence_semantic_candidate(evidence_summary, evidence_context):
+        issues.append(
+            _issue(
+                "warn",
+                "coordinate_over_semantic_candidate",
+                "证据里存在高置信 semantic_locator，但 plan 使用坐标类输入；这通常比 desktop_element 更脆弱。",
+                ", ".join(record["location"] for record in legacy_coordinate_actions[:8]),
+                "优先使用 desktop_element、desktop_input target=element_center 或 target=candidate；只有需要真实鼠标事件时再用 bounds_center/绝对坐标，并在 evidence_summary 说明原因。",
+            )
+        )
+    checks.append(
+        {
+            "name": "desktop_coordinate_result_evidence",
+            "passed": result_evidence_ok,
+            "detail": {
+                "coordinate_action_locations": coordinate_locations,
+            },
+        }
+    )
+    if not result_evidence_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_coordinate_result_evidence",
+                "坐标点击、滚轮或拖拽后缺少截图、等待、断言或控件状态读取来证明结果。",
+                ", ".join(coordinate_locations[:8]),
+                "坐标操作后补充 desktop_capture screenshot/observe、desktop_wait、desktop_assert 或 desktop_element get_state/get_text。",
+            )
+        )
 
 
 def _review_credentials(
@@ -1084,6 +1211,136 @@ def _has_desktop_inspection_evidence(evidence_summary: str, evidence_context: di
     return False
 
 
+def _desktop_coordinate_action_records(steps: list[dict[str, Any]]) -> list[tuple[int, dict[str, Any]]]:
+    records: list[tuple[int, dict[str, Any]]] = []
+    for index, record in enumerate(steps):
+        if _action(record) != "desktop_input":
+            continue
+        step = record["step"]
+        input_type = str(step.get("type", "")).lower()
+        if input_type not in DESKTOP_COORDINATE_INPUT_TYPES:
+            continue
+        if _is_raw_desktop_coordinate_step(record) or str(step.get("target", "")) in DESKTOP_COORDINATE_TARGETS:
+            records.append((index, record))
+    return records
+
+
+def _is_raw_desktop_coordinate_step(record: dict[str, Any]) -> bool:
+    step = record["step"]
+    if "x" in step and "y" in step:
+        return True
+    return all(field in step for field in ("start_x", "start_y", "end_x", "end_y"))
+
+
+def _has_desktop_coordinate_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context)
+    if _contains_any(text, NEGATIVE_EVIDENCE_TOKENS):
+        return False
+    return _contains_any(
+        text,
+        (
+            "target_candidates",
+            "best_candidate",
+            "candidate_id",
+            "target=candidate",
+            "semantic_locator",
+            "visual_bounds",
+            "screen_clickable",
+            "coordinate_profile",
+            "coordinate_space",
+            "coordinate_diagnostics",
+            "source_bounds",
+            "bounds",
+            "selector_hints",
+            "manual_confirm",
+            "人工确认",
+            "控件 bounds",
+            "窗口 bounds",
+            "坐标空间",
+            "定位候选",
+        ),
+    )
+
+
+def _has_low_confidence_coordinate_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context).lower()
+    return any(
+        marker in text
+        for marker in (
+            "confidence=low",
+            '"confidence": "low"',
+            "'confidence': 'low'",
+            "manual_confirm_recommended=true",
+            '"manual_confirm_recommended": true',
+            "visual_evidence",
+        )
+    )
+
+
+def _has_non_clickable_coordinate_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context).lower()
+    return any(
+        marker in text
+        for marker in (
+            "screen_clickable=false",
+            '"screen_clickable": false',
+            "'screen_clickable': false",
+            "not_screen_clickable",
+            "source_path",
+            "offline_image",
+            "离线图片",
+            "不可点击",
+        )
+    )
+
+
+def _has_candidate_target_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context).lower()
+    return (
+        ("target=candidate" in text or "candidate_id" in text)
+        and "target_candidates" in text
+        and ("semantic_locator" in text or "visual_bounds" in text)
+        and ("confidence=high" in text or "confidence=medium" in text or '"confidence": "high"' in text or '"confidence": "medium"' in text)
+        and (
+            "screen_clickable=true" in text
+            or '"screen_clickable": true' in text
+            or "semantic_locator" in text
+        )
+    )
+
+
+def _has_high_confidence_semantic_candidate(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context).lower()
+    return "semantic_locator" in text and (
+        "confidence=high" in text
+        or '"confidence": "high"' in text
+        or "'confidence': 'high'" in text
+        or "high-stability" in text
+        or "stability=high" in text
+    )
+
+
+def _has_manual_confirm_after_coordinate(
+    steps: list[dict[str, Any]],
+    coordinate_actions: list[tuple[int, dict[str, Any]]],
+) -> bool:
+    if not coordinate_actions:
+        return False
+    first_index = min(index for index, _record in coordinate_actions)
+    return any(_action(record) == "manual_confirm" for record in steps[first_index + 1 :])
+
+
+def _has_later_desktop_result_evidence(steps: list[dict[str, Any]], index: int) -> bool:
+    return any(_is_desktop_evidence_step(record) or _action(record) == "manual_confirm" for record in steps[index + 1 :])
+
+
+def _desktop_evidence_text(evidence_summary: str, evidence_context: dict[str, Any]) -> str:
+    text = str(evidence_summary or "")
+    if isinstance(evidence_context, dict) and evidence_context:
+        text += "\n" + _json_text(evidence_context)
+    return text
+
+
 def _evidence_text_matches_urls(text: str, urls: list[str]) -> bool:
     if not urls:
         return bool(URL_RE.search(text))
@@ -1270,7 +1527,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image/locate_text 或 write，把运行证据写入当前 plan output/。"
+        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text 或 write，把运行证据写入当前 plan output/。"
     return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
 
 
@@ -1330,7 +1587,7 @@ def _data_extraction_issue_message(automation_type: str) -> str:
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture screenshot/snapshot、desktop_vision locate_image/locate_text 或 desktop_wait 获取桌面状态，再按需写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text 或 desktop_wait 获取桌面状态，再按需写出文件。"
     return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
 
 

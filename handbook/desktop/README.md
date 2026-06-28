@@ -73,9 +73,9 @@ handbook/actions/desktop/
 
 ## 取证规则
 
-真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取窗口列表、控件树、截图、图像/OCR 定位结果或人工确认。
+真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、图像/OCR 定位结果或人工确认。
 
-最终 plan 前先探测 `capability_matrix`、窗口列表、控件摘要、截图路径、权限/依赖或人工确认。plan 内还应使用 `desktop_window`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture`、`desktop_vision`、`desktop_wait` 或 `desktop_assert` 保存运行证据。`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_input` 只算操作推进，不单独算识别证据。
+最终 plan 前先探测 `capability_matrix`、窗口列表、控件摘要、截图路径、权限/依赖或人工确认。plan 内还应使用 `desktop_capture type=observe`、`desktop_window`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture screenshot/snapshot`、`desktop_vision`、`desktop_wait` 或 `desktop_assert` 保存运行证据。`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_input` 只算操作推进，不单独算识别证据。
 
 桌面线按当前运行环境选择平台能力：Windows 环境使用 UI Automation / Win32 控件语义，macOS 环境使用 Accessibility/AX 能力；坐标和图像定位只作为兜底。macOS 必须检测 Accessibility、Screen Recording、Automation 等权限；代码可以触发授权提示、打开系统设置并暂停等待用户确认，但不能静默替用户授权。
 
@@ -120,9 +120,12 @@ handbook/actions/desktop/
     },
     {
       "action": "desktop_capture",
-      "type": "screenshot",
+      "type": "observe",
       "desktop": "desk",
-      "path": "initial-screen.png"
+      "path": "initial-observe.json",
+      "include_windows": true,
+      "include_elements": false,
+      "include_screenshot": true
     }
   ]
 }

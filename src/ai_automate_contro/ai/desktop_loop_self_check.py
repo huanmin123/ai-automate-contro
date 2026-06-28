@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.ai import debug_desktop_fix
 from ai_automate_contro.ai.terminal_tool_registry import call_ai_terminal_tool
 from ai_automate_contro.app.desktop_component_check import (
     build_temporary_desktop_form_plan,
@@ -34,6 +35,7 @@ def self_check_ai_desktop_loop(project_root: str | Path) -> dict[str, Any]:
         checks = [
             _run_success_loop(loop_root, system),
             _run_failure_repair_loop(loop_root, system),
+            _run_desktop_debug_auto_apply_gate_case(),
         ]
 
     return {
@@ -93,8 +95,12 @@ def _run_success_loop(project_root: Path, system: str) -> dict[str, Any]:
                 "plan_path": str(plan_path),
                 "user_request": "控制本机桌面轻量表单，输入文本，触发保存按钮，并用桌面断言验证控件状态。",
                 "evidence_summary": (
-                    "已通过 inspect_desktop 获取桌面能力矩阵；plan 使用 open_desktop、desktop_app launch、"
-                    "desktop_wait window、desktop_element list/dump/set_text/invoke、desktop_assert element 和桌面关闭步骤。"
+                    "已通过 inspect_desktop 获取桌面能力矩阵、coordinate_profile、窗口列表和 target_candidates；"
+                    "target=candidate target_candidates.best_candidate candidate_id=element_match-0 "
+                    "strategy=semantic_locator confidence=high screen_clickable=true，"
+                    "控件 bounds/coordinate_profile 可用于少量真实鼠标事件；"
+                    "plan 使用 open_desktop、desktop_app launch、desktop_wait window、desktop_element list/dump/set_text/invoke、desktop_assert element 和桌面关闭步骤，"
+                    "坐标点击后有 desktop_assert element 验证结果。"
                 ),
             },
         )
@@ -218,7 +224,10 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
                 "plan_path": str(plan_path),
                 "user_request": "控制本机桌面轻量表单，输入文本，触发保存按钮，并用桌面断言验证控件状态。",
                 "evidence_summary": (
-                    "已通过 inspect_desktop 获取桌面能力矩阵和窗口列表；"
+                    "已通过 inspect_desktop 获取桌面能力矩阵、coordinate_profile、窗口列表和 target_candidates；"
+                    "target=candidate target_candidates.best_candidate candidate_id=element_match-0 "
+                    "strategy=semantic_locator confidence=high screen_clickable=true，"
+                    "控件 bounds/coordinate_profile 可用于少量真实鼠标事件；"
                     "plan 包含 desktop_wait window、desktop_element list/dump、desktop_assert element；"
                     "本用例故意写错一个控件定位字段，用于验证失败诊断和 debug 修复闭环。"
                 ),
@@ -443,6 +452,49 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             cleanup_temporary_desktop_form_case(package_dir, system)
         if debug_package_dir is not None:
             cleanup_temporary_desktop_form_case(debug_package_dir, system)
+
+
+def _run_desktop_debug_auto_apply_gate_case() -> dict[str, Any]:
+    window_proposal = {
+        "type": "desktop_window_query_replace",
+        "confidence": "high",
+        "score": 90,
+        "operation": {"op": "replace", "path": ["steps", 1, "title_contains"], "value": "Target"},
+    }
+    low_confidence_element_proposal = {
+        "type": "desktop_element_locator_replace",
+        "confidence": "low",
+        "score": 30,
+        "auto_apply_allowed": False,
+        "operation": {"op": "replace", "path": ["steps", 2, "automation_id"], "value": "SaveButton"},
+    }
+    stable_element_proposal = {
+        "type": "desktop_element_locator_replace",
+        "confidence": "high",
+        "score": 95,
+        "auto_apply_allowed": True,
+        "operation": {"op": "replace", "path": ["steps", 2, "automation_id"], "value": "SaveButton"},
+    }
+    window_without_hint = debug_desktop_fix.desktop_auto_apply_gate([window_proposal], user_hint="")
+    window_with_hint = debug_desktop_fix.desktop_auto_apply_gate([window_proposal], user_hint="目标窗口")
+    low_element = debug_desktop_fix.desktop_auto_apply_gate([low_confidence_element_proposal], user_hint="保存按钮")
+    stable_element = debug_desktop_fix.desktop_auto_apply_gate([stable_element_proposal], user_hint="")
+    passed = (
+        window_without_hint.get("ok") is False
+        and window_with_hint.get("ok") is True
+        and low_element.get("ok") is False
+        and stable_element.get("ok") is True
+    )
+    return _self_check_result(
+        name="desktop_debug_auto_apply_gate",
+        passed=passed,
+        detail={
+            "window_without_hint": window_without_hint,
+            "window_with_hint": window_with_hint,
+            "low_confidence_element": low_element,
+            "stable_element": stable_element,
+        },
+    )
 
 
 def _create_fixture_plan_package(

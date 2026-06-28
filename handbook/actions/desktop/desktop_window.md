@@ -5,13 +5,15 @@
 支持类型：
 
 - `list`: 枚举窗口。
+- `find`: 查询匹配窗口，不聚焦、不控制。
+- `active`: 读取当前系统活动窗口，并更新当前桌面 session 的 `current_window`。
 - `focus`: 聚焦匹配窗口。
 - `close`: 请求关闭匹配窗口。
 - `minimize`: 最小化匹配窗口。
 - `maximize`: 最大化匹配窗口。
 - `restore`: 还原匹配窗口。
 
-除 `list` 外，所有类型都必须提供至少一种 Window Query 字段。
+`find/focus/close/minimize/maximize/restore` 必须提供至少一种 Window Query 字段。`list` 和 `active` 不要求窗口定位字段。
 
 ## Window Query
 
@@ -36,7 +38,9 @@
   "action": "desktop_window",
   "desktop": "desk",
   "type": "list",
+  "title_contains": "demo",
   "include_invisible": false,
+  "max_windows": 20,
   "path": "windows.json",
   "save_as": "windows"
 }
@@ -46,7 +50,9 @@
 
 - `desktop`: 必填，`open_desktop.name`。
 - `type`: 必填，固定为 `list`。
-- `include_invisible`: 可选，Windows 下是否包含不可见窗口，默认 `false`。macOS 当前忽略该字段。
+- Window Query: 可选；提供时只返回匹配窗口。
+- `include_invisible`: 可选，Windows 下是否包含不可见窗口，默认 `false`。macOS 当前后端不支持不可见窗口枚举；传入 `true` 时 payload 会在 `diagnostics` 里说明该限制。
+- `max_windows`: 可选，限制返回窗口数量。
 - `path`: 可选，相对于 `output/desktop-windows/` 写出窗口列表 JSON。
 - `save_as`: 可选，保存 payload。
 
@@ -57,7 +63,10 @@ payload 主要字段：
   "ok": true,
   "desktop": "desk",
   "type": "list",
+  "query": {"title_contains": "demo"},
   "count": 1,
+  "total_count": 1,
+  "truncated": false,
   "windows": [
     {
       "id": 1234,
@@ -76,7 +85,90 @@ payload 主要字段：
 }
 ```
 
+当 `include_invisible=true` 时，payload 可额外包含：
+
+```json
+{
+  "diagnostics": {
+    "include_invisible_requested": true,
+    "include_invisible_supported": true,
+    "warnings": []
+  }
+}
+```
+
 `list` 是桌面证据步骤。
+
+## type=find
+
+```json
+{
+  "action": "desktop_window",
+  "desktop": "desk",
+  "type": "find",
+  "title_contains": "demo.txt",
+  "process_name": "notepad.exe",
+  "path": "matched-window.json",
+  "save_as": "matched_window"
+}
+```
+
+字段：
+
+- `desktop`: 必填，`open_desktop.name`。
+- `type`: 必填，固定为 `find`。
+- Window Query: 必填；除 `match_index` 外至少提供一种定位字段。
+- `include_invisible`: 可选，是否包含不可见窗口；Windows 支持，macOS 当前后端会返回 `diagnostics.include_invisible_supported=false`。
+- `max_windows`: 可选，限制写入和返回的匹配窗口数量。
+- `path`: 可选，相对于 `output/desktop-windows/` 写出 JSON。
+- `save_as`: 可选，保存 payload。
+
+payload 主要字段：
+
+```json
+{
+  "ok": true,
+  "desktop": "desk",
+  "type": "find",
+  "query": {"title_contains": "demo.txt", "process_name": "notepad.exe"},
+  "match_count": 1,
+  "matches": [{"title": "demo.txt - Notepad"}],
+  "selected_window": {"title": "demo.txt - Notepad"},
+  "truncated": false
+}
+```
+
+`find` 不聚焦窗口，不修改 `current_window`，适合在操作前保留窗口定位证据。
+
+## type=active
+
+```json
+{
+  "action": "desktop_window",
+  "desktop": "desk",
+  "type": "active",
+  "path": "active-window.json",
+  "save_as": "active_window"
+}
+```
+
+行为：
+
+- 读取当前系统活动窗口。
+- 找到活动窗口时更新当前 session 的 `current_window`。
+- `path` 可选，相对于 `output/desktop-windows/` 写出 JSON。
+
+payload 主要字段：
+
+```json
+{
+  "ok": true,
+  "desktop": "desk",
+  "type": "active",
+  "found": true,
+  "window": {"title": "demo.txt - Notepad", "focused": true}
+}
+```
 
 ## type=focus
 

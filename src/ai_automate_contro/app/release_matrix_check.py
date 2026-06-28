@@ -17,16 +17,25 @@ def self_check_release_matrix(
     max_attempts: int = 5,
     retry_delay_seconds: float = 3.0,
     step_timeout_seconds: int = 900,
+    strict_desktop: bool = False,
+    require_desktop_input: bool = False,
     require_desktop_vision: bool = False,
     require_desktop_ocr: bool = False,
     require_desktop_ocr_zh: bool = False,
     only: list[str] | None = None,
     list_steps: bool = False,
     fail_fast: bool = False,
+    repeat: int = 1,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
+    repeat_count = int(repeat or 1)
+    require_desktop_input = bool(strict_desktop or require_desktop_input)
+    require_desktop_vision = bool(strict_desktop or require_desktop_vision)
+    require_desktop_ocr = bool(strict_desktop or require_desktop_ocr)
+    require_desktop_ocr_zh = bool(strict_desktop or require_desktop_ocr_zh)
     commands = _deterministic_commands(
         root,
+        require_desktop_input=require_desktop_input,
         require_desktop_vision=require_desktop_vision,
         require_desktop_ocr=require_desktop_ocr,
         require_desktop_ocr_zh=require_desktop_ocr_zh,
@@ -50,9 +59,12 @@ def self_check_release_matrix(
             "check": "release_matrix",
             "project_root": str(root),
             "include_real_ai": include_real_ai,
+            "strict_desktop": strict_desktop,
+            "require_desktop_input": require_desktop_input,
             "require_desktop_vision": require_desktop_vision,
             "require_desktop_ocr": require_desktop_ocr,
             "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "repeat": repeat_count,
             "available_steps": available_steps,
             "unknown_steps": unknown_steps,
             "results": [],
@@ -64,28 +76,61 @@ def self_check_release_matrix(
             "check": "release_matrix",
             "project_root": str(root),
             "include_real_ai": include_real_ai,
+            "strict_desktop": strict_desktop,
+            "require_desktop_input": require_desktop_input,
             "require_desktop_vision": require_desktop_vision,
             "require_desktop_ocr": require_desktop_ocr,
             "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "repeat": repeat_count,
             "available_steps": available_steps,
             "selected_steps": [_step_summary(item) for item in selected_commands],
             "results": [],
         }
+    if repeat_count < 1:
+        return {
+            "ok": False,
+            "check": "release_matrix",
+            "project_root": str(root),
+            "include_real_ai": include_real_ai,
+            "strict_desktop": strict_desktop,
+            "require_desktop_input": require_desktop_input,
+            "require_desktop_vision": require_desktop_vision,
+            "require_desktop_ocr": require_desktop_ocr,
+            "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "repeat": repeat_count,
+            "available_steps": available_steps,
+            "selected_steps": [_step_summary(item) for item in selected_commands],
+            "results": [],
+            "error": "repeat must be >= 1",
+        }
     results: list[dict[str, Any]] = []
-    for item in selected_commands:
-        result = _run_step(root, item["name"], item["command"], timeout_seconds=step_timeout_seconds)
-        results.append(result)
-        if fail_fast and not result["ok"]:
+    for iteration in range(1, repeat_count + 1):
+        for item in selected_commands:
+            result = _run_step(
+                root,
+                item["name"],
+                item["command"],
+                timeout_seconds=step_timeout_seconds,
+                iteration=iteration,
+                repeat=repeat_count,
+            )
+            results.append(result)
+            if fail_fast and not result["ok"]:
+                break
+        if fail_fast and results and not results[-1]["ok"]:
             break
     return {
         "ok": all(result["ok"] for result in results),
         "check": "release_matrix",
         "project_root": str(root),
         "include_real_ai": include_real_ai,
+        "strict_desktop": strict_desktop,
+        "require_desktop_input": require_desktop_input,
         "require_desktop_vision": require_desktop_vision,
         "require_desktop_ocr": require_desktop_ocr,
         "require_desktop_ocr_zh": require_desktop_ocr_zh,
         "fail_fast": fail_fast,
+        "repeat": repeat_count,
         "available_steps": available_steps,
         "selected_steps": [_step_summary(item) for item in selected_commands],
         "results": results,
@@ -95,10 +140,20 @@ def self_check_release_matrix(
 def _deterministic_commands(
     project_root: Path,
     *,
+    require_desktop_input: bool = False,
     require_desktop_vision: bool = False,
     require_desktop_ocr: bool = False,
     require_desktop_ocr_zh: bool = False,
 ) -> list[dict[str, Any]]:
+    desktop_env_command = [_python(), "cplan.py", "self-check", "desktop-env"]
+    if require_desktop_input:
+        desktop_env_command.append("--require-input")
+    if require_desktop_vision:
+        desktop_env_command.append("--require-vision")
+    if require_desktop_ocr:
+        desktop_env_command.append("--require-ocr")
+    if require_desktop_ocr_zh:
+        desktop_env_command.append("--require-ocr-zh")
     desktop_components_command = [_python(), "cplan.py", "self-check", "desktop-components"]
     if require_desktop_vision:
         desktop_components_command.append("--require-vision")
@@ -106,6 +161,9 @@ def _deterministic_commands(
         desktop_components_command.append("--require-ocr")
     if require_desktop_ocr_zh:
         desktop_components_command.append("--require-ocr-zh")
+    desktop_examples_command = [_python(), "cplan.py", "self-check", "desktop-examples"]
+    if require_desktop_vision:
+        desktop_examples_command.append("--require-vision")
     return [
         {"name": "compileall", "command": [_python(), "-m", "compileall", "-q", "src", "main.py", "cplan.py"]},
         {"name": "tool_check", "command": [_python(), "main.py", "tool", "check"]},
@@ -114,6 +172,8 @@ def _deterministic_commands(
         {"name": "ai_tools", "command": [_python(), "main.py", "self-check", "ai-tools"]},
         {"name": "ai_terminal", "command": [_python(), "main.py", "self-check", "ai-terminal"]},
         {"name": "ai_plan_generation", "command": [_python(), "main.py", "self-check", "ai-plan-generation"]},
+        {"name": "desktop_env", "command": desktop_env_command},
+        {"name": "desktop_examples", "command": desktop_examples_command},
         {"name": "desktop_components", "command": desktop_components_command},
         {"name": "desktop_real_app", "command": [_python(), "cplan.py", "self-check", "desktop-real-app"]},
         {"name": "ai_desktop_loop", "command": [_python(), "main.py", "self-check", "ai-desktop-loop"]},
@@ -153,7 +213,15 @@ def _real_ai_commands(
     ]
 
 
-def _run_step(project_root: Path, name: str, command: list[str], *, timeout_seconds: int) -> dict[str, Any]:
+def _run_step(
+    project_root: Path,
+    name: str,
+    command: list[str],
+    *,
+    timeout_seconds: int,
+    iteration: int,
+    repeat: int,
+) -> dict[str, Any]:
     started = time.perf_counter()
     try:
         completed = subprocess.run(
@@ -171,6 +239,8 @@ def _run_step(project_root: Path, name: str, command: list[str], *, timeout_seco
             "ok": completed.returncode == 0,
             "returncode": completed.returncode,
             "elapsed_ms": elapsed_ms,
+            "iteration": iteration,
+            "repeat": repeat,
             "command": _display_command(command),
             "stdout_tail": _tail(completed.stdout),
             "stderr_tail": _tail(completed.stderr),
@@ -182,6 +252,8 @@ def _run_step(project_root: Path, name: str, command: list[str], *, timeout_seco
             "ok": False,
             "returncode": None,
             "elapsed_ms": elapsed_ms,
+            "iteration": iteration,
+            "repeat": repeat,
             "command": _display_command(command),
             "error": f"step timed out after {timeout_seconds}s",
             "stdout_tail": _tail(error.stdout or ""),

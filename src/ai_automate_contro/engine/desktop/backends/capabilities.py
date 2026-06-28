@@ -274,6 +274,12 @@ def build_capability_matrix(
             "semantic": semantic,
             "input": input_control,
             "screenshot": screenshot,
+            "coordinates": {
+                "coordinate_profile": True,
+                "logical_pixels": True,
+                "local_to_screen": True,
+                "screen_to_local": True,
+            },
             "vision": {
                 "image_locator": image_locator_available,
                 "template_matching": image_locator_available,

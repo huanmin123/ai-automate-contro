@@ -39,8 +39,8 @@
 {
   "desktop": {
     "ocr": {
-      "tesseract_path": "E:/Tesseract/tesseract.exe",
-      "tessdata_dir": "E:/Tesseract/tessdata",
+      "tesseract_path": "C:/path/to/tesseract.exe",
+      "tessdata_dir": "C:/path/to/tessdata",
       "default_language": "eng"
     }
   }

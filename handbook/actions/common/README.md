@@ -19,7 +19,7 @@
 | `write` | 写 JSON、文本、CSV、变量 | `type`、`path`、`value` | 输出结果到当前 plan 包 `output/` |
 | `http` | 发 HTTP 请求 | `method`、`url`、`headers`、`body` | 调接口、下载文本、检查服务 |
 | `command` | 同步执行本机命令 | `argv`/`command`/`commands` | 调脚本、转换文件、生成中间产物 |
-| `manual_confirm` | 暂停等待用户确认 | `message`、`timeout_seconds` | 登录、验证码、权限、不确定 UI |
+| `manual_confirm` | 暂停等待用户确认 | `prompt`、`browser` | 登录、验证码、权限、不确定 UI |
 | `ai` | 专项 AI 处理 | `type`、`input`、`schema` | 抽取、分类、转换、摘要 |
 | `if`/`foreach`/`retry` | 控制流 | `condition`、`items`、`steps` | 分支、循环、失败重试 |
 

@@ -7,6 +7,7 @@ from typing import Any
 
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
 from ai_automate_contro.engine.desktop.backends import DesktopBackendError, NativeDesktopBackend
+from ai_automate_contro.engine.desktop.observation import build_desktop_observation
 from ai_automate_contro.plans.config import load_plan_config
 
 
@@ -76,93 +77,34 @@ def inspect_desktop_tool(
         match_index=match_index,
     )
 
-    started = time.monotonic()
     backend_instance = NativeDesktopBackend(
         platform_name=resolved_platform,
         desktop_config=_desktop_config_from_project(root),
     )
-    screenshot_payload: dict[str, Any] = {}
-    elements_payload: dict[str, Any] = {}
-    windows: list[dict[str, Any]] = []
-    window_error = ""
     try:
-        probe = backend_instance.probe(request_permissions=bool(request_permissions))
-        if include_windows or include_elements:
-            try:
-                windows = backend_instance.list_windows(include_invisible=bool(include_invisible))
-            except Exception as error:
-                window_error = str(error)
-                windows = []
-        selected_window_query = dict(window_query)
-        if include_elements:
-            if not selected_window_query:
-                selected = _default_window_for_elements(windows)
-                if not selected:
-                    elements_payload = {
-                        "ok": False,
-                        "skipped": True,
-                        "reason": "include_elements 需要窗口定位字段，且当前没有可用窗口可作为默认目标。",
-                    }
-                else:
-                    selected_window_query = {"window_id": str(selected.get("id") or "")}
-            if selected_window_query:
-                try:
-                    elements_payload = backend_instance.dump_elements(
-                        selected_window_query,
-                        locator=dict(element_locator or {}) or None,
-                        max_depth=normalized_max_depth,
-                        max_elements=normalized_max_elements,
-                        include_tree=False,
-                        include_selector_hints=True,
-                        text_limit=normalized_text_limit,
-                    )
-                    elements_payload = _compact_elements_payload(elements_payload)
-                except Exception as error:
-                    elements_payload = {
-                        "ok": False,
-                        "error": str(error),
-                        "error_type": type(error).__name__,
-                        "window_query": selected_window_query,
-                        "element_locator": dict(element_locator or {}),
-                    }
-        if include_screenshot:
-            screenshot_path = _inspection_screenshot_path(root)
-            try:
-                screenshot_payload = backend_instance.screenshot(screenshot_path)
-            except Exception as error:
-                screenshot_payload = {
-                    "ok": False,
-                    "error": str(error),
-                    "error_type": type(error).__name__,
-                }
+        payload = build_desktop_observation(
+            backend_instance,
+            window_query=window_query,
+            element_locator=dict(element_locator or {}),
+            screenshot_path=_inspection_screenshot_path(root) if include_screenshot else None,
+            request_permissions=bool(request_permissions),
+            include_windows=bool(include_windows),
+            include_invisible=bool(include_invisible),
+            include_elements=bool(include_elements),
+            include_screenshot=bool(include_screenshot),
+            max_windows=normalized_max_windows,
+            max_elements=normalized_max_elements,
+            max_depth=normalized_max_depth,
+            text_limit=normalized_text_limit,
+        )
     finally:
         backend_instance.close()
 
-    compact_windows = [_compact_window(window) for window in windows[:normalized_max_windows]]
-    capability_matrix = probe.get("capability_matrix") if isinstance(probe.get("capability_matrix"), dict) else {}
     return {
-        "ok": True,
+        **payload,
         "tool": "inspect_desktop",
         "platform": resolved_platform,
         "backend": "native",
-        "probe": probe,
-        "capability_matrix": capability_matrix,
-        "window_query": window_query,
-        "include_windows": bool(include_windows),
-        "include_invisible": bool(include_invisible),
-        "windows": compact_windows,
-        "window_count": len(windows),
-        "windows_truncated": len(windows) > len(compact_windows),
-        "window_error": window_error or str(probe.get("window_list_error") or ""),
-        "elements": elements_payload,
-        "screenshot": screenshot_payload,
-        "elapsed_ms": int((time.monotonic() - started) * 1000),
-        "next_actions": _next_actions(
-            request_permissions=bool(request_permissions),
-            include_elements=bool(include_elements),
-            elements_payload=elements_payload,
-            window_query=window_query,
-        ),
     }
 
 

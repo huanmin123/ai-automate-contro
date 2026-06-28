@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.engine.desktop.coordinates import build_coordinate_diagnostics, build_coordinate_profile
+
 
 def capture_pointer_annotation(
     backend: Any,
@@ -19,6 +21,7 @@ def capture_pointer_annotation(
     label: str = "",
     target: dict[str, Any] | None = None,
     warnings: list[str] | None = None,
+    coordinate_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     annotation_dir = output_dir / "desktop-annotations"
     annotation_dir.mkdir(parents=True, exist_ok=True)
@@ -34,7 +37,11 @@ def capture_pointer_annotation(
     coordinate_space = {
         "origin": "screen",
         "unit": "logical_px",
-        "scale": None,
+        "scale": (
+            coordinate_profile.get("space", {}).get("scale")
+            if isinstance(coordinate_profile, dict) and isinstance(coordinate_profile.get("space"), dict)
+            else None
+        ),
     }
     source_bounds = {
         "x": 0,
@@ -42,6 +49,22 @@ def capture_pointer_annotation(
         "width": int(screenshot.get("width", 0) or 0) if isinstance(screenshot, dict) else 0,
         "height": int(screenshot.get("height", 0) or 0) if isinstance(screenshot, dict) else 0,
     }
+    display = (
+        coordinate_profile.get("display", {})
+        if isinstance(coordinate_profile, dict) and isinstance(coordinate_profile.get("display"), dict)
+        else {}
+    )
+    source_profile = build_coordinate_profile(
+        platform=str(coordinate_profile.get("platform") or "") if isinstance(coordinate_profile, dict) else "",
+        backend=str(coordinate_profile.get("backend") or "") if isinstance(coordinate_profile, dict) else "",
+        display=display,
+        source_kind="annotation_screenshot",
+        source_bounds=source_bounds,
+        source_size={"width": source_bounds["width"], "height": source_bounds["height"]},
+        coordinate_space=coordinate_space,
+        screen_clickable=True,
+        warnings=normalized_warnings,
+    )
     payload = {
         "schema_version": 1,
         "ok": True,
@@ -54,16 +77,14 @@ def capture_pointer_annotation(
         "json_path": str(json_path),
         "json_relative_path": str(Path("desktop-annotations") / json_filename),
         "coordinate_space": coordinate_space,
-        "coordinate_diagnostics": {
-            "source_bounds": source_bounds,
-            "source_size": {"width": source_bounds["width"], "height": source_bounds["height"]},
-            "coordinate_space": coordinate_space,
-            "global_origin": {"x": 0, "y": 0},
-            "local_to_global_offset": {"x": 0, "y": 0},
-            "scale": None,
-            "region": {},
-            "warnings": ["scale_unknown"],
-        },
+        "coordinate_profile": source_profile,
+        "coordinate_diagnostics": build_coordinate_diagnostics(
+            coordinate_profile=source_profile,
+            source_bounds=source_bounds,
+            source_size={"width": source_bounds["width"], "height": source_bounds["height"]},
+            coordinate_space=coordinate_space,
+            region={},
+        ),
         "target": target or {},
         "points": points,
         "bounds": normalized_bounds,

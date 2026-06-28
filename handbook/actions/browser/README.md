@@ -5,16 +5,16 @@
 ## 功能目录
 
 - 会话和页面：[open_browser](./open_browser.md)、[page](./page.md)、[close_browser](./close_browser.md)。
-- 导航和等待：[navigation](./navigation/navigate.md)，包含 `navigate`、`wait`、`assert`、网络等待、弹窗、下载、文件选择器和 network route。
-- 页面交互：[interaction](./interaction/element.md)，包含 `element`、`keyboard`、`mouse`、`scroll`。
-- 页面数据：[data](./data/extract.md)，包含 `extract`、`storage`、`detect_challenge`。
-- 浏览器工具：[utility](./utility/capture.md)，包含 `capture`、`dialog`、`event`、`coverage`、`trace`、`script`。
+- 导航和等待：`navigate`、`wait`、`assert`、`network`、`wait_for_popup`、`wait_for_download`、`wait_for_file_chooser`、`wait_for_network`。
+- 页面交互：`element`、`keyboard`、`mouse`、`scroll`。
+- 页面数据：`extract`、`storage`、`detect_challenge`。
+- 浏览器工具：`capture`、`dialog`、`event`、`coverage`、`trace`、`script`。
 
 ## 常用 action
 
 | action | 作用 | 关键参数 | 典型场景 |
 | --- | --- | --- | --- |
-| `open_browser` | 打开浏览器会话 | `name`、`headed`、`browser`、`storage_state` | 登录探索、复用状态、打开真实网页 |
+| `open_browser` | 打开浏览器会话 | `name`、`headed`、`browser_type`、`storage_state_path` | 登录探索、复用状态、打开真实网页 |
 | `navigate` | 页面跳转 | `type`、`url`、`browser`、`page` | `goto`、`refresh`、`back`、`forward` |
 | `element` | DOM 元素操作 | `type`、locator、`value` | 点击、填写、上传、选择、勾选 |
 | `wait` | 等待页面状态 | `type`、locator/URL/text/time | 等待加载、元素、文本、URL、函数 |

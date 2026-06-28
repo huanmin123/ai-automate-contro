@@ -87,7 +87,17 @@ def _backup_plan(plan_path: Path) -> Path:
 
 def _normalize_preset(preset: str) -> str:
     value = preset.strip().lower()
-    supported = {"print", "variables", "manual_confirm", "screenshot", "html", "desktop_screenshot", "desktop_snapshot", "desktop_windows"}
+    supported = {
+        "print",
+        "variables",
+        "manual_confirm",
+        "screenshot",
+        "html",
+        "desktop_screenshot",
+        "desktop_snapshot",
+        "desktop_observe",
+        "desktop_windows",
+    }
     if value not in supported:
         raise ValueError(f"Unsupported debug injection preset: {preset}")
     return value
@@ -155,6 +165,17 @@ def _build_debug_step(
             "desktop": resolved_desktop,
             "type": "snapshot",
             "path": f"debug/desktop/state/snapshot-{make_timestamp()}.json",
+        }
+    if preset == "desktop_observe":
+        resolved_desktop = _desktop_for_preset(preset, desktop)
+        return {
+            "action": "desktop_capture",
+            "desktop": resolved_desktop,
+            "type": "observe",
+            "path": f"debug/desktop/state/observe-{make_timestamp()}.json",
+            "include_windows": True,
+            "include_elements": False,
+            "include_screenshot": True,
         }
     if preset == "desktop_windows":
         resolved_desktop = _desktop_for_preset(preset, desktop)

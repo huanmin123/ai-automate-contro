@@ -22,6 +22,7 @@ def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[s
             _run_browser_generation_case(simulation_root),
             _run_desktop_generation_case(simulation_root),
             _run_desktop_platform_contract_case(),
+            _run_desktop_coordinate_quality_gate_case(simulation_root),
             _run_platform_desktop_intent_cases(),
             _run_file_dialog_generation_case(simulation_root),
             _run_ambiguous_confirmation_case(simulation_root),
@@ -194,6 +195,14 @@ def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
             "steps": [
                 {"action": "open_desktop", "name": "desktop", "backend": "auto"},
                 {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
+                {
+                    "action": "desktop_capture",
+                    "desktop": "desktop",
+                    "type": "observe",
+                    "path": "observe.json",
+                    "include_windows": True,
+                    "include_screenshot": True,
+                },
                 {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
                 {"action": "desktop_assert", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
                 {"action": "close_desktop", "desktop": "desktop"},
@@ -202,12 +211,12 @@ def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
         quality_user_request=(
             "这是本机桌面控制 desktop，不是浏览器自动化。"
             "请做安全桌面探测：desktop_window list 写 windows.json，"
-            "desktop_capture screenshot 写 screen.png，并用 desktop_assert 验证截图。"
+            "desktop_capture observe 写 observe.json，desktop_capture screenshot 写 screen.png，并用 desktop_assert 验证截图。"
         ),
         quality_evidence_summary=(
             "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
             "automation_type=desktop；plan 包含 open_desktop、desktop_window list、"
-            "desktop_capture screenshot、desktop_assert screenshot、close_desktop。"
+            "desktop_capture observe、desktop_capture screenshot、desktop_assert screenshot、close_desktop。"
         ),
     )
     passed = (
@@ -307,6 +316,140 @@ def _run_desktop_platform_contract_case() -> dict[str, Any]:
             "semantic_contract_ok": semantic_contract_ok,
             "platform_values": {name: matrix.get("platform") for name, matrix in matrices.items()},
             "limitations": {name: matrix.get("limitations", []) for name, matrix in matrices.items()},
+        },
+    )
+
+
+def _run_desktop_coordinate_quality_gate_case(project_root: Path) -> dict[str, Any]:
+    plan_document = {
+        "name": "desktop coordinate quality gate",
+        "automation_type": "desktop",
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {"action": "desktop_input", "desktop": "desktop", "type": "click", "x": 120, "y": 140},
+            {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "after-click.png"},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    missing = _simulate_plan_generation(
+        project_root,
+        package_path="plans/coordinate-quality-missing-plan",
+        automation_type="desktop",
+        name="coordinate quality missing plan",
+        plan_document=plan_document,
+        quality_user_request="控制本机桌面窗口，在已确认位置点击并截图。",
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "仅确认有桌面窗口，但没有定位来源或框选事实。"
+        ),
+    )
+    covered = _simulate_plan_generation(
+        project_root,
+        package_path="plans/coordinate-quality-covered-plan",
+        automation_type="desktop",
+        name="coordinate quality covered plan",
+        plan_document=plan_document,
+        quality_user_request="控制本机桌面窗口，在已确认位置点击并截图。",
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "target_candidates.best_candidate strategy=visual_bounds confidence=high screen_clickable=true "
+            "bounds={x:100,y:120,width:40,height:40}；coordinate_profile kind=desktop_coordinate_profile "
+            "coordinate_diagnostics source_bounds={x:0,y:0,width:800,height:600} coordinate_space=screen logical_px；"
+            "坐标点击后用 desktop_capture screenshot 验证结果。"
+        ),
+    )
+    candidate_plan_document = {
+        "name": "desktop candidate quality gate",
+        "automation_type": "desktop",
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "click",
+                "target": "candidate",
+                "target_candidates": {
+                    "kind": "desktop_target_candidates",
+                    "best_candidate": {
+                        "id": "element_match-0",
+                        "candidate_id": "element_match-0",
+                        "strategy": "semantic_locator",
+                        "confidence": "high",
+                        "window_query": {"title_contains": "Demo"},
+                        "locator": {"automation_id": "DesktopElementTextBox"},
+                    },
+                    "candidates": [
+                        {
+                            "id": "element_match-0",
+                            "candidate_id": "element_match-0",
+                            "strategy": "semantic_locator",
+                            "confidence": "high",
+                            "window_query": {"title_contains": "Demo"},
+                            "locator": {"automation_id": "DesktopElementTextBox"},
+                        }
+                    ],
+                },
+                "candidate_id": "element_match-0",
+                "min_confidence": "medium",
+            },
+            {"action": "desktop_assert", "desktop": "desktop", "type": "element", "title_contains": "Demo", "automation_id": "DesktopElementTextBox"},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    candidate_missing = _simulate_plan_generation(
+        project_root,
+        package_path="plans/candidate-quality-missing-plan",
+        automation_type="desktop",
+        name="candidate quality missing plan",
+        plan_document=candidate_plan_document,
+        quality_user_request="控制本机桌面窗口，选择定位候选并点击。",
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "只说明有桌面窗口，没有写明 candidate_id、strategy、confidence 或 screen_clickable。"
+        ),
+    )
+    candidate_covered = _simulate_plan_generation(
+        project_root,
+        package_path="plans/candidate-quality-covered-plan",
+        automation_type="desktop",
+        name="candidate quality covered plan",
+        plan_document=candidate_plan_document,
+        quality_user_request="控制本机桌面窗口，选择定位候选并点击。",
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "target=candidate target_candidates.best_candidate candidate_id=element_match-0 "
+            "strategy=semantic_locator confidence=high screen_clickable=true locator.automation_id=DesktopElementTextBox；"
+            "desktop_input 会重新 find_element 后点击实时中心，随后 desktop_assert element 验证结果。"
+        ),
+    )
+    missing_codes = set(missing.get("quality_issue_codes", []))
+    covered_codes = set(covered.get("quality_issue_codes", []))
+    candidate_missing_codes = set(candidate_missing.get("quality_issue_codes", []))
+    candidate_covered_codes = set(candidate_covered.get("quality_issue_codes", []))
+    passed = (
+        missing.get("validation_ok") is True
+        and missing.get("quality_review_ok") is False
+        and "missing_desktop_coordinate_evidence" in missing_codes
+        and "unsafe_raw_desktop_coordinates" in missing_codes
+        and covered.get("validation_ok") is True
+        and covered.get("quality_review_ok") is True
+        and "missing_desktop_coordinate_evidence" not in covered_codes
+        and "unsafe_raw_desktop_coordinates" not in covered_codes
+        and candidate_missing.get("validation_ok") is True
+        and candidate_missing.get("quality_review_ok") is False
+        and "missing_candidate_target_evidence" in candidate_missing_codes
+        and candidate_covered.get("validation_ok") is True
+        and candidate_covered.get("quality_review_ok") is True
+        and "missing_candidate_target_evidence" not in candidate_covered_codes
+    )
+    return _self_check_result(
+        name="desktop_coordinate_quality_gate_requires_coordinate_evidence",
+        passed=passed,
+        detail={
+            "missing": missing,
+            "covered": covered,
+            "candidate_missing": candidate_missing,
+            "candidate_covered": candidate_covered,
         },
     )
 

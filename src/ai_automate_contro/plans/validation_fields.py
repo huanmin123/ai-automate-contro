@@ -48,6 +48,7 @@ DESKTOP_INPUT_TARGETS = {
     "focused_window_offset",
     "element_center",
     "bounds_center",
+    "candidate",
 }
 
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
@@ -201,7 +202,9 @@ def validate_type_specific_required_fields(
         issues.append(ValidationIssue(location, "command.run 需要 command、commands 或 argv 之一"))
     elif action == "desktop_app" and step_type == "launch" and not any(step.get(field) for field in ("app", "path", "command")):
         issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path 或 command 之一"))
-    elif action == "desktop_window" and step_type in {"focus", "close", "minimize", "maximize", "restore"}:
+    elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
+        _validate_window_query(step, action, "launch wait_for_window", location, issues)
+    elif action == "desktop_window" and step_type in {"find", "focus", "close", "minimize", "maximize", "restore"}:
         _validate_window_query(step, action, step_type, location, issues)
     elif action == "desktop_element":
         _validate_window_query(step, action, step_type, location, issues)
@@ -741,7 +744,12 @@ def _validate_desktop_app_fields(
     _validate_string(step, "command", location, issues)
     _validate_list(step, "args", location, issues)
     _validate_bool(step, "wait", location, issues)
+    _validate_bool(step, "wait_for_window", location, issues)
+    _validate_bool(step, "focus", location, issues)
     _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "window_timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "interval_ms", location, issues, minimum=1)
+    _validate_window_query_fields(step, location, issues)
     _validate_string(step, "save_as", location, issues)
     if step_type != "launch":
         return
@@ -766,7 +774,8 @@ def _validate_desktop_window_fields(
     _validate_string(step, "path", location, issues)
     _validate_string(step, "save_as", location, issues)
     _validate_int(step, "timeout_ms", location, issues, minimum=1)
-    if step_type == "list":
+    _validate_int(step, "max_windows", location, issues, minimum=1)
+    if step_type in {"list", "find"}:
         _validate_bool(step, "include_invisible", location, issues)
 
 
@@ -845,6 +854,10 @@ def _validate_desktop_input_fields(
         _validate_int(step, "offset_x", location, issues)
         _validate_int(step, "offset_y", location, issues)
         _validate_bounds(step, "bounds", location, issues)
+        _validate_string(step, "candidate_id", location, issues)
+        _validate_string(step, "target_candidate_id", location, issues)
+        _validate_string(step, "min_confidence", location, issues)
+        _validate_desktop_target_candidates_field(step, location, issues)
         _validate_window_query_fields(step, location, issues)
         _validate_desktop_element_locator_fields(step, location, issues)
         _validate_desktop_input_target_requirements(step, step_type, location, issues)
@@ -874,6 +887,10 @@ def _validate_desktop_input_fields(
         _validate_int(step, "offset_x", location, issues)
         _validate_int(step, "offset_y", location, issues)
         _validate_bounds(step, "bounds", location, issues)
+        _validate_string(step, "candidate_id", location, issues)
+        _validate_string(step, "target_candidate_id", location, issues)
+        _validate_string(step, "min_confidence", location, issues)
+        _validate_desktop_target_candidates_field(step, location, issues)
         _validate_window_query_fields(step, location, issues)
         _validate_desktop_element_locator_fields(step, location, issues)
         _validate_int(step, "duration_ms", location, issues, minimum=0)
@@ -918,6 +935,41 @@ def _validate_desktop_input_target_requirements(
     elif target == "element_center":
         _validate_window_query(step, "desktop_input", step_type, location, issues)
         _validate_desktop_element_locator(step, "desktop_input", step_type, location, issues)
+    elif target == "candidate":
+        if "target_candidates" not in step and "candidate_source" not in step and "candidate" not in step:
+            issues.append(ValidationIssue(location, f"desktop_input.{step_type} target=candidate 缺少必填字段：target_candidates"))
+        if "candidate_id" not in step and "target_candidate_id" not in step:
+            issues.append(ValidationIssue(location, f"desktop_input.{step_type} target=candidate 缺少必填字段：candidate_id"))
+        forbidden_fields = (
+            {"bounds", "offset_x", "offset_y"}
+            | DESKTOP_ELEMENT_LOCATOR_FIELDS
+            | DESKTOP_ELEMENT_REQUIRED_LOCATOR_FIELDS
+            | {"title", "title_contains", "title_regex", "app", "process", "process_name", "class_name", "window_id", "match_index"}
+        )
+        mixed = sorted(field for field in forbidden_fields if field in step)
+        if mixed:
+            issues.append(
+                ValidationIssue(
+                    location,
+                    "desktop_input."
+                    + str(step_type)
+                    + " target=candidate 不能同时展开 bounds、Window Query 或 Element Locator；"
+                    + "请只传 target_candidates 和 candidate_id。当前混用字段："
+                    + ", ".join(mixed),
+                )
+            )
+
+
+def _validate_desktop_target_candidates_field(step: dict[str, Any], location: str, issues: list[ValidationIssue]) -> None:
+    for field in ("target_candidates", "candidate_source", "candidate"):
+        if field not in step or _is_template(step[field]):
+            continue
+        value = step[field]
+        if field == "candidate" and isinstance(value, dict):
+            continue
+        if field in {"target_candidates", "candidate_source"} and isinstance(value, dict):
+            continue
+        issues.append(ValidationIssue(location, f"{field} 必须是对象或完整模板引用。"))
 
 
 def _validate_desktop_capture_fields(
@@ -941,6 +993,22 @@ def _validate_desktop_capture_fields(
     if step_type == "snapshot":
         _validate_bool(step, "include_windows", location, issues)
         _validate_bool(step, "include_displays", location, issues)
+    if step_type == "observe":
+        _validate_bool(step, "request_permissions", location, issues)
+        _validate_bool(step, "include_windows", location, issues)
+        _validate_bool(step, "include_invisible", location, issues)
+        _validate_bool(step, "include_elements", location, issues)
+        _validate_bool(step, "include_screenshot", location, issues)
+        _validate_window_query_fields(step, location, issues)
+        _validate_desktop_element_locator_fields(step, location, issues)
+        _validate_int(step, "max_windows", location, issues, minimum=1)
+        _validate_int(step, "max_depth", location, issues, minimum=0)
+        _validate_int(step, "max_elements", location, issues, minimum=1)
+        _validate_int(step, "text_limit", location, issues, minimum=0)
+        if "target" in step:
+            issues.append(ValidationIssue(location, "desktop_capture.observe 不使用 target；需要指定窗口时使用 Window Query"))
+        if "region" in step:
+            issues.append(ValidationIssue(location, "desktop_capture.observe 不使用 region；需要局部识别时使用 desktop_capture.screenshot 或 desktop_vision"))
 
 
 def _validate_desktop_vision_fields(
@@ -1153,8 +1221,6 @@ def _validate_region(
             continue
         if required_field in {"width", "height"} and dimension <= 0:
             issues.append(ValidationIssue(location, f"{field}.{required_field} 必须大于 0"))
-        elif required_field in {"x", "y"} and dimension < 0:
-            issues.append(ValidationIssue(location, f"{field}.{required_field} 必须大于或等于 0"))
 
 
 def _validate_bounds(

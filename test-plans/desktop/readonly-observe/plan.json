@@ -1,0 +1,50 @@
+{
+  "name": "desktop readonly observe",
+  "automation_type": "desktop",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_desktop",
+      "name": "desktop",
+      "backend": "auto",
+      "save_as": "desktop_probe"
+    },
+    {
+      "action": "desktop_capture",
+      "desktop": "desktop",
+      "type": "observe",
+      "path": "observe.json",
+      "include_windows": true,
+      "include_elements": true,
+      "include_screenshot": true,
+      "max_windows": 8,
+      "max_depth": 3,
+      "max_elements": 120,
+      "save_as": "desktop_observation"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "capability-matrix.json",
+      "value": "{{desktop_observation.capability_matrix}}"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "target-candidates.json",
+      "value": "{{desktop_observation.target_candidates}}"
+    },
+    {
+      "action": "desktop_window",
+      "desktop": "desktop",
+      "type": "list",
+      "path": "windows.json",
+      "max_windows": 12,
+      "save_as": "desktop_windows"
+    },
+    {
+      "action": "close_desktop",
+      "desktop": "desktop"
+    }
+  ]
+}

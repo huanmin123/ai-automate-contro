@@ -26,7 +26,7 @@ class InspectWebPageArgs(ToolArgsModel):
 class InspectDesktopArgs(ToolArgsModel):
     platform_name: Literal["auto", "windows", "macos"] = Field(default="auto", description="桌面平台；auto 使用当前系统。")
     backend: Literal["auto", "native"] = Field(default="auto", description="桌面 backend；当前工具只使用 native。")
-    request_permissions: bool = Field(default=False, description="是否主动触发可探测的系统权限检查。")
+    request_permissions: bool = Field(default=False, description="是否主动触发可探测的系统权限检查；返回结构与 desktop_capture type=observe 的统一观察 payload 对齐，并包含 target_candidates 定位候选和 coordinate_profile 坐标事实。")
     include_windows: bool = Field(default=True, description="是否返回窗口列表。")
     include_invisible: bool = Field(default=False, description="窗口列表是否包含不可见窗口。")
     include_elements: bool = Field(default=False, description="是否对匹配窗口做控件 dump；缺少窗口定位时默认使用当前聚焦窗口。")
@@ -141,7 +141,7 @@ class ReviewPlanQualityArgs(ToolArgsModel):
     user_request: str = Field(..., description="用户原始需求、目标或任务描述。")
     evidence_summary: str = Field(
         default="",
-        description="按执行线传入证据摘要：browser 使用网页探测、headed 探索、manual_confirm 或运行证据；desktop 使用窗口列表、截图、权限诊断、控件/状态快照、manual_confirm 或运行证据。",
+        description="按执行线传入证据摘要：browser 使用网页探测、headed 探索、manual_confirm 或运行证据；desktop 使用窗口列表、截图、权限诊断、控件/状态快照、target_candidates、candidate_id、coordinate_profile/coordinate_diagnostics、manual_confirm 或运行证据；坐标/candidate 类 plan 必须说明候选策略、置信度、screen_clickable、坐标来源和操作后验证方式。",
     )
     planned_output_path: str = Field(default="", description="用户要求的最终本机交付路径，如 Downloads/AI账户.txt。")
 
@@ -257,7 +257,7 @@ class InjectDebugStepsArgs(ToolArgsModel):
     workspace: str = Field(..., description="debug workspace 根路径。")
     presets: list[str] = Field(
         ...,
-        description="诊断预设列表：print、variables、manual_confirm、screenshot、html、desktop_screenshot、desktop_snapshot、desktop_windows。",
+        description="诊断预设列表：print、variables、manual_confirm、screenshot、html、desktop_screenshot、desktop_snapshot、desktop_observe、desktop_windows。",
     )
     message: str | None = Field(default=None, description="print/manual_confirm 消息。")
     browser: str | None = Field(default=None, description="screenshot/html 浏览器会话名。")

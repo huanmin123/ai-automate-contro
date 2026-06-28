@@ -558,12 +558,9 @@
 
 ## 标注输出
 
-`click`、`set_text`、`select`、`select_cell`、`invoke`、`expand_tree`、`collapse_tree`、`select_tree`、`invoke_menu`、`scroll_element` 成功后会尽力写入控件位置标注：
+`click`、`set_text`、`select`、`select_cell`、`invoke`、`expand_tree`、`collapse_tree`、`select_tree`、`invoke_menu`、`scroll_element` 成功后会尽力写入控件位置标注。读取 action payload 的 `annotation` 字段可获得标注截图和 JSON 路径。
 
-- `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.png`
-- `output/<run>/desktop-annotations/step-xxx-<desktop>-desktop_element.<type>.json`
-
-JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.locator`、`points`、`bounds`、`overlays` 和截图路径。原生控件操作不一定需要坐标，但标注会使用控件 `bounds` 中心作为诊断点。标注失败不会让控件操作失败，payload 的 `annotation.ok=false` 会记录错误原因。
+标注 JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.locator`、`points`、`bounds`、`overlays` 和截图路径。原生控件操作不一定需要坐标，但标注会使用控件 `bounds` 中心作为诊断点。标注失败不会让控件操作失败，payload 的 `annotation.ok=false` 会记录错误原因。
 
 ## 平台行为
 

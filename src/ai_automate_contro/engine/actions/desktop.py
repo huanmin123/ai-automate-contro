@@ -19,6 +19,15 @@ from ai_automate_contro.engine.desktop.backends.capabilities import (
     tesseract_binary_details,
     tesseract_common_options,
 )
+from ai_automate_contro.engine.desktop.coordinates import (
+    build_coordinate_diagnostics,
+    build_coordinate_profile,
+    local_to_screen_bounds,
+    local_to_screen_point,
+    normalize_bounds,
+)
+from ai_automate_contro.engine.desktop.observation import build_desktop_observation
+from ai_automate_contro.engine.desktop.targeting import confidence_meets, find_target_candidate, build_vision_targeting
 
 
 WINDOW_QUERY_FIELDS = {
@@ -34,6 +43,7 @@ WINDOW_QUERY_FIELDS = {
 }
 
 WINDOW_CONTROL_TYPES = {"close", "minimize", "maximize", "restore"}
+WINDOW_QUERY_REQUIRED_TYPES = {"find", "focus", "close", "minimize", "maximize", "restore"}
 ELEMENT_LOCATOR_FIELDS = {
     "element_id",
     "automation_id",
@@ -69,6 +79,7 @@ DESKTOP_ELEMENT_MESSAGES = {
     "invoke_menu": "desktop menu invoked",
     "scroll_element": "desktop element scrolled",
 }
+DESKTOP_INPUT_COORDINATE_TYPES = {"click", "double_click", "right_click", "scroll", "drag"}
 
 
 def open_desktop(executor: Any, step: dict[str, Any]) -> None:
@@ -82,6 +93,9 @@ def open_desktop(executor: Any, step: dict[str, Any]) -> None:
     started = time.monotonic()
     probe = backend.probe(request_permissions=bool(step.get("request_permissions", False)))
     capability_matrix = probe.get("capability_matrix") if isinstance(probe.get("capability_matrix"), dict) else {}
+    coordinate_profile = (
+        probe.get("coordinate_profile") if isinstance(probe.get("coordinate_profile"), dict) else {}
+    )
     session = DesktopSession(
         name=name,
         backend=backend,
@@ -89,6 +103,7 @@ def open_desktop(executor: Any, step: dict[str, Any]) -> None:
         backend_name=backend.backend_name,
         permissions=dict(probe.get("permissions", {})) if isinstance(probe.get("permissions"), dict) else {},
         capability_matrix=dict(capability_matrix),
+        coordinate_profile=dict(coordinate_profile),
     )
     executor.state.desktop_sessions[name] = session
     payload = {
@@ -98,6 +113,7 @@ def open_desktop(executor: Any, step: dict[str, Any]) -> None:
         "backend": backend.backend_name,
         "probe": probe,
         "capability_matrix": capability_matrix,
+        "coordinate_profile": coordinate_profile,
         "elapsed_ms": _elapsed_ms(started),
     }
     if "save_as" in step:
@@ -143,10 +159,35 @@ def desktop_app(executor: Any, step: dict[str, Any]) -> None:
         wait=bool(step.get("wait", False)),
         timeout_ms=int(step.get("timeout_ms", 10_000)),
     )
+    window_query = _optional_window_query(step)
+    wait_payload: dict[str, Any] = {}
+    focus_payload: dict[str, Any] = {}
+    if bool(step.get("wait_for_window", False)):
+        if not any(field in window_query for field in WINDOW_QUERY_FIELDS - {"match_index"}):
+            raise ValueError("desktop_app.launch wait_for_window=true 需要至少一种窗口定位字段。")
+        wait_payload = session.backend.wait_window(
+            window_query,
+            state="exists",
+            timeout_ms=int(step.get("window_timeout_ms", step.get("timeout_ms", 10_000))),
+            interval_ms=int(step.get("interval_ms", 250)),
+        )
+        window = wait_payload.get("window") if isinstance(wait_payload.get("window"), dict) else {}
+        if window:
+            session.current_window = dict(window)
+        if bool(step.get("focus", False)):
+            focus_query = {"window_id": window.get("id")} if window.get("id") not in (None, "") else window_query
+            focus_payload = session.backend.focus_window(focus_query)
+            session.current_window = dict(focus_payload)
     payload = {
         **payload,
         "desktop": session.name,
         "type": app_type,
+        "wait_for_window": bool(step.get("wait_for_window", False)),
+        "focus": bool(step.get("focus", False)),
+        "window_query": window_query,
+        "window": wait_payload.get("window") if isinstance(wait_payload.get("window"), dict) else {},
+        "window_wait": wait_payload,
+        "window_focus": focus_payload,
         "elapsed_ms": _elapsed_ms(started),
     }
     if "save_as" in step:
@@ -168,19 +209,34 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
     window_type = str(step["type"])
     started = time.monotonic()
     if window_type == "list":
-        windows = session.backend.list_windows(include_invisible=bool(step.get("include_invisible", False)))
+        query = _optional_window_query(step)
+        include_invisible = bool(step.get("include_invisible", False))
+        windows = (
+            session.backend.find_windows(query, include_invisible=include_invisible)
+            if any(field in query for field in WINDOW_QUERY_FIELDS - {"match_index"})
+            else session.backend.list_windows(include_invisible=include_invisible)
+        )
+        total_count = len(windows)
+        max_windows = int(step.get("max_windows", 0) or 0)
+        output_windows = windows[:max_windows] if max_windows > 0 else windows
         payload = {
             "ok": True,
             "desktop": session.name,
             "type": window_type,
-            "count": len(windows),
-            "windows": windows,
+            "query": query,
+            "count": len(output_windows),
+            "total_count": total_count,
+            "windows": output_windows,
+            "truncated": max_windows > 0 and total_count > len(output_windows),
             "elapsed_ms": _elapsed_ms(started),
         }
+        diagnostics = _window_list_diagnostics(session, include_invisible=include_invisible)
+        if diagnostics:
+            payload["diagnostics"] = diagnostics
         if "path" in step:
             output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
-            _write_json(output_path, payload)
             payload["path"] = str(output_path)
+            _write_json(output_path, payload)
         if "save_as" in step:
             executor.state.variables[str(step["save_as"])] = payload
         executor.state.logger.log(
@@ -189,6 +245,71 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
             desktop=session.name,
             count=len(windows),
             path=payload.get("path", ""),
+        )
+        return
+    if window_type == "find":
+        query = _window_query(step)
+        include_invisible = bool(step.get("include_invisible", False))
+        matches = session.backend.find_windows(query, include_invisible=include_invisible)
+        match_index = int(query.get("match_index", 0) or 0)
+        selected_window = matches[match_index] if 0 <= match_index < len(matches) else {}
+        max_windows = int(step.get("max_windows", 0) or 0)
+        output_matches = matches[:max_windows] if max_windows > 0 else matches
+        payload = {
+            "ok": True,
+            "desktop": session.name,
+            "type": window_type,
+            "query": query,
+            "count": len(output_matches),
+            "match_count": len(matches),
+            "matches": output_matches,
+            "selected_window": selected_window,
+            "truncated": max_windows > 0 and len(matches) > len(output_matches),
+            "elapsed_ms": _elapsed_ms(started),
+        }
+        diagnostics = _window_list_diagnostics(session, include_invisible=include_invisible)
+        if diagnostics:
+            payload["diagnostics"] = diagnostics
+        if "path" in step:
+            output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
+            payload["path"] = str(output_path)
+            _write_json(output_path, payload)
+        if "save_as" in step:
+            executor.state.variables[str(step["save_as"])] = payload
+        executor.state.logger.log(
+            "info",
+            "desktop window found",
+            desktop=session.name,
+            matches=len(matches),
+            path=payload.get("path", ""),
+            save_as=step.get("save_as", ""),
+        )
+        return
+    if window_type == "active":
+        window = session.backend.get_active_window()
+        if window:
+            session.current_window = dict(window)
+        payload = {
+            "ok": True,
+            "desktop": session.name,
+            "type": window_type,
+            "found": bool(window),
+            "window": window,
+            "elapsed_ms": _elapsed_ms(started),
+        }
+        if "path" in step:
+            output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
+            payload["path"] = str(output_path)
+            _write_json(output_path, payload)
+        if "save_as" in step:
+            executor.state.variables[str(step["save_as"])] = payload
+        executor.state.logger.log(
+            "info",
+            "desktop active window read",
+            desktop=session.name,
+            title=window.get("title", "") if isinstance(window, dict) else "",
+            window_id=window.get("id", "") if isinstance(window, dict) else "",
+            save_as=step.get("save_as", ""),
         )
         return
     if window_type == "focus":
@@ -451,8 +572,8 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
             payload["annotation"] = annotation
     if "path" in step:
         output_path = executor._resolve_output_path(step["path"], category="desktop-elements")
-        _write_json(output_path, payload)
         payload["path"] = str(output_path)
+        _write_json(output_path, payload)
     if "save_as" in step:
         executor.state.variables[str(step["save_as"])] = payload
     executor.state.logger.log(
@@ -486,7 +607,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
     elif input_type == "hotkey":
         payload = session.backend.hotkey([str(key) for key in step["keys"]])
     elif input_type == "click":
-        x, y, target = _resolve_input_coordinates(session, step, action_label="click")
+        x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="click")
         payload = session.backend.click(
             x=x,
             y=y,
@@ -496,11 +617,13 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         )
         if target:
             payload["target"] = target
+        payload["input_resolution"] = resolution
+        payload["safety_check"] = resolution.get("safety_check", {})
         annotation_points = [_annotation_point(x, y, "click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target)
-        annotation_target = _input_annotation_target(step, target=target)
+        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
+        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "double_click":
-        x, y, target = _resolve_input_coordinates(session, step, action_label="double_click")
+        x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="double_click")
         payload = session.backend.double_click(
             x=x,
             y=y,
@@ -508,27 +631,33 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         )
         if target:
             payload["target"] = target
+        payload["input_resolution"] = resolution
+        payload["safety_check"] = resolution.get("safety_check", {})
         annotation_points = [_annotation_point(x, y, "double_click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target)
-        annotation_target = _input_annotation_target(step, target=target)
+        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
+        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "right_click":
-        x, y, target = _resolve_input_coordinates(session, step, action_label="right_click")
+        x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="right_click")
         payload = session.backend.right_click(x=x, y=y)
         if target:
             payload["target"] = target
+        payload["input_resolution"] = resolution
+        payload["safety_check"] = resolution.get("safety_check", {})
         annotation_points = [_annotation_point(x, y, "right_click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target)
-        annotation_target = _input_annotation_target(step, target=target)
+        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
+        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "scroll":
-        x, y, target = _resolve_input_coordinates(session, step, action_label="scroll")
+        x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="scroll")
         payload = session.backend.scroll(x=x, y=y, amount=int(step["amount"]))
         if target:
             payload["target"] = target
+        payload["input_resolution"] = resolution
+        payload["safety_check"] = resolution.get("safety_check", {})
         annotation_points = [_annotation_point(x, y, "scroll")]
-        annotation_bounds = _input_annotation_bounds(session, step, target)
-        annotation_target = _input_annotation_target(step, target=target)
+        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
+        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "drag":
-        start_x, start_y, end_x, end_y, target = _resolve_drag_coordinates(session, step)
+        start_x, start_y, end_x, end_y, target, resolution = _resolve_drag_coordinates(session, step)
         payload = session.backend.drag(
             start_x=start_x,
             start_y=start_y,
@@ -539,9 +668,11 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         )
         if target:
             payload["target"] = target
+        payload["input_resolution"] = resolution
+        payload["safety_check"] = resolution.get("safety_check", {})
         annotation_points = [_annotation_point(start_x, start_y, "start"), _annotation_point(end_x, end_y, "end")]
-        annotation_bounds = _input_annotation_bounds(session, step, target)
-        annotation_target = _input_annotation_target(step, target=target)
+        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
+        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
         annotation_connect = True
     else:
         raise ValueError(f"不支持的 desktop_input.type：{input_type}")
@@ -587,16 +718,28 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
         )
         source_bounds = _capture_source_bounds(payload, region)
         coordinate_space = {"origin": "screen", "unit": "logical_px", "scale": None}
+        source_size = {"width": payload.get("width", 0), "height": payload.get("height", 0)}
+        coordinate_profile = _source_coordinate_profile(
+            session,
+            source_kind=target,
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region,
+            screen_clickable=True,
+        )
         payload = {
             **payload,
             "target": target,
             "source_bounds": source_bounds,
             "coordinate_space": coordinate_space,
+            "coordinate_profile": coordinate_profile,
             "coordinate_diagnostics": _coordinate_diagnostics(
                 source_bounds=source_bounds,
-                source_size={"width": payload.get("width", 0), "height": payload.get("height", 0)},
+                source_size=source_size,
                 coordinate_space=coordinate_space,
                 region=region,
+                coordinate_profile=coordinate_profile,
             ),
             **target_payload,
         }
@@ -609,6 +752,11 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
         capability_matrix = payload.get("capability_matrix") if isinstance(payload.get("capability_matrix"), dict) else {}
         if capability_matrix:
             session.capability_matrix = dict(capability_matrix)
+        coordinate_profile = (
+            payload.get("coordinate_profile") if isinstance(payload.get("coordinate_profile"), dict) else {}
+        )
+        if coordinate_profile:
+            session.coordinate_profile = dict(coordinate_profile)
         payload = {
             "ok": True,
             "desktop": session.name,
@@ -616,7 +764,45 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
             "path": str(output_path),
             "current_window": session.current_window or {},
             "capability_matrix": capability_matrix,
+            "coordinate_profile": coordinate_profile,
             "snapshot": payload,
+            "elapsed_ms": _elapsed_ms(started),
+        }
+        _write_json(output_path, payload)
+    elif capture_type == "observe":
+        output_path = executor._resolve_output_path(step["path"], category="desktop-state")
+        screenshot_path = _desktop_observe_screenshot_path(output_path) if bool(step.get("include_screenshot", False)) else None
+        payload = build_desktop_observation(
+            session.backend,
+            desktop=session.name,
+            current_window=session.current_window or {},
+            window_query=_optional_window_query(step),
+            element_locator=_optional_element_locator(step),
+            output_path=output_path,
+            screenshot_path=screenshot_path,
+            request_permissions=bool(step.get("request_permissions", False)),
+            include_windows=bool(step.get("include_windows", True)),
+            include_invisible=bool(step.get("include_invisible", False)),
+            include_elements=bool(step.get("include_elements", False)),
+            include_screenshot=bool(step.get("include_screenshot", False)),
+            max_windows=int(step.get("max_windows", 20)),
+            max_elements=int(step.get("max_elements", 120)),
+            max_depth=int(step.get("max_depth", 4)),
+            text_limit=int(step.get("text_limit", 120)),
+        )
+        if isinstance(payload.get("coordinate_profile"), dict):
+            session.coordinate_profile = dict(payload["coordinate_profile"])
+        capability_matrix = payload.get("capability_matrix") if isinstance(payload.get("capability_matrix"), dict) else {}
+        if capability_matrix:
+            session.capability_matrix = dict(capability_matrix)
+        selected_window = payload.get("selected_window") if isinstance(payload.get("selected_window"), dict) else {}
+        if selected_window:
+            session.current_window = dict(selected_window)
+        payload = {
+            **payload,
+            "action": "desktop_capture",
+            "type": capture_type,
+            "path": str(output_path),
             "elapsed_ms": _elapsed_ms(started),
         }
         _write_json(output_path, payload)
@@ -637,6 +823,11 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
         type=capture_type,
         path=payload.get("path", str(output_path)),
     )
+
+
+def _desktop_observe_screenshot_path(output_path: Path) -> Path:
+    suffix = output_path.suffix or ".json"
+    return output_path.with_name(f"{output_path.name.removesuffix(suffix)}.png")
 
 
 def _resolve_capture_region(
@@ -804,6 +995,8 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
         if payload.get("ok"):
             break
         if source_input_path is not None or time.monotonic() >= deadline:
+            payload["path"] = str(output_path)
+            payload["relative_path"] = _output_relative_path(output_path)
             _write_json(output_path, payload)
             raise TimeoutError(
                 f"desktop_vision.{vision_type} 未找到匹配目标："
@@ -811,6 +1004,8 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
             )
         time.sleep(max(0.001, interval_ms / 1000))
 
+    last_payload["path"] = str(output_path)
+    last_payload["relative_path"] = _output_relative_path(output_path)
     _write_json(output_path, last_payload)
     if "save_as" in step:
         executor.state.variables[str(step["save_as"])] = last_payload
@@ -965,8 +1160,8 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
             session.current_window = dict(window)
         if "path" in step:
             output_path = executor._resolve_output_path(step["path"], category="desktop-elements")
-            _write_json(output_path, payload)
             payload["path"] = str(output_path)
+            _write_json(output_path, payload)
         if "save_as" in step:
             executor.state.variables[str(step["save_as"])] = payload
         executor.state.logger.log(
@@ -1004,36 +1199,56 @@ def _desktop_vision_text_query(step: dict[str, Any]) -> dict[str, str]:
     return query
 
 
+def _source_coordinate_profile(
+    session: DesktopSession,
+    *,
+    source_kind: str,
+    source_bounds: dict[str, Any],
+    source_size: dict[str, Any],
+    coordinate_space: dict[str, Any],
+    region: dict[str, Any] | None = None,
+    screen_clickable: bool | None = None,
+) -> dict[str, Any]:
+    base = session.coordinate_profile if isinstance(session.coordinate_profile, dict) else {}
+    display = base.get("display") if isinstance(base.get("display"), dict) else {}
+    return build_coordinate_profile(
+        platform=session.platform,
+        backend=session.backend_name,
+        display=display,
+        source_kind=source_kind,
+        source_bounds=source_bounds,
+        source_size=source_size,
+        coordinate_space=coordinate_space,
+        region=region,
+        screen_clickable=screen_clickable,
+    )
+
+
 def _coordinate_diagnostics(
     *,
     source_bounds: dict[str, Any],
     coordinate_space: dict[str, Any],
     source_size: dict[str, Any] | None = None,
     region: dict[str, Any] | None = None,
+    coordinate_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    bounds = {
-        "x": int(source_bounds.get("x", 0) or 0),
-        "y": int(source_bounds.get("y", 0) or 0),
-        "width": int(source_bounds.get("width", 0) or 0),
-        "height": int(source_bounds.get("height", 0) or 0),
-    }
-    normalized_source_size = dict(source_size or {"width": bounds["width"], "height": bounds["height"]})
-    scale = coordinate_space.get("scale") if isinstance(coordinate_space, dict) else None
-    warnings: list[str] = []
-    if scale is None:
-        warnings.append("scale_unknown")
-    if bounds["x"] < 0 or bounds["y"] < 0:
-        warnings.append("negative_source_origin")
-    return {
-        "source_bounds": bounds,
-        "source_size": normalized_source_size,
-        "coordinate_space": dict(coordinate_space),
-        "global_origin": {"x": bounds["x"], "y": bounds["y"]},
-        "local_to_global_offset": {"x": bounds["x"], "y": bounds["y"]},
-        "scale": scale,
-        "region": dict(region or {}),
-        "warnings": warnings,
-    }
+    profile = (
+        coordinate_profile
+        if isinstance(coordinate_profile, dict)
+        else build_coordinate_profile(
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region,
+        )
+    )
+    return build_coordinate_diagnostics(
+        coordinate_profile=profile,
+        source_bounds=source_bounds,
+        source_size=source_size,
+        coordinate_space=coordinate_space,
+        region=region,
+    )
 
 
 def _prepare_desktop_vision_source(
@@ -1054,6 +1269,17 @@ def _prepare_desktop_vision_source(
         with Image.open(source_input_path) as image:
             image.convert("RGB").save(source_artifact_path)
             source_bounds = {"x": 0, "y": 0, "width": int(image.width), "height": int(image.height)}
+            coordinate_space = {"origin": "source_path", "unit": "logical_px", "scale": None}
+            source_size = {"width": image.width, "height": image.height}
+            coordinate_profile = _source_coordinate_profile(
+                session,
+                source_kind="source_path",
+                source_bounds=source_bounds,
+                source_size=source_size,
+                coordinate_space=coordinate_space,
+                region=step.get("region") if isinstance(step.get("region"), dict) else None,
+                screen_clickable=False,
+            )
             payload = {
                 "ok": True,
                 "path": str(source_artifact_path),
@@ -1065,10 +1291,19 @@ def _prepare_desktop_vision_source(
                 "source": "source_path",
                 "source_target": "source_path",
                 "source_bounds": source_bounds,
+                "coordinate_space": coordinate_space,
+                "coordinate_profile": coordinate_profile,
+                "coordinate_diagnostics": _coordinate_diagnostics(
+                    source_bounds=source_bounds,
+                    source_size=source_size,
+                    coordinate_space=coordinate_space,
+                    region=step.get("region") if isinstance(step.get("region"), dict) else None,
+                    coordinate_profile=coordinate_profile,
+                ),
                 "target_query": {},
                 "locator": {},
             }
-        return source_artifact_path, payload, source_bounds, "image"
+        return source_artifact_path, payload, source_bounds, "source_path"
 
     source_target = raw_source_target or "screen"
     if source_target not in {"screen", "window", "element"}:
@@ -1089,12 +1324,32 @@ def _prepare_desktop_vision_source(
 
     payload = session.backend.screenshot(source_artifact_path, region=region, include_cursor=include_cursor)
     source_bounds = _capture_source_bounds(payload, region)
+    coordinate_space = {"origin": "screen", "unit": "logical_px", "scale": None}
+    source_size = {"width": payload.get("width", 0), "height": payload.get("height", 0)}
+    coordinate_profile = _source_coordinate_profile(
+        session,
+        source_kind=source_target,
+        source_bounds=source_bounds,
+        source_size=source_size,
+        coordinate_space=coordinate_space,
+        region=region,
+        screen_clickable=True,
+    )
     payload = {
         **payload,
         "source": "desktop_screenshot",
         "source_target": source_target,
         "window_match_index": step.get("window_match_index", ""),
         "source_bounds": source_bounds,
+        "coordinate_space": coordinate_space,
+        "coordinate_profile": coordinate_profile,
+        "coordinate_diagnostics": _coordinate_diagnostics(
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region,
+            coordinate_profile=coordinate_profile,
+        ),
         **source_target_payload,
     }
     return source_artifact_path, payload, source_bounds, "screen"
@@ -1168,10 +1423,44 @@ def _locate_image_in_source(
             _save_desktop_vision_crop(source_image, local_selected["bounds"], artifacts["crop"])
             _save_desktop_vision_annotation(source_image, local_matches, local_selected, artifacts["annotation"])
 
-    coordinate_space = {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    source_profile = source_payload.get("coordinate_profile") if isinstance(source_payload.get("coordinate_profile"), dict) else {}
+    coordinate_space = (
+        source_profile.get("space")
+        if isinstance(source_profile.get("space"), dict)
+        else {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    )
     source_size = {"width": 0, "height": 0}
     if "diagnostics" in locals() and isinstance(diagnostics.get("source_size"), dict):
         source_size = dict(diagnostics["source_size"])
+    if not source_profile:
+        source_profile = build_coordinate_profile(
+            source_kind=coordinate_origin,
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region_payload if "region_payload" in locals() else region if isinstance(region, dict) else None,
+            screen_clickable=coordinate_origin not in {"source_path", "image", "offline_image"},
+        )
+    coordinate_diagnostics = _coordinate_diagnostics(
+        source_bounds=source_bounds,
+        source_size=source_size,
+        coordinate_space=coordinate_space,
+        region=region_payload if "region_payload" in locals() else region if isinstance(region, dict) else None,
+        coordinate_profile=source_profile,
+    )
+    target_candidates = build_vision_targeting(
+        desktop=desktop,
+        vision_type="locate_image",
+        template_path=str(template_path),
+        source_target=str(source_payload.get("source_target", "")),
+        source_bounds=source_bounds,
+        coordinate_profile=source_profile,
+        coordinate_diagnostics=coordinate_diagnostics,
+        target_query=source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
+        locator=source_payload.get("locator") if isinstance(source_payload.get("locator"), dict) else {},
+        matches=matches if "matches" in locals() else [],
+        selected_match=selected or {},
+    )
     payload = {
         "ok": selected is not None,
         "action": "desktop_vision",
@@ -1184,12 +1473,8 @@ def _locate_image_in_source(
         "match_index": match_index,
         "max_matches": max_matches,
         "coordinate_space": coordinate_space,
-        "coordinate_diagnostics": _coordinate_diagnostics(
-            source_bounds=source_bounds,
-            source_size=source_size,
-            coordinate_space=coordinate_space,
-            region=region_payload if "region_payload" in locals() else region if isinstance(region, dict) else None,
-        ),
+        "coordinate_profile": source_profile,
+        "coordinate_diagnostics": coordinate_diagnostics,
         "source_bounds": source_bounds,
         "region": region_payload if "region_payload" in locals() else region or {},
         "target_query": source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
@@ -1198,6 +1483,7 @@ def _locate_image_in_source(
         "element": source_payload.get("element") if isinstance(source_payload.get("element"), dict) else {},
         "matches": matches if "matches" in locals() else [],
         "match": selected or {},
+        "target_candidates": target_candidates,
         "artifacts": {
             "json_path": str(output_path),
             "json_relative_path": _output_relative_path(output_path),
@@ -1265,8 +1551,42 @@ def _locate_text_in_source(
             _save_desktop_vision_crop(source_image, local_selected["bounds"], artifacts["crop"])
             _save_desktop_vision_annotation(source_image, local_matches, local_selected, artifacts["annotation"])
 
-    coordinate_space = {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    source_profile = source_payload.get("coordinate_profile") if isinstance(source_payload.get("coordinate_profile"), dict) else {}
+    coordinate_space = (
+        source_profile.get("space")
+        if isinstance(source_profile.get("space"), dict)
+        else {"origin": coordinate_origin, "unit": "logical_px", "scale": None}
+    )
     source_size = {"width": int(source_image.width), "height": int(source_image.height)}
+    if not source_profile:
+        source_profile = build_coordinate_profile(
+            source_kind=coordinate_origin,
+            source_bounds=source_bounds,
+            source_size=source_size,
+            coordinate_space=coordinate_space,
+            region=region_payload,
+            screen_clickable=coordinate_origin not in {"source_path", "image", "offline_image"},
+        )
+    coordinate_diagnostics = _coordinate_diagnostics(
+        source_bounds=source_bounds,
+        source_size=source_size,
+        coordinate_space=coordinate_space,
+        region=region_payload,
+        coordinate_profile=source_profile,
+    )
+    target_candidates = build_vision_targeting(
+        desktop=desktop,
+        vision_type="locate_text",
+        match_query=match_query,
+        source_target=str(source_payload.get("source_target", "")),
+        source_bounds=source_bounds,
+        coordinate_profile=source_profile,
+        coordinate_diagnostics=coordinate_diagnostics,
+        target_query=source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
+        locator=source_payload.get("locator") if isinstance(source_payload.get("locator"), dict) else {},
+        matches=matches,
+        selected_match=selected or {},
+    )
     payload = {
         "ok": selected is not None,
         "action": "desktop_vision",
@@ -1284,12 +1604,8 @@ def _locate_text_in_source(
         "raw_text": raw_text,
         "ocr_blocks": ocr_blocks,
         "coordinate_space": coordinate_space,
-        "coordinate_diagnostics": _coordinate_diagnostics(
-            source_bounds=source_bounds,
-            source_size=source_size,
-            coordinate_space=coordinate_space,
-            region=region_payload,
-        ),
+        "coordinate_profile": source_profile,
+        "coordinate_diagnostics": coordinate_diagnostics,
         "source_bounds": source_bounds,
         "region": region_payload,
         "target_query": source_payload.get("target_query") if isinstance(source_payload.get("target_query"), dict) else {},
@@ -1298,6 +1614,7 @@ def _locate_text_in_source(
         "element": source_payload.get("element") if isinstance(source_payload.get("element"), dict) else {},
         "matches": matches,
         "match": selected or {},
+        "target_candidates": target_candidates,
         "artifacts": {
             "json_path": str(output_path),
             "json_relative_path": _output_relative_path(output_path),
@@ -1633,22 +1950,12 @@ def _desktop_vision_global_matches(
     local_matches: list[dict[str, Any]],
     source_bounds: dict[str, int],
 ) -> list[dict[str, Any]]:
-    origin_x = int(source_bounds.get("x", 0) or 0)
-    origin_y = int(source_bounds.get("y", 0) or 0)
     matches: list[dict[str, Any]] = []
     for match in local_matches:
         local_bounds = match.get("bounds") if isinstance(match.get("bounds"), dict) else {}
         local_point = match.get("point") if isinstance(match.get("point"), dict) else {}
-        bounds = {
-            "x": origin_x + int(local_bounds.get("x", 0) or 0),
-            "y": origin_y + int(local_bounds.get("y", 0) or 0),
-            "width": int(local_bounds.get("width", 0) or 0),
-            "height": int(local_bounds.get("height", 0) or 0),
-        }
-        point = {
-            "x": origin_x + int(local_point.get("x", 0) or 0),
-            "y": origin_y + int(local_point.get("y", 0) or 0),
-        }
+        bounds = local_to_screen_bounds(local_bounds, source_bounds=source_bounds)
+        point = local_to_screen_point(local_point, source_bounds=source_bounds)
         matches.append({**match, "local_bounds": dict(local_bounds), "local_point": dict(local_point), "bounds": bounds, "point": point})
     return matches
 
@@ -1735,10 +2042,29 @@ def _current_platform_name() -> str:
 
 
 def _window_query(step: dict[str, Any]) -> dict[str, Any]:
-    query = {field: step[field] for field in WINDOW_QUERY_FIELDS if field in step and step[field] not in (None, "")}
+    query = _optional_window_query(step)
     if not any(field in query for field in WINDOW_QUERY_FIELDS - {"match_index"}):
         raise ValueError("窗口操作需要至少一种窗口定位字段。")
     return query
+
+
+def _optional_window_query(step: dict[str, Any]) -> dict[str, Any]:
+    return {field: step[field] for field in WINDOW_QUERY_FIELDS if field in step and step[field] not in (None, "")}
+
+
+def _window_list_diagnostics(session: DesktopSession, *, include_invisible: bool) -> dict[str, Any]:
+    if not include_invisible:
+        return {}
+    include_invisible_supported = session.platform == "windows"
+    diagnostics: dict[str, Any] = {
+        "include_invisible_requested": True,
+        "include_invisible_supported": include_invisible_supported,
+    }
+    if not include_invisible_supported:
+        diagnostics["warnings"] = [
+            f"include_invisible is not supported by the {session.platform}/{session.backend_name} desktop backend."
+        ]
+    return diagnostics
 
 
 def _optional_element_locator(step: dict[str, Any]) -> dict[str, Any]:
@@ -1766,28 +2092,64 @@ def _resolve_input_coordinates(
     step: dict[str, Any],
     *,
     action_label: str,
-) -> tuple[int, int, str]:
+) -> tuple[int, int, str, dict[str, Any]]:
     if "x" in step and "y" in step:
-        return (
-            _coordinate(step["x"], field="x", action_label=action_label),
-            _coordinate(step["y"], field="y", action_label=action_label),
-            "",
+        x = _coordinate(step["x"], field="x", action_label=action_label)
+        y = _coordinate(step["y"], field="y", action_label=action_label)
+        resolution = _input_resolution(
+            session,
+            action_label=action_label,
+            target="xy",
+            point={"x": x, "y": y},
+            mode="raw_xy",
         )
+        return x, y, "", resolution
     target = str(step.get("target", ""))
+    if target == "candidate":
+        return _resolve_candidate_coordinates(session, step, action_label=action_label)
     if target in {"current_window_center", "focused_window_center"}:
-        return (*_bounds_center(_current_window_bounds(session, target, action_label), action_label=action_label), target)
+        bounds = _current_window_bounds(session, target, action_label)
+        x, y = _bounds_center(bounds, action_label=action_label)
+        resolution = _input_resolution(
+            session,
+            action_label=action_label,
+            target=target,
+            point={"x": x, "y": y},
+            bounds=bounds,
+            mode="window_center",
+        )
+        return x, y, target, resolution
     if target in {"current_window_offset", "focused_window_offset"}:
         bounds = _current_window_bounds(session, target, action_label)
         x = _coordinate(bounds.get("x", 0), field="bounds.x", action_label=action_label)
         y = _coordinate(bounds.get("y", 0), field="bounds.y", action_label=action_label)
         offset_x = _coordinate(step.get("offset_x", 0), field="offset_x", action_label=action_label)
         offset_y = _coordinate(step.get("offset_y", 0), field="offset_y", action_label=action_label)
-        return x + offset_x, y + offset_y, target
+        point = {"x": x + offset_x, "y": y + offset_y}
+        resolution = _input_resolution(
+            session,
+            action_label=action_label,
+            target=target,
+            point=point,
+            bounds=bounds,
+            mode="window_offset",
+            extra={"offset": {"x": offset_x, "y": offset_y}},
+        )
+        return point["x"], point["y"], target, resolution
     if target == "bounds_center":
         bounds = step.get("bounds")
         if not isinstance(bounds, dict):
             raise ValueError(f"desktop_input.{action_label} target=bounds_center 需要 bounds 对象。")
-        return (*_bounds_center(bounds, action_label=action_label), target)
+        x, y = _bounds_center(bounds, action_label=action_label)
+        resolution = _input_resolution(
+            session,
+            action_label=action_label,
+            target=target,
+            point={"x": x, "y": y},
+            bounds=bounds,
+            mode="bounds_center",
+        )
+        return x, y, target, resolution
     if target == "element_center":
         query = _window_query(step)
         locator = _element_locator(step)
@@ -1807,26 +2169,321 @@ def _resolve_input_coordinates(
         bounds = element.get("bounds") if isinstance(element, dict) else None
         if not isinstance(bounds, dict):
             raise ValueError(f"desktop_input.{action_label} target=element_center 的控件缺少 bounds：locator={locator}")
-        return (*_bounds_center(bounds, action_label=action_label), target)
+        x, y = _bounds_center(bounds, action_label=action_label)
+        resolution = _input_resolution(
+            session,
+            action_label=action_label,
+            target=target,
+            point={"x": x, "y": y},
+            bounds=bounds,
+            mode="element_center",
+            extra={
+                "window_query": query,
+                "locator": locator,
+                "element": _compact_input_element(element),
+            },
+        )
+        return x, y, target, resolution
     raise ValueError(f"desktop_input.{action_label} 需要 target 或 x/y")
 
 
-def _resolve_drag_coordinates(session: DesktopSession, step: dict[str, Any]) -> tuple[int, int, int, int, str]:
+def _resolve_drag_coordinates(session: DesktopSession, step: dict[str, Any]) -> tuple[int, int, int, int, str, dict[str, Any]]:
     if "target" in step:
-        start_x, start_y, target = _resolve_input_coordinates(session, step, action_label="drag")
+        start_x, start_y, target, resolution = _resolve_input_coordinates(session, step, action_label="drag")
         delta_x = _coordinate(step.get("delta_x", 0), field="delta_x", action_label="drag")
         delta_y = _coordinate(step.get("delta_y", 0), field="delta_y", action_label="drag")
-        return start_x, start_y, start_x + delta_x, start_y + delta_y, target
+        end_point = {"x": start_x + delta_x, "y": start_y + delta_y}
+        end_safety = _coordinate_safety_check(
+            session,
+            action_label="drag",
+            target=target or "xy",
+            point=end_point,
+            bounds=resolution.get("bounds") if isinstance(resolution.get("bounds"), dict) else None,
+        )
+        resolution["delta"] = {"x": delta_x, "y": delta_y}
+        resolution["end_point"] = end_point
+        resolution["end_safety_check"] = end_safety
+        return start_x, start_y, end_point["x"], end_point["y"], target, resolution
     required = ("start_x", "start_y", "end_x", "end_y")
     if not all(field in step for field in required):
         raise ValueError("desktop_input.drag 需要 target+delta_x/delta_y 或 start_x/start_y/end_x/end_y")
-    return (
-        _coordinate(step["start_x"], field="start_x", action_label="drag"),
-        _coordinate(step["start_y"], field="start_y", action_label="drag"),
-        _coordinate(step["end_x"], field="end_x", action_label="drag"),
-        _coordinate(step["end_y"], field="end_y", action_label="drag"),
-        "",
+    start_point = {
+        "x": _coordinate(step["start_x"], field="start_x", action_label="drag"),
+        "y": _coordinate(step["start_y"], field="start_y", action_label="drag"),
+    }
+    end_point = {
+        "x": _coordinate(step["end_x"], field="end_x", action_label="drag"),
+        "y": _coordinate(step["end_y"], field="end_y", action_label="drag"),
+    }
+    resolution = _input_resolution(
+        session,
+        action_label="drag",
+        target="xy",
+        point=start_point,
+        mode="raw_xy",
     )
+    resolution["end_point"] = end_point
+    resolution["end_safety_check"] = _coordinate_safety_check(
+        session,
+        action_label="drag",
+        target="xy",
+        point=end_point,
+    )
+    return start_point["x"], start_point["y"], end_point["x"], end_point["y"], "", resolution
+
+
+def _resolve_candidate_coordinates(
+    session: DesktopSession,
+    step: dict[str, Any],
+    *,
+    action_label: str,
+) -> tuple[int, int, str, dict[str, Any]]:
+    candidate_id = str(step.get("candidate_id") or step.get("target_candidate_id") or "")
+    if not candidate_id:
+        raise ValueError(f"desktop_input.{action_label} target=candidate 需要 candidate_id。")
+    source = step.get("target_candidates", step.get("candidate_source"))
+    candidate = find_target_candidate(source, candidate_id)
+    if not candidate and isinstance(step.get("candidate"), dict):
+        raw_candidate = step["candidate"]
+        if candidate_id in {"best", "best_candidate", str(raw_candidate.get("id") or ""), str(raw_candidate.get("candidate_id") or "")}:
+            candidate = dict(raw_candidate)
+    if not candidate:
+        raise ValueError(f"desktop_input.{action_label} target=candidate 未找到 candidate_id={candidate_id!r}。")
+    minimum_confidence = str(step.get("min_confidence") or "medium")
+    if not confidence_meets(candidate, minimum_confidence):
+        raise ValueError(
+            f"desktop_input.{action_label} target=candidate 置信度不足："
+            f"candidate_id={candidate_id!r} confidence={candidate.get('confidence')!r} min_confidence={minimum_confidence!r}"
+        )
+    strategy = str(candidate.get("strategy") or "")
+    if strategy == "semantic_locator":
+        return _resolve_semantic_candidate_coordinates(session, step, candidate, action_label=action_label)
+    if strategy == "visual_bounds":
+        return _resolve_visual_candidate_coordinates(session, step, candidate, action_label=action_label)
+    raise ValueError(
+        f"desktop_input.{action_label} target=candidate 不支持 strategy={strategy!r}；"
+        "仅 semantic_locator 和 screen_clickable=true 的 visual_bounds 可直接执行。"
+    )
+
+
+def _resolve_semantic_candidate_coordinates(
+    session: DesktopSession,
+    step: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    action_label: str,
+) -> tuple[int, int, str, dict[str, Any]]:
+    query = candidate.get("window_query") if isinstance(candidate.get("window_query"), dict) else {}
+    locator = candidate.get("locator") if isinstance(candidate.get("locator"), dict) else {}
+    if not query or not locator:
+        raise ValueError(
+            f"desktop_input.{action_label} target=candidate 的 semantic_locator 缺少 window_query 或 locator："
+            f"candidate_id={_candidate_id(candidate)!r}"
+        )
+    payload = session.backend.find_element(
+        query,
+        locator,
+        state=str(step.get("state", "exists")),
+        timeout_ms=int(step.get("timeout_ms", 1_000)),
+        interval_ms=int(step.get("interval_ms", 100)),
+        max_depth=int(step.get("max_depth", 6)),
+        max_elements=int(step.get("max_elements", 200)),
+    )
+    window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+    if window:
+        session.current_window = dict(window)
+    element = payload.get("element") if isinstance(payload.get("element"), dict) else {}
+    bounds = element.get("bounds") if isinstance(element.get("bounds"), dict) else {}
+    if not bounds:
+        raise ValueError(
+            f"desktop_input.{action_label} target=candidate 的 semantic_locator 实时控件缺少 bounds："
+            f"candidate_id={_candidate_id(candidate)!r} locator={locator}"
+        )
+    x, y = _bounds_center(bounds, action_label=action_label)
+    resolution = _input_resolution(
+        session,
+        action_label=action_label,
+        target="candidate",
+        point={"x": x, "y": y},
+        bounds=bounds,
+        mode="candidate_semantic_locator",
+        candidate=candidate,
+        extra={
+            "window_query": query,
+            "locator": locator,
+            "refreshed": True,
+            "element": _compact_input_element(element),
+        },
+    )
+    return x, y, "candidate", resolution
+
+
+def _resolve_visual_candidate_coordinates(
+    session: DesktopSession,
+    step: dict[str, Any],
+    candidate: dict[str, Any],
+    *,
+    action_label: str,
+) -> tuple[int, int, str, dict[str, Any]]:
+    if not _candidate_screen_clickable(candidate):
+        raise ValueError(
+            f"desktop_input.{action_label} target=candidate 的 visual_bounds 不可直接点击："
+            f"candidate_id={_candidate_id(candidate)!r} screen_clickable=false"
+        )
+    coordinate_profile = candidate.get("coordinate_profile") if isinstance(candidate.get("coordinate_profile"), dict) else {}
+    source = coordinate_profile.get("source") if isinstance(coordinate_profile.get("source"), dict) else {}
+    if str(source.get("kind") or "") in {"source_path", "image", "offline_image"}:
+        raise ValueError(
+            f"desktop_input.{action_label} target=candidate 来自离线图片 source_kind={source.get('kind')!r}，只能作为证据，不能直接点击。"
+        )
+    bounds = candidate.get("bounds") if isinstance(candidate.get("bounds"), dict) else {}
+    x, y = _bounds_center(bounds, action_label=action_label)
+    resolution = _input_resolution(
+        session,
+        action_label=action_label,
+        target="candidate",
+        point={"x": x, "y": y},
+        bounds=bounds,
+        mode="candidate_visual_bounds",
+        candidate=candidate,
+        extra={
+            "screen_clickable": True,
+            "coordinate_profile": coordinate_profile,
+            "coordinate_diagnostics": (
+                candidate.get("coordinate_diagnostics") if isinstance(candidate.get("coordinate_diagnostics"), dict) else {}
+            ),
+        },
+    )
+    return x, y, "candidate", resolution
+
+
+def _input_resolution(
+    session: DesktopSession,
+    *,
+    action_label: str,
+    target: str,
+    point: dict[str, int],
+    mode: str,
+    bounds: dict[str, Any] | None = None,
+    candidate: dict[str, Any] | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "mode": mode,
+        "target": target,
+        "point": {"x": int(point["x"]), "y": int(point["y"])},
+        "safety_check": _coordinate_safety_check(
+            session,
+            action_label=action_label,
+            target=target,
+            point=point,
+            bounds=bounds,
+            candidate=candidate,
+        ),
+    }
+    normalized_bounds = normalize_bounds(bounds or {})
+    if normalized_bounds:
+        payload["bounds"] = normalized_bounds
+    if candidate:
+        payload["candidate"] = _compact_input_candidate(candidate)
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+def _coordinate_safety_check(
+    session: DesktopSession,
+    *,
+    action_label: str,
+    target: str,
+    point: dict[str, Any],
+    bounds: dict[str, Any] | None = None,
+    candidate: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    x = _coordinate(point.get("x"), field="point.x", action_label=action_label)
+    y = _coordinate(point.get("y"), field="point.y", action_label=action_label)
+    profile = session.coordinate_profile if isinstance(session.coordinate_profile, dict) else {}
+    display = profile.get("display") if isinstance(profile.get("display"), dict) else {}
+    virtual_bounds = normalize_bounds(display.get("virtual_bounds")) if isinstance(display, dict) else {}
+    screen_bounds = virtual_bounds or (normalize_bounds(display.get("bounds")) if isinstance(display, dict) else {})
+    warnings: list[str] = []
+    ok = True
+    reason = ""
+    if candidate and str(candidate.get("strategy") or "") == "visual_bounds" and not _candidate_screen_clickable(candidate):
+        ok = False
+        reason = "candidate_not_screen_clickable"
+    if ok and screen_bounds:
+        in_x = screen_bounds["x"] <= x < screen_bounds["x"] + screen_bounds["width"]
+        in_y = screen_bounds["y"] <= y < screen_bounds["y"] + screen_bounds["height"]
+        if not (in_x and in_y):
+            ok = False
+            reason = "point_outside_virtual_screen"
+    elif ok:
+        warnings.append("display_bounds_unknown")
+    normalized_bounds = normalize_bounds(bounds or {})
+    if bounds and not normalized_bounds:
+        warnings.append("target_bounds_invalid_or_empty")
+    payload = {
+        "ok": ok,
+        "target": target,
+        "point": {"x": x, "y": y},
+        "display_virtual_bounds": screen_bounds,
+        "warnings": warnings,
+        "reason": reason,
+    }
+    if candidate:
+        payload["candidate_id"] = _candidate_id(candidate)
+        payload["candidate_strategy"] = candidate.get("strategy", "")
+        payload["candidate_confidence"] = candidate.get("confidence", "")
+        payload["screen_clickable"] = _candidate_screen_clickable(candidate)
+    if not ok:
+        raise ValueError(
+            f"desktop_input.{action_label} 输入前安全检查失败：reason={reason} "
+            f"target={target} point={{'x': {x}, 'y': {y}}} virtual_bounds={screen_bounds}"
+        )
+    return payload
+
+
+def _candidate_screen_clickable(candidate: dict[str, Any]) -> bool:
+    if "screen_clickable" in candidate:
+        return bool(candidate.get("screen_clickable"))
+    profile = candidate.get("coordinate_profile") if isinstance(candidate.get("coordinate_profile"), dict) else {}
+    source = profile.get("source") if isinstance(profile.get("source"), dict) else {}
+    if isinstance(source, dict) and "screen_clickable" in source:
+        return bool(source.get("screen_clickable"))
+    return False
+
+
+def _candidate_id(candidate: dict[str, Any]) -> str:
+    return str(candidate.get("candidate_id") or candidate.get("id") or "")
+
+
+def _compact_input_candidate(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(candidate.get("id") or ""),
+        "candidate_id": _candidate_id(candidate),
+        "source": str(candidate.get("source") or ""),
+        "strategy": str(candidate.get("strategy") or ""),
+        "confidence": str(candidate.get("confidence") or ""),
+        "score": candidate.get("score", 0),
+        "screen_clickable": _candidate_screen_clickable(candidate),
+        "window_query": candidate.get("window_query", {}) if isinstance(candidate.get("window_query"), dict) else {},
+        "locator": candidate.get("locator", {}) if isinstance(candidate.get("locator"), dict) else {},
+        "bounds": normalize_bounds(candidate.get("bounds")) if isinstance(candidate.get("bounds"), dict) else {},
+        "point": candidate.get("point", {}) if isinstance(candidate.get("point"), dict) else {},
+        "reason": str(candidate.get("reason") or ""),
+    }
+
+
+def _compact_input_element(element: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "automation_id": str(element.get("automation_id") or ""),
+        "name": str(element.get("name") or ""),
+        "text": str(element.get("text") or ""),
+        "control_type": str(element.get("control_type") or ""),
+        "role": str(element.get("role") or ""),
+        "bounds": normalize_bounds(element.get("bounds")) if isinstance(element.get("bounds"), dict) else {},
+    }
 
 
 def _coordinate(value: Any, *, field: str, action_label: str) -> int:
@@ -1942,6 +2599,7 @@ def _capture_desktop_annotation(
             connect_points=connect_points,
             label=label,
             target=target,
+            coordinate_profile=session.coordinate_profile,
         )
     except Exception as error:
         executor.state.logger.log(
@@ -1963,7 +2621,15 @@ def _annotation_point(x: Any, y: Any, label: str) -> dict[str, Any]:
     return {"x": int(float(x)), "y": int(float(y)), "label": label}
 
 
-def _input_annotation_bounds(session: DesktopSession, step: dict[str, Any], target: str) -> list[dict[str, Any]]:
+def _input_annotation_bounds(
+    session: DesktopSession,
+    step: dict[str, Any],
+    target: str,
+    resolution: dict[str, Any],
+) -> list[dict[str, Any]]:
+    resolved_bounds = resolution.get("bounds") if isinstance(resolution.get("bounds"), dict) else {}
+    if resolved_bounds:
+        return [dict(resolved_bounds)]
     if target in {"current_window_center", "focused_window_center", "current_window_offset", "focused_window_offset"}:
         window = session.current_window or {}
         bounds = window.get("bounds") if isinstance(window, dict) else None
@@ -1973,7 +2639,7 @@ def _input_annotation_bounds(session: DesktopSession, step: dict[str, Any], targ
     return []
 
 
-def _input_annotation_target(step: dict[str, Any], *, target: str) -> dict[str, Any]:
+def _input_annotation_target(step: dict[str, Any], *, target: str, resolution: dict[str, Any]) -> dict[str, Any]:
     fields = (
         "target",
         "x",
@@ -1988,10 +2654,20 @@ def _input_annotation_target(step: dict[str, Any], *, target: str) -> dict[str, 
         "delta_x",
         "delta_y",
         "button",
+        "candidate_id",
+        "min_confidence",
     )
     payload = {field: step[field] for field in fields if field in step and step[field] not in (None, "")}
     if target:
         payload["resolved_target"] = target
+    if resolution:
+        payload["input_resolution"] = {
+            "mode": resolution.get("mode", ""),
+            "target": resolution.get("target", ""),
+            "point": resolution.get("point", {}) if isinstance(resolution.get("point"), dict) else {},
+            "candidate": resolution.get("candidate", {}) if isinstance(resolution.get("candidate"), dict) else {},
+            "safety_check": resolution.get("safety_check", {}) if isinstance(resolution.get("safety_check"), dict) else {},
+        }
     return payload
 
 

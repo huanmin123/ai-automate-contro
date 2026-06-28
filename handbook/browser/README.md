@@ -18,11 +18,12 @@
 
 浏览器专属 action 文档：
 
-- [actions/browser](../actions/browser/README.md): `open_browser`、`close_browser`、`page`。
-- [actions/browser/navigation](../actions/browser/navigation/navigate.md): `navigate`、`wait`、`assert`、`network`、`wait_for_popup`、`wait_for_download`、`wait_for_file_chooser`、`wait_for_network`。
-- [actions/browser/interaction](../actions/browser/interaction/element.md): `element`、`mouse`、`keyboard`、`scroll`。
-- [actions/browser/data](../actions/browser/data/extract.md): `extract`、`storage`、`detect_challenge`。
-- [actions/browser/utility](../actions/browser/utility/capture.md): `capture`、`dialog`、`event`、`coverage`、`trace`、`script`。
+- [actions/browser](../actions/browser/README.md): 浏览器专属 action 索引。
+- 会话和页面：[open_browser](../actions/browser/open_browser.md)、[page](../actions/browser/page.md)、[close_browser](../actions/browser/close_browser.md)。
+- 导航和等待：[navigate](../actions/browser/navigation/navigate.md)、[wait](../actions/browser/navigation/wait.md)、[assert](../actions/browser/navigation/assert.md)、[network](../actions/browser/navigation/network.md)、[wait_for_popup](../actions/browser/navigation/wait_for_popup.md)、[wait_for_download](../actions/browser/navigation/wait_for_download.md)、[wait_for_file_chooser](../actions/browser/navigation/wait_for_file_chooser.md)、[wait_for_network](../actions/browser/navigation/wait_for_network.md)。
+- 页面交互：[element](../actions/browser/interaction/element.md)、[mouse](../actions/browser/interaction/mouse.md)、[keyboard](../actions/browser/interaction/keyboard.md)、[scroll](../actions/browser/interaction/scroll.md)。
+- 页面数据：[extract](../actions/browser/data/extract.md)、[storage](../actions/browser/data/storage.md)、[detect_challenge](../actions/browser/data/detect_challenge.md)。
+- 浏览器工具：[capture](../actions/browser/utility/capture.md)、[dialog](../actions/browser/utility/dialog.md)、[event](../actions/browser/utility/event.md)、[coverage](../actions/browser/utility/coverage.md)、[trace](../actions/browser/utility/trace.md)、[script](../actions/browser/utility/script.md)。
 
 通用 action 文档：
 

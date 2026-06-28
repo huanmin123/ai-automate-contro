@@ -2,7 +2,7 @@
 
 ## 用途
 
-`trigger` 是父级控制流 action，用于在同一个 plan run 和同一个浏览器会话内，按固定间隔周期执行一组子步骤或同包子计划。
+`trigger` 是父级控制流 action，用于在同一个 plan run 内，按固定间隔周期执行一组子步骤或同包子计划。
 
 它必须直接写在 `steps` 数组中。执行器运行到这个节点时进入触发器循环，满足 `max_runs`、`duration_seconds`、`stop_condition` 或错误处理规则后退出，然后父 plan 继续执行后续步骤。
 
@@ -95,6 +95,6 @@
 ## 边界
 
 - `trigger` 是阻塞式父 action，不创建后台线程。
-- 执行体单线程运行，避免 Playwright 页面并发状态污染。
+- 执行体单线程运行，避免共享当前执行线 runtime 状态时出现并发污染。
 - `trigger.steps` 和 `trigger.path` 只能提供一种。
 - `trigger.path` 必须引用当前 plan 包内的 `sub-plans/*-plan.json`，不能引用另一个主 `plan.json`。

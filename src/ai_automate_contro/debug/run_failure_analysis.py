@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.debug.failure_dom import summarize_failure_html
+from ai_automate_contro.engine.desktop.targeting import compact_targeting
 from ai_automate_contro.debug.run_artifacts import (
     MAX_RUN_EVENT_LINES,
     MAX_RUN_LOG_LINES,
@@ -245,6 +246,16 @@ def collect_desktop_diagnostics(state_paths: list[str]) -> list[dict[str, Any]]:
             capability_matrix = dict_get(diagnostics, "capability_matrix")
         if not isinstance(capability_matrix, dict):
             capability_matrix = {}
+        coordinate_profile = dict_get(payload, "coordinate_profile")
+        if not isinstance(coordinate_profile, dict):
+            coordinate_profile = dict_get(diagnostics, "coordinate_profile")
+        if not isinstance(coordinate_profile, dict):
+            coordinate_profile = {}
+        target_candidates = dict_get(payload, "target_candidates")
+        if not isinstance(target_candidates, dict):
+            target_candidates = dict_get(diagnostics, "target_candidates")
+        if not isinstance(target_candidates, dict):
+            target_candidates = {}
         summaries.append(
             {
                 "path": str(path),
@@ -256,11 +267,41 @@ def collect_desktop_diagnostics(state_paths: list[str]) -> list[dict[str, Any]]:
                 "target": payload.get("target", {}) if isinstance(payload.get("target"), dict) else {},
                 "window": summarize_window_diagnostics(window_diagnostics),
                 "element": summarize_element_diagnostics(element_diagnostics),
+                "target_candidates": compact_targeting(target_candidates),
                 "capability_matrix": summarize_capability_matrix(capability_matrix),
+                "coordinate_profile": summarize_coordinate_profile(coordinate_profile),
                 "screenshot": payload.get("screenshot", ""),
             }
         )
     return summaries
+
+
+def summarize_coordinate_profile(payload: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    source = payload.get("source") if isinstance(payload.get("source"), dict) else {}
+    display = payload.get("display") if isinstance(payload.get("display"), dict) else {}
+    transforms = payload.get("transforms") if isinstance(payload.get("transforms"), dict) else {}
+    return {
+        "schema_version": payload.get("schema_version", ""),
+        "kind": payload.get("kind", ""),
+        "platform": payload.get("platform", ""),
+        "backend": payload.get("backend", ""),
+        "space": payload.get("space", {}) if isinstance(payload.get("space"), dict) else {},
+        "source": {
+            "kind": source.get("kind", ""),
+            "bounds": source.get("bounds", {}) if isinstance(source.get("bounds"), dict) else {},
+            "screen_clickable": source.get("screen_clickable", ""),
+        },
+        "display": {
+            "virtual_bounds": display.get("virtual_bounds", {}) if isinstance(display.get("virtual_bounds"), dict) else {},
+            "monitor_count": display.get("monitor_count", ""),
+            "scale": display.get("scale", ""),
+            "dpi": display.get("dpi", {}) if isinstance(display.get("dpi"), dict) else {},
+        },
+        "transforms": transforms,
+        "warnings": payload.get("warnings", []) if isinstance(payload.get("warnings"), list) else [],
+    }
 
 
 def summarize_capability_matrix(payload: dict[str, Any]) -> dict[str, Any]:
@@ -269,6 +310,7 @@ def summarize_capability_matrix(payload: dict[str, Any]) -> dict[str, Any]:
         "semantic": _capability_group(payload, raw_capabilities, "semantic"),
         "input": _capability_group(payload, raw_capabilities, "input"),
         "screenshot": _capability_group(payload, raw_capabilities, "screenshot"),
+        "coordinates": _capability_group(payload, raw_capabilities, "coordinates"),
         "vision": _capability_group(payload, raw_capabilities, "vision"),
     }
     return {
@@ -422,10 +464,52 @@ def build_desktop_repair_suggestions(diagnostics: list[dict[str, Any]]) -> list[
         window_near_matches = window.get("near_matches") if isinstance(window.get("near_matches"), list) else []
         element_near_matches = element.get("near_matches") if isinstance(element.get("near_matches"), list) else []
         selector_hints = element.get("selector_hints") if isinstance(element.get("selector_hints"), list) else []
+        target_candidates = item.get("target_candidates") if isinstance(item.get("target_candidates"), dict) else {}
+        first_candidate = {}
+        raw_candidates = target_candidates.get("candidates") if isinstance(target_candidates.get("candidates"), list) else []
+        if raw_candidates and isinstance(raw_candidates[0], dict):
+            first_candidate = raw_candidates[0]
+        best_strategy = first_string(
+            dict_get(dict_get(target_candidates, "summary"), "best_strategy"),
+            dict_get(target_candidates, "best_strategy"),
+            dict_get(first_candidate, "strategy"),
+            "",
+        )
+        best_candidate_id = first_string(dict_get(first_candidate, "candidate_id"), dict_get(first_candidate, "id"), "")
+        best_confidence = first_string(dict_get(first_candidate, "confidence"), "")
+        best_screen_clickable = dict_get(first_candidate, "screen_clickable")
+        candidate_count = _safe_int(dict_get(target_candidates, "candidate_count"))
         capability_matrix = item.get("capability_matrix") if isinstance(item.get("capability_matrix"), dict) else {}
         limitations = capability_matrix.get("limitations") if isinstance(capability_matrix.get("limitations"), list) else []
+        error_text = first_string(item.get("error"), "").lower()
         if limitations:
             suggestions.append(f"桌面能力限制：先处理 capability_matrix.limitations={limitations!r}。")
+        if candidate_count:
+            suggestions.append(
+                "桌面定位候选已生成：优先查看 diagnostics.target_candidates.best_candidate"
+                + (f"，当前最佳策略={best_strategy!r}" if best_strategy else "")
+                + (f"，candidate_id={best_candidate_id!r}" if best_candidate_id else "")
+                + "。"
+            )
+        if best_strategy == "semantic_locator" and best_candidate_id:
+            suggestions.append(
+                "桌面候选可执行：需要真实鼠标事件时优先改用 desktop_input target=candidate，"
+                f"传入同一次 target_candidates 和 candidate_id={best_candidate_id!r}；否则直接使用 desktop_element。"
+            )
+        if best_strategy == "visual_bounds" and best_candidate_id:
+            if best_screen_clickable is True and best_confidence in {"high", "medium"}:
+                suggestions.append(
+                    "视觉候选可作为坐标兜底：使用 desktop_input target=candidate 消费 candidate_id，"
+                    "并在后续补 desktop_assert、desktop_wait 或截图验证。"
+                )
+            else:
+                suggestions.append(
+                    "视觉候选不可直接点击：置信度不足或 screen_clickable=false，先重新 observe/vision 当前屏幕或加入 manual_confirm。"
+                )
+        if "point_outside_virtual_screen" in error_text or "输入前安全检查失败" in first_string(item.get("error"), ""):
+            suggestions.append("桌面输入前安全检查失败：重新获取 coordinate_profile/target_candidates，避免复用旧 bounds 或跨显示器坐标。")
+        if "screen_clickable=false" in error_text or "source_path" in error_text or "离线图片" in first_string(item.get("error"), ""):
+            suggestions.append("离线图片或 screen_clickable=false 只能作为证据：改用当前屏幕的 desktop_capture observe/desktop_vision，或人工确认后再点击。")
         if window_query and not window.get("match_count") and window_near_matches:
             top_window = window_near_matches[0].get("window") if isinstance(window_near_matches[0], dict) else {}
             title = first_string(dict_get(top_window, "title"), "")

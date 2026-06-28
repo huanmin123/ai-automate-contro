@@ -1,0 +1,39 @@
+{
+  "name": "desktop offline vision",
+  "automation_type": "desktop",
+  "variables": {},
+  "steps": [
+    {
+      "action": "open_desktop",
+      "name": "desktop",
+      "backend": "auto",
+      "save_as": "desktop_probe"
+    },
+    {
+      "action": "desktop_vision",
+      "desktop": "desktop",
+      "type": "locate_image",
+      "source_path": "resources/source.ppm",
+      "template_path": "resources/template.ppm",
+      "threshold": 0.99,
+      "match_index": 0,
+      "max_matches": 5,
+      "path": "offline-vision-match.json",
+      "save_as": "offline_vision"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "offline-vision-summary.json",
+      "value": {
+        "ok": "{{offline_vision.ok}}",
+        "match": "{{offline_vision.match}}",
+        "target_candidates": "{{offline_vision.target_candidates}}"
+      }
+    },
+    {
+      "action": "close_desktop",
+      "desktop": "desktop"
+    }
+  ]
+}

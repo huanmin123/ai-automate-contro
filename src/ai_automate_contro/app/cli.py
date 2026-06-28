@@ -291,6 +291,7 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
         if args.self_check_command == "release-matrix":
             from ai_automate_contro.app.release_matrix_check import self_check_release_matrix
 
+            strict_desktop = bool(args.strict_desktop)
             result = self_check_release_matrix(
                 project_root,
                 include_real_ai=bool(args.include_real_ai),
@@ -300,12 +301,15 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 max_attempts=args.max_attempts,
                 retry_delay_seconds=args.retry_delay_seconds,
                 step_timeout_seconds=args.step_timeout_seconds,
-                require_desktop_vision=bool(args.require_desktop_vision),
-                require_desktop_ocr=bool(args.require_desktop_ocr),
-                require_desktop_ocr_zh=bool(args.require_desktop_ocr_zh),
+                strict_desktop=strict_desktop,
+                require_desktop_input=strict_desktop or bool(args.require_desktop_input),
+                require_desktop_vision=strict_desktop or bool(args.require_desktop_vision),
+                require_desktop_ocr=strict_desktop or bool(args.require_desktop_ocr),
+                require_desktop_ocr_zh=strict_desktop or bool(args.require_desktop_ocr_zh),
                 only=list(args.only or []),
                 list_steps=bool(args.list),
                 fail_fast=bool(args.fail_fast),
+                repeat=int(args.repeat),
             )
             print_json(result)
             return 0 if result.get("ok") else 1
@@ -313,6 +317,19 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.browser_component_check import self_check_browser_components
 
             result = self_check_browser_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-env":
+            from ai_automate_contro.app.desktop_env_check import self_check_desktop_env
+
+            result = self_check_desktop_env(
+                project_root,
+                require_input=bool(args.require_input),
+                require_vision=bool(args.require_vision),
+                require_ocr=bool(args.require_ocr),
+                require_ocr_zh=bool(args.require_ocr_zh),
+                request_permissions=bool(args.request_permissions),
+            )
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "desktop-components":
@@ -323,6 +340,15 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 require_vision=bool(args.require_vision),
                 require_ocr=bool(args.require_ocr),
                 require_ocr_zh=bool(args.require_ocr_zh),
+            )
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-examples":
+            from ai_automate_contro.app.desktop_examples_check import self_check_desktop_examples
+
+            result = self_check_desktop_examples(
+                project_root,
+                require_vision=bool(args.require_vision),
             )
             print_json(result)
             return 0 if result.get("ok") else 1

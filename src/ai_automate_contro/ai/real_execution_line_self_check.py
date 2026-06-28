@@ -48,6 +48,18 @@ _CASES: tuple[dict[str, Any], ...] = (
         "message": "用户要控制本机桌面 Notepad 窗口，输入文字，截图并保存状态。",
     },
     {
+        "name": "powershell_terminal",
+        "expected_decision": "desktop",
+        "requires_confirmation": False,
+        "message": "用户要控制本机 PowerShell 终端窗口，输入一条命令，按 Enter 执行并截图。",
+    },
+    {
+        "name": "windows_explorer",
+        "expected_decision": "desktop",
+        "requires_confirmation": False,
+        "message": "用户要打开 Windows 文件资源管理器窗口，选中一个文件并截图。",
+    },
+    {
         "name": "mixed_ambiguous",
         "expected_decision": "ambiguous",
         "requires_confirmation": True,
