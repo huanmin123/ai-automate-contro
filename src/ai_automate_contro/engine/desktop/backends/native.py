@@ -2690,13 +2690,13 @@ function Convert-UiaElement(
   }
 }
 
-function Find-MenuItemByName(
+function Find-MenuItemByNameWithWalker(
   [System.Windows.Automation.AutomationElement]$searchRoot,
   [string]$name,
   [int]$maxDepth,
-  [int]$maxElements
+  [int]$maxElements,
+  [System.Windows.Automation.TreeWalker]$walker
 ) {
-  $walker = [System.Windows.Automation.TreeWalker]::RawViewWalker
   $queue = New-Object 'System.Collections.Generic.Queue[object]'
   $queue.Enqueue([pscustomobject]@{ Element = $searchRoot; Depth = 0; Parent = '' })
   $visited = 0
@@ -2717,6 +2717,22 @@ function Find-MenuItemByName(
         }
       }
     } catch {}
+  }
+  return $null
+}
+
+function Find-MenuItemByName(
+  [System.Windows.Automation.AutomationElement]$searchRoot,
+  [string]$name,
+  [int]$maxDepth,
+  [int]$maxElements
+) {
+  foreach ($walker in @(
+    [System.Windows.Automation.TreeWalker]::ControlViewWalker,
+    [System.Windows.Automation.TreeWalker]::RawViewWalker
+  )) {
+    $target = Find-MenuItemByNameWithWalker $searchRoot $name $maxDepth $maxElements $walker
+    if ($null -ne $target) { return $target }
   }
   return $null
 }
@@ -2750,16 +2766,29 @@ function Try-OpenMenu([System.Windows.Automation.AutomationElement]$element) {
 $currentRoot = $root
 $target = $null
 $openMethods = New-Object System.Collections.ArrayList
+function Find-MenuItemAcrossRoots(
+  [string]$name,
+  [int]$maxDepth,
+  [int]$maxElements,
+  [bool]$searchGlobal
+) {
+  $roots = New-Object System.Collections.Generic.List[object]
+  if ($null -ne $currentRoot) { [void]$roots.Add($currentRoot) }
+  if ($root -ne $currentRoot -and $null -ne $root) { [void]$roots.Add($root) }
+  if ($searchGlobal -and $null -ne $desktopRoot) { [void]$roots.Add($desktopRoot) }
+  foreach ($searchRoot in $roots) {
+    $candidate = Find-MenuItemByName $searchRoot $name $maxDepth $maxElements
+    if ($null -ne $candidate) { return $candidate }
+  }
+  return $null
+}
 for ($i = 0; $i -lt $menuPath.Count; $i++) {
   $segment = [string]$menuPath[$i]
-  $target = Find-MenuItemByName $currentRoot $segment $maxDepth $maxElements
-  if ($null -eq $target -and $currentRoot -ne $root) {
-    $target = Find-MenuItemByName $root $segment $maxDepth $maxElements
-  }
+  $target = Find-MenuItemAcrossRoots $segment $maxDepth $maxElements $searchGlobal
   if ($null -eq $target -and $searchGlobal -and $null -ne $desktopRoot) {
     $globalDepth = [Math]::Max($maxDepth + 4, $maxDepth)
     $globalElements = [Math]::Max($maxElements * 4, $maxElements)
-    $target = Find-MenuItemByName $desktopRoot $segment $globalDepth $globalElements
+    $target = Find-MenuItemAcrossRoots $segment $globalDepth $globalElements $true
   }
   if ($null -eq $target) { throw "Menu item not found: $segment path=$($menuPath -join '/')" }
   if ($i -lt ($menuPath.Count - 1)) {
@@ -3936,6 +3965,7 @@ def _focus_window_windows(hwnd: int) -> None:
     kernel32 = ctypes.windll.kernel32
     SW_RESTORE = 9
     user32.ShowWindow(hwnd, SW_RESTORE)
+    _raise_window_z_order_windows(hwnd)
     user32.BringWindowToTop(hwnd)
     if user32.SetForegroundWindow(hwnd) or int(user32.GetForegroundWindow()) == int(hwnd):
         return
@@ -3950,6 +3980,7 @@ def _focus_window_windows(hwnd: int) -> None:
             attached_threads.append(thread_id)
     try:
         user32.ShowWindow(hwnd, SW_RESTORE)
+        _raise_window_z_order_windows(hwnd)
         user32.BringWindowToTop(hwnd)
         user32.SetActiveWindow(hwnd)
         user32.SetFocus(hwnd)
@@ -3963,6 +3994,16 @@ def _focus_window_windows(hwnd: int) -> None:
             user32.AttachThreadInput(current_thread, thread_id, False)
     if int(user32.GetForegroundWindow()) != int(hwnd):
         raise DesktopBackendError(f"SetForegroundWindow 失败：window_id={hwnd}")
+
+
+def _raise_window_z_order_windows(hwnd: int) -> None:
+    user32 = ctypes.windll.user32
+    HWND_TOPMOST = ctypes.c_void_p(-1)
+    SWP_NOSIZE = 0x0001
+    SWP_NOMOVE = 0x0002
+    SWP_SHOWWINDOW = 0x0040
+    flags = SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW
+    user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
 
 
 def _control_window_windows(hwnd: int, operation: str) -> None:

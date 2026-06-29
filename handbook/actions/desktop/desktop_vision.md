@@ -115,7 +115,7 @@
 }
 ```
 
-也可以读取 `{{submit_text.target_candidates.best_candidate}}`。当 `strategy=visual_bounds`、`confidence` 可接受且 `screen_clickable=true` 时，优先用 `desktop_input target=candidate` 消费 `candidate_id`；也可以使用其中的 `bounds` 作为 `bounds_center` 兜底。
+也可以读取 `{{submit_text.target_candidates.best_candidate}}`。当 `strategy=visual_bounds`、`confidence` 可接受且 `screen_clickable=true` 时，优先用 `desktop_input target=candidate` 消费 `candidate_id`；紧接下一步可用 `candidate_source: "latest"`，跨多步复用时传显式 `target_candidates`。也可以使用其中的 `bounds` 作为 `bounds_center` 兜底。
 
 ## Payload
 
@@ -142,6 +142,8 @@
 - `artifacts.annotation_path`
 - `diagnostics`
 
+`coordinate_diagnostics.mapper` 包含 `source_bounds`、`display_virtual_bounds`、`screen_clickable` 和 `scale_applied`。当前 `scale_applied=false` 表示执行器没有把未校准 DPI/缩放直接乘到点击坐标。
+
 `locate_text` 额外字段：
 
 - `raw_text`
@@ -160,4 +162,4 @@
 - `source_path` 离线图片会返回 `screen_clickable=false`；这类结果只能作为证据，不能直接生成屏幕点击。
 - `target_candidates.best_candidate.strategy=visual_bounds` 时，候选包含 `candidate_id`、`bounds`、`confidence` 和 `screen_clickable`；`screen_clickable=true` 且置信度达标时可用 `desktop_input target=candidate`。置信度低、`screen_clickable=false` 或 `manual_confirm_recommended=true` 时先人工确认。
 - `threshold` 或 `min_confidence` 过低时必须人工确认。
-- 多显示器、DPI、Retina、RDP 缩放场景必须确认 `coordinate_profile`、`coordinate_space` 和 `coordinate_diagnostics`。
+- 多显示器、DPI、Retina、RDP 缩放场景必须确认 `coordinate_profile`、`coordinate_space` 和 `coordinate_diagnostics`；视觉命中转点击前仍要确认 `screen_clickable=true`、候选置信度和当前窗口状态。

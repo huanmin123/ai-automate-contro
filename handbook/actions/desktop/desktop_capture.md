@@ -90,6 +90,7 @@
 
 - 写入 `output/desktop-screenshots/<path>`。
 - payload 包含 `ok`、`path`、`width`、`height`、`target`、`source_bounds`、`coordinate_space`、`coordinate_profile`、`coordinate_diagnostics`。
+- `coordinate_diagnostics.mapper` 记录 `source_bounds`、`display_virtual_bounds`、`screen_clickable` 和 `scale_applied`；当前 `scale_applied=false` 表示执行器只使用已校准的 source offset，不把未校准缩放直接用于点击坐标。
 - `target=window` 时 payload 包含 `target_query` 和 `window`。
 - `target=element` 时 payload 包含 `target_query`、`locator`、`window` 和 `element`。
 
@@ -173,7 +174,7 @@
 
 `target_candidates` 常见策略：
 
-- `semantic_locator`: 控件树候选，优先用于 `desktop_element`；需要真实鼠标事件时可用 `desktop_input target=candidate`，传入同一个 `target_candidates` 和候选 `candidate_id`。
+- `semantic_locator`: 控件树候选，优先用于 `desktop_element`；需要真实鼠标事件时可用 `desktop_input target=candidate`，传入同一个 `target_candidates` 和候选 `candidate_id`，或在紧接下一步使用 `candidate_source: "latest"`。
 - `window_context`: 当前/选中窗口候选，用于后续 `desktop_window`、控件枚举或窗口截图。
 - `visual_evidence`: 只有截图证据，先继续用 `desktop_vision`、更窄窗口查询或 `manual_confirm`。
 
@@ -181,6 +182,7 @@
 
 - 运行前保存“当前电脑上有什么”的统一证据。
 - 让 AI 基于同一个 payload 选择 `desktop_window`、`desktop_element`、`desktop_input` 或 `desktop_vision`；有 `target_candidates.best_candidate` 时先读候选。
+- `target_candidates` 会保存为当前 desktop session 的最近候选；紧接下一步可用 `desktop_input target=candidate` + `candidate_source: "latest"` 消费。中间又运行新的 observe/vision 时改用显式 `target_candidates`。
 - 控件树可用时从 `elements.selector_hints` 写稳定 locator；控件树不可用时再改用截图或视觉定位。
 
 ## 场景

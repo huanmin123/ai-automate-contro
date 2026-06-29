@@ -23,6 +23,8 @@ def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[s
             _run_desktop_generation_case(simulation_root),
             _run_desktop_platform_contract_case(),
             _run_desktop_coordinate_quality_gate_case(simulation_root),
+            _run_desktop_message_scenario_quality_gate_case(simulation_root),
+            _run_desktop_game_scenario_quality_gate_case(simulation_root),
             _run_platform_desktop_intent_cases(),
             _run_file_dialog_generation_case(simulation_root),
             _run_ambiguous_confirmation_case(simulation_root),
@@ -451,6 +453,259 @@ def _run_desktop_coordinate_quality_gate_case(project_root: Path) -> dict[str, A
             "candidate_missing": candidate_missing,
             "candidate_covered": candidate_covered,
         },
+    )
+
+
+def _run_desktop_message_scenario_quality_gate_case(project_root: Path) -> dict[str, Any]:
+    user_request = "请控制微信桌面客户端给 Alice 发送消息 scheduled greeting，发送前确认联系人和消息内容。"
+    missing_plan = {
+        "name": "desktop message missing verification gate",
+        "automation_type": "desktop",
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {"action": "desktop_input", "desktop": "desktop", "type": "type_text", "value": "scheduled greeting"},
+            {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["enter"]},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    covered_plan = {
+        "name": "desktop message covered verification gate",
+        "automation_type": "desktop",
+        "variables": {"recipient": "Alice", "message": "scheduled greeting"},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "observe",
+                "title_contains": "Mock Chat",
+                "include_windows": True,
+                "include_elements": True,
+                "include_screenshot": True,
+                "path": "chat-observe.json",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "set_text",
+                "title_contains": "Mock Chat",
+                "automation_id": "MockChatSearchBox",
+                "value": "{{recipient}}",
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "element",
+                "title_contains": "Mock Chat",
+                "automation_id": "MockChatRecipientLabel",
+                "state": "exists",
+                "expected": "Recipient: {{recipient}}",
+                "mode": "equals",
+                "path": "recipient-confirmed.json",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "set_text",
+                "title_contains": "Mock Chat",
+                "automation_id": "MockChatMessageBox",
+                "value": "{{message}}",
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "element",
+                "title_contains": "Mock Chat",
+                "automation_id": "MockChatMessageBox",
+                "state": "exists",
+                "expected": "{{message}}",
+                "mode": "equals",
+                "path": "draft-confirmed.json",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": "Mock Chat",
+                "automation_id": "MockChatSendButton",
+            },
+            {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "after-send.png"},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    missing = _simulate_plan_generation(
+        project_root,
+        package_path="plans/desktop-message-missing-quality-plan",
+        automation_type="desktop",
+        name="desktop message missing quality plan",
+        plan_document=missing_plan,
+        quality_user_request=user_request,
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "只确认桌面可用，没有确认微信联系人、群或草稿内容。"
+        ),
+    )
+    covered = _simulate_plan_generation(
+        project_root,
+        package_path="plans/desktop-message-covered-quality-plan",
+        automation_type="desktop",
+        name="desktop message covered quality plan",
+        plan_document=covered_plan,
+        quality_user_request=user_request,
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "recipient=Alice target_chat confirmed；draft_text=scheduled greeting message confirmed；"
+            "发送前已有 desktop_assert element 验证联系人和草稿内容，发送后截图验证。"
+        ),
+    )
+    missing_codes = set(missing.get("quality_issue_codes", []))
+    covered_codes = set(covered.get("quality_issue_codes", []))
+    expected_codes = {
+        "missing_desktop_message_recipient_verification",
+        "missing_desktop_message_content_verification",
+        "missing_desktop_message_pre_send_evidence",
+    }
+    passed = (
+        missing.get("validation_ok") is True
+        and missing.get("quality_review_ok") is False
+        and expected_codes.issubset(missing_codes)
+        and covered.get("validation_ok") is True
+        and covered.get("quality_review_ok") is True
+        and expected_codes.isdisjoint(covered_codes)
+    )
+    return _self_check_result(
+        name="desktop_message_quality_gate_requires_target_and_draft_verification",
+        passed=passed,
+        detail={"missing": missing, "covered": covered},
+    )
+
+
+def _run_desktop_game_scenario_quality_gate_case(project_root: Path) -> dict[str, Any]:
+    user_request = "请控制我的游戏桌面窗口完成每日签到、副本刷图和奖励领取，必须避免无限循环。"
+    missing_plan = {
+        "name": "desktop game missing boundary gate",
+        "automation_type": "desktop",
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {
+                "action": "trigger",
+                "type": "interval",
+                "every_seconds": 1,
+                "allow_infinite": True,
+                "steps": [
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "invoke",
+                        "title_contains": "Mock Game",
+                        "automation_id": "MockGameSkillButton",
+                    }
+                ],
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    covered_plan = {
+        "name": "desktop game covered boundary gate",
+        "automation_type": "desktop",
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "observe",
+                "title_contains": "Mock Game",
+                "include_windows": True,
+                "include_elements": True,
+                "include_screenshot": True,
+                "path": "game-observe.json",
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "element",
+                "title_contains": "Mock Game",
+                "automation_id": "MockGameStatusLabel",
+                "state": "exists",
+                "expected": "Home",
+                "mode": "equals",
+                "path": "game-home.json",
+            },
+            {
+                "action": "trigger",
+                "type": "interval",
+                "every_seconds": 1,
+                "max_runs": 2,
+                "steps": [
+                    {
+                        "action": "desktop_element",
+                        "desktop": "desktop",
+                        "type": "invoke",
+                        "title_contains": "Mock Game",
+                        "automation_id": "MockGameRewardButton",
+                    },
+                    {
+                        "action": "desktop_assert",
+                        "desktop": "desktop",
+                        "type": "element",
+                        "title_contains": "Mock Game",
+                        "automation_id": "MockGameStatusLabel",
+                        "state": "exists",
+                        "expected": "Daily reward claimed",
+                        "mode": "equals",
+                        "path": "game-reward.json",
+                    },
+                ],
+            },
+            {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "game-finished.png"},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    missing = _simulate_plan_generation(
+        project_root,
+        package_path="plans/desktop-game-missing-quality-plan",
+        automation_type="desktop",
+        name="desktop game missing quality plan",
+        plan_document=missing_plan,
+        quality_user_request=user_request,
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "没有游戏状态截图、状态文本或完成断言。"
+        ),
+    )
+    covered = _simulate_plan_generation(
+        project_root,
+        package_path="plans/desktop-game-covered-quality-plan",
+        automation_type="desktop",
+        name="desktop game covered quality plan",
+        plan_document=covered_plan,
+        quality_user_request=user_request,
+        quality_evidence_summary=(
+            "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
+            "bounded_runtime max_runs=2；desktop_capture observe 和 desktop_assert element 证明状态，"
+            "完成后 desktop_capture screenshot 留证。"
+        ),
+    )
+    missing_codes = set(missing.get("quality_issue_codes", []))
+    covered_codes = set(covered.get("quality_issue_codes", []))
+    expected_codes = {
+        "missing_desktop_game_progress_evidence",
+        "missing_desktop_scenario_stop_budget",
+        "unsafe_desktop_game_infinite_loop",
+    }
+    passed = (
+        missing.get("validation_ok") is True
+        and missing.get("quality_review_ok") is False
+        and expected_codes.issubset(missing_codes)
+        and covered.get("validation_ok") is True
+        and covered.get("quality_review_ok") is True
+        and expected_codes.isdisjoint(covered_codes)
+    )
+    return _self_check_result(
+        name="desktop_game_quality_gate_requires_state_evidence_and_stop_boundary",
+        passed=passed,
+        detail={"missing": missing, "covered": covered},
     )
 
 

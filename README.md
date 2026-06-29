@@ -151,8 +151,9 @@ python .\cplan.py self-check runtime
 - `element`: 通过 `type` 执行 `click`、`fill`、`hover`、`select` 等元素操作
 - `wait` / `assert` / `extract`: 通过 `type` 区分等待、断言和提取类型
 - `capture`: 通过 `type` 保存截图、HTML、storage state
-- `read`: 通过 `type` 读取 `json`、`text`、`csv`
-- `write`: 通过 `type` 写出 `json`、`text`、`csv`、`variables`
+- `read`: 通过 `type` 读取 `json`、`text`、`csv`、`excel`
+- `write`: 通过 `type` 写出 `json`、`text`、`csv`、`excel`、`variables`
+- `table`: 通过 `type` 对行数组执行筛选、选列、排序和去重
 - `ai`: 通过 `type` 执行受控专项 AI 任务，例如连通性、文本抽取、分类、转换和摘要
 
 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download` 这类参数或生命周期明显不同的能力保持独立组件。

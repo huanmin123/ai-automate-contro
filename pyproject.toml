@@ -19,6 +19,7 @@ dependencies = [
   "typing_extensions>=4.15.0",
   "pydantic>=2.13.4",
   "Pillow>=11.0.0",
+  "openpyxl>=3.1.0,<4.0.0",
   "rich>=13.9.4,<16.0.0",
   "textual>=8.2.0,<9.0.0",
 ]
@@ -30,6 +31,44 @@ desktop = [
   "mss>=10.0.0,<11.0.0",
   "opencv-python>=4.10.0,<5.0.0",
   "pywinauto>=0.6.8,<1.0.0; sys_platform == 'win32'",
+]
+# Database drivers are optional by design. The default install must not pull
+# service-specific clients; users install only the drivers they actually need.
+db-postgresql = [
+  "psycopg[binary]>=3.2.0,<4.0.0",
+]
+db-mysql = [
+  "PyMySQL>=1.1.0,<2.0.0",
+]
+db-redis = [
+  "redis>=5.0.0,<7.0.0",
+]
+db-oracle = [
+  "oracledb>=4.0.0,<5.0.0",
+]
+db-duckdb = [
+  "duckdb>=1.1.0,<2.0.0",
+]
+database-local = [
+  "duckdb>=1.1.0,<2.0.0",
+]
+database-sql = [
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "PyMySQL>=1.1.0,<2.0.0",
+  "oracledb>=4.0.0,<5.0.0",
+  "duckdb>=1.1.0,<2.0.0",
+]
+database-basic = [
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "PyMySQL>=1.1.0,<2.0.0",
+  "redis>=5.0.0,<7.0.0",
+]
+database-all = [
+  "psycopg[binary]>=3.2.0,<4.0.0",
+  "PyMySQL>=1.1.0,<2.0.0",
+  "redis>=5.0.0,<7.0.0",
+  "oracledb>=4.0.0,<5.0.0",
+  "duckdb>=1.1.0,<2.0.0",
 ]
 package = [
   "pyinstaller>=6.20.0,<7.0.0",

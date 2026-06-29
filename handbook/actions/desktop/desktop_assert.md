@@ -84,6 +84,9 @@
   "state": "exists",
   "expected": "Saved",
   "mode": "contains",
+  "expected_count": 1,
+  "property": "visible",
+  "property_expected": true,
   "path": "status-assertion.json",
   "save_as": "status_assertion"
 }
@@ -98,15 +101,22 @@
 - `expected`: 可选，控件文本期望值。
 - `mode`: `equals`、`contains`、`not_contains`，默认 `equals`。
 - `text_source`: `auto`、`text`、`value`、`name`，默认 `auto`。
+- `expected_count`: 可选，断言 Element Locator 命中的候选数量等于该值。
+- `min_count` / `max_count`: 可选，断言候选数量范围。不能和 `expected_count` 同时使用。
+- `property`: 可选，断言命中控件的属性，例如 `enabled`、`visible`、`focused`、`name`、`text`、`value`、`automation_id`、`control_type`、`role`、`class_name`、`bounds`。
+- `property_expected`: 使用 `property` 时必填，期望属性值。
+- `property_mode`: `equals`、`contains`、`not_contains`，默认 `equals`。
 - `path`: 可选，写入 `output/desktop-elements/`。
 - `timeout_ms`、`interval_ms`、`max_depth`、`max_elements`: 控件定位参数。
 
 行为：
 
 - 先用 Window Query 命中窗口，再用 Element Locator 命中控件。
-- `state=not_exists` 成功时 `element` 为 `null`，不能同时使用 `expected`。
+- `state=not_exists` 成功时 `element` 为 `null`，不能同时使用 `expected` 或属性断言。
 - 带 `expected` 时，断言会读取命中控件的文本并按 `mode` 比较。
-- 成功 payload 包含 `element`、`matches`、`candidates_count`、`state` 和可选 `text_assertion`。
+- 带 `expected_count`、`min_count` 或 `max_count` 时，断言会检查 `matches` / `candidates_count`。
+- 带 `property` 时，断言会读取命中控件的对应字段并按 `property_mode` 比较。
+- 成功 payload 包含 `element`、`matches`、`candidates_count`、`state`、`text_assertion`、`count_assertion` 和 `property_assertion`。
 
 `desktop_assert type=element` 是桌面识别和验证证据。
 

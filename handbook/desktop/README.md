@@ -41,6 +41,8 @@ AI 写 desktop plan 时优先读取本手册的 action 文档。
 - `read`
 - `write`
 - `http`
+- `sql`
+- `redis`
 - `command`
 - `print`
 - `sleep`

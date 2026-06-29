@@ -1,0 +1,20 @@
+{
+  "name": "redis-basic",
+  "automation_type": "browser",
+  "tags": ["database", "redis"],
+  "steps": [
+    {
+      "action": "redis",
+      "type": "command",
+      "connection": "redis",
+      "command": "PING",
+      "result_path": "redis-ping.json",
+      "save_as": "redis_ping"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "redis-basic-variables.json"
+    }
+  ]
+}

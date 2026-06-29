@@ -1,0 +1,20 @@
+{
+  "name": "mysql-basic",
+  "automation_type": "browser",
+  "tags": ["database", "sql", "mysql"],
+  "steps": [
+    {
+      "action": "sql",
+      "type": "scalar",
+      "connection": "mysql",
+      "sql": "select 1 as ok",
+      "result_path": "mysql-smoke.json",
+      "save_as": "mysql_smoke"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "mysql-basic-variables.json"
+    }
+  ]
+}

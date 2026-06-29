@@ -100,9 +100,12 @@ def self_check_cli_boundaries() -> dict[str, Any]:
                 "workspace-clean",
                 "release-matrix",
                 "browser-components",
+                "database-components",
                 "desktop-env",
                 "desktop-components",
                 "desktop-examples",
+                "desktop-scenarios",
+                "desktop-scenario-apps",
                 "desktop-real-app",
             }.issubset(
                 cplan_self_check_commands

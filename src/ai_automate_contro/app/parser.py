@@ -282,7 +282,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     release_matrix_parser.add_argument(
         "--require-desktop-input",
         action="store_true",
-        help="运行 desktop-env 时要求 native backend、Windows PowerShell 7 和 pyautogui/pyperclip 桌面输入依赖可用。",
+        help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7、pyautogui/pyperclip 和真实桌面输入回归通过。",
     )
     release_matrix_parser.add_argument(
         "--require-desktop-vision",
@@ -299,6 +299,11 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7 和 Tesseract 简体中文 OCR 回归真实通过。",
     )
+    release_matrix_parser.add_argument(
+        "--require-desktop-wpf",
+        action="store_true",
+        help="运行 desktop-components 时要求 Windows WPF 复杂控件夹具真实通过；不随 --strict-desktop 自动启用。",
+    )
     release_matrix_parser.add_argument("--list", action="store_true", help="只列出矩阵步骤，不执行。")
     release_matrix_parser.add_argument(
         "--only",
@@ -308,6 +313,31 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     release_matrix_parser.add_argument("--fail-fast", action="store_true", help="任一步骤失败后立即停止后续矩阵。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
+    database_components_parser = self_check_subparsers.add_parser(
+        "database-components",
+        help="运行数据库 common action 组件自检；默认只跑 SQLite，可显式加入真实服务。",
+    )
+    database_components_parser.add_argument(
+        "--include-real-db",
+        action="store_true",
+        help="同时尝试 MySQL、PostgreSQL、Redis、Oracle 和 Elasticsearch 真实服务回归。",
+    )
+    database_components_parser.add_argument(
+        "--allow-writes",
+        action="store_true",
+        help="允许真实服务回归执行临时写入，并在成功或失败后尽力清理。",
+    )
+    database_components_parser.add_argument(
+        "--database-config",
+        default="",
+        help="真实服务回归配置 JSON；默认尝试 .\\local\\database-services.json。",
+    )
+    database_components_parser.add_argument(
+        "--only",
+        action="append",
+        default=[],
+        help="只运行指定用例；可重复传入，也可用逗号分隔。可选 sqlite-basic、sqlite-features、mysql、postgresql、redis、oracle、elasticsearch。",
+    )
     desktop_env_parser = self_check_subparsers.add_parser(
         "desktop-env",
         help="检查桌面控制依赖、OCR、视觉、输入和 native 后端能力。",
@@ -324,6 +354,16 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     desktop_components_parser = self_check_subparsers.add_parser(
         "desktop-components",
         help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。",
+    )
+    desktop_components_parser.add_argument(
+        "--require-input",
+        action="store_true",
+        help="要求 pyautogui/pyperclip 和 WinForms 鼠标、候选点击、滚动、拖拽、剪贴板输入回归真实通过。",
+    )
+    desktop_components_parser.add_argument(
+        "--require-wpf",
+        action="store_true",
+        help="要求 Windows WPF 复杂控件夹具真实通过；缺 WPF runtime 或控件 pattern 不可用时失败。",
     )
     desktop_components_parser.add_argument(
         "--require-vision",
@@ -348,6 +388,14 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--require-vision",
         action="store_true",
         help="要求静态离线视觉示例真实运行通过；缺 OpenCV/Pillow 时失败。",
+    )
+    self_check_subparsers.add_parser(
+        "desktop-scenarios",
+        help="运行桌面场景任务 mock 回归，覆盖游戏日常、聊天消息和定时消息的状态机、防卡死和恢复策略。",
+    )
+    self_check_subparsers.add_parser(
+        "desktop-scenario-apps",
+        help="运行受控真实窗口场景回归，用轻量窗口夹具覆盖聊天发送和游戏日常流程。",
     )
     self_check_subparsers.add_parser(
         "desktop-real-app",

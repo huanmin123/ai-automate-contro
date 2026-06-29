@@ -9,7 +9,7 @@
 ## 必填字段
 
 - `action`: 固定写成 `read`
-- `type`: 读取类型，支持 `json`、`text`、`csv`、`storage_state`
+- `type`: 读取类型，支持 `json`、`text`、`csv`、`excel`、`storage_state`
 - `path`: 输入文件路径
 - `save_as`: 保存到变量池的变量名
 
@@ -20,11 +20,18 @@
 | `json` | JSON 对象、数组或值 |
 | `text` | 字符串 |
 | `csv` | 字典数组 |
+| `excel` | 字典数组、二维数组或单元格对象 |
 | `storage_state` | storage state 文件的绝对路径字符串 |
 
 ## 可选字段
 
 - `split_lines`: 仅 `type: text` 有效，设置为 `true` 时按行拆分，并过滤空行。
+- `sheet`: 仅 `type: excel` 有效，工作表名称或从 0 开始的索引，默认第一个工作表。
+- `range`: 仅 `type: excel` 有效，A1 范围，例如 `A1:F100`。
+- `header_row`: 仅 `type: excel` 且 `mode=records` 有效，表头所在行号。
+- `headers`: 仅 `type: excel` 且 `mode=records` 有效，自定义表头数组。
+- `mode`: 仅 `type: excel` 有效，`records`、`matrix`、`cells`，默认 `records`。
+- `save_meta_as`: 仅 `type: excel` 有效，额外保存工作簿、sheet、range、表头和行列数元数据。
 
 ## 示例
 
@@ -47,6 +54,33 @@
   "type": "csv",
   "path": "output/csv/accounts.csv",
   "save_as": "rows"
+}
+```
+
+读取 Excel 工作表：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/人员名单.xlsx",
+  "sheet": "名单",
+  "save_as": "employees",
+  "save_meta_as": "employees_meta"
+}
+```
+
+读取 Excel 区域为二维数组：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/预算.xlsx",
+  "sheet": "汇总",
+  "range": "B2:F20",
+  "mode": "matrix",
+  "save_as": "budget_matrix"
 }
 ```
 

@@ -15,6 +15,7 @@ class DesktopSession:
     permissions: dict[str, Any] = field(default_factory=dict)
     capability_matrix: dict[str, Any] = field(default_factory=dict)
     coordinate_profile: dict[str, Any] = field(default_factory=dict)
+    target_candidates: dict[str, Any] = field(default_factory=dict)
     current_window: dict[str, Any] | None = None
 
     def close(self) -> None:

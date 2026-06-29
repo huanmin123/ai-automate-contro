@@ -306,6 +306,7 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 require_desktop_vision=strict_desktop or bool(args.require_desktop_vision),
                 require_desktop_ocr=strict_desktop or bool(args.require_desktop_ocr),
                 require_desktop_ocr_zh=strict_desktop or bool(args.require_desktop_ocr_zh),
+                require_desktop_wpf=bool(args.require_desktop_wpf),
                 only=list(args.only or []),
                 list_steps=bool(args.list),
                 fail_fast=bool(args.fail_fast),
@@ -317,6 +318,18 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             from ai_automate_contro.app.browser_component_check import self_check_browser_components
 
             result = self_check_browser_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "database-components":
+            from ai_automate_contro.app.database_component_check import self_check_database_components
+
+            result = self_check_database_components(
+                project_root,
+                include_real_db=bool(args.include_real_db),
+                allow_writes=bool(args.allow_writes),
+                database_config=args.database_config,
+                only=list(args.only or []),
+            )
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "desktop-env":
@@ -337,6 +350,8 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
 
             result = self_check_desktop_components(
                 project_root,
+                require_input=bool(args.require_input),
+                require_wpf=bool(args.require_wpf),
                 require_vision=bool(args.require_vision),
                 require_ocr=bool(args.require_ocr),
                 require_ocr_zh=bool(args.require_ocr_zh),
@@ -350,6 +365,18 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 project_root,
                 require_vision=bool(args.require_vision),
             )
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-scenarios":
+            from ai_automate_contro.app.desktop_scenarios_check import self_check_desktop_scenarios
+
+            result = self_check_desktop_scenarios(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
+        if args.self_check_command == "desktop-scenario-apps":
+            from ai_automate_contro.app.desktop_scenario_apps_check import self_check_desktop_scenario_apps
+
+            result = self_check_desktop_scenario_apps(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
         if args.self_check_command == "desktop-real-app":

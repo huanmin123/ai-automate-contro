@@ -22,6 +22,7 @@ def self_check_release_matrix(
     require_desktop_vision: bool = False,
     require_desktop_ocr: bool = False,
     require_desktop_ocr_zh: bool = False,
+    require_desktop_wpf: bool = False,
     only: list[str] | None = None,
     list_steps: bool = False,
     fail_fast: bool = False,
@@ -39,6 +40,7 @@ def self_check_release_matrix(
         require_desktop_vision=require_desktop_vision,
         require_desktop_ocr=require_desktop_ocr,
         require_desktop_ocr_zh=require_desktop_ocr_zh,
+        require_desktop_wpf=require_desktop_wpf,
     )
     if include_real_ai:
         commands.extend(
@@ -64,6 +66,7 @@ def self_check_release_matrix(
             "require_desktop_vision": require_desktop_vision,
             "require_desktop_ocr": require_desktop_ocr,
             "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
             "unknown_steps": unknown_steps,
@@ -81,6 +84,7 @@ def self_check_release_matrix(
             "require_desktop_vision": require_desktop_vision,
             "require_desktop_ocr": require_desktop_ocr,
             "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
             "selected_steps": [_step_summary(item) for item in selected_commands],
@@ -97,6 +101,7 @@ def self_check_release_matrix(
             "require_desktop_vision": require_desktop_vision,
             "require_desktop_ocr": require_desktop_ocr,
             "require_desktop_ocr_zh": require_desktop_ocr_zh,
+            "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
             "selected_steps": [_step_summary(item) for item in selected_commands],
@@ -129,6 +134,7 @@ def self_check_release_matrix(
         "require_desktop_vision": require_desktop_vision,
         "require_desktop_ocr": require_desktop_ocr,
         "require_desktop_ocr_zh": require_desktop_ocr_zh,
+        "require_desktop_wpf": require_desktop_wpf,
         "fail_fast": fail_fast,
         "repeat": repeat_count,
         "available_steps": available_steps,
@@ -144,6 +150,7 @@ def _deterministic_commands(
     require_desktop_vision: bool = False,
     require_desktop_ocr: bool = False,
     require_desktop_ocr_zh: bool = False,
+    require_desktop_wpf: bool = False,
 ) -> list[dict[str, Any]]:
     desktop_env_command = [_python(), "cplan.py", "self-check", "desktop-env"]
     if require_desktop_input:
@@ -155,12 +162,16 @@ def _deterministic_commands(
     if require_desktop_ocr_zh:
         desktop_env_command.append("--require-ocr-zh")
     desktop_components_command = [_python(), "cplan.py", "self-check", "desktop-components"]
+    if require_desktop_input:
+        desktop_components_command.append("--require-input")
     if require_desktop_vision:
         desktop_components_command.append("--require-vision")
     if require_desktop_ocr:
         desktop_components_command.append("--require-ocr")
     if require_desktop_ocr_zh:
         desktop_components_command.append("--require-ocr-zh")
+    if require_desktop_wpf:
+        desktop_components_command.append("--require-wpf")
     desktop_examples_command = [_python(), "cplan.py", "self-check", "desktop-examples"]
     if require_desktop_vision:
         desktop_examples_command.append("--require-vision")
@@ -169,11 +180,14 @@ def _deterministic_commands(
         {"name": "tool_check", "command": [_python(), "main.py", "tool", "check"]},
         {"name": "handbook", "command": [_python(), "cplan.py", "self-check", "handbook"]},
         {"name": "workspace_clean", "command": [_python(), "cplan.py", "self-check", "workspace-clean"]},
+        {"name": "database_components", "command": [_python(), "cplan.py", "self-check", "database-components"]},
         {"name": "ai_tools", "command": [_python(), "main.py", "self-check", "ai-tools"]},
         {"name": "ai_terminal", "command": [_python(), "main.py", "self-check", "ai-terminal"]},
         {"name": "ai_plan_generation", "command": [_python(), "main.py", "self-check", "ai-plan-generation"]},
         {"name": "desktop_env", "command": desktop_env_command},
         {"name": "desktop_examples", "command": desktop_examples_command},
+        {"name": "desktop_scenarios", "command": [_python(), "cplan.py", "self-check", "desktop-scenarios"]},
+        {"name": "desktop_scenario_apps", "command": [_python(), "cplan.py", "self-check", "desktop-scenario-apps"]},
         {"name": "desktop_components", "command": desktop_components_command},
         {"name": "desktop_real_app", "command": [_python(), "cplan.py", "self-check", "desktop-real-app"]},
         {"name": "ai_desktop_loop", "command": [_python(), "main.py", "self-check", "ai-desktop-loop"]},

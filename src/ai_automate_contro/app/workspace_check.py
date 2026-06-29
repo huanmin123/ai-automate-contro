@@ -16,6 +16,7 @@ REQUIRED_IGNORE_PATTERNS = {
     ".env",
     ".env.*",
     "config/",
+    "local/",
     "*.local.json",
     "*.secret.json",
     "*.secrets.json",
@@ -36,6 +37,7 @@ TRACKED_LOCAL_PATTERNS = (
     ".env",
     ".env.*",
     "config/*",
+    "local/*",
     "*.local.json",
     "*.secret.json",
     "*.secrets.json",
@@ -51,6 +53,7 @@ IGNORE_PROBE_PATHS = (
     "__pycache__/probe.pyc",
     ".env",
     "config/local.json",
+    "local/database-services.json",
 )
 
 

@@ -1,0 +1,20 @@
+{
+  "name": "postgresql-basic",
+  "automation_type": "browser",
+  "tags": ["database", "sql", "postgresql"],
+  "steps": [
+    {
+      "action": "sql",
+      "type": "scalar",
+      "connection": "postgresql",
+      "sql": "select 1 as ok",
+      "result_path": "postgresql-smoke.json",
+      "save_as": "postgresql_smoke"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "postgresql-basic-variables.json"
+    }
+  ]
+}

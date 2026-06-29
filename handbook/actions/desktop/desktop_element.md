@@ -571,8 +571,10 @@
 
 - 控件树可能因 App 框架、自绘 UI、权限、完整性级别或系统隐私授权而缺失。
 - `element_id`/`runtime_id` 不是跨运行稳定句柄。长期 plan 应优先使用 `automation_id`、`name`、`text`、`control_type`、`role` 等语义定位。
+- plan 应优先表达语义操作，例如点击按钮、设置文本、选择项、选择表格单元格、展开树节点、执行菜单项或滚动容器；不要为普通焦点抢占、窗口遮挡、最小化恢复或短暂前台失败手写重试循环。
+- `click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 这类会改变桌面状态的动作会在执行前自动激活目标窗口，payload 的 `interaction_guard` 会记录 `restore/focus`、前台窗口验证结果和有限复查次数。
 - `set_text` fallback 会短暂改变焦点和剪贴板；需要强一致验证时，写入后继续做 `desktop_assert type=element` 或 `get_text`。
-- `select/invoke` fallback 仍受遮挡、窗口位置、多显示器和权限影响；可先用 `desktop_window focus`。
+- `select/invoke` fallback 仍受窗口位置、多显示器和权限影响；运行时会先激活目标窗口，但自绘 UI 或系统禁止抢焦点时会失败并返回诊断。
 - 大表格、大树、虚拟滚动表格或懒加载列表可能只返回当前已加载或可见内容；需要翻页或滚动时，先保留截图/表格/树读取证据，再用滚动或业务控件推进。
 - 菜单和滚动容器容易受焦点、短生命周期弹出层、窗口遮挡和自绘 UI 影响；必要时配合 `desktop_wait`、`desktop_capture`、`desktop_vision` 或 `manual_confirm`。
 - 浏览器网页控件继续使用浏览器线 `element`。不要在 desktop plan 里写 Playwright selector。

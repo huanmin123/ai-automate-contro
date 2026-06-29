@@ -1,0 +1,69 @@
+{
+  "description": "数据库真实服务回归配置样例。复制到 local/database-services.json 后按本机环境填写；local/ 默认忽略，不作为常规提交内容。",
+  "allow_writes": false,
+  "connections": {
+    "mysql": {
+      "type": "mysql",
+      "host": {
+        "env": "AIC_DB_MYSQL_HOST"
+      },
+      "port": 3306,
+      "user": {
+        "env": "AIC_DB_MYSQL_USER"
+      },
+      "password": {
+        "env": "AIC_DB_MYSQL_PASSWORD"
+      },
+      "database": {
+        "env": "AIC_DB_MYSQL_DATABASE"
+      }
+    },
+    "postgresql": {
+      "type": "postgresql",
+      "dsn": {
+        "env": "AIC_DB_POSTGRES_DSN"
+      }
+    },
+    "redis": {
+      "type": "redis",
+      "url": {
+        "env": "AIC_DB_REDIS_URL"
+      }
+    },
+    "oracle": {
+      "type": "oracle",
+      "user": {
+        "env": "AIC_DB_ORACLE_USER"
+      },
+      "password": {
+        "env": "AIC_DB_ORACLE_PASSWORD"
+      },
+      "dsn": {
+        "env": "AIC_DB_ORACLE_DSN"
+      }
+    }
+  },
+  "elasticsearch": {
+    "url": {
+      "env": "AIC_DB_ELASTICSEARCH_URL"
+    }
+  },
+  "services": {
+    "mysql": {
+      "connection": "mysql",
+      "allow_writes": false
+    },
+    "postgresql": {
+      "connection": "postgresql",
+      "allow_writes": false
+    },
+    "redis": {
+      "connection": "redis",
+      "allow_writes": false
+    },
+    "oracle": {
+      "connection": "oracle",
+      "allow_writes": false
+    }
+  }
+}

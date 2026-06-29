@@ -25,6 +25,7 @@ out/
 !.env.example
 .keygen/
 config/
+local/
 *.local.json
 *.secret.json
 *.secrets.json

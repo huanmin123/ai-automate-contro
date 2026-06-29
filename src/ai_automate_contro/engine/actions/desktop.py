@@ -20,10 +20,9 @@ from ai_automate_contro.engine.desktop.backends.capabilities import (
     tesseract_common_options,
 )
 from ai_automate_contro.engine.desktop.coordinates import (
+    CoordinateMapper,
     build_coordinate_diagnostics,
     build_coordinate_profile,
-    local_to_screen_bounds,
-    local_to_screen_point,
     normalize_bounds,
 )
 from ai_automate_contro.engine.desktop.observation import build_desktop_observation
@@ -80,6 +79,8 @@ DESKTOP_ELEMENT_MESSAGES = {
     "scroll_element": "desktop element scrolled",
 }
 DESKTOP_INPUT_COORDINATE_TYPES = {"click", "double_click", "right_click", "scroll", "drag"}
+DESKTOP_INTERACTION_GUARD_ATTEMPTS = 3
+DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS = 0.08
 
 
 def open_desktop(executor: Any, step: dict[str, Any]) -> None:
@@ -376,6 +377,24 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     max_elements = int(step.get("max_elements", 200))
     timeout_ms = int(step.get("timeout_ms", 1_000))
     interval_ms = int(step.get("interval_ms", 100))
+    interaction_guard: dict[str, Any] = {}
+    if element_type in {
+        "click",
+        "set_text",
+        "invoke",
+        "select",
+        "select_cell",
+        "expand_tree",
+        "collapse_tree",
+        "select_tree",
+        "invoke_menu",
+        "scroll_element",
+    }:
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label=f"desktop_element.{element_type}",
+            window_query=window_query,
+        )
 
     if element_type == "list":
         payload = session.backend.list_elements(
@@ -545,6 +564,8 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
         "query": window_query,
         "elapsed_ms": _elapsed_ms(started),
     }
+    if interaction_guard:
+        payload["interaction_guard"] = interaction_guard
     window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
     if window:
         session.current_window = dict(window)
@@ -598,16 +619,40 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
     annotation_target: dict[str, Any] = {}
     annotation_connect = False
     if input_type == "type_text":
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.type_text",
+            step=step,
+        )
         payload = session.backend.type_text(
             str(step["value"]),
             method=str(step.get("method", "auto")),
             delay_ms=int(step.get("delay_ms", 0)),
             preserve_clipboard=bool(step.get("preserve_clipboard", True)),
         )
+        payload["interaction_guard"] = interaction_guard
     elif input_type == "hotkey":
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.hotkey",
+            step=step,
+        )
         payload = session.backend.hotkey([str(key) for key in step["keys"]])
+        payload["interaction_guard"] = interaction_guard
     elif input_type == "click":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="click")
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.click",
+            step=step,
+            resolution=resolution,
+        )
+        window_safety_check = _ensure_input_inside_interaction_window(
+            action_label="desktop_input.click",
+            resolution=resolution,
+            interaction_guard=interaction_guard,
+            allow_outside_window=_bool_flag(step.get("allow_outside_window", False)),
+        )
         payload = session.backend.click(
             x=x,
             y=y,
@@ -615,6 +660,8 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             clicks=int(step.get("clicks", 1)),
             interval_ms=int(step.get("interval_ms", 0)),
         )
+        payload["interaction_guard"] = interaction_guard
+        payload["window_safety_check"] = window_safety_check
         if target:
             payload["target"] = target
         payload["input_resolution"] = resolution
@@ -624,11 +671,25 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "double_click":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="double_click")
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.double_click",
+            step=step,
+            resolution=resolution,
+        )
+        window_safety_check = _ensure_input_inside_interaction_window(
+            action_label="desktop_input.double_click",
+            resolution=resolution,
+            interaction_guard=interaction_guard,
+            allow_outside_window=_bool_flag(step.get("allow_outside_window", False)),
+        )
         payload = session.backend.double_click(
             x=x,
             y=y,
             interval_ms=int(step.get("interval_ms", 0)),
         )
+        payload["interaction_guard"] = interaction_guard
+        payload["window_safety_check"] = window_safety_check
         if target:
             payload["target"] = target
         payload["input_resolution"] = resolution
@@ -638,7 +699,21 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "right_click":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="right_click")
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.right_click",
+            step=step,
+            resolution=resolution,
+        )
+        window_safety_check = _ensure_input_inside_interaction_window(
+            action_label="desktop_input.right_click",
+            resolution=resolution,
+            interaction_guard=interaction_guard,
+            allow_outside_window=_bool_flag(step.get("allow_outside_window", False)),
+        )
         payload = session.backend.right_click(x=x, y=y)
+        payload["interaction_guard"] = interaction_guard
+        payload["window_safety_check"] = window_safety_check
         if target:
             payload["target"] = target
         payload["input_resolution"] = resolution
@@ -648,7 +723,21 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "scroll":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="scroll")
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.scroll",
+            step=step,
+            resolution=resolution,
+        )
+        window_safety_check = _ensure_input_inside_interaction_window(
+            action_label="desktop_input.scroll",
+            resolution=resolution,
+            interaction_guard=interaction_guard,
+            allow_outside_window=_bool_flag(step.get("allow_outside_window", False)),
+        )
         payload = session.backend.scroll(x=x, y=y, amount=int(step["amount"]))
+        payload["interaction_guard"] = interaction_guard
+        payload["window_safety_check"] = window_safety_check
         if target:
             payload["target"] = target
         payload["input_resolution"] = resolution
@@ -658,6 +747,19 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "drag":
         start_x, start_y, end_x, end_y, target, resolution = _resolve_drag_coordinates(session, step)
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_input.drag",
+            step=step,
+            resolution=resolution,
+        )
+        window_safety_check = _ensure_input_inside_interaction_window(
+            action_label="desktop_input.drag",
+            resolution=resolution,
+            interaction_guard=interaction_guard,
+            allow_outside_window=_bool_flag(step.get("allow_outside_window", False)),
+            include_end_point=True,
+        )
         payload = session.backend.drag(
             start_x=start_x,
             start_y=start_y,
@@ -666,6 +768,8 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             button=str(step.get("button", "left")),
             duration_ms=int(step.get("duration_ms", 0)),
         )
+        payload["interaction_guard"] = interaction_guard
+        payload["window_safety_check"] = window_safety_check
         if target:
             payload["target"] = target
         payload["input_resolution"] = resolution
@@ -772,6 +876,12 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
     elif capture_type == "observe":
         output_path = executor._resolve_output_path(step["path"], category="desktop-state")
         screenshot_path = _desktop_observe_screenshot_path(output_path) if bool(step.get("include_screenshot", False)) else None
+        interaction_guard = _capture_interaction_guard(
+            session,
+            action_label="desktop_capture.observe",
+            step=step,
+            enabled=bool(step.get("include_screenshot", False)),
+        )
         payload = build_desktop_observation(
             session.backend,
             desktop=session.name,
@@ -798,6 +908,7 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
         selected_window = payload.get("selected_window") if isinstance(payload.get("selected_window"), dict) else {}
         if selected_window:
             session.current_window = dict(selected_window)
+        _store_session_target_candidates(session, payload)
         payload = {
             **payload,
             "action": "desktop_capture",
@@ -805,6 +916,8 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
             "path": str(output_path),
             "elapsed_ms": _elapsed_ms(started),
         }
+        if interaction_guard:
+            payload["interaction_guard"] = interaction_guard
         _write_json(output_path, payload)
     else:
         raise ValueError(f"不支持的 desktop_capture.type：{capture_type}")
@@ -851,6 +964,12 @@ def _resolve_capture_region(
         if explicit_region:
             raise ValueError("desktop_capture.screenshot target=window 不能同时使用 region。")
         query = _window_query(step)
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_capture.screenshot target=window",
+            window_query=query,
+            strict=False,
+        )
         payload = session.backend.wait_window(
             query,
             state="exists",
@@ -862,12 +981,18 @@ def _resolve_capture_region(
             raise ValueError(f"desktop_capture.screenshot target=window 未找到窗口：{query}")
         session.current_window = dict(window)
         region = _region_from_bounds(window.get("bounds"), action_label="desktop_capture.screenshot target=window")
-        return "window", region, {"target_query": query, "window": window, "locator": {}}
+        return "window", region, {"target_query": query, "window": window, "locator": {}, "interaction_guard": interaction_guard}
     if raw_target == "element":
         if explicit_region:
             raise ValueError("desktop_capture.screenshot target=element 不能同时使用 region。")
         query = _window_query(step)
         locator = _element_locator(step)
+        interaction_guard = _ensure_interaction_window_active(
+            session,
+            action_label="desktop_capture.screenshot target=element",
+            window_query=query,
+            strict=False,
+        )
         payload = session.backend.find_element(
             query,
             locator,
@@ -884,8 +1009,23 @@ def _resolve_capture_region(
         if not element:
             raise ValueError(f"desktop_capture.screenshot target=element 未找到控件：locator={locator}")
         region = _region_from_bounds(element.get("bounds"), action_label="desktop_capture.screenshot target=element")
-        return "element", region, {"target_query": query, "locator": locator, "window": window, "element": element}
+        return "element", region, {"target_query": query, "locator": locator, "window": window, "element": element, "interaction_guard": interaction_guard}
     raise ValueError(f"不支持的 desktop_capture.screenshot target：{raw_target}")
+
+
+def _capture_interaction_guard(
+    session: DesktopSession,
+    *,
+    action_label: str,
+    step: dict[str, Any],
+    enabled: bool,
+) -> dict[str, Any]:
+    if not enabled:
+        return {}
+    query = _optional_window_query(step)
+    if not _has_window_query(query):
+        return {}
+    return _ensure_interaction_window_active(session, action_label=action_label, window_query=query, strict=False)
 
 
 def _region_from_bounds(bounds: Any, *, action_label: str) -> dict[str, int]:
@@ -1006,6 +1146,7 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
 
     last_payload["path"] = str(output_path)
     last_payload["relative_path"] = _output_relative_path(output_path)
+    _store_session_target_candidates(session, last_payload)
     _write_json(output_path, last_payload)
     if "save_as" in step:
         executor.state.variables[str(step["save_as"])] = last_payload
@@ -1135,6 +1276,8 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
         actual_text = _element_text(element, source=text_source) if isinstance(element, dict) else ""
         expected_text = step.get("expected")
         text_assertion: dict[str, Any] = {}
+        count_assertion = _assert_element_count(payload, step)
+        property_assertion: dict[str, Any] = {}
         if expected_text is not None:
             mode = str(step.get("mode", "equals"))
             _assert_text(actual_text, str(expected_text), mode=mode)
@@ -1144,6 +1287,8 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
                 "mode": mode,
                 "text_source": text_source,
             }
+        if "property" in step:
+            property_assertion = _assert_element_property(element, step)
         payload = {
             **payload,
             "ok": True,
@@ -1153,6 +1298,8 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
             "locator": locator,
             "state": expected_state,
             "text_assertion": text_assertion,
+            "count_assertion": count_assertion,
+            "property_assertion": property_assertion,
             "elapsed_ms": _elapsed_ms(started),
         }
         window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
@@ -1949,13 +2096,16 @@ def _desktop_vision_template_matches(
 def _desktop_vision_global_matches(
     local_matches: list[dict[str, Any]],
     source_bounds: dict[str, int],
+    *,
+    coordinate_profile: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
+    mapper = CoordinateMapper.from_profile(coordinate_profile or build_coordinate_profile(source_bounds=source_bounds))
     matches: list[dict[str, Any]] = []
     for match in local_matches:
         local_bounds = match.get("bounds") if isinstance(match.get("bounds"), dict) else {}
         local_point = match.get("point") if isinstance(match.get("point"), dict) else {}
-        bounds = local_to_screen_bounds(local_bounds, source_bounds=source_bounds)
-        point = local_to_screen_point(local_point, source_bounds=source_bounds)
+        bounds = mapper.local_to_screen_bounds(local_bounds)
+        point = mapper.local_to_screen_point(local_point)
         matches.append({**match, "local_bounds": dict(local_bounds), "local_point": dict(local_point), "bounds": bounds, "point": point})
     return matches
 
@@ -2087,6 +2237,304 @@ def _string_list(value: Any, *, field: str) -> list[str]:
     return result
 
 
+def _ensure_interaction_window_active(
+    session: DesktopSession,
+    *,
+    action_label: str,
+    step: dict[str, Any] | None = None,
+    window_query: dict[str, Any] | None = None,
+    window: dict[str, Any] | None = None,
+    resolution: dict[str, Any] | None = None,
+    strict: bool = True,
+) -> dict[str, Any]:
+    query = _interaction_window_query(
+        session,
+        step=step,
+        window_query=window_query,
+        window=window,
+        resolution=resolution,
+    )
+    if not _has_window_query(query):
+        raise ValueError(
+            f"{action_label} 发送真实桌面输入前无法确定目标窗口。"
+            "请先执行 desktop_window focus、desktop_wait window，或在当前 action 中提供 Window Query。"
+        )
+    attempts: list[dict[str, Any]] = []
+    last_error: Exception | None = None
+    for attempt_index in range(1, DESKTOP_INTERACTION_GUARD_ATTEMPTS + 1):
+        focused_window: dict[str, Any] = {}
+        active_window: dict[str, Any] = {}
+        try:
+            focused_window = session.backend.focus_window(query)
+            time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+            active_window = session.backend.get_active_window()
+        except Exception as error:
+            last_error = error
+            attempts.append(
+                {
+                    "attempt": attempt_index,
+                    "ok": False,
+                    "query": query,
+                    "window": _compact_guard_window(focused_window),
+                    "active_window": _compact_guard_window(active_window),
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                }
+            )
+            if attempt_index < DESKTOP_INTERACTION_GUARD_ATTEMPTS:
+                time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+            continue
+        verified = _window_matches_expected_active(active_window, focused_window, query)
+        attempt_payload = {
+            "attempt": attempt_index,
+            "ok": verified,
+            "query": query,
+            "window": _compact_guard_window(focused_window),
+            "active_window": _compact_guard_window(active_window),
+        }
+        if not verified:
+            attempt_payload["reason"] = "active_window_mismatch"
+        attempts.append(attempt_payload)
+        if verified:
+            current = active_window if isinstance(active_window, dict) and active_window else focused_window
+            if isinstance(current, dict) and current:
+                session.current_window = dict(current)
+            return {
+                "ok": True,
+                "mode": "restore_focus_verify",
+                "query": query,
+                "attempt_count": attempt_index,
+                "max_attempts": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+                "window": _compact_guard_window(focused_window),
+                "active_window": _compact_guard_window(active_window),
+                "attempts": attempts,
+            }
+        if attempt_index < DESKTOP_INTERACTION_GUARD_ATTEMPTS:
+            time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+    payload = {
+        "ok": False,
+        "mode": "restore_focus_verify",
+        "query": query,
+        "attempt_count": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+        "max_attempts": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+        "window": _compact_guard_window(focused_window),
+        "active_window": _compact_guard_window(active_window),
+        "attempts": attempts,
+    }
+    if last_error is not None:
+        payload["error"] = str(last_error)
+        payload["error_type"] = type(last_error).__name__
+        payload["reason"] = "activation_error"
+        if strict:
+            raise ValueError(
+                f"{action_label} 发送真实桌面输入前无法激活目标窗口：query={query} attempts={attempts}"
+            ) from last_error
+        return payload
+    payload["reason"] = "active_window_mismatch"
+    if strict:
+        raise ValueError(
+            f"{action_label} 发送真实桌面输入前目标窗口未成为前台窗口："
+            f"query={query} attempts={attempts}"
+        )
+    return payload
+
+
+def _interaction_window_query(
+    session: DesktopSession,
+    *,
+    step: dict[str, Any] | None = None,
+    window_query: dict[str, Any] | None = None,
+    window: dict[str, Any] | None = None,
+    resolution: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if _has_window_query(window_query or {}):
+        return dict(window_query or {})
+    if isinstance(resolution, dict):
+        resolved_query = resolution.get("window_query") if isinstance(resolution.get("window_query"), dict) else {}
+        if _has_window_query(resolved_query):
+            return dict(resolved_query)
+        candidate = resolution.get("candidate") if isinstance(resolution.get("candidate"), dict) else {}
+        candidate_query = candidate.get("window_query") if isinstance(candidate.get("window_query"), dict) else {}
+        if _has_window_query(candidate_query):
+            return dict(candidate_query)
+    if isinstance(step, dict):
+        step_query = _optional_window_query(step)
+        if _has_window_query(step_query):
+            return step_query
+    if isinstance(window, dict) and window:
+        query = _window_query_from_window(window)
+        if _has_window_query(query):
+            return query
+    if isinstance(session.current_window, dict) and session.current_window:
+        query = _window_query_from_window(session.current_window)
+        if _has_window_query(query):
+            return query
+    return {}
+
+
+def _has_window_query(query: dict[str, Any]) -> bool:
+    return any(field in query and query[field] not in (None, "") for field in WINDOW_QUERY_FIELDS - {"match_index"})
+
+
+def _window_query_from_window(window: dict[str, Any]) -> dict[str, Any]:
+    if window.get("id") not in (None, ""):
+        return {"window_id": window.get("id")}
+    query: dict[str, Any] = {}
+    if window.get("title"):
+        query["title"] = window.get("title")
+    if window.get("process_name"):
+        query["process_name"] = window.get("process_name")
+    elif window.get("app"):
+        query["app"] = window.get("app")
+    if window.get("class_name"):
+        query["class_name"] = window.get("class_name")
+    return query
+
+
+def _window_matches_expected_active(
+    active_window: dict[str, Any],
+    focused_window: dict[str, Any],
+    query: dict[str, Any],
+) -> bool:
+    if not isinstance(active_window, dict) or not active_window:
+        return False
+    if focused_window.get("id") not in (None, "") and active_window.get("id") not in (None, ""):
+        return str(active_window.get("id")) == str(focused_window.get("id"))
+    return _window_matches_query(active_window, query)
+
+
+def _window_matches_query(window: dict[str, Any], query: dict[str, Any]) -> bool:
+    if "window_id" in query and str(window.get("id")) != str(query.get("window_id")):
+        return False
+    if "title" in query and str(window.get("title", "")) != str(query.get("title")):
+        return False
+    if "title_contains" in query and str(query.get("title_contains")) not in str(window.get("title", "")):
+        return False
+    if "title_regex" in query and not re.search(str(query.get("title_regex")), str(window.get("title", ""))):
+        return False
+    for query_field, window_field in (
+        ("app", "app"),
+        ("process", "process_name"),
+        ("process_name", "process_name"),
+        ("class_name", "class_name"),
+    ):
+        if query_field in query and str(query.get(query_field)).lower() not in str(window.get(window_field, "")).lower():
+            return False
+    return True
+
+
+def _compact_guard_window(window: Any) -> dict[str, Any]:
+    if not isinstance(window, dict):
+        return {}
+    return {
+        "id": window.get("id", ""),
+        "title": str(window.get("title", ""))[:160],
+        "app": window.get("app", ""),
+        "process_name": window.get("process_name", ""),
+        "class_name": window.get("class_name", ""),
+        "focused": bool(window.get("focused")),
+        "visible": bool(window.get("visible", True)),
+        "bounds": window.get("bounds", {}) if isinstance(window.get("bounds"), dict) else {},
+    }
+
+
+def _ensure_input_inside_interaction_window(
+    *,
+    action_label: str,
+    resolution: dict[str, Any],
+    interaction_guard: dict[str, Any],
+    allow_outside_window: bool,
+    include_end_point: bool = False,
+) -> dict[str, Any]:
+    guard_window = (
+        interaction_guard.get("active_window")
+        if isinstance(interaction_guard.get("active_window"), dict)
+        else {}
+    )
+    if not guard_window:
+        guard_window = (
+            interaction_guard.get("window")
+            if isinstance(interaction_guard.get("window"), dict)
+            else {}
+        )
+    window_bounds = normalize_bounds(guard_window.get("bounds") if isinstance(guard_window, dict) else {})
+    points = [_named_resolution_point(resolution, "point", action_label=action_label)]
+    if include_end_point and isinstance(resolution.get("end_point"), dict):
+        points.append(_named_resolution_point(resolution, "end_point", action_label=action_label))
+    checked_points = [
+        {
+            **point,
+            "inside_window": _point_inside_bounds(point, window_bounds),
+        }
+        for point in points
+    ]
+    outside_points = [point for point in checked_points if not point["inside_window"]]
+    ok = bool(window_bounds) and not outside_points
+    reason = ""
+    if not window_bounds:
+        reason = "active_window_bounds_unavailable"
+    elif outside_points:
+        reason = "point_outside_active_window"
+    if allow_outside_window:
+        return {
+            "ok": True,
+            "mode": "active_window_bounds",
+            "allow_outside_window": True,
+            "window_bounds": window_bounds,
+            "points": checked_points,
+            "bypassed_reason": reason,
+        }
+    payload = {
+        "ok": ok,
+        "mode": "active_window_bounds",
+        "allow_outside_window": False,
+        "window_bounds": window_bounds,
+        "points": checked_points,
+        "reason": reason,
+    }
+    if not ok:
+        raise ValueError(
+            f"{action_label} 输入前窗口范围检查失败：reason={reason} "
+            f"window_bounds={window_bounds} points={checked_points}；"
+            "确需窗口外坐标时请显式设置 allow_outside_window=true。"
+        )
+    return payload
+
+
+def _named_resolution_point(
+    resolution: dict[str, Any],
+    field: str,
+    *,
+    action_label: str,
+) -> dict[str, Any]:
+    value = resolution.get(field) if isinstance(resolution.get(field), dict) else {}
+    return {
+        "name": field,
+        "x": _coordinate(value.get("x"), field=f"{field}.x", action_label=action_label),
+        "y": _coordinate(value.get("y"), field=f"{field}.y", action_label=action_label),
+    }
+
+
+def _point_inside_bounds(point: dict[str, Any], bounds: dict[str, int]) -> bool:
+    if not bounds:
+        return False
+    x = int(point["x"])
+    y = int(point["y"])
+    return bounds["x"] <= x < bounds["x"] + bounds["width"] and bounds["y"] <= y < bounds["y"] + bounds["height"]
+
+
+def _bool_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off", ""}:
+            return False
+    return bool(value)
+
+
 def _resolve_input_coordinates(
     session: DesktopSession,
     step: dict[str, Any],
@@ -2108,6 +2556,7 @@ def _resolve_input_coordinates(
     if target == "candidate":
         return _resolve_candidate_coordinates(session, step, action_label=action_label)
     if target in {"current_window_center", "focused_window_center"}:
+        _ensure_interaction_window_active(session, action_label=f"desktop_input.{action_label}", step=step)
         bounds = _current_window_bounds(session, target, action_label)
         x, y = _bounds_center(bounds, action_label=action_label)
         resolution = _input_resolution(
@@ -2120,6 +2569,7 @@ def _resolve_input_coordinates(
         )
         return x, y, target, resolution
     if target in {"current_window_offset", "focused_window_offset"}:
+        _ensure_interaction_window_active(session, action_label=f"desktop_input.{action_label}", step=step)
         bounds = _current_window_bounds(session, target, action_label)
         x = _coordinate(bounds.get("x", 0), field="bounds.x", action_label=action_label)
         y = _coordinate(bounds.get("y", 0), field="bounds.y", action_label=action_label)
@@ -2153,6 +2603,11 @@ def _resolve_input_coordinates(
     if target == "element_center":
         query = _window_query(step)
         locator = _element_locator(step)
+        _ensure_interaction_window_active(
+            session,
+            action_label=f"desktop_input.{action_label}",
+            window_query=query,
+        )
         payload = session.backend.find_element(
             query,
             locator,
@@ -2241,7 +2696,7 @@ def _resolve_candidate_coordinates(
     candidate_id = str(step.get("candidate_id") or step.get("target_candidate_id") or "")
     if not candidate_id:
         raise ValueError(f"desktop_input.{action_label} target=candidate 需要 candidate_id。")
-    source = step.get("target_candidates", step.get("candidate_source"))
+    source = _resolve_candidate_source(session, step)
     candidate = find_target_candidate(source, candidate_id)
     if not candidate and isinstance(step.get("candidate"), dict):
         raw_candidate = step["candidate"]
@@ -2280,6 +2735,11 @@ def _resolve_semantic_candidate_coordinates(
             f"desktop_input.{action_label} target=candidate 的 semantic_locator 缺少 window_query 或 locator："
             f"candidate_id={_candidate_id(candidate)!r}"
         )
+    _ensure_interaction_window_active(
+        session,
+        action_label=f"desktop_input.{action_label}",
+        window_query=query,
+    )
     payload = session.backend.find_element(
         query,
         locator,
@@ -2318,6 +2778,23 @@ def _resolve_semantic_candidate_coordinates(
     return x, y, "candidate", resolution
 
 
+def _store_session_target_candidates(session: DesktopSession, payload: dict[str, Any]) -> None:
+    target_candidates = payload.get("target_candidates") if isinstance(payload, dict) else {}
+    if isinstance(target_candidates, dict) and target_candidates.get("kind") == "desktop_target_candidates":
+        session.target_candidates = dict(target_candidates)
+
+
+def _resolve_candidate_source(session: DesktopSession, step: dict[str, Any]) -> Any:
+    if "target_candidates" in step:
+        return step.get("target_candidates")
+    if "candidate_source" not in step:
+        return {}
+    source = step.get("candidate_source")
+    if isinstance(source, str) and source in {"latest", "last", "session", "latest_target_candidates"}:
+        return dict(session.target_candidates)
+    return source
+
+
 def _resolve_visual_candidate_coordinates(
     session: DesktopSession,
     step: dict[str, Any],
@@ -2336,6 +2813,11 @@ def _resolve_visual_candidate_coordinates(
         raise ValueError(
             f"desktop_input.{action_label} target=candidate 来自离线图片 source_kind={source.get('kind')!r}，只能作为证据，不能直接点击。"
         )
+    _ensure_interaction_window_active(
+        session,
+        action_label=f"desktop_input.{action_label}",
+        resolution={"candidate": candidate},
+    )
     bounds = candidate.get("bounds") if isinstance(candidate.get("bounds"), dict) else {}
     x, y = _bounds_center(bounds, action_label=action_label)
     resolution = _input_resolution(
@@ -2402,44 +2884,49 @@ def _coordinate_safety_check(
 ) -> dict[str, Any]:
     x = _coordinate(point.get("x"), field="point.x", action_label=action_label)
     y = _coordinate(point.get("y"), field="point.y", action_label=action_label)
+    candidate_strategy = str(candidate.get("strategy") or "") if candidate else ""
+    candidate_screen_clickable = _candidate_screen_clickable(candidate) if candidate_strategy == "visual_bounds" else None
+    if candidate and candidate_strategy == "visual_bounds" and not _candidate_screen_clickable(candidate):
+        payload = {
+            "ok": False,
+            "target": target,
+            "point": {"x": x, "y": y},
+            "display_virtual_bounds": {},
+            "warnings": [],
+            "reason": "candidate_not_screen_clickable",
+        }
+        payload["candidate_id"] = _candidate_id(candidate)
+        payload["candidate_strategy"] = candidate.get("strategy", "")
+        payload["candidate_confidence"] = candidate.get("confidence", "")
+        payload["screen_clickable"] = False
+        raise ValueError(
+            f"desktop_input.{action_label} 输入前安全检查失败：reason=candidate_not_screen_clickable "
+            f"target={target} point={{'x': {x}, 'y': {y}}} virtual_bounds={{}}"
+        )
     profile = session.coordinate_profile if isinstance(session.coordinate_profile, dict) else {}
-    display = profile.get("display") if isinstance(profile.get("display"), dict) else {}
-    virtual_bounds = normalize_bounds(display.get("virtual_bounds")) if isinstance(display, dict) else {}
-    screen_bounds = virtual_bounds or (normalize_bounds(display.get("bounds")) if isinstance(display, dict) else {})
-    warnings: list[str] = []
-    ok = True
-    reason = ""
-    if candidate and str(candidate.get("strategy") or "") == "visual_bounds" and not _candidate_screen_clickable(candidate):
-        ok = False
-        reason = "candidate_not_screen_clickable"
-    if ok and screen_bounds:
-        in_x = screen_bounds["x"] <= x < screen_bounds["x"] + screen_bounds["width"]
-        in_y = screen_bounds["y"] <= y < screen_bounds["y"] + screen_bounds["height"]
-        if not (in_x and in_y):
-            ok = False
-            reason = "point_outside_virtual_screen"
-    elif ok:
-        warnings.append("display_bounds_unknown")
-    normalized_bounds = normalize_bounds(bounds or {})
-    if bounds and not normalized_bounds:
-        warnings.append("target_bounds_invalid_or_empty")
+    if candidate and isinstance(candidate.get("coordinate_profile"), dict):
+        profile = candidate["coordinate_profile"]
+    mapper = CoordinateMapper.from_profile(profile)
+    payload = mapper.safety_check(
+        {"x": x, "y": y},
+        target=target,
+        bounds=bounds,
+        screen_clickable=candidate_screen_clickable if candidate_screen_clickable is not None else None,
+    )
     payload = {
-        "ok": ok,
+        **payload,
         "target": target,
         "point": {"x": x, "y": y},
-        "display_virtual_bounds": screen_bounds,
-        "warnings": warnings,
-        "reason": reason,
     }
     if candidate:
         payload["candidate_id"] = _candidate_id(candidate)
         payload["candidate_strategy"] = candidate.get("strategy", "")
         payload["candidate_confidence"] = candidate.get("confidence", "")
         payload["screen_clickable"] = _candidate_screen_clickable(candidate)
-    if not ok:
+    if not payload.get("ok"):
         raise ValueError(
-            f"desktop_input.{action_label} 输入前安全检查失败：reason={reason} "
-            f"target={target} point={{'x': {x}, 'y': {y}}} virtual_bounds={screen_bounds}"
+            f"desktop_input.{action_label} 输入前安全检查失败：reason={payload.get('reason', '')} "
+            f"target={target} point={{'x': {x}, 'y': {y}}} virtual_bounds={payload.get('display_virtual_bounds', {})}"
         )
     return payload
 
@@ -2531,6 +3018,75 @@ def _assert_text(actual: str, expected: str, *, mode: str) -> None:
         raise ValueError(f"不支持的 desktop_assert.element.mode：{mode}")
     if not ok:
         raise AssertionError(f"桌面控件文本断言失败：mode={mode} expected={expected!r} actual={actual!r}")
+
+
+def _assert_element_count(payload: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
+    if not any(field in step for field in ("expected_count", "min_count", "max_count")):
+        return {}
+    matches = payload.get("matches") if isinstance(payload.get("matches"), list) else []
+    actual = int(payload.get("candidates_count", len(matches)) or 0)
+    assertion: dict[str, Any] = {"actual": actual}
+    if "expected_count" in step:
+        expected = int(step["expected_count"])
+        assertion["expected_count"] = expected
+        if actual != expected:
+            raise AssertionError(f"桌面控件数量断言失败：expected_count={expected} actual={actual}")
+    if "min_count" in step:
+        minimum = int(step["min_count"])
+        assertion["min_count"] = minimum
+        if actual < minimum:
+            raise AssertionError(f"桌面控件数量断言失败：min_count={minimum} actual={actual}")
+    if "max_count" in step:
+        maximum = int(step["max_count"])
+        assertion["max_count"] = maximum
+        if actual > maximum:
+            raise AssertionError(f"桌面控件数量断言失败：max_count={maximum} actual={actual}")
+    assertion["ok"] = True
+    return assertion
+
+
+def _assert_element_property(element: dict[str, Any], step: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(element, dict) or not element:
+        raise AssertionError("桌面控件属性断言失败：未命中控件，无法读取属性。")
+    property_name = str(step.get("property") or "")
+    if not property_name:
+        raise ValueError("desktop_assert.element property 不能为空。")
+    if "property_expected" not in step:
+        raise ValueError("desktop_assert.element 使用 property 时必须提供 property_expected。")
+    actual = _element_property_value(element, property_name)
+    expected = step.get("property_expected")
+    mode = str(step.get("property_mode", "equals"))
+    if mode == "equals":
+        ok = actual == expected or str(actual) == str(expected)
+    elif mode == "contains":
+        ok = str(expected) in str(actual)
+    elif mode == "not_contains":
+        ok = str(expected) not in str(actual)
+    else:
+        raise ValueError(f"不支持的 desktop_assert.element.property_mode：{mode}")
+    if not ok:
+        raise AssertionError(
+            "桌面控件属性断言失败："
+            f"property={property_name!r} mode={mode} expected={expected!r} actual={actual!r}"
+        )
+    return {
+        "ok": True,
+        "property": property_name,
+        "expected": expected,
+        "actual": actual,
+        "mode": mode,
+    }
+
+
+def _element_property_value(element: dict[str, Any], property_name: str) -> Any:
+    normalized = property_name.strip()
+    if normalized == "class_name":
+        return element.get("class_name", element.get("element_class_name", ""))
+    if normalized == "element_class_name":
+        return element.get("element_class_name", element.get("class_name", ""))
+    if normalized == "bounds":
+        return normalize_bounds(element.get("bounds")) if isinstance(element.get("bounds"), dict) else {}
+    return element.get(normalized, "")
 
 
 def _capture_element_annotation(

@@ -5,6 +5,7 @@ import json
 import platform
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -23,6 +24,7 @@ from ai_automate_contro.engine.desktop.backends.capabilities import (
     tesseract_language_available,
 )
 from ai_automate_contro.engine.desktop.coordinates import (
+    CoordinateMapper,
     build_coordinate_profile,
     local_to_screen_bounds,
     local_to_screen_point,
@@ -60,6 +62,8 @@ def cleanup_temporary_desktop_form_case(package_dir: Path, system: str | None = 
 def self_check_desktop_components(
     project_root: Path,
     *,
+    require_input: bool = False,
+    require_wpf: bool = False,
     require_vision: bool = False,
     require_ocr: bool = False,
     require_ocr_zh: bool = False,
@@ -78,8 +82,10 @@ def self_check_desktop_components(
     ocr_bad_config_case = _run_ocr_bad_config_path_case(resolved_root)
     real_app_case = _run_real_app_matrix_case(resolved_root)
     element_action_case = _run_element_action_case(resolved_root)
+    wpf_action_case = _run_wpf_element_action_case(resolved_root, required=require_wpf) if require_wpf else None
     input_probe_case = _run_input_dependency_probe_case()
     capability_diagnostics_case = _run_capability_diagnostics_case()
+    required_input_case = _run_required_input_case(input_probe_case, element_action_case) if require_input else None
     required_vision_case = _run_required_vision_case(vision_case, element_action_case) if require_vision else None
     required_ocr_case = _run_required_ocr_case(ocr_case, resolved_root) if require_ocr else None
     required_ocr_zh_case = _run_required_ocr_zh_case(ocr_zh_case, resolved_root) if require_ocr_zh else None
@@ -96,8 +102,10 @@ def self_check_desktop_components(
     ocr_bad_config_ok = bool(ocr_bad_config_case["ok"])
     real_app_ok = bool(real_app_case["ok"])
     element_action_ok = bool(element_action_case["ok"])
+    wpf_action_ok = wpf_action_case is None or bool(wpf_action_case["ok"])
     input_probe_ok = bool(input_probe_case["ok"])
     capability_diagnostics_ok = bool(capability_diagnostics_case["ok"])
+    required_input_ok = required_input_case is None or bool(required_input_case["ok"])
     required_vision_ok = required_vision_case is None or bool(required_vision_case["ok"])
     required_ocr_ok = required_ocr_case is None or bool(required_ocr_case["ok"])
     required_ocr_zh_ok = required_ocr_zh_case is None or bool(required_ocr_zh_case["ok"])
@@ -122,6 +130,10 @@ def self_check_desktop_components(
         input_probe_case,
         capability_diagnostics_case,
     ]
+    if wpf_action_case is not None:
+        checks.append(wpf_action_case)
+    if required_input_case is not None:
+        checks.append(required_input_case)
     if required_vision_case is not None:
         checks.append(required_vision_case)
     if required_ocr_case is not None:
@@ -142,17 +154,23 @@ def self_check_desktop_components(
         and ocr_bad_config_ok
         and real_app_ok
         and element_action_ok
+        and wpf_action_ok
         and input_probe_ok
         and capability_diagnostics_ok
+        and required_input_ok
         and required_vision_ok
         and required_ocr_ok
         and required_ocr_zh_ok,
+        "require_input": require_input,
+        "require_wpf": require_wpf,
         "require_vision": require_vision,
         "require_ocr": require_ocr,
         "require_ocr_zh": require_ocr_zh,
         "checks": checks,
         "commands": {
             "run": f"python {_cplan_script_path()} self-check desktop-components",
+            "run_require_input": f"python {_cplan_script_path()} self-check desktop-components --require-input",
+            "run_require_wpf": f"python {_cplan_script_path()} self-check desktop-components --require-wpf",
             "run_require_vision": f"python {_cplan_script_path()} self-check desktop-components --require-vision",
             "run_require_ocr": f"python {_cplan_script_path()} self-check desktop-components --require-ocr",
             "run_require_ocr_zh": f"python {_cplan_script_path()} self-check desktop-components --require-ocr-zh",
@@ -213,17 +231,33 @@ def _run_coordinate_profile_case() -> dict[str, Any]:
         coordinate_space={"origin": "source_path", "unit": "logical_px", "scale": None},
         screen_clickable=False,
     )
+    mapper = CoordinateMapper.from_profile(screen_profile)
+    offline_mapper = CoordinateMapper.from_profile(offline_profile)
+    mapper_screen_bounds = mapper.local_to_screen_bounds(local_bounds)
+    mapper_screen_point = mapper.local_to_screen_point(local_point)
+    mapper_roundtrip_bounds = mapper.screen_to_local_bounds(mapper_screen_bounds)
+    mapper_roundtrip_point = mapper.screen_to_local_point(mapper_screen_point)
+    safety = mapper.safety_check(mapper_screen_point, target="synthetic")
+    offline_safety = offline_mapper.safety_check({"x": 10, "y": 10}, target="offline")
     passed = (
         screen_bounds == {"x": -308, "y": 100, "width": 50, "height": 30}
         and screen_point == {"x": -283, "y": 115}
         and roundtrip_bounds == local_bounds
         and roundtrip_point == local_point
+        and mapper_screen_bounds == screen_bounds
+        and mapper_screen_point == screen_point
+        and mapper_roundtrip_bounds == local_bounds
+        and mapper_roundtrip_point == local_point
+        and safety.get("ok") is True
+        and safety.get("scale_applied") is False
         and _coordinate_profile_ok(screen_profile, screen_clickable=True)
         and screen_profile.get("display", {}).get("virtual_bounds", {}).get("x") == -1280
         and screen_profile.get("display", {}).get("scale") == 1.25
         and "negative_source_origin" in screen_profile.get("warnings", [])
         and _coordinate_profile_ok(offline_profile, screen_clickable=False)
         and "not_screen_clickable" in offline_profile.get("warnings", [])
+        and offline_safety.get("ok") is False
+        and offline_safety.get("reason") == "source_not_screen_clickable"
     )
     return {
         "name": "desktop_coordinate_profile_mapper",
@@ -234,6 +268,54 @@ def _run_coordinate_profile_case() -> dict[str, Any]:
         "roundtrip_point": roundtrip_point,
         "screen_profile": screen_profile,
         "offline_profile": offline_profile,
+        "mapper_safety": safety,
+        "offline_mapper_safety": offline_safety,
+    }
+
+
+def _run_required_input_case(input_probe_case: dict[str, Any], element_action_case: dict[str, Any]) -> dict[str, Any]:
+    dependency_reason = _desktop_input_dependency_skip_reason()
+    input_coverage = (
+        element_action_case.get("input_coverage")
+        if isinstance(element_action_case.get("input_coverage"), dict)
+        else {}
+    )
+    required_checks = (
+        "mouse_steps_enabled",
+        "clipboard_restore_enabled",
+        "latest_candidate_click_ok",
+        "candidate_click_ok",
+        "bounds_center_click_ok",
+        "latest_candidate_click_window_safety_ok",
+        "candidate_click_window_safety_ok",
+        "bounds_center_click_window_safety_ok",
+        "context_menu_ok",
+        "scroll_ok",
+        "clipboard_restore_ok",
+        "mouse_double_click_ok",
+        "mouse_right_click_ok",
+        "mouse_scroll_ok",
+        "mouse_drag_ok",
+    )
+    failed = [name for name in required_checks if input_coverage.get(name) is not True]
+    issues: list[str] = []
+    if dependency_reason:
+        issues.append(dependency_reason)
+    if not bool(input_probe_case.get("ok")):
+        issues.append("desktop input dependency probe did not pass.")
+    if not bool(element_action_case.get("ok")):
+        issues.append("desktop temporary form input regression did not pass.")
+    if failed:
+        issues.append("desktop input coverage missing or failed: " + ", ".join(failed))
+    return {
+        "name": "desktop_input_required_regression",
+        "ok": not issues,
+        "require_input": True,
+        "dependencies_ok": not dependency_reason,
+        "input_probe_ok": bool(input_probe_case.get("ok")),
+        "element_action_ok": bool(element_action_case.get("ok")),
+        "input_coverage": input_coverage,
+        "issues": issues,
     }
 
 
@@ -309,6 +391,13 @@ def _desktop_vision_dependency_skip_reason() -> str:
         return "opencv-python is not installed; desktop_vision locate_image is unavailable."
     if not _module_available("PIL"):
         return "Pillow is not installed; desktop_vision fixture images cannot be generated."
+    return ""
+
+
+def _desktop_input_dependency_skip_reason() -> str:
+    missing = [module for module in ("pyautogui", "pyperclip") if not _module_available(module)]
+    if missing:
+        return "desktop input strict regression requires installed modules: " + ", ".join(missing)
     return ""
 
 
@@ -608,7 +697,7 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "desktop-click-candidate-requires-target-candidates",
-            "expected_message": "desktop_input.click target=candidate 缺少必填字段：target_candidates",
+            "expected_message": "desktop_input.click target=candidate 缺少候选来源",
             "plan": {
                 "name": "missing desktop candidate source",
                 "automation_type": "desktop",
@@ -681,6 +770,25 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                             "candidates": [{"id": "element_match-0", "candidate_id": "element_match-0"}],
                         },
                         "candidate_id": "element_match-0",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-latest-source-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop latest candidate source click",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "candidate_source": "latest",
+                        "candidate_id": "best_candidate",
                     },
                 ],
             },
@@ -1899,6 +2007,66 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "name_contains": "Missing",
                         "state": "not_exists",
                         "expected": "Missing",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-assert-element-property-requires-expected",
+            "expected_message": "使用 property 时必须提供 property_expected",
+            "plan": {
+                "name": "bad desktop assert property",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_assert",
+                        "desktop": "desktop",
+                        "type": "element",
+                        "title_contains": "Demo",
+                        "name_contains": "Status",
+                        "property": "enabled",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-assert-element-rejects-invalid-property-mode",
+            "expected_message": "property_mode 不支持的取值",
+            "plan": {
+                "name": "bad desktop assert property mode",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_assert",
+                        "desktop": "desktop",
+                        "type": "element",
+                        "title_contains": "Demo",
+                        "name_contains": "Status",
+                        "property": "name",
+                        "property_expected": "Status",
+                        "property_mode": "starts_with",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-assert-element-rejects-invalid-count-range",
+            "expected_message": "min_count 不能大于 max_count",
+            "plan": {
+                "name": "bad desktop assert count range",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_assert",
+                        "desktop": "desktop",
+                        "type": "element",
+                        "title_contains": "Demo",
+                        "name_contains": "Status",
+                        "min_count": 2,
+                        "max_count": 1,
                     },
                 ],
             },
@@ -3146,7 +3314,7 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
         (package_dir / "resources").mkdir(parents=True, exist_ok=True)
         plan_path = package_dir / "plan.json"
         if system == "Windows":
-            plan, assertion_relative_file, cleanup_hint = _windows_notepad_plan(package_dir)
+            plan, assertion_relative_file, cleanup_hint = _windows_controlled_editor_plan(package_dir)
         else:
             plan, assertion_relative_file, cleanup_hint = _macos_textedit_plan(package_dir)
         assertion_file = package_dir / assertion_relative_file
@@ -3179,7 +3347,7 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             _cleanup_real_app_case(package_dir, system)
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
-        expected_window_title = assertion_file.name
+        expected_window_title = str(plan.get("variables", {}).get("window_title") or assertion_file.name)
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "real-app-screen.png"
         elements_path = package_dir / "output" / "desktop-elements" / "real-app-elements.json"
         active_window_path = package_dir / "output" / "desktop-windows" / "real-app-active-window.json"
@@ -3659,7 +3827,9 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         window_capture_payload_path = package_dir / "output" / "json" / "form-window-capture.json"
         element_capture_payload_path = package_dir / "output" / "json" / "form-entry-capture.json"
         vision_capture_payload_path = package_dir / "output" / "json" / "form-vision-capture.json"
+        latest_candidate_click_payload_path = package_dir / "output" / "json" / "form-entry-latest-candidate-click.json"
         candidate_click_payload_path = package_dir / "output" / "json" / "form-entry-candidate-click.json"
+        bounds_center_click_payload_path = package_dir / "output" / "json" / "form-entry-bounds-center-click.json"
         window_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-window-vision.json"
         element_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-element-vision.json"
         run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
@@ -3902,9 +4072,20 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             )
         )
         candidate_click_payload = _read_json(candidate_click_payload_path) if candidate_click_payload_path.exists() else {}
+        latest_candidate_click_payload = (
+            _read_json(latest_candidate_click_payload_path) if latest_candidate_click_payload_path.exists() else {}
+        )
+        bounds_center_click_payload = (
+            _read_json(bounds_center_click_payload_path) if bounds_center_click_payload_path.exists() else {}
+        )
         candidate_click_resolution = (
             candidate_click_payload.get("input_resolution")
             if isinstance(candidate_click_payload.get("input_resolution"), dict)
+            else {}
+        )
+        latest_candidate_click_resolution = (
+            latest_candidate_click_payload.get("input_resolution")
+            if isinstance(latest_candidate_click_payload.get("input_resolution"), dict)
             else {}
         )
         candidate_click_safety = (
@@ -3912,10 +4093,42 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             if isinstance(candidate_click_payload.get("safety_check"), dict)
             else {}
         )
+        latest_candidate_click_safety = (
+            latest_candidate_click_payload.get("safety_check")
+            if isinstance(latest_candidate_click_payload.get("safety_check"), dict)
+            else {}
+        )
+        candidate_click_window_safety = (
+            candidate_click_payload.get("window_safety_check")
+            if isinstance(candidate_click_payload.get("window_safety_check"), dict)
+            else {}
+        )
+        latest_candidate_click_window_safety = (
+            latest_candidate_click_payload.get("window_safety_check")
+            if isinstance(latest_candidate_click_payload.get("window_safety_check"), dict)
+            else {}
+        )
         candidate_click_candidate = (
             candidate_click_resolution.get("candidate")
             if isinstance(candidate_click_resolution.get("candidate"), dict)
             else {}
+        )
+        latest_candidate_click_candidate = (
+            latest_candidate_click_resolution.get("candidate")
+            if isinstance(latest_candidate_click_resolution.get("candidate"), dict)
+            else {}
+        )
+        latest_candidate_click_ok = (
+            system != "Windows"
+            or (
+                bool(latest_candidate_click_payload.get("ok"))
+                and latest_candidate_click_payload.get("target") == "candidate"
+                and latest_candidate_click_resolution.get("mode") == "candidate_semantic_locator"
+                and latest_candidate_click_candidate.get("candidate_id") == observe_best_candidate_id
+                and latest_candidate_click_safety.get("ok") is True
+                and _window_safety_ok(latest_candidate_click_window_safety)
+                and _file_nonempty_after(latest_candidate_click_payload_path, started_at)
+            )
         )
         candidate_click_ok = (
             system != "Windows"
@@ -3925,7 +4138,34 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and candidate_click_resolution.get("mode") == "candidate_semantic_locator"
                 and candidate_click_candidate.get("candidate_id") == observe_best_candidate_id
                 and candidate_click_safety.get("ok") is True
+                and _window_safety_ok(candidate_click_window_safety)
                 and _file_nonempty_after(candidate_click_payload_path, started_at)
+            )
+        )
+        bounds_center_click_resolution = (
+            bounds_center_click_payload.get("input_resolution")
+            if isinstance(bounds_center_click_payload.get("input_resolution"), dict)
+            else {}
+        )
+        bounds_center_click_safety = (
+            bounds_center_click_payload.get("safety_check")
+            if isinstance(bounds_center_click_payload.get("safety_check"), dict)
+            else {}
+        )
+        bounds_center_click_window_safety = (
+            bounds_center_click_payload.get("window_safety_check")
+            if isinstance(bounds_center_click_payload.get("window_safety_check"), dict)
+            else {}
+        )
+        bounds_center_click_ok = (
+            system != "Windows"
+            or (
+                bool(bounds_center_click_payload.get("ok"))
+                and bounds_center_click_payload.get("target") == "bounds_center"
+                and bounds_center_click_resolution.get("mode") == "bounds_center"
+                and bounds_center_click_safety.get("ok") is True
+                and _window_safety_ok(bounds_center_click_window_safety)
+                and _file_nonempty_after(bounds_center_click_payload_path, started_at)
             )
         )
         window_vision_payload = _read_json(window_vision_path) if window_vision_path.exists() else {}
@@ -4018,9 +4258,80 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and bool(element_vision_best_target.get("action_templates"))
             )
         )
-        status_assertion_ok = system != "Windows" or _file_nonempty_after(status_assert_path, started_at)
+        entry_assert_payload = _read_json(assert_path) if assert_path.exists() else {}
+        status_assert_payload = _read_json(status_assert_path) if status_assert_path.exists() else {}
+        entry_count_assertion = (
+            entry_assert_payload.get("count_assertion")
+            if isinstance(entry_assert_payload.get("count_assertion"), dict)
+            else {}
+        )
+        entry_property_assertion = (
+            entry_assert_payload.get("property_assertion")
+            if isinstance(entry_assert_payload.get("property_assertion"), dict)
+            else {}
+        )
+        status_count_assertion = (
+            status_assert_payload.get("count_assertion")
+            if isinstance(status_assert_payload.get("count_assertion"), dict)
+            else {}
+        )
+        status_property_assertion = (
+            status_assert_payload.get("property_assertion")
+            if isinstance(status_assert_payload.get("property_assertion"), dict)
+            else {}
+        )
+        entry_assertion_ok = (
+            system != "Windows"
+            or (
+                bool(entry_assert_payload.get("ok"))
+                and _file_nonempty_after(assert_path, started_at)
+                and entry_count_assertion.get("ok") is True
+                and int(entry_count_assertion.get("actual", 0) or 0) == 1
+                and entry_count_assertion.get("expected_count") == 1
+                and entry_property_assertion.get("ok") is True
+                and entry_property_assertion.get("property") == "enabled"
+                and entry_property_assertion.get("actual") is True
+            )
+        )
+        status_assertion_ok = (
+            system != "Windows"
+            or (
+                bool(status_assert_payload.get("ok"))
+                and _file_nonempty_after(status_assert_path, started_at)
+                and status_count_assertion.get("ok") is True
+                and int(status_count_assertion.get("actual", 0) or 0) == 1
+                and status_count_assertion.get("expected_count") == 1
+                and status_property_assertion.get("ok") is True
+                and status_property_assertion.get("property") == "visible"
+                and status_property_assertion.get("actual") is True
+            )
+        )
         expected_agree = "agree=True" if _module_available("pyautogui") else "agree=False"
         expected_context = "context_marked=True" if context_menu_expected else "context_marked=False"
+        mouse_steps_enabled = system == "Windows" and _module_available("pyautogui")
+        mouse_double_click_ok = "mouse_double_click=True" in content if mouse_steps_enabled else system != "Windows"
+        mouse_right_click_ok = "mouse_right_click=True" in content if mouse_steps_enabled else system != "Windows"
+        mouse_scroll_ok = "mouse_scroll=True" in content if mouse_steps_enabled else system != "Windows"
+        mouse_drag_ok = "mouse_drag=True" in content if mouse_steps_enabled else system != "Windows"
+        input_coverage = {
+            "mouse_steps_enabled": mouse_steps_enabled,
+            "clipboard_restore_enabled": clipboard_restore_enabled,
+            "latest_candidate_click_ok": latest_candidate_click_ok,
+            "latest_candidate_click_window_safety_ok": system != "Windows"
+            or _window_safety_ok(latest_candidate_click_window_safety),
+            "candidate_click_ok": candidate_click_ok,
+            "candidate_click_window_safety_ok": system != "Windows" or _window_safety_ok(candidate_click_window_safety),
+            "bounds_center_click_ok": bounds_center_click_ok,
+            "bounds_center_click_window_safety_ok": system != "Windows"
+            or _window_safety_ok(bounds_center_click_window_safety),
+            "context_menu_ok": context_menu_ok,
+            "scroll_ok": scroll_ok,
+            "clipboard_restore_ok": clipboard_restore_ok,
+            "mouse_double_click_ok": mouse_double_click_ok,
+            "mouse_right_click_ok": mouse_right_click_ok,
+            "mouse_scroll_ok": mouse_scroll_ok,
+            "mouse_drag_ok": mouse_drag_ok,
+        }
         metadata_found = (
             expected_agree in content
             and "mode=Audit" in content
@@ -4114,14 +4425,16 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and window_capture_ok
                 and element_capture_ok
                 and vision_capture_ok
+                and latest_candidate_click_ok
                 and candidate_click_ok
+                and bounds_center_click_ok
                 and window_vision_ok
                 and element_vision_ok
                 and tree_ok
                 and menu_ok
                 and context_menu_ok
                 and scroll_ok
-                and _file_nonempty_after(assert_path, started_at)
+                and entry_assertion_ok
                 and (not clipboard_restore_enabled or _file_nonempty_after(clipboard_assert_path, started_at))
                 and clipboard_restore_ok
                 and status_assertion_ok
@@ -4189,9 +4502,16 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "vision_capture_size": vision_capture_size,
             "vision_capture_bounds": vision_capture_bounds,
             "vision_capture_payload_path": str(vision_capture_payload_path),
+            "latest_candidate_click_payload_path": str(latest_candidate_click_payload_path),
+            "latest_candidate_click_ok": latest_candidate_click_ok,
+            "latest_candidate_click_payload": latest_candidate_click_payload,
             "candidate_click_payload_path": str(candidate_click_payload_path),
             "candidate_click_ok": candidate_click_ok,
             "candidate_click_payload": candidate_click_payload,
+            "bounds_center_click_payload_path": str(bounds_center_click_payload_path),
+            "bounds_center_click_ok": bounds_center_click_ok,
+            "bounds_center_click_payload": bounds_center_click_payload,
+            "input_coverage": input_coverage,
             "vision_source_target_enabled": vision_source_target_enabled,
             "window_vision_path": str(window_vision_path),
             "window_vision_ok": window_vision_ok,
@@ -4208,13 +4528,239 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "expected_element_local_bounds": expected_element_local_bounds,
             "expected_element_local_point": expected_element_local_point,
             "element_assertion_path": str(assert_path),
+            "entry_assertion_ok": entry_assertion_ok,
+            "entry_count_assertion": entry_count_assertion,
+            "entry_property_assertion": entry_property_assertion,
             "status_assertion_path": str(status_assert_path),
+            "status_count_assertion": status_count_assertion,
+            "status_property_assertion": status_property_assertion,
             "set_text_expected": set_text_payload,
             "annotation_ok": annotation_ok,
             "candidate_click_annotation_ok": candidate_click_annotation_ok,
             "annotation_png_count": len(annotation_pngs),
             "annotation_json_count": len(annotation_jsons),
             "annotation_dir": str(annotation_dir),
+            "cleanup": cleanup_hint,
+        }
+
+
+def _run_wpf_element_action_case(project_root: Path, *, required: bool = False) -> dict[str, Any]:
+    system = platform.system()
+    skip_reason = _windows_wpf_skip_reason(system)
+    if skip_reason:
+        return {
+            "name": "desktop_wpf_complex_control_regression",
+            "ok": not required,
+            "required": required,
+            "skipped": True,
+            "reason": skip_reason,
+        }
+    with tempfile.TemporaryDirectory(prefix="desktop-components-wpf-action-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        plan_path = package_dir / "plan.json"
+        plan, assertion_relative_file, cleanup_hint = _temporary_wpf_form_plan(package_dir)
+        assertion_file = package_dir / assertion_relative_file
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return {
+                "name": "desktop_wpf_complex_control_regression",
+                "ok": False,
+                "required": required,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        run_error = ""
+        started_at = time.time()
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-wpf-action",
+                run_context_handler=_disable_run_log_echo,
+            )
+            run_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            run_ok = False
+            output_dir = ""
+            run_error = str(error)
+        finally:
+            _cleanup_temporary_form_case(package_dir, "Windows")
+        content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
+        expected_text = str(plan["variables"]["expected_text"])
+        elements_path = package_dir / "output" / "desktop-elements" / "wpf-elements.json"
+        dump_path = package_dir / "output" / "desktop-elements" / "wpf-entry-dump.json"
+        state_path = package_dir / "output" / "desktop-elements" / "wpf-entry-state.json"
+        assert_path = package_dir / "output" / "desktop-elements" / "wpf-entry-assertion.json"
+        table_path = package_dir / "output" / "desktop-elements" / "wpf-orders-table.json"
+        cell_path = package_dir / "output" / "desktop-elements" / "wpf-orders-cell.json"
+        tree_path = package_dir / "output" / "desktop-elements" / "wpf-nav-tree.json"
+        tree_expand_path = package_dir / "output" / "desktop-elements" / "wpf-nav-tree-expand.json"
+        tree_select_path = package_dir / "output" / "desktop-elements" / "wpf-nav-tree-select.json"
+        tree_collapse_path = package_dir / "output" / "desktop-elements" / "wpf-nav-tree-collapse.json"
+        menu_path = package_dir / "output" / "desktop-elements" / "wpf-menu-invoke.json"
+        context_menu_path = package_dir / "output" / "desktop-elements" / "wpf-context-menu-invoke.json"
+        scroll_path = package_dir / "output" / "desktop-elements" / "wpf-scroll-viewer.json"
+        scroll_target_path = package_dir / "output" / "desktop-elements" / "wpf-scroll-target-state.json"
+        window_capture_path = package_dir / "output" / "desktop-screenshots" / "wpf-window-screen.png"
+        element_capture_path = package_dir / "output" / "desktop-screenshots" / "wpf-entry-element-screen.png"
+        window_capture_payload_path = package_dir / "output" / "json" / "wpf-window-capture.json"
+        element_capture_payload_path = package_dir / "output" / "json" / "wpf-entry-capture.json"
+        element_payload = _read_json(elements_path) if elements_path.exists() else {}
+        element_rows = element_payload.get("elements") if isinstance(element_payload.get("elements"), list) else []
+        automation_ids = {
+            str(element.get("automation_id", ""))
+            for element in element_rows
+            if isinstance(element, dict)
+        }
+        expected_automation_ids = {
+            "DesktopWpfTextBox",
+            "DesktopWpfSaveButton",
+            "DesktopWpfAgreeCheckBox",
+            "DesktopWpfModeCombo",
+            "DesktopWpfOptionsList",
+            "DesktopWpfOrdersGrid",
+            "DesktopWpfNavTree",
+            "DesktopWpfContextPanel",
+            "DesktopWpfScrollViewer",
+        }
+        expected_controls_found = expected_automation_ids.issubset(automation_ids)
+        dump_payload = _read_json(dump_path) if dump_path.exists() else {}
+        dump_ok = (
+            bool(dump_payload.get("ok"))
+            and isinstance(dump_payload.get("selected_element"), dict)
+            and isinstance(dump_payload.get("tree"), list)
+        )
+        state_payload = _read_json(state_path) if state_path.exists() else {}
+        state_ok = bool(state_payload.get("ok")) and isinstance(state_payload.get("element_state"), dict)
+        assert_payload = _read_json(assert_path) if assert_path.exists() else {}
+        assert_ok = bool(assert_payload.get("ok")) and _file_nonempty_after(assert_path, started_at)
+        table_payload = _read_json(table_path) if table_path.exists() else {}
+        table_data = table_payload.get("table") if isinstance(table_payload.get("table"), dict) else {}
+        table_cells = table_data.get("cells") if isinstance(table_data.get("cells"), list) else []
+        table_texts = {
+            str(cell.get(field, ""))
+            for cell in table_cells
+            if isinstance(cell, dict)
+            for field in ("text", "value", "name")
+            if str(cell.get(field, ""))
+        }
+        table_ok = bool(table_payload.get("ok")) and "Beta" in table_texts and "Review" in table_texts
+        cell_payload = _read_json(cell_path) if cell_path.exists() else {}
+        selected_cell = cell_payload.get("selected_cell") if isinstance(cell_payload.get("selected_cell"), dict) else {}
+        selected_cell_texts = {
+            str(selected_cell.get(field, ""))
+            for field in ("text", "value", "name")
+            if str(selected_cell.get(field, ""))
+        }
+        selected_cell_ok = bool(cell_payload.get("ok")) and "Review" in selected_cell_texts
+        tree_payload = _read_json(tree_path) if tree_path.exists() else {}
+        tree_data = tree_payload.get("tree") if isinstance(tree_payload.get("tree"), dict) else {}
+        tree_nodes = tree_data.get("nodes") if isinstance(tree_data.get("nodes"), list) else []
+        tree_node_names = {str(node.get("name", "")) for node in tree_nodes if isinstance(node, dict)}
+        tree_expand_payload = _read_json(tree_expand_path) if tree_expand_path.exists() else {}
+        tree_select_payload = _read_json(tree_select_path) if tree_select_path.exists() else {}
+        tree_collapse_payload = _read_json(tree_collapse_path) if tree_collapse_path.exists() else {}
+        selected_tree_node = tree_select_payload.get("tree_node") if isinstance(tree_select_payload.get("tree_node"), dict) else {}
+        selected_tree_path = selected_tree_node.get("path") if isinstance(selected_tree_node.get("path"), list) else []
+        tree_ok = (
+            bool(tree_payload.get("ok"))
+            and {"Settings", "Accounts", "Security", "Reports", "Monthly"}.issubset(tree_node_names)
+            and bool(tree_expand_payload.get("ok"))
+            and bool(tree_select_payload.get("ok"))
+            and selected_tree_path == ["Settings", "Accounts"]
+            and bool(tree_collapse_payload.get("ok"))
+        )
+        menu_payload = _read_json(menu_path) if menu_path.exists() else {}
+        menu_ok = bool(menu_payload.get("ok")) and menu_payload.get("menu_path") == ["File", "Mark Menu"]
+        context_menu_payload = _read_json(context_menu_path) if context_menu_path.exists() else {}
+        context_menu_ok = (
+            bool(context_menu_payload.get("ok"))
+            and context_menu_payload.get("open_context_menu") is True
+            and context_menu_payload.get("menu_path") == ["Mark Context"]
+        )
+        scroll_payload = _read_json(scroll_path) if scroll_path.exists() else {}
+        scroll_target_payload = _read_json(scroll_target_path) if scroll_target_path.exists() else {}
+        scroll_target_state = (
+            scroll_target_payload.get("element_state") if isinstance(scroll_target_payload.get("element_state"), dict) else {}
+        )
+        scroll_ok = (
+            bool(scroll_payload.get("ok"))
+            and bool(scroll_target_payload.get("ok"))
+            and bool(scroll_target_state.get("visible", False))
+        )
+        window_capture_payload = _read_json(window_capture_payload_path) if window_capture_payload_path.exists() else {}
+        element_capture_payload = _read_json(element_capture_payload_path) if element_capture_payload_path.exists() else {}
+        capture_ok = (
+            bool(window_capture_payload.get("ok"))
+            and bool(element_capture_payload.get("ok"))
+            and _file_nonempty_after(window_capture_path, started_at)
+            and _file_nonempty_after(element_capture_path, started_at)
+        )
+        content_ok = (
+            expected_text in content
+            and "agree=True" in content
+            and "mode=Audit" in content
+            and "option=Green" in content
+            and "menu_marked=True" in content
+            and "context_marked=True" in content
+        )
+        ok = (
+            run_ok
+            and content_ok
+            and expected_controls_found
+            and _file_nonempty_after(elements_path, started_at)
+            and _file_nonempty_after(dump_path, started_at)
+            and dump_ok
+            and state_ok
+            and assert_ok
+            and table_ok
+            and selected_cell_ok
+            and tree_ok
+            and menu_ok
+            and context_menu_ok
+            and scroll_ok
+            and capture_ok
+        )
+        return {
+            "name": "desktop_wpf_complex_control_regression",
+            "ok": ok,
+            "required": required,
+            "validation_ok": True,
+            "run_ok": run_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+            "assertion_file": str(assertion_file),
+            "content_ok": content_ok,
+            "content_preview": content[:500],
+            "expected_controls_found": expected_controls_found,
+            "automation_ids": sorted(value for value in automation_ids if value),
+            "elements_path": str(elements_path),
+            "dump_ok": dump_ok,
+            "state_ok": state_ok,
+            "assert_ok": assert_ok,
+            "table_ok": table_ok,
+            "selected_cell_ok": selected_cell_ok,
+            "tree_ok": tree_ok,
+            "selected_tree_path": selected_tree_path,
+            "menu_ok": menu_ok,
+            "context_menu_ok": context_menu_ok,
+            "scroll_ok": scroll_ok,
+            "capture_ok": capture_ok,
+            "paths": {
+                "table": str(table_path),
+                "cell": str(cell_path),
+                "tree": str(tree_path),
+                "menu": str(menu_path),
+                "context_menu": str(context_menu_path),
+                "scroll": str(scroll_path),
+                "scroll_target": str(scroll_target_path),
+                "window_capture": str(window_capture_path),
+                "element_capture": str(element_capture_path),
+            },
             "cleanup": cleanup_hint,
         }
 
@@ -4464,6 +5010,23 @@ def _coordinate_profile_ok(value: Any, *, screen_clickable: bool | None = None) 
     if screen_clickable is not None and bool(source.get("screen_clickable")) is not bool(screen_clickable):
         return False
     return True
+
+
+def _window_safety_ok(value: Any) -> bool:
+    if not isinstance(value, dict) or value.get("ok") is not True:
+        return False
+    bounds = value.get("window_bounds") if isinstance(value.get("window_bounds"), dict) else {}
+    points = value.get("points") if isinstance(value.get("points"), list) else []
+    return (
+        isinstance(bounds.get("x"), int)
+        and isinstance(bounds.get("y"), int)
+        and isinstance(bounds.get("width"), int)
+        and isinstance(bounds.get("height"), int)
+        and bounds.get("width", 0) > 0
+        and bounds.get("height", 0) > 0
+        and bool(points)
+        and all(isinstance(point, dict) and point.get("inside_window") is True for point in points)
+    )
 
 
 def _bounds_match(actual: Any, expected: Any, *, tolerance: int = 4) -> bool:
@@ -4963,6 +5526,9 @@ root.mainloop()
                 "state": "exists",
                 "expected": "{{expected_text}}",
                 "mode": "contains",
+                "expected_count": 1,
+                "property": "visible",
+                "property_expected": True,
                 "path": "form-status-assertion.json",
                 "save_as": "status_assertion",
                 "max_depth": 5,
@@ -5050,6 +5616,22 @@ root.mainloop()
                 "max_depth": 5,
                 "max_elements": 200,
                 "save_as": "form_observation",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "click",
+                "target": "candidate",
+                "candidate_source": "latest",
+                "candidate_id": "{{form_observation.target_candidates.best_candidate.candidate_id}}",
+                "min_confidence": "medium",
+                "save_as": "entry_latest_candidate_click",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-entry-latest-candidate-click.json",
+                "value": "{{entry_latest_candidate_click}}",
             },
             {
                 "action": "desktop_capture",
@@ -5148,6 +5730,12 @@ root.mainloop()
                 "bounds": "{{form_elements_dump.selected_element.bounds}}",
                 "save_as": "entry_bounds_center_click",
             },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "form-entry-bounds-center-click.json",
+                "value": "{{entry_bounds_center_click}}",
+            },
             {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["esc"]},
             *clipboard_steps,
             {
@@ -5172,6 +5760,9 @@ root.mainloop()
                 "state": "exists",
                 "expected": "{{expected_text}}",
                 "mode": "equals",
+                "expected_count": 1,
+                "property": "enabled",
+                "property_expected": True,
                 "path": "form-entry-assertion.json",
                 "save_as": "entry_assertion",
                 "max_depth": 5,
@@ -5232,8 +5823,576 @@ root.mainloop()
     return plan, assertion_file, cleanup_hint
 
 
+def _temporary_wpf_form_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
+    title = "AI Automate Desktop WPF Element Form"
+    expected_text = "desktop WPF set_text regression input"
+    assertion_file = Path("resources") / "desktop-wpf-element-action-output.txt"
+    pid_file = Path("resources") / "desktop-element-action-pid.txt"
+    absolute_assertion_file = str((package_dir / assertion_file).resolve())
+    absolute_pid_file = str((package_dir / pid_file).resolve())
+    powershell = _windows_powershell_executable()
+    app_args = [
+        "-NoProfile",
+        "-Sta",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        _windows_wpf_script(title, absolute_assertion_file),
+    ]
+    entry_locator = {"automation_id": "DesktopWpfTextBox"}
+    button_locator = {"automation_id": "DesktopWpfSaveButton"}
+    checkbox_locator = {"automation_id": "DesktopWpfAgreeCheckBox"}
+    combo_locator = {"automation_id": "DesktopWpfModeCombo"}
+    list_locator = {"automation_id": "DesktopWpfOptionsList"}
+    grid_locator = {"automation_id": "DesktopWpfOrdersGrid"}
+    tree_locator = {"automation_id": "DesktopWpfNavTree"}
+    context_panel_locator = {"automation_id": "DesktopWpfContextPanel"}
+    scroll_locator = {"automation_id": "DesktopWpfScrollViewer"}
+    scroll_target_locator = {"automation_id": "DesktopWpfScrollTargetButton"}
+    plan = {
+        "name": "desktop WPF complex control regression",
+        "automation_type": "desktop",
+        "variables": {"expected_text": expected_text},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
+            {
+                "action": "desktop_app",
+                "desktop": "desktop",
+                "type": "launch",
+                "command": powershell,
+                "args": app_args,
+                "save_as": "app_launch",
+            },
+            {
+                "action": "command",
+                "type": "run",
+                "argv": [
+                    sys.executable,
+                    "-c",
+                    "import pathlib, sys; pathlib.Path(sys.argv[1]).write_text(str(sys.argv[2]), encoding='utf-8')",
+                    absolute_pid_file,
+                    "{{app_launch.pid}}",
+                ],
+                "timeout_ms": 10000,
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": title,
+                "state": "exists",
+                "timeout_ms": 10000,
+                "interval_ms": 100,
+                "save_as": "app_window",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": title,
+                "save_as": "app_focus",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": title,
+                "path": "wpf-elements.json",
+                "save_as": "wpf_elements",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "dump",
+                "title_contains": title,
+                **entry_locator,
+                "path": "wpf-entry-dump.json",
+                "save_as": "wpf_entry_dump",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": title,
+                "path": "wpf-window-screen.png",
+                "save_as": "wpf_window_capture",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "wpf-window-capture.json",
+                "value": "{{wpf_window_capture}}",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "element",
+                "title_contains": title,
+                **entry_locator,
+                "path": "wpf-entry-element-screen.png",
+                "save_as": "wpf_entry_capture",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "wpf-entry-capture.json",
+                "value": "{{wpf_entry_capture}}",
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "set_text",
+                "title_contains": title,
+                **entry_locator,
+                "value": "{{expected_text}}",
+                "preserve_clipboard": False,
+                "save_as": "wpf_entry_set_text",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "get_state",
+                "title_contains": title,
+                **entry_locator,
+                "path": "wpf-entry-state.json",
+                "save_as": "wpf_entry_state",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "element",
+                "title_contains": title,
+                **entry_locator,
+                "state": "exists",
+                "expected": "{{expected_text}}",
+                "mode": "equals",
+                "path": "wpf-entry-assertion.json",
+                "save_as": "wpf_entry_assertion",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "click",
+                "title_contains": title,
+                **checkbox_locator,
+                "save_as": "wpf_agree_click",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "select",
+                "title_contains": title,
+                **combo_locator,
+                "option_index": 2,
+                "save_as": "wpf_mode_select",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "select",
+                "title_contains": title,
+                **list_locator,
+                "option_index": 2,
+                "save_as": "wpf_options_select",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "get_table",
+                "title_contains": title,
+                **grid_locator,
+                "path": "wpf-orders-table.json",
+                "save_as": "wpf_orders_table",
+                "max_depth": 10,
+                "max_elements": 1000,
+                "max_rows": 5,
+                "max_columns": 5,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "select_cell",
+                "title_contains": title,
+                **grid_locator,
+                "row": 1,
+                "column_index": 2,
+                "path": "wpf-orders-cell.json",
+                "save_as": "wpf_orders_cell",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "get_tree",
+                "title_contains": title,
+                **tree_locator,
+                "path": "wpf-nav-tree.json",
+                "save_as": "wpf_nav_tree",
+                "max_depth": 10,
+                "max_elements": 1000,
+                "max_nodes": 80,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "expand_tree",
+                "title_contains": title,
+                **tree_locator,
+                "tree_path": ["Settings"],
+                "path": "wpf-nav-tree-expand.json",
+                "save_as": "wpf_nav_tree_expand",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "select_tree",
+                "title_contains": title,
+                **tree_locator,
+                "tree_path": ["Settings", "Accounts"],
+                "path": "wpf-nav-tree-select.json",
+                "save_as": "wpf_nav_tree_select",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "collapse_tree",
+                "title_contains": title,
+                **tree_locator,
+                "tree_path": ["Settings"],
+                "path": "wpf-nav-tree-collapse.json",
+                "save_as": "wpf_nav_tree_collapse",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke_menu",
+                "title_contains": title,
+                "menu_path": ["File", "Mark Menu"],
+                "path": "wpf-menu-invoke.json",
+                "save_as": "wpf_menu_invoke",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke_menu",
+                "title_contains": title,
+                **context_panel_locator,
+                "open_context_menu": True,
+                "menu_path": ["Mark Context"],
+                "path": "wpf-context-menu-invoke.json",
+                "save_as": "wpf_context_menu_invoke",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "scroll_element",
+                "title_contains": title,
+                **scroll_locator,
+                "scroll_to": "end",
+                "path": "wpf-scroll-viewer.json",
+                "save_as": "wpf_scroll_viewer",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "get_state",
+                "title_contains": title,
+                **scroll_target_locator,
+                "path": "wpf-scroll-target-state.json",
+                "save_as": "wpf_scroll_target_state",
+                "max_depth": 10,
+                "max_elements": 1000,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": title,
+                **button_locator,
+                "save_as": "wpf_save_invoke",
+                "max_depth": 8,
+                "max_elements": 600,
+            },
+            {"action": "sleep", "seconds": 0.3},
+            {
+                "action": "command",
+                "type": "run",
+                "argv": [
+                    sys.executable,
+                    "-c",
+                    (
+                        "import pathlib, sys; "
+                        "content = pathlib.Path(sys.argv[1]).read_text(encoding='utf-8', errors='replace'); "
+                        "expected = sys.argv[2:]; "
+                        "ok = all(item in content for item in expected); "
+                        "raise SystemExit(0 if ok else 7)"
+                    ),
+                    absolute_assertion_file,
+                    "{{expected_text}}",
+                    "agree=True",
+                    "mode=Audit",
+                    "option=Green",
+                    "menu_marked=True",
+                    "context_marked=True",
+                ],
+                "timeout_ms": 10000,
+                "save_as": "wpf_content_assertion",
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "close",
+                "title_contains": title,
+                "save_as": "wpf_app_close",
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": title,
+                "state": "not_exists",
+                "timeout_ms": 4000,
+                "interval_ms": 100,
+                "save_as": "wpf_app_closed",
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+    cleanup_hint = f"temporary WPF app title={title}; pid file={absolute_pid_file}"
+    return plan, assertion_file, cleanup_hint
+
+
 def _windows_powershell_executable() -> str:
     return shutil.which("pwsh") or shutil.which("powershell") or ""
+
+
+def _windows_wpf_skip_reason(system: str | None = None) -> str:
+    resolved_system = system or platform.system()
+    if resolved_system != "Windows":
+        return f"WPF regression only runs on Windows, current={resolved_system}"
+    powershell = _windows_powershell_executable()
+    if not powershell:
+        return "PowerShell is unavailable; WPF regression cannot run."
+    try:
+        result = subprocess.run(
+            [
+                powershell,
+                "-NoProfile",
+                "-Sta",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "Add-Type -AssemblyName PresentationFramework; "
+                "Add-Type -AssemblyName PresentationCore; "
+                "Add-Type -AssemblyName WindowsBase; "
+                "'ok'",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception as error:
+        return f"WPF runtime probe failed: {error}"
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        return f"WPF runtime is unavailable: {detail[:300]}"
+    return ""
+
+
+def _windows_wpf_script(title: str, output_path: str) -> str:
+    script = r"""
+$Title = __TITLE__
+$OutputPath = __OUTPUT_PATH__
+Add-Type -AssemblyName PresentationFramework
+Add-Type -AssemblyName PresentationCore
+Add-Type -AssemblyName WindowsBase
+Add-Type -AssemblyName System.Xaml
+Add-Type -AssemblyName System.Data
+
+[xml]$xaml = @'
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="1060" Height="760" Left="140" Top="140"
+        WindowStartupLocation="Manual">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top" AutomationProperties.AutomationId="DesktopWpfMainMenu">
+      <MenuItem Header="File" AutomationProperties.AutomationId="DesktopWpfFileMenu">
+        <MenuItem x:Name="MarkMenuItem" Header="Mark Menu" AutomationProperties.AutomationId="DesktopWpfMarkMenu" />
+      </MenuItem>
+    </Menu>
+    <Grid Margin="12">
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="330" />
+        <ColumnDefinition Width="350" />
+        <ColumnDefinition Width="*" />
+      </Grid.ColumnDefinitions>
+      <Grid.RowDefinitions>
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="Auto" />
+        <RowDefinition Height="220" />
+        <RowDefinition Height="*" />
+      </Grid.RowDefinitions>
+      <TextBlock Grid.Row="0" Grid.Column="0" Text="Input" Margin="0,0,0,4" />
+      <TextBox x:Name="InputBox" Grid.Row="1" Grid.Column="0" Width="280" Height="30"
+               AutomationProperties.AutomationId="DesktopWpfTextBox" />
+      <Button x:Name="SaveButton" Grid.Row="1" Grid.Column="1" Width="150" Height="32" HorizontalAlignment="Left"
+              Content="Save WPF State" AutomationProperties.AutomationId="DesktopWpfSaveButton" />
+      <CheckBox x:Name="AgreeCheck" Grid.Row="1" Grid.Column="2" Width="180" Height="30" Content="Agree"
+                AutomationProperties.AutomationId="DesktopWpfAgreeCheckBox" />
+      <ComboBox x:Name="ModeCombo" Grid.Row="2" Grid.Column="0" Width="220" Height="32" VerticalAlignment="Top"
+                AutomationProperties.AutomationId="DesktopWpfModeCombo">
+        <ComboBoxItem Content="Draft" />
+        <ComboBoxItem Content="Review" />
+        <ComboBoxItem Content="Audit" />
+      </ComboBox>
+      <ListBox x:Name="OptionsList" Grid.Row="2" Grid.Column="0" Width="220" Height="110" Margin="0,48,0,0"
+               AutomationProperties.AutomationId="DesktopWpfOptionsList">
+        <ListBoxItem Content="Red" />
+        <ListBoxItem Content="Blue" />
+        <ListBoxItem Content="Green" />
+      </ListBox>
+      <DataGrid x:Name="OrdersGrid" Grid.Row="2" Grid.Column="1" Width="320" Height="170"
+                AutomationProperties.AutomationId="DesktopWpfOrdersGrid"
+                AutoGenerateColumns="False" IsReadOnly="True"
+                EnableRowVirtualization="False" EnableColumnVirtualization="False">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="ID" Binding="{Binding ID}" />
+          <DataGridTextColumn Header="Name" Binding="{Binding Name}" />
+          <DataGridTextColumn Header="Status" Binding="{Binding Status}" />
+        </DataGrid.Columns>
+      </DataGrid>
+      <TreeView x:Name="NavTree" Grid.Row="2" Grid.Column="2" Width="260" Height="170" HorizontalAlignment="Left"
+                AutomationProperties.AutomationId="DesktopWpfNavTree">
+        <TreeViewItem Header="Settings" IsExpanded="True">
+          <TreeViewItem Header="Accounts" />
+          <TreeViewItem Header="Security" />
+        </TreeViewItem>
+        <TreeViewItem Header="Reports" IsExpanded="True">
+          <TreeViewItem Header="Monthly" />
+        </TreeViewItem>
+      </TreeView>
+      <Button x:Name="ContextPanel" Grid.Row="3" Grid.Column="0" Width="260" Height="120"
+              HorizontalAlignment="Left" VerticalAlignment="Top" Margin="0,20,0,0"
+              Content="Context Target"
+              AutomationProperties.AutomationId="DesktopWpfContextPanel">
+        <Button.ContextMenu>
+          <ContextMenu>
+            <MenuItem Header="Mark Context" AutomationProperties.AutomationId="DesktopWpfMarkContext" />
+          </ContextMenu>
+        </Button.ContextMenu>
+      </Button>
+      <ScrollViewer x:Name="ScrollViewer" Grid.Row="3" Grid.Column="1" Width="300" Height="160"
+                    VerticalScrollBarVisibility="Auto"
+                    AutomationProperties.AutomationId="DesktopWpfScrollViewer">
+        <StackPanel Height="520">
+          <TextBlock Text="Scroll Area" Margin="12" />
+          <Button Content="Far Scroll Target" Width="190" Height="34" Margin="12,390,12,12"
+                  AutomationProperties.AutomationId="DesktopWpfScrollTargetButton" />
+        </StackPanel>
+      </ScrollViewer>
+      <TextBlock x:Name="StatusText" Grid.Row="3" Grid.Column="2" Width="300" Height="120"
+                 TextWrapping="Wrap" Text="Ready"
+                 AutomationProperties.AutomationId="DesktopWpfStatusText" />
+    </Grid>
+  </DockPanel>
+</Window>
+'@
+
+$reader = New-Object System.Xml.XmlNodeReader($xaml)
+$window = [Windows.Markup.XamlReader]::Load($reader)
+$window.Title = $Title
+$inputBox = $window.FindName('InputBox')
+$saveButton = $window.FindName('SaveButton')
+$agreeCheck = $window.FindName('AgreeCheck')
+$modeCombo = $window.FindName('ModeCombo')
+$optionsList = $window.FindName('OptionsList')
+$ordersGrid = $window.FindName('OrdersGrid')
+$navTree = $window.FindName('NavTree')
+$markMenuItem = $window.FindName('MarkMenuItem')
+$contextPanel = $window.FindName('ContextPanel')
+$scrollViewer = $window.FindName('ScrollViewer')
+$statusText = $window.FindName('StatusText')
+
+$rows = New-Object System.Collections.ArrayList
+[void]$rows.Add([pscustomobject]@{ ID = '100'; Name = 'Alpha'; Status = 'Open' })
+[void]$rows.Add([pscustomobject]@{ ID = '200'; Name = 'Beta'; Status = 'Review' })
+[void]$rows.Add([pscustomobject]@{ ID = '300'; Name = 'Gamma'; Status = 'Closed' })
+$ordersGrid.ItemsSource = $rows
+$ordersGrid.SelectedIndex = 0
+$modeCombo.SelectedIndex = 0
+$optionsList.SelectedIndex = 0
+$script:menuMarked = $false
+$script:contextMarked = $false
+$script:selectedTree = ''
+
+$markMenuItem.Add_Click({
+    $script:menuMarked = $true
+})
+$contextPanel.ContextMenu.Items[0].Add_Click({
+    $script:contextMarked = $true
+})
+$navTree.Add_SelectedItemChanged({
+    param($sender, $eventArgs)
+    if ($eventArgs.NewValue -ne $null -and $eventArgs.NewValue.Header -ne $null) {
+        $script:selectedTree = $eventArgs.NewValue.Header.ToString()
+    }
+})
+$saveButton.Add_Click({
+    $modeText = ''
+    if ($modeCombo.SelectedItem -ne $null -and $modeCombo.SelectedItem.Content -ne $null) {
+        $modeText = $modeCombo.SelectedItem.Content.ToString()
+    }
+    $optionText = ''
+    if ($optionsList.SelectedItem -ne $null -and $optionsList.SelectedItem.Content -ne $null) {
+        $optionText = $optionsList.SelectedItem.Content.ToString()
+    }
+    $selectedOrder = $ordersGrid.SelectedItem
+    $gridCell = ''
+    if ($selectedOrder -ne $null) {
+        $gridCell = "$($selectedOrder.Name):$($selectedOrder.Status)"
+    }
+    $payload = "$($inputBox.Text)`nagree=$($agreeCheck.IsChecked)`nmode=$modeText`noption=$optionText`ngrid_cell=$gridCell`ntree_path=$script:selectedTree`nmenu_marked=$script:menuMarked`ncontext_marked=$script:contextMarked`nscroll_value=$($scrollViewer.VerticalOffset)"
+    [System.IO.File]::WriteAllText($OutputPath, $payload, [System.Text.Encoding]::UTF8)
+    $statusText.Text = "Saved: $($inputBox.Text)"
+})
+
+[void]$window.ShowDialog()
+""".strip()
+    return script.replace("__TITLE__", _powershell_string(title)).replace("__OUTPUT_PATH__", _powershell_string(output_path))
 
 
 def _windows_file_dialog_form_script(
@@ -5449,9 +6608,9 @@ $contextPanel.BorderStyle = [System.Windows.Forms.BorderStyle]::FixedSingle
 $contextPanel.ContextMenuStrip = $contextMenu
 $contextLabel = New-Object System.Windows.Forms.Label
 $contextLabel.Text = 'Context Menu'
-$contextLabel.AutoSize = $true
-$contextLabel.Left = 12
-$contextLabel.Top = 12
+$contextLabel.Dock = 'Fill'
+$contextLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
+$contextLabel.ContextMenuStrip = $contextMenu
 [void]$contextPanel.Controls.Add($contextLabel)
 $button = New-Object System.Windows.Forms.Button
 $button.Name = 'DesktopElementSaveButton'
@@ -5631,22 +6790,38 @@ def _powershell_string(value: str) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
-    file_name = f"desktop-notepad-input-{package_dir.name.rsplit('-', 1)[-1]}.txt"
+def _windows_controlled_editor_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
+    suffix = package_dir.name.rsplit("-", 1)[-1]
+    title = f"AI Automate Desktop Real App {suffix}"
     expected_text = "desktop automation regression input"
-    assertion_file = Path("resources") / file_name
+    assertion_file = Path("resources") / f"desktop-real-app-input-{suffix}.txt"
+    pid_file = Path("resources") / "desktop-app-pid.txt"
     absolute_assertion_file = str((package_dir / assertion_file).resolve())
+    absolute_pid_file = str((package_dir / pid_file).resolve())
+    powershell = _windows_powershell_executable()
+    if not powershell:
+        raise RuntimeError("PowerShell is required for the Windows desktop real app regression.")
+    app_args = [
+        "-NoProfile",
+        "-Sta",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        _windows_controlled_editor_script(title, absolute_assertion_file),
+    ]
+    textbox_locator = {"automation_id": "DesktopRealAppTextBox", "control_type": "Edit"}
+    button_locator = {"automation_id": "DesktopRealAppSaveButton", "control_type": "Button"}
     plan = {
-        "name": "desktop notepad regression",
+        "name": "desktop controlled editor regression",
         "automation_type": "desktop",
-        "variables": {"expected_text": expected_text},
+        "variables": {"expected_text": expected_text, "window_title": title},
         "steps": [
             {"action": "open_desktop", "name": "desktop", "backend": "auto", "save_as": "desktop_probe"},
             {
                 "action": "command",
                 "type": "run",
                 "command": (
-                    f"$file = '{absolute_assertion_file}'; "
+                    f"$file = {_powershell_string(absolute_assertion_file)}; "
                     "Set-Content -LiteralPath $file -Value ''; "
                     "Write-Output $file"
                 ),
@@ -5657,9 +6832,9 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_app",
                 "desktop": "desktop",
                 "type": "launch",
-                "app": "notepad.exe",
-                "args": [absolute_assertion_file],
-                "title_contains": file_name,
+                "command": powershell,
+                "args": app_args,
+                "title_contains": title,
                 "wait_for_window": True,
                 "focus": True,
                 "window_timeout_ms": 8000,
@@ -5683,8 +6858,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "find",
-                "title_contains": file_name,
-                "process_name": "notepad.exe",
+                "title_contains": title,
                 "path": "real-app-window-find.json",
                 "save_as": "found_window",
             },
@@ -5692,7 +6866,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
-                "title_contains": file_name,
+                "title_contains": title,
                 "state": "exists",
                 "timeout_ms": 8000,
                 "save_as": "app_window",
@@ -5701,7 +6875,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "focus",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_focus",
             },
             {
@@ -5709,7 +6883,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "desktop": "desktop",
                 "type": "window",
                 "state": "focused",
-                "title_contains": file_name,
+                "title_contains": title,
                 "timeout_ms": 2000,
                 "save_as": "app_focused_assertion",
             },
@@ -5717,7 +6891,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "maximize",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_maximize",
             },
             {"action": "sleep", "seconds": 0.2},
@@ -5726,7 +6900,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "desktop": "desktop",
                 "type": "screenshot",
                 "target": "window",
-                "title_contains": file_name,
+                "title_contains": title,
                 "path": "real-app-maximized-window.png",
                 "save_as": "app_maximized_screenshot",
             },
@@ -5734,7 +6908,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "minimize",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_minimize",
             },
             {"action": "sleep", "seconds": 0.2},
@@ -5742,7 +6916,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "restore",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_restore",
             },
             {"action": "sleep", "seconds": 0.2},
@@ -5750,7 +6924,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "focus",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_refocus_after_restore",
             },
             {
@@ -5758,7 +6932,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "desktop": "desktop",
                 "type": "window",
                 "state": "focused",
-                "title_contains": file_name,
+                "title_contains": title,
                 "timeout_ms": 2000,
                 "save_as": "app_restored_focused_assertion",
             },
@@ -5773,7 +6947,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
-                "title_contains": file_name,
+                "title_contains": title,
                 "path": "real-app-elements.json",
                 "save_as": "app_elements",
                 "max_depth": 4,
@@ -5783,59 +6957,40 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "find",
-                "title_contains": file_name,
-                "name_contains": file_name,
-                "save_as": "app_window_element",
-                "max_depth": 2,
-            },
-            {
-                "action": "desktop_element",
-                "desktop": "desktop",
-                "type": "get_text",
-                "title_contains": file_name,
-                "name_contains": file_name,
-                "save_as": "app_window_element_text",
-                "max_depth": 2,
+                "title_contains": title,
+                **textbox_locator,
+                "save_as": "app_textbox_element",
+                "max_depth": 4,
             },
             {
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "get_state",
-                "title_contains": file_name,
-                "name_contains": file_name,
-                "save_as": "app_window_element_state",
-                "max_depth": 2,
+                "title_contains": title,
+                **textbox_locator,
+                "save_as": "app_textbox_state",
+                "max_depth": 4,
             },
             {
                 "action": "desktop_element",
                 "desktop": "desktop",
-                "type": "click",
-                "title_contains": file_name,
-                "name_contains": file_name,
-                "save_as": "app_element_click",
-                "max_depth": 2,
-            },
-            {
-                "action": "desktop_input",
-                "desktop": "desktop",
-                "type": "click",
-                "target": "current_window_center",
-                "save_as": "app_click",
-            },
-            {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["esc"]},
-            {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["ctrl", "a"]},
-            {
-                "action": "desktop_input",
-                "desktop": "desktop",
-                "type": "type_text",
+                "type": "set_text",
+                "title_contains": title,
+                **textbox_locator,
                 "value": "{{expected_text}}",
-                "method": "clipboard",
-                "preserve_clipboard": False,
-                "save_as": "typed_text",
+                "save_as": "app_textbox_set_text",
+                "max_depth": 4,
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": title,
+                **button_locator,
+                "save_as": "app_save_invoke",
+                "max_depth": 4,
             },
             {"action": "sleep", "seconds": 0.2},
-            {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["ctrl", "s"]},
-            {"action": "sleep", "seconds": 0.5},
             {
                 "action": "desktop_capture",
                 "desktop": "desktop",
@@ -5854,14 +7009,14 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "close",
-                "title_contains": file_name,
+                "title_contains": title,
                 "save_as": "app_close",
             },
             {
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
-                "title_contains": file_name,
+                "title_contains": title,
                 "state": "not_exists",
                 "timeout_ms": 4000,
                 "interval_ms": 100,
@@ -5871,7 +7026,7 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
                 "action": "command",
                 "type": "run",
                 "command": (
-                    f"$content = Get-Content -Raw -LiteralPath 'resources\\\\{file_name}'; "
+                    f"$content = Get-Content -Raw -LiteralPath 'resources\\\\{assertion_file.name}'; "
                     "if ($content -notlike '*{{expected_text}}*') { "
                     "Write-Error ('typed text missing: ' + $content); exit 7 }"
                 ),
@@ -5881,7 +7036,59 @@ def _windows_notepad_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]
             {"action": "close_desktop", "desktop": "desktop"},
         ],
     }
-    return plan, assertion_file, "notepad window is closed by desktop_window.close; fallback cleanup uses resources/desktop-app-pid.txt"
+    return plan, assertion_file, f"temporary WinForms real app title={title}; pid file={absolute_pid_file}"
+
+
+def _windows_controlled_editor_script(title: str, output_path: str) -> str:
+    return f"""
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+[System.Windows.Forms.Application]::EnableVisualStyles()
+$outputPath = {_powershell_string(output_path)}
+$form = New-Object System.Windows.Forms.Form
+$form.Text = {_powershell_string(title)}
+$form.Width = 720
+$form.Height = 420
+$form.StartPosition = 'CenterScreen'
+$form.KeyPreview = $true
+
+$label = New-Object System.Windows.Forms.Label
+$label.Text = 'Value'
+$label.AutoSize = $true
+$label.Location = New-Object System.Drawing.Point(20, 20)
+
+$textBox = New-Object System.Windows.Forms.TextBox
+$textBox.Name = 'DesktopRealAppTextBox'
+$textBox.Multiline = $true
+$textBox.AcceptsReturn = $true
+$textBox.ScrollBars = 'Vertical'
+$textBox.Location = New-Object System.Drawing.Point(20, 50)
+$textBox.Size = New-Object System.Drawing.Size(660, 230)
+
+$save = New-Object System.Windows.Forms.Button
+$save.Name = 'DesktopRealAppSaveButton'
+$save.Text = 'Save'
+$save.Location = New-Object System.Drawing.Point(20, 300)
+$save.Size = New-Object System.Drawing.Size(100, 34)
+
+$status = New-Object System.Windows.Forms.Label
+$status.Name = 'DesktopRealAppStatus'
+$status.Text = 'Ready'
+$status.AutoSize = $true
+$status.Location = New-Object System.Drawing.Point(140, 308)
+
+$save.Add_Click({{
+    [System.IO.File]::WriteAllText($outputPath, $textBox.Text, [System.Text.Encoding]::UTF8)
+    $status.Text = 'Saved ' + $textBox.Text.Length + ' chars'
+}})
+$form.Add_Shown({{ $form.Activate(); $textBox.Focus() }})
+
+[void]$form.Controls.Add($label)
+[void]$form.Controls.Add($textBox)
+[void]$form.Controls.Add($save)
+[void]$form.Controls.Add($status)
+[void][System.Windows.Forms.Application]::Run($form)
+""".strip()
 
 
 def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]:

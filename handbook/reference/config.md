@@ -11,6 +11,33 @@
 
 局部配置会覆盖集合级配置。嵌套对象递归合并；数组、字符串、数字、布尔值和 `null` 由局部值整体覆盖。
 
+## 环境变量引用
+
+`config.json` 的任意值可以使用完整值环境变量引用，运行时会解析为环境变量内容：
+
+```json
+{
+  "connections": {
+    "crm_pg": {
+      "type": "postgresql",
+      "dsn": {
+        "env": "CRM_POSTGRES_DSN"
+      }
+    }
+  }
+}
+```
+
+支持写法：
+
+- `{"env": "NAME"}`
+- `{"env": "NAME", "default": "value"}`
+- `"env:NAME"`
+- `"$env:NAME"`
+- `"${NAME}"`
+
+没有设置环境变量且没有 `default` 时解析为空字符串。需要连接数据库的本机真实配置建议放在 `local/database-services.json`，公开示例用环境变量引用。
+
 ## post_run_inspection
 
 控制 plan 正常执行完步骤后是否保留浏览器给用户检查。

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -50,9 +51,43 @@ DESKTOP_INPUT_TARGETS = {
     "bounds_center",
     "candidate",
 }
+DESKTOP_TARGET_CANDIDATE_SOURCE_ALIASES = {"latest", "last", "session", "latest_target_candidates"}
 
 HTTP_METHODS = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
 HTTP_BODY_FIELDS = ("json", "body", "body_path", "form", "multipart")
+SQL_CONNECTION_TYPES = {
+    "sqlite",
+    "sqlite3",
+    "postgresql",
+    "postgres",
+    "pg",
+    "mysql",
+    "mariadb",
+    "oracle",
+    "oracledb",
+    "duckdb",
+}
+SQL_ROW_MODES = {"dict", "list"}
+SQL_BULK_MODES = {"insert", "replace", "upsert"}
+SQL_TRANSACTION_STEP_TYPES = {"query", "scalar", "execute", "executemany", "bulk_insert"}
+REDIS_VALUE_TYPES = {"set", "lpush", "rpush"}
+EXCEL_A1_RE = re.compile(r"^[A-Za-z]{1,3}[1-9][0-9]*(?::[A-Za-z]{1,3}[1-9][0-9]*)?$")
+TABLE_FILTER_OPERATORS = {
+    "contains",
+    "empty",
+    "eq",
+    "equals",
+    "gt",
+    "gte",
+    "in",
+    "lt",
+    "lte",
+    "ne",
+    "not_contains",
+    "not_empty",
+    "not_equals",
+    "not_in",
+}
 
 
 def validate_type_field(
@@ -198,8 +233,47 @@ def validate_type_specific_required_fields(
         required = ("key",)
     elif action == "trace" and step_type == "stop":
         required = ("path",)
+    elif action == "sql":
+        if step_type in {"query", "scalar", "execute"}:
+            required = ("sql",)
+        elif step_type == "executemany":
+            required = ("sql", "params_list")
+        elif step_type == "bulk_insert":
+            required = ("table", "rows")
+        elif step_type == "copy":
+            required = ("sql", "target_connection", "table")
+        elif step_type == "transaction":
+            required = ("steps",)
+    elif action == "redis":
+        if step_type in {"get", "hgetall", "lrange", "smembers"}:
+            required = ("key",)
+        elif step_type == "set":
+            required = ("key", "value")
+        elif step_type == "delete" and "key" not in step and "keys" not in step:
+            issues.append(ValidationIssue(location, "redis.delete 需要 key 或 keys"))
+        elif step_type == "hget":
+            required = ("key", "field")
+        elif step_type == "hset" and "mapping" not in step:
+            required = ("key", "field", "value")
+        elif step_type in REDIS_VALUE_TYPES and "value" not in step and "values" not in step:
+            issues.append(ValidationIssue(location, f"redis.{step_type} 需要 value 或 values"))
+        elif step_type == "sadd" and "value" not in step and "members" not in step:
+            issues.append(ValidationIssue(location, "redis.sadd 需要 value 或 members"))
+        elif step_type == "expire":
+            required = ("key", "seconds")
+        elif step_type == "command":
+            required = ("command",)
+        elif step_type == "pipeline":
+            required = ("commands",)
     elif action == "command" and step_type == "run" and not any(field in step for field in ("command", "commands", "argv")):
         issues.append(ValidationIssue(location, "command.run 需要 command、commands 或 argv 之一"))
+    elif action == "table":
+        if step_type == "filter":
+            required = ("where",)
+        elif step_type == "select":
+            required = ("columns",)
+        elif step_type in {"sort", "dedupe"}:
+            required = ("by",)
     elif action == "desktop_app" and step_type == "launch" and not any(step.get(field) for field in ("app", "path", "command")):
         issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path 或 command 之一"))
     elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
@@ -362,6 +436,15 @@ def _validate_optional_field_values(
     location: str,
     issues: list[ValidationIssue],
 ) -> None:
+    if action == "read":
+        _validate_read_fields(step, step_type, location, issues)
+        return
+    if action == "write":
+        _validate_write_fields(step, step_type, location, issues)
+        return
+    if action == "table":
+        _validate_table_fields(step, step_type, location, issues)
+        return
     if action == "open_browser":
         _validate_open_browser_fields(step, location, issues)
         return
@@ -417,6 +500,12 @@ def _validate_optional_field_values(
     if action == "http":
         _validate_http_fields(step, step_type, location, issues)
         return
+    if action == "sql":
+        _validate_sql_fields(step, step_type, location, issues)
+        return
+    if action == "redis":
+        _validate_redis_fields(step, step_type, location, issues)
+        return
     if action == "command":
         _validate_command_fields(step, step_type, location, issues)
         return
@@ -469,6 +558,113 @@ def _validate_optional_field_values(
         _validate_int(step, "duration_ms", location, issues, minimum=0)
         _validate_bool(step, "touch", location, issues)
         _validate_bool(step, "fallback_to_mouse", location, issues)
+
+
+def _validate_read_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type == "text":
+        _validate_bool(step, "split_lines", location, issues)
+        return
+    if step_type != "excel":
+        return
+    _validate_sheet_field(step, "sheet", location, issues)
+    _validate_a1_range(step, "range", location, issues)
+    _validate_int(step, "header_row", location, issues, minimum=1)
+    _validate_nonempty_string_list(step, "headers", location, issues)
+    _validate_bool(step, "skip_blank_rows", location, issues)
+    _validate_int(step, "max_rows", location, issues, minimum=1)
+    _validate_string(step, "save_meta_as", location, issues)
+    _validate_enum(step, "mode", {"records", "matrix", "cells"}, location, issues)
+    _validate_enum(step, "formula_mode", {"cached", "formula"}, location, issues)
+    _validate_enum(step, "date_format", {"iso", "text"}, location, issues)
+
+
+def _validate_write_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if step_type == "json":
+        _validate_int(step, "indent", location, issues, minimum=0)
+        return
+    if step_type == "variables":
+        _validate_int(step, "indent", location, issues, minimum=0)
+        return
+    if step_type == "text":
+        _validate_bool(step, "append", location, issues)
+        return
+    if step_type == "csv":
+        _validate_nonempty_string_list(step, "headers", location, issues)
+        return
+    if step_type != "excel":
+        return
+    _validate_sheet_field(step, "sheet", location, issues)
+    _validate_string(step, "template_path", location, issues)
+    _validate_string(step, "table_name", location, issues)
+    _validate_nonempty_string_list(step, "headers", location, issues)
+    _validate_dict(step, "cells", location, issues)
+    _validate_dict(step, "number_format", location, issues)
+    _validate_dict(step, "column_widths", location, issues)
+    _validate_bool(step, "include_header", location, issues)
+    _validate_bool(step, "freeze_header", location, issues)
+    _validate_bool(step, "auto_filter", location, issues)
+    _validate_bool(step, "table", location, issues)
+    _validate_enum(step, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
+    _validate_string(step, "date_format", location, issues)
+    cells = step.get("cells")
+    if isinstance(cells, dict):
+        for address in cells:
+            if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
+                issues.append(ValidationIssue(location, f"cells 的 key 必须是 A1 单元格地址：{address}"))
+
+
+def _validate_table_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_string(step, "save_as", location, issues)
+    if step_type == "filter":
+        _validate_dict(step, "where", location, issues)
+        where = step.get("where")
+        if isinstance(where, dict):
+            for field, condition in where.items():
+                if not isinstance(field, str) or not field:
+                    issues.append(ValidationIssue(location, "table.filter.where 的字段名必须是非空字符串"))
+                if isinstance(condition, dict):
+                    for operator in condition:
+                        if operator not in TABLE_FILTER_OPERATORS:
+                            allowed = ", ".join(sorted(TABLE_FILTER_OPERATORS))
+                            issues.append(ValidationIssue(location, f"table.filter 操作符不支持：{operator}；可选值：{allowed}"))
+        return
+    if step_type == "select":
+        _validate_nonempty_string_list(step, "columns", location, issues)
+        _validate_dict(step, "rename", location, issues)
+        rename = step.get("rename")
+        if isinstance(rename, dict):
+            for key, value in rename.items():
+                if not isinstance(key, str) or not key or not isinstance(value, str) or not value:
+                    issues.append(ValidationIssue(location, "table.select.rename 必须是源列名到目标列名的非空字符串对象"))
+        return
+    if step_type in {"sort", "dedupe"}:
+        _validate_string_or_nonempty_string_list(step, "by", location, issues)
+    if step_type == "sort":
+        value = step.get("descending")
+        if value is not None and not _is_template(value):
+            if isinstance(value, bool):
+                return
+            if isinstance(value, list) and all(isinstance(item, bool) for item in value):
+                return
+            issues.append(ValidationIssue(location, "table.sort.descending 必须是布尔值或布尔数组"))
+        return
+    if step_type == "dedupe":
+        _validate_enum(step, "keep", {"first", "last"}, location, issues)
 
 
 def _validate_open_browser_fields(
@@ -680,6 +876,195 @@ def _validate_http_fields(
                         issues.append(ValidationIssue(item_location, f"{field} 必须是非空字符串"))
 
 
+def _validate_sql_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_connection_reference(step, "connection", location, issues, SQL_CONNECTION_TYPES)
+    _validate_connection_reference(step, "target_connection", location, issues, SQL_CONNECTION_TYPES)
+    _validate_string(step, "sql", location, issues)
+    if "params" in step and not _is_template(step["params"]) and not isinstance(step["params"], (dict, list)):
+        issues.append(ValidationIssue(location, "params 必须是对象或数组"))
+    _validate_list(step, "params_list", location, issues)
+    _validate_string(step, "table", location, issues)
+    _validate_list(step, "rows", location, issues)
+    _validate_list(step, "columns", location, issues)
+    _validate_list(step, "conflict_keys", location, issues)
+    _validate_list(step, "update_columns", location, issues)
+    _validate_list(step, "steps", location, issues)
+    _validate_dict(step, "column_map", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_string(step, "rows_path", location, issues)
+    _validate_string(step, "result_path", location, issues)
+    _validate_bool(step, "include_rows", location, issues)
+    _validate_bool(step, "commit", location, issues)
+    _validate_bool(step, "stream", location, issues)
+    _validate_int(step, "max_rows", location, issues, minimum=1)
+    _validate_int(step, "limit", location, issues, minimum=1)
+    _validate_int(step, "offset", location, issues, minimum=0)
+    _validate_int(step, "page_size", location, issues, minimum=1)
+    _validate_int(step, "page", location, issues, minimum=1)
+    _validate_int(step, "batch_size", location, issues, minimum=1)
+    _validate_int(step, "fetch_size", location, issues, minimum=1)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_enum(step, "row_mode", SQL_ROW_MODES, location, issues)
+    _validate_enum(step, "mode", SQL_BULK_MODES, location, issues)
+    if step_type in {"query", "scalar", "copy"}:
+        if "limit" in step and "page_size" in step:
+            issues.append(ValidationIssue(location, f"sql.{step_type} 不能同时使用 limit 和 page_size"))
+        if "page" in step and "page_size" not in step:
+            issues.append(ValidationIssue(location, f"sql.{step_type}.page 需要和 page_size 一起使用"))
+    if "expect_affected_rows" in step and not _is_template(step["expect_affected_rows"]):
+        expected = step["expect_affected_rows"]
+        if isinstance(expected, int):
+            pass
+        elif isinstance(expected, list) and all(isinstance(item, int) for item in expected):
+            pass
+        else:
+            issues.append(ValidationIssue(location, "expect_affected_rows 必须是整数或整数数组"))
+    if step_type in {"bulk_insert", "copy"} and step.get("mode") == "upsert" and "conflict_keys" not in step:
+        issues.append(ValidationIssue(location, f"sql.{step_type} mode=upsert 需要 conflict_keys"))
+    if step_type == "copy" and step.get("stream") is True:
+        if step.get("include_rows") is True:
+            issues.append(ValidationIssue(location, "sql.copy stream=true 不支持 include_rows；请使用 rows_path=.jsonl 分批落盘"))
+        rows_path = step.get("rows_path")
+        if isinstance(rows_path, str) and rows_path and not rows_path.lower().endswith(".jsonl"):
+            issues.append(ValidationIssue(location, "sql.copy stream=true 的 rows_path 只支持 .jsonl"))
+    if step_type == "transaction":
+        if "rows_path" in step:
+            issues.append(ValidationIssue(location, "sql.transaction 不支持 rows_path；请使用 result_path 保存事务摘要"))
+        if "commit" in step:
+            issues.append(ValidationIssue(location, "sql.transaction 不支持 commit 字段；成功自动提交，失败自动回滚"))
+        _validate_sql_transaction_steps(step, location, issues)
+    for field in ("columns", "conflict_keys", "update_columns"):
+        value = step.get(field)
+        if isinstance(value, list):
+            for index, item in enumerate(value):
+                if not isinstance(item, str) or not item:
+                    issues.append(ValidationIssue(f"{location}.{field}[{index}]", f"{field} 每一项必须是非空字符串"))
+    column_map = step.get("column_map")
+    if isinstance(column_map, dict):
+        for key, value in column_map.items():
+            if not isinstance(key, str) or not key:
+                issues.append(ValidationIssue(location, "column_map 的目标列名必须是非空字符串"))
+            if not isinstance(value, str) or not value:
+                issues.append(ValidationIssue(location, "column_map 的源列名必须是非空字符串"))
+
+
+def _validate_sql_transaction_steps(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    steps = step.get("steps")
+    if not isinstance(steps, list):
+        return
+    if not steps:
+        issues.append(ValidationIssue(location, "sql.transaction.steps 必须是非空数组"))
+        return
+    for index, item in enumerate(steps):
+        item_location = f"{location}.steps[{index}]"
+        if not isinstance(item, dict):
+            issues.append(ValidationIssue(item_location, "sql.transaction.steps 每一项必须是对象"))
+            continue
+        forbidden = [field for field in ("action", "connection", "commit", "save_as", "rows_path", "result_path") if field in item]
+        if forbidden:
+            issues.append(
+                ValidationIssue(
+                    item_location,
+                    "sql.transaction 子步骤不支持 action、connection、commit、save_as、rows_path 或 result_path；"
+                    f"当前包含：{', '.join(forbidden)}",
+                )
+            )
+        child_type = item.get("type")
+        if not isinstance(child_type, str) or not child_type:
+            issues.append(ValidationIssue(item_location, "sql.transaction 子步骤 type 必须是非空字符串"))
+            continue
+        if child_type not in SQL_TRANSACTION_STEP_TYPES:
+            allowed = ", ".join(sorted(SQL_TRANSACTION_STEP_TYPES))
+            issues.append(ValidationIssue(item_location, f"sql.transaction 子步骤 type 不支持：{child_type}；可选值：{allowed}"))
+            continue
+        if child_type in {"query", "scalar", "execute"} and "sql" not in item:
+            issues.append(ValidationIssue(item_location, f"sql.transaction {child_type} 缺少必填字段：sql"))
+        elif child_type == "executemany":
+            for field in ("sql", "params_list"):
+                if field not in item:
+                    issues.append(ValidationIssue(item_location, f"sql.transaction executemany 缺少必填字段：{field}"))
+        elif child_type == "bulk_insert":
+            for field in ("table", "rows"):
+                if field not in item:
+                    issues.append(ValidationIssue(item_location, f"sql.transaction bulk_insert 缺少必填字段：{field}"))
+        _validate_sql_fields(item, child_type, item_location, issues)
+
+
+def _validate_redis_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_connection_reference(step, "connection", location, issues, {"redis"})
+    _validate_string(step, "key", location, issues)
+    _validate_string(step, "field", location, issues)
+    _validate_string(step, "command", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_string(step, "result_path", location, issues)
+    _validate_dict(step, "mapping", location, issues)
+    _validate_list(step, "keys", location, issues)
+    _validate_list(step, "values", location, issues)
+    _validate_list(step, "members", location, issues)
+    _validate_list(step, "args", location, issues)
+    _validate_list(step, "commands", location, issues)
+    _validate_int(step, "ttl_seconds", location, issues, minimum=1)
+    _validate_int(step, "seconds", location, issues, minimum=1)
+    _validate_int(step, "start", location, issues)
+    _validate_int(step, "stop", location, issues)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "batch_size", location, issues, minimum=1)
+    if step_type == "pipeline" and isinstance(step.get("commands"), list):
+        for index, item in enumerate(step["commands"]):
+            item_location = f"{location}.commands[{index}]"
+            if not isinstance(item, dict):
+                issues.append(ValidationIssue(item_location, "commands 每一项必须是对象"))
+                continue
+            _validate_string(item, "command", item_location, issues)
+            _validate_list(item, "args", item_location, issues)
+
+
+def _validate_connection_reference(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+    allowed_types: set[str],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str):
+        if not value:
+            issues.append(ValidationIssue(location, f"{field} 必须是非空字符串或连接对象"))
+        return
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, f"{field} 必须是连接名字符串或连接对象"))
+        return
+    raw_type = value.get("type") or value.get("driver")
+    if raw_type is not None and not _is_template(raw_type):
+        if not isinstance(raw_type, str) or raw_type.lower() not in allowed_types:
+            allowed = ", ".join(sorted(allowed_types))
+            issues.append(ValidationIssue(location, f"{field}.type 不支持：{raw_type}；可选值：{allowed}"))
+    for item_field in ("type", "driver", "dsn", "url", "path", "database", "host", "username", "user", "password"):
+        if item_field in value and not _is_template(value[item_field]) and not isinstance(value[item_field], str):
+            issues.append(ValidationIssue(location, f"{field}.{item_field} 必须是字符串"))
+    for item_field in ("port", "db"):
+        if item_field in value and not _is_template(value[item_field]) and not isinstance(value[item_field], int):
+            issues.append(ValidationIssue(location, f"{field}.{item_field} 必须是整数"))
+    _validate_bool(value, "decode_responses", location, issues)
+    _validate_bool(value, "read_only", location, issues)
+
+
 def _validate_command_fields(
     step: dict[str, Any],
     step_type: Any,
@@ -849,6 +1234,7 @@ def _validate_desktop_input_fields(
                 issues.append(ValidationIssue(f"{location}.keys[{index}]", "keys 每一项必须是非空字符串"))
     if step_type in {"click", "double_click", "right_click", "scroll"}:
         _validate_enum(step, "target", DESKTOP_INPUT_TARGETS, location, issues)
+        _validate_bool(step, "allow_outside_window", location, issues)
         _validate_int(step, "x", location, issues)
         _validate_int(step, "y", location, issues)
         _validate_int(step, "offset_x", location, issues)
@@ -877,6 +1263,7 @@ def _validate_desktop_input_fields(
             issues.append(ValidationIssue(location, f"desktop_input.{step_type} 不能同时使用 target 和 x/y"))
     if step_type == "drag":
         _validate_enum(step, "target", DESKTOP_INPUT_TARGETS, location, issues)
+        _validate_bool(step, "allow_outside_window", location, issues)
         _validate_enum(step, "button", {"left", "right", "middle"}, location, issues)
         _validate_int(step, "start_x", location, issues)
         _validate_int(step, "start_y", location, issues)
@@ -937,7 +1324,7 @@ def _validate_desktop_input_target_requirements(
         _validate_desktop_element_locator(step, "desktop_input", step_type, location, issues)
     elif target == "candidate":
         if "target_candidates" not in step and "candidate_source" not in step and "candidate" not in step:
-            issues.append(ValidationIssue(location, f"desktop_input.{step_type} target=candidate 缺少必填字段：target_candidates"))
+            issues.append(ValidationIssue(location, f"desktop_input.{step_type} target=candidate 缺少候选来源：target_candidates、candidate_source 或 candidate"))
         if "candidate_id" not in step and "target_candidate_id" not in step:
             issues.append(ValidationIssue(location, f"desktop_input.{step_type} target=candidate 缺少必填字段：candidate_id"))
         forbidden_fields = (
@@ -968,6 +1355,8 @@ def _validate_desktop_target_candidates_field(step: dict[str, Any], location: st
         if field == "candidate" and isinstance(value, dict):
             continue
         if field in {"target_candidates", "candidate_source"} and isinstance(value, dict):
+            continue
+        if field == "candidate_source" and isinstance(value, str) and value in DESKTOP_TARGET_CANDIDATE_SOURCE_ALIASES:
             continue
         issues.append(ValidationIssue(location, f"{field} 必须是对象或完整模板引用。"))
 
@@ -1107,13 +1496,38 @@ def _validate_desktop_assert_fields(
         _validate_string(step, "expected", location, issues)
         _validate_enum(step, "mode", {"equals", "contains", "not_contains"}, location, issues)
         _validate_enum(step, "text_source", {"auto", "text", "value", "name"}, location, issues)
+        _validate_int(step, "expected_count", location, issues, minimum=0)
+        _validate_int(step, "min_count", location, issues, minimum=0)
+        _validate_int(step, "max_count", location, issues, minimum=0)
+        _validate_string(step, "property", location, issues)
+        _validate_enum(step, "property_mode", {"equals", "contains", "not_contains"}, location, issues)
         _validate_string(step, "path", location, issues)
         _validate_int(step, "timeout_ms", location, issues, minimum=1)
         _validate_int(step, "interval_ms", location, issues, minimum=1)
         _validate_int(step, "max_depth", location, issues, minimum=0)
         _validate_int(step, "max_elements", location, issues, minimum=1)
+        if "property" in step and "property_expected" not in step:
+            issues.append(ValidationIssue(location, "desktop_assert.element 使用 property 时必须提供 property_expected"))
+        if "property_expected" in step and "property" not in step:
+            issues.append(ValidationIssue(location, "desktop_assert.element 使用 property_expected 时必须提供 property"))
+        if "expected_count" in step and ("min_count" in step or "max_count" in step):
+            issues.append(ValidationIssue(location, "desktop_assert.element expected_count 不能和 min_count/max_count 同时使用"))
+        min_count = step.get("min_count")
+        max_count = step.get("max_count")
+        if (
+            "min_count" in step
+            and "max_count" in step
+            and not _is_template(min_count)
+            and not _is_template(max_count)
+            and isinstance(min_count, int)
+            and isinstance(max_count, int)
+            and min_count > max_count
+        ):
+            issues.append(ValidationIssue(location, "desktop_assert.element min_count 不能大于 max_count"))
         if step.get("state") == "not_exists" and "expected" in step:
             issues.append(ValidationIssue(location, "desktop_assert.element state=not_exists 不能同时使用 expected 文本断言"))
+        if step.get("state") == "not_exists" and ("property" in step or "property_expected" in step):
+            issues.append(ValidationIssue(location, "desktop_assert.element state=not_exists 不能同时使用 property 属性断言"))
 
 
 WINDOW_QUERY_FIELDS = {
@@ -1313,6 +1727,52 @@ def _validate_nonempty_string_list(
     for index, item in enumerate(value):
         if not isinstance(item, str) or not item:
             issues.append(ValidationIssue(f"{location}.{field}[{index}]", f"{field} 每一项必须是非空字符串"))
+
+
+def _validate_string_or_nonempty_string_list(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str) and value:
+        return
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return
+    issues.append(ValidationIssue(location, f"{field} 必须是非空字符串或非空字符串数组"))
+
+
+def _validate_sheet_field(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str) and value:
+        return
+    if isinstance(value, int) and value >= 0:
+        return
+    issues.append(ValidationIssue(location, f"{field} 必须是非空字符串或非负整数"))
+
+
+def _validate_a1_range(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str) and EXCEL_A1_RE.match(value):
+        return
+    issues.append(ValidationIssue(location, f"{field} 必须是 A1 风格单元格或范围，例如 A1 或 A1:D20"))
 
 
 def _validate_string(

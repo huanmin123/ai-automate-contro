@@ -101,6 +101,9 @@ def action_write(executor: Any, step: dict[str, Any]) -> None:
     if file_type == "csv":
         files.write_csv_file(executor, step["path"], step["value"], step.get("headers"))
         return
+    if file_type == "excel":
+        files.write_excel_file(executor, step)
+        return
     if file_type == "variables":
         files.write_json_file(
             executor,
@@ -119,6 +122,182 @@ def action_read(executor: Any, step: dict[str, Any]) -> None:
     executor.state.variables[step["save_as"]] = value
     path = executor._resolve_path(step["path"])
     executor.state.logger.log("info", "file read", type=file_type, path=str(path), save_as=step["save_as"])
+
+
+def action_table(executor: Any, step: dict[str, Any]) -> None:
+    table_type = step["type"]
+    source = step["source"]
+    if not isinstance(source, list):
+        raise ValueError("table.source 必须是数组。")
+
+    if table_type == "filter":
+        result = _table_filter(source, step.get("where", {}))
+    elif table_type == "select":
+        result = _table_select(source, step["columns"], step.get("rename", {}))
+    elif table_type == "sort":
+        result = _table_sort(source, step["by"], step.get("descending", False))
+    elif table_type == "dedupe":
+        result = _table_dedupe(source, step["by"], str(step.get("keep", "first")))
+    else:
+        raise ValueError(f"不支持的 table type：{table_type}")
+
+    executor.state.variables[step["save_as"]] = result
+    executor.state.logger.log("info", "table processed", type=table_type, rows=len(result), save_as=step["save_as"])
+
+
+def _table_filter(rows: list[Any], where: Any) -> list[Any]:
+    if not isinstance(where, dict):
+        raise ValueError("table.filter.where 必须是对象。")
+    return [row for row in rows if _table_row_matches(row, where)]
+
+
+def _table_row_matches(row: Any, where: dict[str, Any]) -> bool:
+    if not isinstance(row, dict):
+        raise ValueError("table.filter 当前只支持字典行。")
+    for field, expected in where.items():
+        actual = row.get(field)
+        if not _table_value_matches(actual, expected):
+            return False
+    return True
+
+
+def _table_value_matches(actual: Any, expected: Any) -> bool:
+    if isinstance(expected, dict):
+        for operator, operand in expected.items():
+            if not _table_operator_matches(actual, str(operator), operand):
+                return False
+        return True
+    return actual == expected
+
+
+def _table_operator_matches(actual: Any, operator: str, operand: Any) -> bool:
+    if operator in {"eq", "equals"}:
+        return actual == operand
+    if operator in {"ne", "not_equals"}:
+        return actual != operand
+    if operator == "contains":
+        return str(operand) in str(actual or "")
+    if operator == "not_contains":
+        return str(operand) not in str(actual or "")
+    if operator == "in":
+        return isinstance(operand, list) and actual in operand
+    if operator == "not_in":
+        return isinstance(operand, list) and actual not in operand
+    if operator == "empty":
+        return _table_is_empty(actual) is bool(operand)
+    if operator == "not_empty":
+        return _table_is_empty(actual) is not bool(operand)
+    if operator in {"gt", "gte", "lt", "lte"}:
+        return _compare_table_values(actual, operand, operator)
+    raise ValueError(f"不支持的 table.filter 操作符：{operator}")
+
+
+def _compare_table_values(actual: Any, operand: Any, operator: str) -> bool:
+    left = _table_comparable(actual)
+    right = _table_comparable(operand)
+    if operator == "gt":
+        return left > right
+    if operator == "gte":
+        return left >= right
+    if operator == "lt":
+        return left < right
+    return left <= right
+
+
+def _table_select(rows: list[Any], columns: Any, rename: Any) -> list[Any]:
+    if not isinstance(columns, list) or not all(isinstance(column, str) and column for column in columns):
+        raise ValueError("table.select.columns 必须是非空字符串数组。")
+    if rename in (None, ""):
+        rename = {}
+    if not isinstance(rename, dict):
+        raise ValueError("table.select.rename 必须是对象。")
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.select 当前只支持字典行。")
+        selected: dict[str, Any] = {}
+        for column in columns:
+            selected[str(rename.get(column, column))] = row.get(column)
+        result.append(selected)
+    return result
+
+
+def _table_sort(rows: list[Any], by: Any, descending: Any) -> list[Any]:
+    columns = _table_columns(by, "table.sort.by")
+    descending_flags = _table_descending_flags(descending, len(columns))
+
+    result = list(rows)
+    for column, reverse in reversed(list(zip(columns, descending_flags))):
+        result.sort(key=lambda row, key=column: _table_sort_key(row, key), reverse=reverse)
+    return result
+
+
+def _table_dedupe(rows: list[Any], by: Any, keep: str) -> list[Any]:
+    columns = _table_columns(by, "table.dedupe.by")
+    if keep not in {"first", "last"}:
+        raise ValueError("table.dedupe.keep 只能是 first 或 last。")
+    iterable = rows if keep == "first" else list(reversed(rows))
+    seen: set[tuple[Any, ...]] = set()
+    result: list[Any] = []
+    for row in iterable:
+        key = tuple(_table_row_value(row, column) for column in columns)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(row)
+    if keep == "last":
+        result.reverse()
+    return result
+
+
+def _table_columns(value: Any, field_name: str) -> list[str]:
+    if isinstance(value, str) and value:
+        return [value]
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return list(value)
+    raise ValueError(f"{field_name} 必须是非空字符串或非空字符串数组。")
+
+
+def _table_descending_flags(value: Any, count: int) -> list[bool]:
+    if isinstance(value, bool):
+        return [value] * count
+    if isinstance(value, list) and len(value) == count and all(isinstance(item, bool) for item in value):
+        return list(value)
+    raise ValueError("table.sort.descending 必须是布尔值，或长度与 by 一致的布尔数组。")
+
+
+def _table_sort_key(row: Any, column: str) -> tuple[int, Any]:
+    value = _table_row_value(row, column)
+    if value is None or value == "":
+        return (1, "")
+    return (0, _table_comparable(value))
+
+
+def _table_row_value(row: Any, column: str) -> Any:
+    if not isinstance(row, dict):
+        raise ValueError("table 当前只支持字典行。")
+    return row.get(column)
+
+
+def _table_comparable(value: Any) -> Any:
+    if isinstance(value, (int, float)):
+        return value
+    if isinstance(value, str):
+        try:
+            return float(value)
+        except ValueError:
+            return value
+    return str(value)
+
+
+def _table_is_empty(value: Any) -> bool:
+    if value is None:
+        return True
+    if isinstance(value, str):
+        return not value.strip()
+    if isinstance(value, (list, dict, tuple, set)):
+        return not value
+    return False
 
 
 def action_assert(executor: Any, step: dict[str, Any]) -> None:
@@ -191,6 +370,7 @@ ACTION_HANDLERS = {
     "print": action_print,
     "read": action_read,
     "sleep": action_sleep,
+    "table": action_table,
     "variable": action_variable,
     "write": action_write,
 }

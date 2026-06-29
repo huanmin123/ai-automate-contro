@@ -1,0 +1,25 @@
+{
+  "name": "elasticsearch-basic",
+  "automation_type": "browser",
+  "tags": ["database", "elasticsearch", "http"],
+  "variables": {
+    "elasticsearch_url": "http://127.0.0.1:9200"
+  },
+  "steps": [
+    {
+      "action": "http",
+      "type": "request",
+      "method": "GET",
+      "url": "{{elasticsearch_url}}/",
+      "expect_status": 200,
+      "body_type": "json",
+      "response_body_path": "elasticsearch-root.json",
+      "save_as": "elasticsearch_root"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "elasticsearch-basic-variables.json"
+    }
+  ]
+}

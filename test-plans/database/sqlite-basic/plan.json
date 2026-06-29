@@ -1,0 +1,148 @@
+{
+  "name": "sqlite-basic",
+  "automation_type": "browser",
+  "tags": [
+    "database",
+    "sql",
+    "sqlite"
+  ],
+  "variables": {
+    "sqlite_connection": {
+      "type": "sqlite",
+      "path": "output/sql/sqlite-basic.db"
+    },
+    "seed_rows": [
+      {
+        "sku": "A1",
+        "title": "Alpha",
+        "price": 12.5,
+        "active": 1
+      },
+      {
+        "sku": "B2",
+        "title": "Beta",
+        "price": 9.75,
+        "active": 0
+      },
+      {
+        "sku": "C3",
+        "title": "Gamma",
+        "price": 21,
+        "active": 1
+      }
+    ]
+  },
+  "steps": [
+    {
+      "action": "sql",
+      "type": "execute",
+      "connection": "{{sqlite_connection}}",
+      "sql": "drop table if exists items",
+      "save_as": "drop_result"
+    },
+    {
+      "action": "sql",
+      "type": "execute",
+      "connection": "{{sqlite_connection}}",
+      "sql": "create table items (sku text primary key, title text not null, price real not null, active integer not null)",
+      "save_as": "create_result"
+    },
+    {
+      "action": "sql",
+      "type": "bulk_insert",
+      "connection": "{{sqlite_connection}}",
+      "table": "items",
+      "rows": "{{seed_rows}}",
+      "columns": ["sku", "title", "price", "active"],
+      "result_path": "sqlite-bulk-insert.json",
+      "save_as": "insert_result"
+    },
+    {
+      "action": "sql",
+      "type": "query",
+      "connection": "{{sqlite_connection}}",
+      "sql": "select sku, title, price from items where active = :active and price >= :min_price order by sku",
+      "params": {
+        "active": 1,
+        "min_price": 10
+      },
+      "rows_path": "active-items.json",
+      "include_rows": true,
+      "save_as": "active_items"
+    },
+    {
+      "action": "sql",
+      "type": "execute",
+      "connection": "{{sqlite_connection}}",
+      "sql": "update items set active = :active where sku = :sku",
+      "params": {
+        "active": 1,
+        "sku": "B2"
+      },
+      "expect_affected_rows": 1,
+      "save_as": "update_result"
+    },
+    {
+      "action": "sql",
+      "type": "scalar",
+      "connection": "{{sqlite_connection}}",
+      "sql": "select count(*) from items where active = :active",
+      "params": {
+        "active": 1
+      },
+      "save_as": "active_count"
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "equals",
+            "left": "{{insert_result.affected_rows}}",
+            "right": 3
+          },
+          {
+            "type": "equals",
+            "left": "{{active_items.row_count}}",
+            "right": 2
+          },
+          {
+            "type": "equals",
+            "left": "{{active_items.first_row.sku}}",
+            "right": "A1"
+          },
+          {
+            "type": "equals",
+            "left": "{{update_result.affected_rows}}",
+            "right": 1
+          },
+          {
+            "type": "equals",
+            "left": "{{active_count.value}}",
+            "right": 3
+          }
+        ]
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "SQLite sql action passed"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": ["python", "-c", "import sys; sys.exit(12)"],
+          "expect_exit_code": 0
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "sqlite-basic-variables.json"
+    }
+  ]
+}

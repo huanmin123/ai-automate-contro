@@ -164,6 +164,99 @@ DESKTOP_POST_MANUAL_ACTIONS = {
     "ai",
     "command",
 }
+DESKTOP_MESSAGE_SEND_TOKENS = (
+    "微信",
+    "wechat",
+    "qq",
+    "聊天",
+    "消息",
+    "发送",
+    "发给",
+    "群",
+    "联系人",
+    "好友",
+    "祝福",
+    "私信",
+)
+DESKTOP_MESSAGE_RECIPIENT_TOKENS = (
+    "recipient",
+    "contact",
+    "group",
+    "chat",
+    "to=",
+    "to:",
+    "收件人",
+    "联系人",
+    "群",
+    "好友",
+    "白名单",
+    "发送给",
+    "发给",
+)
+DESKTOP_MESSAGE_CONTENT_TOKENS = (
+    "message",
+    "content",
+    "body",
+    "text",
+    "消息",
+    "内容",
+    "正文",
+    "祝福",
+)
+DESKTOP_MESSAGE_SEND_ACTION_TOKENS = (
+    "send",
+    "submit",
+    "发送",
+    "确定发送",
+    "发送按钮",
+)
+DESKTOP_GAME_TASK_TOKENS = (
+    "游戏",
+    "game",
+    "签到",
+    "日常",
+    "副本",
+    "刷图",
+    "奖励",
+    "战斗",
+    "任务",
+    "领取",
+    "关卡",
+)
+DESKTOP_LONG_RUNNING_TOKENS = (
+    "定时",
+    "每天",
+    "每日",
+    "每隔",
+    "循环",
+    "重复",
+    "一直",
+    "长期",
+    "自动刷",
+    "刷图",
+    "日常",
+)
+DESKTOP_SCENARIO_NEGATIVE_TOKENS = (
+    "没有确认",
+    "未确认",
+    "缺少确认",
+    "没有草稿",
+    "未验证",
+    "缺少验证",
+    "没有游戏状态",
+    "没有状态",
+    "没有截图",
+    "没有完成断言",
+    "缺少状态",
+    "缺少截图",
+    "缺少完成断言",
+    "无状态",
+    "无截图",
+    "无完成断言",
+    "没有停止边界",
+    "缺少停止边界",
+    "无停止边界",
+)
 
 
 def review_plan_quality_tool(
@@ -262,6 +355,17 @@ def review_plan_quality_tool(
         uncertain_facts,
     )
     _review_desktop_flow(profile, step_records, evidence_summary, evidence_context or {}, checks, issues, facts, missing_facts)
+    _review_desktop_scenario_flow(
+        profile,
+        step_records,
+        variables,
+        evidence_summary,
+        evidence_context or {},
+        checks,
+        issues,
+        facts,
+        missing_facts,
+    )
     _review_credentials(profile, step_records, variables, raw_plan_text, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_login_progression(profile, step_records, variables, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_output(profile, step_records, variables, planned_output_path, strict, checks, issues, facts, missing_facts, uncertain_facts)
@@ -606,6 +710,221 @@ def _review_desktop_flow(
                 "坐标操作后补充 desktop_capture screenshot/observe、desktop_wait、desktop_assert 或 desktop_element get_state/get_text。",
             )
         )
+
+
+def _review_desktop_scenario_flow(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+) -> None:
+    automation_type = str(profile.get("automation_type") or "browser")
+    if automation_type != "desktop":
+        checks.append(
+            {
+                "name": "desktop_scenario_quality",
+                "passed": True,
+                "detail": {"automation_type": automation_type, "not_applicable": True},
+            }
+        )
+        return
+
+    chat_needed = _needs_desktop_message_send(profile, steps, variables, evidence_summary, evidence_context)
+    game_needed = _needs_desktop_game_task(profile, steps, variables, evidence_summary, evidence_context)
+    _review_desktop_message_scenario(
+        chat_needed,
+        steps,
+        variables,
+        evidence_summary,
+        evidence_context,
+        checks,
+        issues,
+        facts,
+        missing_facts,
+    )
+    _review_desktop_game_scenario(
+        game_needed,
+        steps,
+        variables,
+        evidence_summary,
+        evidence_context,
+        checks,
+        issues,
+        facts,
+        missing_facts,
+    )
+
+
+def _review_desktop_message_scenario(
+    needed: bool,
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+) -> None:
+    send_actions = _desktop_message_send_action_records(steps, variables)
+    send_indexes = [index for index, _record in send_actions]
+    manual_confirm_before_send = _has_manual_confirm_before_first_index(steps, send_indexes)
+    recipient_ok = not needed or manual_confirm_before_send or _has_desktop_message_recipient_confirmation(
+        steps,
+        variables,
+        evidence_summary,
+        evidence_context,
+        send_indexes,
+    )
+    message_ok = not needed or manual_confirm_before_send or _has_desktop_message_content_confirmation(
+        steps,
+        variables,
+        evidence_summary,
+        evidence_context,
+        send_indexes,
+    )
+    pre_send_ok = not needed or manual_confirm_before_send or _has_desktop_pre_send_evidence(steps, send_indexes)
+    send_action_ok = not needed or bool(send_actions) or any(_action(record) == "manual_confirm" for record in steps)
+    checks.append(
+        {
+            "name": "desktop_message_send_scenario",
+            "passed": send_action_ok and recipient_ok and message_ok and pre_send_ok,
+            "detail": {
+                "needed": needed,
+                "send_action_locations": [record["location"] for _index, record in send_actions],
+                "manual_confirm_before_send": manual_confirm_before_send,
+                "recipient_confirmation": recipient_ok,
+                "message_confirmation": message_ok,
+                "pre_send_evidence": pre_send_ok,
+            },
+        }
+    )
+    if not needed:
+        return
+    if not send_action_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_message_send_action",
+                "用户需求是桌面聊天或消息发送，但 plan 没有可识别的发送步骤或人工确认交接。",
+                "未找到 Send/发送按钮 click/invoke 或 Enter 发送步骤。",
+                "补充明确的发送按钮 desktop_element click/invoke，或在信息不确定时使用 manual_confirm。",
+            )
+        )
+        missing_facts.append("桌面消息发送步骤")
+    if not recipient_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_message_recipient_verification",
+                "桌面消息发送前缺少收件人、联系人或群的确认，容易发错对象。",
+                ", ".join(record["location"] for _index, record in send_actions[:8]) or "未找到发送前目标确认。",
+                "发送前用 desktop_assert element、desktop_element get_text/get_state、desktop_capture observe/screenshot 或 manual_confirm 确认当前会话、联系人或群名。",
+            )
+        )
+        missing_facts.append("消息收件人/群确认")
+    if not message_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_message_content_verification",
+                "桌面消息发送前缺少消息内容或草稿框确认，容易发送空消息、旧草稿或错误文本。",
+                ", ".join(record["location"] for _index, record in send_actions[:8]) or "未找到发送前消息内容确认。",
+                "写入消息后读取或断言草稿框内容，或用截图/observe/manual_confirm 确认发送内容。",
+            )
+        )
+        missing_facts.append("消息内容确认")
+    if not pre_send_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_message_pre_send_evidence",
+                "桌面消息发送动作前没有运行证据步骤，不能证明发送前状态正确。",
+                ", ".join(record["location"] for _index, record in send_actions[:8]) or "未找到发送前证据。",
+                "把收件人和消息内容验证放在发送动作之前；可用 desktop_assert element、desktop_capture observe/screenshot、desktop_element get_text/get_state 或 manual_confirm。",
+            )
+        )
+        missing_facts.append("消息发送前证据")
+    if send_action_ok and recipient_ok and message_ok and pre_send_ok:
+        facts.append("已覆盖桌面消息发送前目标和内容确认")
+
+
+def _review_desktop_game_scenario(
+    needed: bool,
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+) -> None:
+    state_evidence_locations = [
+        record["location"]
+        for record in steps
+        if _is_desktop_game_state_evidence_step(record)
+    ]
+    stop_boundary_ok = not needed or _has_desktop_game_stop_boundary(steps, evidence_summary, evidence_context)
+    state_evidence_ok = not needed or bool(state_evidence_locations) or _has_desktop_game_state_evidence(
+        evidence_summary,
+        evidence_context,
+    )
+    infinite_loop_locations = _desktop_unbounded_loop_locations(steps)
+    checks.append(
+        {
+            "name": "desktop_game_task_scenario",
+            "passed": state_evidence_ok and stop_boundary_ok and not infinite_loop_locations,
+            "detail": {
+                "needed": needed,
+                "state_evidence_locations": state_evidence_locations,
+                "stop_boundary_ok": stop_boundary_ok,
+                "unbounded_loop_locations": infinite_loop_locations,
+            },
+        }
+    )
+    if not needed:
+        return
+    if not state_evidence_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_game_progress_evidence",
+                "桌面游戏、日常或副本 plan 缺少可证明当前阶段和结果的视觉/状态证据。",
+                "未找到 desktop_capture、desktop_vision、desktop_assert 或状态读取类 desktop_element 步骤。",
+                "在进入阶段、操作后和完成时加入 desktop_capture observe/screenshot、desktop_vision、desktop_element get_text/get_state 或 desktop_assert。",
+            )
+        )
+        missing_facts.append("桌面游戏进度/状态证据")
+    if not stop_boundary_ok:
+        issues.append(
+            _issue(
+                "fail",
+                "missing_desktop_scenario_stop_budget",
+                "桌面游戏、日常、签到或副本 plan 缺少次数、时长、完成断言或其他停止边界。",
+                "未找到 max_runs、duration_seconds、有限 foreach/retry、完成断言或 evidence_summary 中的 bounded_runtime/stop_condition。",
+                "循环必须设置 max_runs/duration_seconds 或明确完成断言；一次性流程也要用状态断言证明完成，不能依赖无限点击。",
+            )
+        )
+        missing_facts.append("桌面场景停止边界")
+    if infinite_loop_locations:
+        issues.append(
+            _issue(
+                "fail",
+                "unsafe_desktop_game_infinite_loop",
+                "桌面游戏或副本场景使用了无边界无限 trigger，容易在错误窗口或错误状态里无限循环。",
+                ", ".join(infinite_loop_locations[:8]),
+                "去掉 allow_infinite=true，改为 max_runs、duration_seconds、完成断言或人工确认后的有限执行。",
+            )
+        )
+        missing_facts.append("禁止无边界无限循环")
+    if state_evidence_ok and stop_boundary_ok and not infinite_loop_locations:
+        facts.append("已覆盖桌面游戏/日常场景状态证据和停止边界")
 
 
 def _review_credentials(
@@ -1069,6 +1388,7 @@ def _resolve_sub_plan_path(package_root: Path, raw_path: Any) -> Path | None:
 
 def _profile_request(user_request: str, evidence_summary: str, planned_output_path: str) -> dict[str, Any]:
     request = str(user_request or "")
+    request_context = f"{request}\n{planned_output_path or ''}"
     urls = _dedupe(URL_RE.findall(request))
     output_hint = planned_output_path or _extract_output_hint(request)
     output_filename = _extract_output_filename(planned_output_path, request)
@@ -1076,6 +1396,14 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
     password_values = _credential_values(PASSWORD_VALUE_RE.findall(request))
     login_intent = _contains_any(request, LOGIN_TOKENS)
     is_real_site = any(_is_real_http_url(url) for url in urls)
+    message_target_hint = _contains_any(
+        request_context,
+        ("微信", "wechat", "qq", "聊天", "群", "联系人", "好友", "私信", "收件人", "消息"),
+    )
+    message_send_hint = _contains_any(
+        request_context,
+        ("发送消息", "发消息", "send message", "发送", "发给", "群发", "祝福", "定时给"),
+    )
     return {
         "urls": urls,
         "needs_browser": bool(urls)
@@ -1091,6 +1419,10 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
         "one_per_line": _contains_any(request, ("一行一个", "每行一个", "一行一条", "每行一条")),
         "output_filename": output_filename,
         "requested_output_hint": output_hint,
+        "request_text": request,
+        "needs_desktop_message_send": message_target_hint and message_send_hint,
+        "needs_desktop_game_task": _contains_any(request_context, DESKTOP_GAME_TASK_TOKENS),
+        "needs_long_running_loop": _contains_any(request_context, DESKTOP_LONG_RUNNING_TOKENS),
     }
 
 
@@ -1105,6 +1437,15 @@ def _augment_profile_from_plan(profile: dict[str, Any], steps: list[dict[str, An
         profile["needs_browser"] = bool(profile.get("needs_browser")) or any(
             _is_real_http_url(url) for url in profile.get("urls", [])
         )
+    if str(profile.get("automation_type") or "") == "desktop":
+        plan_text = _desktop_records_text(steps, variables)
+        if not profile.get("needs_desktop_message_send"):
+            profile["needs_desktop_message_send"] = (
+                _contains_any(plan_text, ("微信", "wechat", "qq", "聊天", "群", "联系人", "好友", "收件人"))
+                and bool(_desktop_message_send_action_records(steps, variables))
+            )
+        if not profile.get("needs_desktop_game_task"):
+            profile["needs_desktop_game_task"] = _contains_any(plan_text, DESKTOP_GAME_TASK_TOKENS)
 
 
 def _apply_execution_line_profile(profile: dict[str, Any]) -> None:
@@ -1332,6 +1673,260 @@ def _has_manual_confirm_after_coordinate(
 
 def _has_later_desktop_result_evidence(steps: list[dict[str, Any]], index: int) -> bool:
     return any(_is_desktop_evidence_step(record) or _action(record) == "manual_confirm" for record in steps[index + 1 :])
+
+
+def _needs_desktop_message_send(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+) -> bool:
+    if bool(profile.get("needs_desktop_message_send")):
+        return True
+    text = "\n".join(
+        [
+            str(profile.get("request_text") or ""),
+            _desktop_records_text(steps, variables),
+            _desktop_evidence_text(evidence_summary, evidence_context),
+        ]
+    )
+    chat_target = _contains_any(
+        text,
+        ("微信", "wechat", "qq", "聊天", "群", "联系人", "好友", "私信", "收件人"),
+    )
+    send_intent = _contains_any(text, ("发送消息", "发消息", "send message", "群发", "发给", "祝福"))
+    return chat_target and (send_intent or bool(_desktop_message_send_action_records(steps, variables)))
+
+
+def _needs_desktop_game_task(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+) -> bool:
+    if bool(profile.get("needs_desktop_game_task")):
+        return True
+    text = "\n".join(
+        [
+            str(profile.get("request_text") or ""),
+            _desktop_records_text(steps, variables),
+            _desktop_evidence_text(evidence_summary, evidence_context),
+        ]
+    )
+    return _contains_any(text, DESKTOP_GAME_TASK_TOKENS)
+
+
+def _desktop_message_send_action_records(
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+) -> list[tuple[int, dict[str, Any]]]:
+    records: list[tuple[int, dict[str, Any]]] = []
+    for index, record in enumerate(steps):
+        action = _action(record)
+        step = record["step"]
+        step_type = str(step.get("type", "")).lower()
+        if action == "desktop_input" and step_type == "hotkey":
+            keys_text = _json_text(step.get("keys")).lower()
+            if "enter" in keys_text or "return" in keys_text:
+                records.append((index, record))
+        elif action == "desktop_element" and step_type in {"click", "invoke"}:
+            if _contains_any(_desktop_record_text(record, variables), DESKTOP_MESSAGE_SEND_ACTION_TOKENS):
+                records.append((index, record))
+    return records
+
+
+def _has_manual_confirm_before_first_index(steps: list[dict[str, Any]], indexes: list[int]) -> bool:
+    if not indexes:
+        return any(_action(record) == "manual_confirm" for record in steps)
+    first_index = min(indexes)
+    return any(_action(record) == "manual_confirm" for record in steps[:first_index])
+
+
+def _has_desktop_message_recipient_confirmation(
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+    send_indexes: list[int],
+) -> bool:
+    evidence_text = _desktop_evidence_text(evidence_summary, evidence_context)
+    evidence_negative = _contains_any(evidence_text, (*NEGATIVE_EVIDENCE_TOKENS, *DESKTOP_SCENARIO_NEGATIVE_TOKENS))
+    if not evidence_negative and _contains_any(evidence_text, DESKTOP_MESSAGE_RECIPIENT_TOKENS):
+        return True
+    limit = min(send_indexes) if send_indexes else len(steps)
+    for record in steps[:limit]:
+        if _action(record) == "manual_confirm":
+            return True
+        if not _is_desktop_evidence_step(record):
+            continue
+        if _contains_any(_desktop_record_text(record, variables), DESKTOP_MESSAGE_RECIPIENT_TOKENS):
+            return True
+    return False
+
+
+def _has_desktop_message_content_confirmation(
+    steps: list[dict[str, Any]],
+    variables: dict[str, Any],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+    send_indexes: list[int],
+) -> bool:
+    evidence_text = _desktop_evidence_text(evidence_summary, evidence_context)
+    evidence_negative = _contains_any(evidence_text, (*NEGATIVE_EVIDENCE_TOKENS, *DESKTOP_SCENARIO_NEGATIVE_TOKENS))
+    if not evidence_negative and _contains_any(
+        evidence_text,
+        ("draft", "draft_text", "message_text", "message confirmed", "草稿", "消息内容", "正文已确认"),
+    ):
+        return True
+    limit = min(send_indexes) if send_indexes else len(steps)
+    for record in steps[:limit]:
+        if _action(record) == "manual_confirm":
+            return True
+        if not _is_desktop_evidence_step(record):
+            continue
+        if _contains_any(_desktop_record_text(record, variables), DESKTOP_MESSAGE_CONTENT_TOKENS):
+            return True
+    return False
+
+
+def _has_desktop_pre_send_evidence(steps: list[dict[str, Any]], send_indexes: list[int]) -> bool:
+    if not send_indexes:
+        return any(_is_desktop_evidence_step(record) or _action(record) == "manual_confirm" for record in steps)
+    first_send_index = min(send_indexes)
+    return any(
+        _is_desktop_evidence_step(record) or _action(record) == "manual_confirm"
+        for record in steps[:first_send_index]
+    )
+
+
+def _is_desktop_game_state_evidence_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    step_type = str(record["step"].get("type", "")).lower()
+    if action in {"desktop_capture", "desktop_vision", "desktop_assert"}:
+        return True
+    if action == "desktop_element":
+        return step_type in {"get_text", "get_state", "get_table", "get_tree", "wait"}
+    return False
+
+
+def _has_desktop_game_state_evidence(evidence_summary: str, evidence_context: dict[str, Any]) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context)
+    if _contains_any(text, (*NEGATIVE_EVIDENCE_TOKENS, *DESKTOP_SCENARIO_NEGATIVE_TOKENS)):
+        return False
+    return _contains_any(
+        text,
+        (
+            "desktop_capture",
+            "desktop_vision",
+            "desktop_assert",
+            "progress",
+            "status",
+            "state",
+            "battle_complete",
+            "dungeon_runs",
+            "截图",
+            "状态",
+            "进度",
+            "完成",
+            "奖励",
+        ),
+    )
+
+
+def _has_desktop_game_stop_boundary(
+    steps: list[dict[str, Any]],
+    evidence_summary: str,
+    evidence_context: dict[str, Any],
+) -> bool:
+    text = _desktop_evidence_text(evidence_summary, evidence_context)
+    if not _contains_any(text, (*NEGATIVE_EVIDENCE_TOKENS, *DESKTOP_SCENARIO_NEGATIVE_TOKENS)) and _contains_any(
+        text,
+        (
+            "max_runs",
+            "duration_seconds",
+            "stop_condition",
+            "bounded_runtime",
+            "max_steps",
+            "max_recoveries",
+            "max_repeated_observations",
+            "dungeon_runs=1",
+            "target_runs",
+            "目标次数",
+            "完成断言",
+            "有限",
+        ),
+    ):
+        return True
+    loop_records = [record for record in steps if _action(record) in {"trigger", "foreach", "retry"}]
+    if not loop_records:
+        return any(_is_desktop_game_completion_evidence_step(record) for record in steps)
+    return all(_is_desktop_bounded_loop_step(record) for record in loop_records)
+
+
+def _desktop_unbounded_loop_locations(steps: list[dict[str, Any]]) -> list[str]:
+    locations: list[str] = []
+    for record in steps:
+        if _action(record) != "trigger":
+            continue
+        step = record["step"]
+        has_bound = step.get("max_runs") not in (None, "") or step.get("duration_seconds") not in (None, "")
+        if bool(step.get("allow_infinite")) and not has_bound:
+            locations.append(record["location"])
+    return locations
+
+
+def _is_desktop_bounded_loop_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    step = record["step"]
+    if action == "trigger":
+        return step.get("max_runs") not in (None, "") or step.get("duration_seconds") not in (None, "")
+    if action == "retry":
+        return step.get("max_attempts") not in (None, "")
+    if action == "foreach":
+        return step.get("items") not in (None, "")
+    return True
+
+
+def _is_desktop_game_completion_evidence_step(record: dict[str, Any]) -> bool:
+    action = _action(record)
+    step_type = str(record["step"].get("type", "")).lower()
+    if action == "desktop_assert":
+        return True
+    if action == "desktop_element" and step_type in {"get_text", "get_state"}:
+        return _contains_any(_desktop_record_text(record, {}), ("complete", "done", "完成", "已领取", "成功"))
+    return False
+
+
+def _desktop_records_text(steps: list[dict[str, Any]], variables: dict[str, Any]) -> str:
+    return "\n".join(_desktop_record_text(record, variables) for record in steps)
+
+
+def _desktop_record_text(record: dict[str, Any], variables: dict[str, Any]) -> str:
+    return _desktop_step_text(record.get("step", {}), variables)
+
+
+def _desktop_step_text(step: Any, variables: dict[str, Any]) -> str:
+    values = [_json_text(step)]
+    for value in _iter_nested_values(step):
+        if isinstance(value, str):
+            values.append(_resolved_step_text(value, variables))
+    return "\n".join(values)
+
+
+def _iter_nested_values(value: Any) -> list[Any]:
+    if isinstance(value, dict):
+        result: list[Any] = []
+        for nested in value.values():
+            result.extend(_iter_nested_values(nested))
+        return result
+    if isinstance(value, list):
+        result = []
+        for nested in value:
+            result.extend(_iter_nested_values(nested))
+        return result
+    return [value]
 
 
 def _desktop_evidence_text(evidence_summary: str, evidence_context: dict[str, Any]) -> str:
@@ -1659,7 +2254,16 @@ def _quality_result(
 
 def _next_action(severity: str, issues: list[dict[str, str]], planned_output_path: str) -> str:
     if severity == "fail":
-        if any(issue.get("code") in {"missing_real_site_evidence", "missing_desktop_inspection_evidence"} for issue in issues):
+        if any(
+            issue.get("code")
+            in {
+                "missing_real_site_evidence",
+                "missing_desktop_inspection_evidence",
+                "missing_desktop_message_pre_send_evidence",
+                "missing_desktop_game_progress_evidence",
+            }
+            for issue in issues
+        ):
             return "collect_evidence"
         return "fix_plan"
     if planned_output_path and is_absolute_path_text(planned_output_path):

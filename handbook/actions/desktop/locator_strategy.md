@@ -101,6 +101,22 @@
 }
 ```
 
+紧接 `desktop_capture type=observe` 或 `desktop_vision` 后使用同一个 desktop session 的最近候选时，可用 `candidate_source: "latest"`：
+
+```json
+{
+  "action": "desktop_input",
+  "type": "click",
+  "desktop": "desk",
+  "target": "candidate",
+  "candidate_source": "latest",
+  "candidate_id": "{{obs.target_candidates.best_candidate.candidate_id}}",
+  "min_confidence": "medium"
+}
+```
+
+如果中间又执行了新的 observe/vision，`latest` 会变成新的候选；跨多步复用时传显式 `target_candidates` 更清楚。
+
 `semantic_locator` 会重新查找控件；`visual_bounds` 必须 `screen_clickable=true`。离线图片、截图证据、低置信和 `screen_clickable=false` 不可直接执行。
 
 ## Bounds 输入

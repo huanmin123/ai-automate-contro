@@ -24,6 +24,8 @@ from . import (
     extraction,
     failure_capture,
     http_client,
+    redis_client,
+    sql_client,
 )
 
 
@@ -41,6 +43,8 @@ EXTERNAL_ACTION_MODULES = (
     desktop,
     extraction,
     http_client,
+    redis_client,
+    sql_client,
 )
 
 
@@ -264,7 +268,10 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "run_sub_plan": ("path",),
         "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "save_as"),
         "http": ("type", "method", "url", "save_as", "response_body_path"),
+        "sql": ("type", "connection", "table", "save_as", "rows_path", "result_path"),
+        "redis": ("type", "connection", "key", "command", "save_as", "result_path"),
         "command": ("type", "save_as", "cwd", "stdout_path", "stderr_path"),
+        "table": ("type", "save_as", "columns", "by", "keep"),
         "open_desktop": ("name", "platform", "backend", "request_permissions", "save_as"),
         "close_desktop": ("desktop",),
         "desktop_app": (

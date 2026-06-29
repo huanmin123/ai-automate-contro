@@ -1,0 +1,48 @@
+{
+  "name": "write-excel",
+  "automation_type": "browser",
+  "variables": {
+    "rows": [
+      {
+        "姓名": "张三",
+        "部门": "财务",
+        "状态": "在职",
+        "金额": 1200
+      },
+      {
+        "姓名": "李四",
+        "部门": "人事",
+        "状态": "在职",
+        "金额": 800
+      }
+    ]
+  },
+  "steps": [
+    {
+      "action": "write",
+      "type": "excel",
+      "path": "accounts.xlsx",
+      "sheet": "名单",
+      "value": "{{rows}}",
+      "freeze_header": true,
+      "auto_filter": true
+    },
+    {
+      "action": "read",
+      "type": "excel",
+      "path": "output/excel/accounts.xlsx",
+      "sheet": "名单",
+      "save_as": "loaded_rows",
+      "save_meta_as": "loaded_meta"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "loaded-rows.json",
+      "value": {
+        "rows": "{{loaded_rows}}",
+        "meta": "{{loaded_meta}}"
+      }
+    }
+  ]
+}

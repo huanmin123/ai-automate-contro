@@ -215,8 +215,12 @@ def validate_action_specific_fields(
         if "record_video_dir" in step:
             validate_output_path(step["record_video_dir"], "videos", location, package_root, issues)
 
-    if action == "write" and step.get("type") != "variables" and "value" not in step:
-        issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
+    if action == "write":
+        if step.get("type") == "excel":
+            if not any(field in step for field in ("value", "cells")):
+                issues.append(ValidationIssue(location, "write.type=excel 需要 value 或 cells 之一"))
+        elif step.get("type") != "variables" and "value" not in step:
+            issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 
     if action in {
         "capture",
@@ -241,6 +245,16 @@ def validate_action_specific_fields(
         validate_package_input_path(
             step.get("path"),
             f"{location}.path",
+            package_root,
+            issues,
+            step=step,
+            must_exist=False,
+        )
+
+    if action == "write" and step.get("type") == "excel":
+        validate_package_input_path(
+            step.get("template_path"),
+            f"{location}.template_path",
             package_root,
             issues,
             step=step,
@@ -310,6 +324,15 @@ def validate_action_specific_fields(
                             issues,
                             step=step,
                         )
+
+    if action == "sql":
+        for field in ("rows_path", "result_path"):
+            if field in step:
+                validate_output_path(step[field], "sql", location, package_root, issues)
+
+    if action == "redis":
+        if "result_path" in step:
+            validate_output_path(step["result_path"], "redis", location, package_root, issues)
 
     if action == "command":
         for field in ("stdout_path", "stderr_path"):

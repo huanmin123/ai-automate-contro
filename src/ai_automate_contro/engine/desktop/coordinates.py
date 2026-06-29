@@ -6,6 +6,102 @@ from typing import Any
 COORDINATE_PROFILE_SCHEMA_VERSION = 1
 
 
+class CoordinateMapper:
+    """Maps desktop local coordinates to screen coordinates without applying uncalibrated scale."""
+
+    def __init__(self, profile: dict[str, Any] | None = None) -> None:
+        self.profile = profile if isinstance(profile, dict) else {}
+
+    @classmethod
+    def from_profile(cls, profile: dict[str, Any] | None) -> "CoordinateMapper":
+        return cls(profile)
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict[str, Any] | None) -> "CoordinateMapper":
+        payload = snapshot if isinstance(snapshot, dict) else {}
+        profile = payload.get("coordinate_profile") if isinstance(payload.get("coordinate_profile"), dict) else {}
+        return cls(profile)
+
+    @property
+    def source_bounds(self) -> dict[str, int]:
+        source = self.profile.get("source") if isinstance(self.profile.get("source"), dict) else {}
+        return _source_bounds(source.get("bounds") if isinstance(source, dict) else {})
+
+    @property
+    def display_virtual_bounds(self) -> dict[str, int]:
+        display = self.profile.get("display") if isinstance(self.profile.get("display"), dict) else {}
+        virtual_bounds = normalize_bounds(display.get("virtual_bounds")) if isinstance(display, dict) else {}
+        if virtual_bounds:
+            return virtual_bounds
+        return normalize_bounds(display.get("bounds")) if isinstance(display, dict) else {}
+
+    @property
+    def screen_clickable(self) -> bool:
+        source = self.profile.get("source") if isinstance(self.profile.get("source"), dict) else {}
+        if isinstance(source, dict) and "screen_clickable" in source:
+            return bool(source.get("screen_clickable"))
+        return False
+
+    def local_to_screen_bounds(self, bounds: Any) -> dict[str, int]:
+        return local_to_screen_bounds(bounds, source_bounds=self.source_bounds)
+
+    def screen_to_local_bounds(self, bounds: Any) -> dict[str, int]:
+        return screen_to_local_bounds(bounds, source_bounds=self.source_bounds)
+
+    def local_to_screen_point(self, point: Any) -> dict[str, int]:
+        return local_to_screen_point(point, source_bounds=self.source_bounds)
+
+    def screen_to_local_point(self, point: Any) -> dict[str, int]:
+        return screen_to_local_point(point, source_bounds=self.source_bounds)
+
+    def safety_check(
+        self,
+        point: Any,
+        *,
+        target: str = "",
+        bounds: Any = None,
+        screen_clickable: bool | None = None,
+    ) -> dict[str, Any]:
+        resolved_point = _point(point)
+        warnings = list(self.profile.get("warnings", [])) if isinstance(self.profile.get("warnings"), list) else []
+        scale = self._scale()
+        if scale not in (None, 1.0):
+            warnings.append("scale_recorded_not_applied")
+        ok = bool(resolved_point)
+        reason = "" if ok else "point_invalid"
+        clickable = self.screen_clickable if screen_clickable is None else bool(screen_clickable)
+        if ok and not clickable:
+            ok = False
+            reason = "source_not_screen_clickable"
+        display_bounds = self.display_virtual_bounds
+        if ok and display_bounds:
+            x = resolved_point["x"]
+            y = resolved_point["y"]
+            in_x = display_bounds["x"] <= x < display_bounds["x"] + display_bounds["width"]
+            in_y = display_bounds["y"] <= y < display_bounds["y"] + display_bounds["height"]
+            if not (in_x and in_y):
+                ok = False
+                reason = "point_outside_virtual_screen"
+        elif ok:
+            warnings.append("display_bounds_unknown")
+        if bounds is not None and not normalize_bounds(bounds):
+            warnings.append("target_bounds_invalid_or_empty")
+        return {
+            "ok": ok,
+            "target": str(target or ""),
+            "point": resolved_point,
+            "display_virtual_bounds": display_bounds,
+            "screen_clickable": clickable,
+            "scale_applied": False,
+            "warnings": _dedupe_strings(warnings),
+            "reason": reason,
+        }
+
+    def _scale(self) -> float | None:
+        space = self.profile.get("space") if isinstance(self.profile.get("space"), dict) else {}
+        return _float_or_none(space.get("scale"))
+
+
 def normalize_bounds(value: Any) -> dict[str, int]:
     if not isinstance(value, dict):
         return {}
@@ -157,11 +253,18 @@ def build_coordinate_diagnostics(
         fallback=source,
     )
     space = _coordinate_space(coordinate_space or (profile.get("space") if isinstance(profile.get("space"), dict) else {}))
+    mapper = CoordinateMapper.from_profile(profile)
     return {
         "source_bounds": source,
         "source_size": size,
         "coordinate_space": space,
         "coordinate_profile": profile,
+        "mapper": {
+            "source_bounds": mapper.source_bounds,
+            "display_virtual_bounds": mapper.display_virtual_bounds,
+            "screen_clickable": mapper.screen_clickable,
+            "scale_applied": False,
+        },
         "global_origin": {"x": source["x"], "y": source["y"]},
         "local_to_global_offset": {"x": source["x"], "y": source["y"]},
         "scale": space.get("scale"),

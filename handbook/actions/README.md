@@ -28,6 +28,9 @@
 | `desktop_element` | `actions/desktop/desktop_element.md` | 桌面控件树定位、读取、点击、写值、表格、树、菜单、滚动容器 |
 | `desktop_input` | `actions/desktop/desktop_input.md` | 系统级输入、快捷键、坐标级点击/双击/右键/滚动/拖拽 |
 | `desktop_capture` | `actions/desktop/desktop_capture.md` | 截图、状态快照、`type=observe` 统一观察 |
-| `write` | `actions/common/io/write.md` | 写 JSON、文本、CSV、变量快照 |
+| `write` | `actions/common/io/write.md` | 写 JSON、文本、CSV、Excel、变量快照 |
+| `table` | `actions/common/data/table.md` | 处理 Excel/CSV/JSON/SQL 读入后的行数组 |
+| `sql` | `actions/common/io/sql.md` | SQLite 本地数据库、PG/MySQL 查询、更新和批量入库 |
+| `redis` | `actions/common/io/redis.md` | Redis key/hash/list/set、原生命令和 pipeline |
 | `command` | `actions/common/utility/command.md` | 同步执行本机命令 |
 | `manual_confirm` | `actions/common/utility/manual_confirm.md` | 人工登录、验证码、权限或不确定 UI 交接 |

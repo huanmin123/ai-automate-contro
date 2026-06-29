@@ -1,0 +1,74 @@
+{
+  "name": "table-transform",
+  "automation_type": "browser",
+  "variables": {
+    "transactions": [
+      {
+        "单号": "A001",
+        "日期": "2026-06-01",
+        "部门": "财务",
+        "摘要": "差旅报销",
+        "金额": 1200
+      },
+      {
+        "单号": "A002",
+        "日期": "2026-06-01",
+        "部门": "人事",
+        "摘要": "办公用品",
+        "金额": 300
+      },
+      {
+        "单号": "A001",
+        "日期": "2026-06-02",
+        "部门": "财务",
+        "摘要": "差旅补贴",
+        "金额": 1500
+      }
+    ]
+  },
+  "steps": [
+    {
+      "action": "table",
+      "type": "filter",
+      "source": "{{transactions}}",
+      "where": {
+        "金额": {
+          "gte": 1000
+        },
+        "摘要": {
+          "contains": "差旅"
+        }
+      },
+      "save_as": "travel_rows"
+    },
+    {
+      "action": "table",
+      "type": "sort",
+      "source": "{{travel_rows}}",
+      "by": ["日期", "金额"],
+      "descending": [false, true],
+      "save_as": "sorted_rows"
+    },
+    {
+      "action": "table",
+      "type": "dedupe",
+      "source": "{{sorted_rows}}",
+      "by": "单号",
+      "keep": "last",
+      "save_as": "unique_rows"
+    },
+    {
+      "action": "table",
+      "type": "select",
+      "source": "{{unique_rows}}",
+      "columns": ["单号", "部门", "金额"],
+      "save_as": "selected_rows"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "table-result.json",
+      "value": "{{selected_rows}}"
+    }
+  ]
+}

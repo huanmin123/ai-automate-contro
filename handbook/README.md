@@ -41,7 +41,7 @@
 - `actions/README.md`: action 分类索引。
 - `actions/browser/`: 浏览器专属 action。
 - `actions/desktop/`: 桌面专属 action。
-- `actions/common/`: 两条执行线共享 action。
+- `actions/common/`: 两条执行线共享 action，包括文件、HTTP、数据库、本地命令、控制流和专项 AI。
 
 常用 action 精确路径：
 
@@ -56,7 +56,10 @@
 - `desktop 定位策略`: `actions/desktop/locator_strategy.md`
 - `read`: `actions/common/io/read.md`
 - `write`: `actions/common/io/write.md`
+- `table`: `actions/common/data/table.md`
 - `http`: `actions/common/io/http.md`
+- `sql`: `actions/common/io/sql.md`
+- `redis`: `actions/common/io/redis.md`
 - `command`: `actions/common/utility/command.md`
 - `manual_confirm`: `actions/common/utility/manual_confirm.md`
 
@@ -64,6 +67,6 @@
 
 - 组件名就是 step 的 `action`。
 - 参数结构一致的能力用同一 action 的 `type` 区分，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`、`desktop_window`。
-- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`command`。
+- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`sql`、`redis`、`command`。
 - 专项 AI 统一使用 `ai` action，通过 `type` 区分抽取、分类、转换和摘要。
 - 变量使用 `{{变量名}}` 引用；业务变量放在 `plan.json.variables`，运行配置放在 `config.json`。
