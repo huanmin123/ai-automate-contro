@@ -100,6 +100,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
                 "workspace-clean",
                 "release-matrix",
                 "browser-components",
+                "data-components",
                 "database-components",
                 "desktop-env",
                 "desktop-components",

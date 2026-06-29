@@ -115,7 +115,7 @@ ACTION_TYPES: dict[str, set[str]] = {
     "desktop_vision": {"locate_image", "locate_text"},
     "desktop_wait": {"window"},
     "desktop_assert": {"window", "screenshot", "element"},
-    "table": {"filter", "select", "sort", "dedupe"},
+    "table": {"filter", "select", "sort", "dedupe", "group", "join", "add_column"},
     "write": {"json", "text", "csv", "excel", "variables"},
     "read": {"json", "text", "csv", "excel", "storage_state"},
     "assert": {

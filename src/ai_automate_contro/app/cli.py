@@ -320,6 +320,12 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_browser_components(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "data-components":
+            from ai_automate_contro.app.data_component_check import self_check_data_components
+
+            result = self_check_data_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "database-components":
             from ai_automate_contro.app.database_component_check import self_check_database_components
 

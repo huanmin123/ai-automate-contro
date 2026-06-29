@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -138,6 +139,12 @@ def action_table(executor: Any, step: dict[str, Any]) -> None:
         result = _table_sort(source, step["by"], step.get("descending", False))
     elif table_type == "dedupe":
         result = _table_dedupe(source, step["by"], str(step.get("keep", "first")))
+    elif table_type == "group":
+        result = _table_group(source, step["by"], step["aggregations"])
+    elif table_type == "join":
+        result = _table_join(source, step["right"], step)
+    elif table_type == "add_column":
+        result = _table_add_columns(source, step["columns"])
     else:
         raise ValueError(f"不支持的 table type：{table_type}")
 
@@ -250,6 +257,150 @@ def _table_dedupe(rows: list[Any], by: Any, keep: str) -> list[Any]:
     return result
 
 
+def _table_group(rows: list[Any], by: Any, aggregations: Any) -> list[dict[str, Any]]:
+    columns = _table_columns(by, "table.group.by")
+    if not isinstance(aggregations, dict) or not aggregations:
+        raise ValueError("table.group.aggregations 必须是非空对象。")
+
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.group 当前只支持字典行。")
+        key = tuple(row.get(column) for column in columns)
+        grouped.setdefault(key, []).append(row)
+
+    result: list[dict[str, Any]] = []
+    for key, group_rows in grouped.items():
+        output = {column: value for column, value in zip(columns, key)}
+        for output_column, raw_spec in aggregations.items():
+            if not isinstance(output_column, str) or not output_column:
+                raise ValueError("table.group.aggregations 的输出列名必须是非空字符串。")
+            operator, source_column = _table_aggregation_spec(raw_spec)
+            output[output_column] = _table_aggregate(group_rows, operator, source_column)
+        result.append(output)
+    return result
+
+
+def _table_join(rows: list[Any], right_rows: Any, step: dict[str, Any]) -> list[dict[str, Any]]:
+    if not isinstance(right_rows, list):
+        raise ValueError("table.join.right 必须是数组。")
+    how = str(step.get("how", "inner"))
+    if how not in {"inner", "left"}:
+        raise ValueError("table.join.how 只能是 inner 或 left。")
+    left_columns, right_columns = _table_join_columns(step)
+    right_prefix = str(step.get("right_prefix", "right_"))
+
+    index: dict[tuple[Any, ...], list[dict[str, Any]]] = {}
+    for row in right_rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.join.right 当前只支持字典行。")
+        key = tuple(row.get(column) for column in right_columns)
+        index.setdefault(key, []).append(row)
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.join.source 当前只支持字典行。")
+        key = tuple(row.get(column) for column in left_columns)
+        matches = index.get(key, [])
+        if matches:
+            for right_row in matches:
+                result.append(_table_join_merge(row, right_row, right_columns, right_prefix))
+        elif how == "left":
+            result.append(dict(row))
+    return result
+
+
+def _table_add_columns(rows: list[Any], columns: Any) -> list[dict[str, Any]]:
+    if not isinstance(columns, dict) or not columns:
+        raise ValueError("table.add_column.columns 必须是非空对象。")
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.add_column 当前只支持字典行。")
+        output = dict(row)
+        for column, spec in columns.items():
+            if not isinstance(column, str) or not column:
+                raise ValueError("table.add_column.columns 的列名必须是非空字符串。")
+            output[column] = _table_add_column_value(row, spec)
+        result.append(output)
+    return result
+
+
+def _table_aggregation_spec(raw_spec: Any) -> tuple[str, str]:
+    if not isinstance(raw_spec, dict) or len(raw_spec) != 1:
+        raise ValueError("table.group.aggregations 每个聚合必须是只包含一个操作符的对象。")
+    operator, source_column = next(iter(raw_spec.items()))
+    operator = str(operator)
+    if operator not in {"count", "sum", "avg", "min", "max"}:
+        raise ValueError(f"不支持的 table.group 聚合操作符：{operator}")
+    if operator == "count" and source_column == "*":
+        return operator, "*"
+    if not isinstance(source_column, str) or not source_column:
+        raise ValueError("table.group 聚合源列必须是非空字符串，count 可使用 \"*\"。")
+    return operator, source_column
+
+
+def _table_aggregate(rows: list[dict[str, Any]], operator: str, source_column: str) -> Any:
+    if operator == "count":
+        if source_column == "*":
+            return len(rows)
+        return sum(0 if _table_is_empty(row.get(source_column)) else 1 for row in rows)
+
+    values = [_table_number(row.get(source_column), source_column) for row in rows if not _table_is_empty(row.get(source_column))]
+    if not values:
+        return None
+    if operator == "sum":
+        return _table_normalize_number(sum(values))
+    if operator == "avg":
+        return _table_normalize_number(sum(values) / len(values))
+    if operator == "min":
+        return _table_normalize_number(min(values))
+    if operator == "max":
+        return _table_normalize_number(max(values))
+    raise ValueError(f"不支持的 table.group 聚合操作符：{operator}")
+
+
+def _table_join_columns(step: dict[str, Any]) -> tuple[list[str], list[str]]:
+    if "on" in step:
+        columns = _table_columns(step["on"], "table.join.on")
+        return columns, columns
+    left_columns = _table_columns(step.get("left_on"), "table.join.left_on")
+    right_columns = _table_columns(step.get("right_on"), "table.join.right_on")
+    if len(left_columns) != len(right_columns):
+        raise ValueError("table.join.left_on 和 right_on 长度必须一致。")
+    return left_columns, right_columns
+
+
+def _table_join_merge(left: dict[str, Any], right: dict[str, Any], right_key_columns: list[str], right_prefix: str) -> dict[str, Any]:
+    output = dict(left)
+    for column, value in right.items():
+        if column in right_key_columns:
+            continue
+        target_column = column
+        if target_column in output:
+            target_column = f"{right_prefix}{column}"
+        output[target_column] = value
+    return output
+
+
+def _table_add_column_value(row: dict[str, Any], spec: Any) -> Any:
+    if not isinstance(spec, dict):
+        return spec
+    if "value" in spec:
+        return spec["value"]
+    if "copy" in spec:
+        return row.get(str(spec["copy"]))
+    if "format" in spec:
+        template = str(spec["format"])
+        return re.sub(r"\{([^{}]+)\}", lambda match: str(row.get(match.group(1), "")), template)
+    if "sum" in spec:
+        columns = _table_columns(spec["sum"], "table.add_column.columns[].sum")
+        total = sum(_table_number(row.get(column), column) for column in columns)
+        return _table_normalize_number(total)
+    raise ValueError("table.add_column.columns 每个对象必须包含 value、copy、format 或 sum 之一。")
+
+
 def _table_columns(value: Any, field_name: str) -> list[str]:
     if isinstance(value, str) and value:
         return [value]
@@ -288,6 +439,23 @@ def _table_comparable(value: Any) -> Any:
         except ValueError:
             return value
     return str(value)
+
+
+def _table_number(value: Any, column: str) -> float:
+    if isinstance(value, bool):
+        raise ValueError(f"table 数字计算列不是数字：{column}")
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            return float(value)
+        except ValueError as error:
+            raise ValueError(f"table 数字计算列不是数字：{column}") from error
+    raise ValueError(f"table 数字计算列为空或不是数字：{column}")
+
+
+def _table_normalize_number(value: float) -> int | float:
+    return int(value) if value.is_integer() else value
 
 
 def _table_is_empty(value: Any) -> bool:

@@ -19,7 +19,7 @@
 | `json` | `output/json/` | `value` | 把任意 JSON 可序列化值写成 JSON |
 | `text` | `output/text/` | `value` | 把值转成文本写入；如果 `value` 是字符串数组或元组，会按一行一个写出并在末尾补换行 |
 | `csv` | `output/csv/` | `value` | 把数组写成 CSV |
-| `excel` | `output/excel/` | `value` 或 `cells` | 把数组写成 Excel，或向模板工作簿填充单元格 |
+| `excel` | `output/excel/` | `value`、`cells` 或 `sheets` | 把数组写成 Excel，或向模板工作簿填充单元格 |
 | `variables` | `output/variables/` | 不需要 | 导出当前变量池 |
 
 ## 可选字段
@@ -28,6 +28,7 @@
 - `headers`: 仅 `type: csv` 和 `type: excel` 有效，自定义表头
 - `indent`: 仅 `type: json` 和 `type: variables` 有效，默认 `2`
 - `sheet`: 仅 `type: excel` 有效，工作表名称，默认 `Sheet1`。
+- `sheets`: 仅 `type: excel` 有效，多工作表写入配置数组；每项可包含 `sheet`、`value`/`rows`、`cells` 和本节 Excel 选项。
 - `template_path`: 仅 `type: excel` 有效，模板工作簿输入路径。
 - `write_mode`: 仅 `type: excel` 有效，`create`、`replace_sheet`、`append_rows`、`overlay_cells`。
 - `cells`: 仅 `type: excel` 有效，A1 单元格到值的对象。
@@ -94,6 +95,32 @@
   "value": "{{finance_people}}",
   "freeze_header": true,
   "auto_filter": true
+}
+```
+
+写多工作表 Excel：
+
+```json
+{
+  "action": "write",
+  "type": "excel",
+  "path": "财务报表.xlsx",
+  "sheets": [
+    {
+      "sheet": "明细",
+      "value": "{{detail_rows}}",
+      "freeze_header": true,
+      "auto_filter": true,
+      "table": true
+    },
+    {
+      "sheet": "部门汇总",
+      "value": "{{summary_rows}}",
+      "freeze_header": true,
+      "auto_filter": true,
+      "table": true
+    }
+  ]
 }
 ```
 

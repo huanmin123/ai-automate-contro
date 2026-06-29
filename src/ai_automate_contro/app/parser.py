@@ -313,6 +313,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     release_matrix_parser.add_argument("--fail-fast", action="store_true", help="任一步骤失败后立即停止后续矩阵。")
     self_check_subparsers.add_parser("browser-components", help="运行浏览器组件回归矩阵和参数负向校验。")
+    self_check_subparsers.add_parser("data-components", help="运行 Excel 文件和 table 数据处理组件自检。")
     database_components_parser = self_check_subparsers.add_parser(
         "database-components",
         help="运行数据库 common action 组件自检；默认只跑 SQLite，可显式加入真实服务。",

@@ -180,6 +180,7 @@ def _deterministic_commands(
         {"name": "tool_check", "command": [_python(), "main.py", "tool", "check"]},
         {"name": "handbook", "command": [_python(), "cplan.py", "self-check", "handbook"]},
         {"name": "workspace_clean", "command": [_python(), "cplan.py", "self-check", "workspace-clean"]},
+        {"name": "data_components", "command": [_python(), "cplan.py", "self-check", "data-components"]},
         {"name": "database_components", "command": [_python(), "cplan.py", "self-check", "database-components"]},
         {"name": "ai_tools", "command": [_python(), "main.py", "self-check", "ai-tools"]},
         {"name": "ai_terminal", "command": [_python(), "main.py", "self-check", "ai-terminal"]},

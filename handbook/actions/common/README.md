@@ -15,9 +15,9 @@
 | action | 作用 | 关键参数 | 场景 |
 | --- | --- | --- | --- |
 | `variable` | 设置或复制变量 | `type`、`name`、`value` | 拼装后续步骤参数 |
-| `read` | 读取文本、JSON、CSV | `type`、`path` | 读取输入资源或本机文件 |
-| `write` | 写 JSON、文本、CSV、变量 | `type`、`path`、`value` | 输出结果到当前 plan 包 `output/` |
-| `table` | 处理表格行数组 | `type`、`source`、`save_as` | Excel/CSV/JSON/SQL 读入后的筛选、选列、排序、去重 |
+| `read` | 读取文本、JSON、CSV、Excel | `type`、`path` | 读取输入资源或本机文件 |
+| `write` | 写 JSON、文本、CSV、Excel、变量 | `type`、`path`、`value`/`cells`/`sheets` | 输出结果到当前 plan 包 `output/` |
+| `table` | 处理表格行数组 | `type`、`source`、`save_as` | Excel/CSV/JSON/SQL 读入后的筛选、选列、排序、去重、汇总、连接和派生列 |
 | `http` | 发 HTTP 请求 | `method`、`url`、`headers`、`body` | 调接口、下载文本、检查服务 |
 | `sql` | 访问关系型数据库 | `type`、`connection`、`sql`/`table` | SQLite 本地落库、PG/MySQL 查询和更新、事务和批量写入 |
 | `redis` | 访问 Redis | `type`、`connection`、`key`/`command` | 缓存、状态、队列、pipeline 和原生命令 |

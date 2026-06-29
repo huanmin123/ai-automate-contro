@@ -116,6 +116,7 @@
 - 只改文档：确认链接、入口和维护规则一致，通常不需要运行代码自检。
 - 窄范围代码改动：至少运行一个相关示例 plan 或对应自检。
 - 修改 action 或执行器：优先运行覆盖该动作的 `test-plans/` 示例。
+- 修改 `read/write type=excel`、`table` 或数据文件校验：运行 `python .\cplan.py self-check data-components`。
 - 修改计划加载、变量渲染、条件、循环等共享逻辑：检查已有示例是否仍能运行。
 - 修改 AI 终端会话、压缩、图片附件或上下文注入：运行 `python .\main.py self-check ai-terminal`。
 - 修改 Textual 交互客户端、队列、消息块、输入框或客户端后端事件适配：运行 `python .\main.py self-check textual-client`。

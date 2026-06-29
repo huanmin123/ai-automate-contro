@@ -82,6 +82,7 @@ ACCOUNT_REQUEST_TOKENS = (
 PASSWORD_REQUEST_TOKENS = ("密码", "password", "passwd", "pwd", "口令")
 OUTPUT_TOKENS = ("写到", "写入", "保存", "导出", "输出", "文件", "产出", "一行一个", "下载", "Downloads", "Desktop")
 EXTRACTION_TOKENS = ("拿出来", "提取", "读取", "获取", "抓取", "导出", "列表", "全部", "所有", "一行一个")
+FILE_DATA_TOKENS = ("excel", ".xlsx", "csv", ".csv", "表格", "人员名单", "财务表", "报表", "流水", "台账", "清单")
 NEGATIVE_EVIDENCE_TOKENS = (
     "没有探测",
     "未探测",
@@ -138,9 +139,9 @@ CREDENTIAL_VALUE_STOPWORDS = {
     "星号",
 }
 FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "trace", "event", "coverage"}
-BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download"}
+BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download", "read", "table"}
 FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_capture", "desktop_assert", "desktop_vision", "ai", "command"}
-DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_capture", "desktop_wait", "desktop_assert", "desktop_vision", "ai", "command"}
+DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_capture", "desktop_wait", "desktop_assert", "desktop_vision", "ai", "command", "read", "table"}
 DESKTOP_COORDINATE_INPUT_TYPES = {"click", "double_click", "right_click", "scroll", "drag"}
 DESKTOP_COORDINATE_TARGETS = {
     "bounds_center",
@@ -1395,6 +1396,7 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
     account_values = _credential_values(ACCOUNT_VALUE_RE.findall(request))
     password_values = _credential_values(PASSWORD_VALUE_RE.findall(request))
     login_intent = _contains_any(request, LOGIN_TOKENS)
+    file_data_intent = _contains_any(request_context, FILE_DATA_TOKENS)
     is_real_site = any(_is_real_http_url(url) for url in urls)
     message_target_hint = _contains_any(
         request_context,
@@ -1415,7 +1417,7 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
         "account_values": [value for value in account_values if value],
         "password_values": [value for value in password_values if value],
         "needs_output": bool(output_hint or output_filename) or _contains_any(request, OUTPUT_TOKENS),
-        "needs_extraction": _contains_any(request, EXTRACTION_TOKENS),
+        "needs_extraction": file_data_intent or _contains_any(request, EXTRACTION_TOKENS),
         "one_per_line": _contains_any(request, ("一行一个", "每行一个", "一行一条", "每行一条")),
         "output_filename": output_filename,
         "requested_output_hint": output_hint,
@@ -2123,7 +2125,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
         return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text 或 write，把运行证据写入当前 plan output/。"
-    return "补充 extract/script/ai 等数据获取步骤后，用 write.type=text/json/csv 写入当前 plan output/。"
+    return "补充 extract/script/read/table/ai 等数据获取或处理步骤后，用 write.type=text/json/csv/excel 写入当前 plan output/。"
 
 
 def _is_desktop_evidence_step(record: dict[str, Any]) -> bool:
@@ -2176,14 +2178,14 @@ def _is_desktop_output_step(record: dict[str, Any]) -> bool:
 
 def _data_extraction_issue_message(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "用户要求读取/提取桌面状态，但 plan 没有 desktop_window/desktop_element 读取类、desktop_assert element、desktop_capture 或 desktop_vision 等桌面证据步骤。"
-    return "用户要求读取/提取页面数据，但 plan 没有 extract/script/ai/storage/download 等数据获取步骤。"
+        return "用户要求读取/提取桌面状态或文件数据，但 plan 没有 desktop_window/desktop_element 读取类、desktop_assert element、desktop_capture、desktop_vision、read 或 table 等证据/处理步骤。"
+    return "用户要求读取/提取页面或文件数据，但 plan 没有 extract/script/read/table/ai/storage/download 等数据获取或处理步骤。"
 
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text 或 desktop_wait 获取桌面状态，再按需写出文件。"
-    return "先用 extract.table、extract.all_texts、extract.text 或 script.evaluate 获取目标数据，再写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text、desktop_wait，或用 read.type=excel/csv/json + table 处理文件数据，再按需写出文件。"
+    return "网页数据先用 extract.table、extract.all_texts、extract.text 或 script.evaluate；Excel/CSV/JSON 文件先用 read.type=excel/csv/json，再用 table 过滤、排序、聚合、连接或派生列，最后写出文件。"
 
 
 def _value_matches_any(value_text: str, expected_values: list[str], variables: dict[str, Any]) -> bool:

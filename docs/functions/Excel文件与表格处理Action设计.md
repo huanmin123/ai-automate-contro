@@ -243,7 +243,7 @@ output/excel/财务人员.xlsx
 }
 ```
 
-`write.type=excel` 校验应允许 `value` 或 `cells` 至少提供一个。`cells` 只负责单元格赋值，不负责公式计算。
+`write.type=excel` 校验应允许 `value`、`cells` 或 `sheets` 至少提供一个。`cells` 只负责单元格赋值，不负责公式计算。
 
 ### 多工作表
 
@@ -265,7 +265,7 @@ output/excel/财务人员.xlsx
 }
 ```
 
-多工作表是第二阶段能力。第一阶段可先要求一个 action 写一个 sheet。
+多工作表由 `sheets[]` 支持。顶层 Excel 选项会作为默认值传给每个 sheet，sheet 内字段可以覆盖顶层配置。
 
 ### 字段
 
@@ -274,7 +274,7 @@ output/excel/财务人员.xlsx
 - `action`: 固定为 `write`
 - `type`: 固定为 `excel`
 - `path`: 输出路径，相对于 `output/excel/`
-- `value` 或 `cells`: 至少提供一个
+- `value`、`cells` 或 `sheets`: 至少提供一个
 
 常用可选字段：
 
@@ -289,11 +289,11 @@ output/excel/财务人员.xlsx
 - `date_format`: 日期写入格式，默认 `yyyy-mm-dd`。
 - `number_format`: 列级数字格式对象。
 - `column_widths`: 列宽对象，例如 `{ "姓名": 12, "金额": 14 }`。
-- `sheets`: 多工作表写入配置，第二阶段支持。
+- `sheets`: 多工作表写入配置，每项可包含 `sheet`、`value`/`rows`、`cells`、`headers`、`write_mode`、`freeze_header`、`auto_filter`、`table`、`number_format` 和 `column_widths`。
 
 ## `table` Action
 
-Excel 读出来以后应尽量变成普通行数组。常见表格处理用 `table` action 表达，避免用户为简单筛选和去重写 SQL。
+Excel 读出来以后应尽量变成普通行数组。常见表格处理用 `table` action 表达，避免用户为简单筛选、汇总、连接和派生列写 SQL。
 
 ### 筛选
 
@@ -388,7 +388,7 @@ Excel 读出来以后应尽量变成普通行数组。常见表格处理用 `tab
 }
 ```
 
-第一版 `table` 建议只落地 `filter`、`select`、`sort`、`dedupe`。`group`、`join`、表达式列和透视表可以作为后续增强；复杂统计仍可通过 `sql` + SQLite 完成。
+当前 `table` 已落地 `filter`、`select`、`sort`、`dedupe`、`group`、`join` 和 `add_column`。窗口函数、透视表、复杂多表查询或大数据量处理仍优先通过 `sql` + SQLite/DuckDB 完成。
 
 ## 推荐组合
 
@@ -500,18 +500,18 @@ Excel 读出来以后应尽量变成普通行数组。常见表格处理用 `tab
 
 ### `table` 处理
 
-- 第一版用纯 Python 实现，处理 list[dict] 和 list[list]。
+- 用纯 Python 实现，当前运行时只处理字典行数组。
 - 条件只支持明确操作符，不设计通用表达式语言。
 - 返回值默认是行数组，便于直接接 `write.type=excel` 或 `write.type=csv`。
-- 大数据量、复杂分组、join 和窗口函数推荐继续使用 `sql` action。
+- 大数据量、复杂多表查询和窗口函数推荐继续使用 `sql` action。
 
 ## 校验规则
 
 需要更新：
 
-- `validation_rules.ACTION_TYPES` 增加 `read: excel`、`write: excel`，后续增加 `table` action。
+- `validation_rules.ACTION_TYPES` 增加 `read: excel`、`write: excel` 和 `table` action。
 - `OUTPUT_ACTION_CATEGORIES` 增加 `("write", "excel"): "excel"`。
-- `write.type=excel` 特判 `value` 或 `cells` 至少一个。
+- `write.type=excel` 特判 `value`、`cells` 或 `sheets` 至少一个。
 - `sheet` 允许字符串或非负整数。
 - `range` 必须是 A1 风格字符串。
 - `mode` 只允许 `records`、`matrix`、`cells`。
@@ -535,9 +535,9 @@ Excel 读出来以后应尽量变成普通行数组。常见表格处理用 `tab
 - 再读回工作簿。
 - 写 JSON 对比读回结果。
 
-后续 `table` action 落地时新增 `test-plans/data-driven/table-transform/`：
+`table` action 回归使用 `test-plans/data-driven/table-transform/`：
 
-- 覆盖 `filter`、`select`、`sort`、`dedupe`。
+- 覆盖筛选、排序、去重、选列、连接、派生列、分组汇总和多工作表 Excel 输出。
 - 输入同时使用 JSON、CSV 和 Excel 读入结果，证明 table 与文件格式解耦。
 
 验证命令：

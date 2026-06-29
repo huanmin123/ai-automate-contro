@@ -88,6 +88,8 @@ TABLE_FILTER_OPERATORS = {
     "not_equals",
     "not_in",
 }
+TABLE_AGGREGATION_OPERATORS = {"count", "sum", "avg", "min", "max"}
+TABLE_ADD_COLUMN_OPERATORS = {"value", "copy", "format", "sum"}
 
 
 def validate_type_field(
@@ -274,6 +276,12 @@ def validate_type_specific_required_fields(
             required = ("columns",)
         elif step_type in {"sort", "dedupe"}:
             required = ("by",)
+        elif step_type == "group":
+            required = ("by", "aggregations")
+        elif step_type == "join":
+            required = ("right",)
+        elif step_type == "add_column":
+            required = ("columns",)
     elif action == "desktop_app" and step_type == "launch" and not any(step.get(field) for field in ("app", "path", "command")):
         issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path 或 command 之一"))
     elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
@@ -608,6 +616,7 @@ def _validate_write_fields(
     _validate_string(step, "table_name", location, issues)
     _validate_nonempty_string_list(step, "headers", location, issues)
     _validate_dict(step, "cells", location, issues)
+    _validate_list(step, "sheets", location, issues)
     _validate_dict(step, "number_format", location, issues)
     _validate_dict(step, "column_widths", location, issues)
     _validate_bool(step, "include_header", location, issues)
@@ -616,11 +625,41 @@ def _validate_write_fields(
     _validate_bool(step, "table", location, issues)
     _validate_enum(step, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
     _validate_string(step, "date_format", location, issues)
-    cells = step.get("cells")
-    if isinstance(cells, dict):
-        for address in cells:
-            if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
-                issues.append(ValidationIssue(location, f"cells 的 key 必须是 A1 单元格地址：{address}"))
+    _validate_excel_cells(step.get("cells"), location, "cells", issues)
+    sheets = step.get("sheets")
+    if isinstance(sheets, list) and not _is_template(sheets):
+        if not sheets:
+            issues.append(ValidationIssue(location, "sheets 必须是非空数组"))
+        for index, sheet in enumerate(sheets):
+            _validate_excel_write_sheet(sheet, f"{location}.sheets[{index}]", issues)
+
+
+def _validate_excel_write_sheet(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, "sheets 每一项必须是对象"))
+        return
+    _validate_sheet_field(value, "sheet", location, issues)
+    _validate_nonempty_string_list(value, "headers", location, issues)
+    _validate_dict(value, "cells", location, issues)
+    _validate_dict(value, "number_format", location, issues)
+    _validate_dict(value, "column_widths", location, issues)
+    _validate_bool(value, "include_header", location, issues)
+    _validate_bool(value, "freeze_header", location, issues)
+    _validate_bool(value, "auto_filter", location, issues)
+    _validate_bool(value, "table", location, issues)
+    _validate_string(value, "table_name", location, issues)
+    _validate_enum(value, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
+    _validate_excel_cells(value.get("cells"), location, "cells", issues)
+    if not any(field in value for field in ("value", "rows", "cells")):
+        issues.append(ValidationIssue(location, "sheets 每一项需要 value、rows 或 cells 之一"))
+
+
+def _validate_excel_cells(value: Any, location: str, field: str, issues: list[ValidationIssue]) -> None:
+    if not isinstance(value, dict):
+        return
+    for address in value:
+        if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
+            issues.append(ValidationIssue(location, f"{field} 的 key 必须是 A1 单元格地址：{address}"))
 
 
 def _validate_table_fields(
@@ -660,11 +699,85 @@ def _validate_table_fields(
             if isinstance(value, bool):
                 return
             if isinstance(value, list) and all(isinstance(item, bool) for item in value):
+                by = step.get("by")
+                if isinstance(by, list) and len(value) != len(by):
+                    issues.append(ValidationIssue(location, "table.sort.descending 数组长度必须与 by 一致"))
                 return
             issues.append(ValidationIssue(location, "table.sort.descending 必须是布尔值或布尔数组"))
         return
     if step_type == "dedupe":
         _validate_enum(step, "keep", {"first", "last"}, location, issues)
+        return
+    if step_type == "group":
+        _validate_string_or_nonempty_string_list(step, "by", location, issues)
+        _validate_dict(step, "aggregations", location, issues)
+        aggregations = step.get("aggregations")
+        if isinstance(aggregations, dict):
+            if not aggregations:
+                issues.append(ValidationIssue(location, "table.group.aggregations 必须是非空对象"))
+            for output_column, spec in aggregations.items():
+                if not isinstance(output_column, str) or not output_column:
+                    issues.append(ValidationIssue(location, "table.group.aggregations 的输出列名必须是非空字符串"))
+                _validate_table_aggregation_spec(spec, location, issues)
+        return
+    if step_type == "join":
+        _validate_list(step, "right", location, issues)
+        _validate_string_or_nonempty_string_list(step, "on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "left_on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "right_on", location, issues)
+        _validate_enum(step, "how", {"inner", "left"}, location, issues)
+        _validate_string(step, "right_prefix", location, issues)
+        if "on" not in step and not ("left_on" in step and "right_on" in step):
+            issues.append(ValidationIssue(location, "table.join 需要 on，或同时提供 left_on 和 right_on"))
+        if "on" in step and ("left_on" in step or "right_on" in step):
+            issues.append(ValidationIssue(location, "table.join 不能同时使用 on 和 left_on/right_on"))
+        left_on = step.get("left_on")
+        right_on = step.get("right_on")
+        if isinstance(left_on, list) and isinstance(right_on, list) and len(left_on) != len(right_on):
+            issues.append(ValidationIssue(location, "table.join.left_on 和 right_on 长度必须一致"))
+        return
+    if step_type == "add_column":
+        _validate_dict(step, "columns", location, issues)
+        columns = step.get("columns")
+        if isinstance(columns, dict):
+            if not columns:
+                issues.append(ValidationIssue(location, "table.add_column.columns 必须是非空对象"))
+            for output_column, spec in columns.items():
+                if not isinstance(output_column, str) or not output_column:
+                    issues.append(ValidationIssue(location, "table.add_column.columns 的列名必须是非空字符串"))
+                _validate_table_add_column_spec(spec, location, issues)
+
+
+def _validate_table_aggregation_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value):
+        return
+    if not isinstance(value, dict) or len(value) != 1:
+        issues.append(ValidationIssue(location, "table.group.aggregations 每个值必须是只包含一个操作符的对象"))
+        return
+    operator, source_column = next(iter(value.items()))
+    if operator not in TABLE_AGGREGATION_OPERATORS:
+        allowed = ", ".join(sorted(TABLE_AGGREGATION_OPERATORS))
+        issues.append(ValidationIssue(location, f"table.group 聚合操作符不支持：{operator}；可选值：{allowed}"))
+    if source_column == "*" and operator == "count":
+        return
+    if not isinstance(source_column, str) or not source_column:
+        issues.append(ValidationIssue(location, "table.group 聚合源列必须是非空字符串，count 可使用 *"))
+
+
+def _validate_table_add_column_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value) or not isinstance(value, dict):
+        return
+    operators = [operator for operator in TABLE_ADD_COLUMN_OPERATORS if operator in value]
+    if len(operators) != 1:
+        allowed = ", ".join(sorted(TABLE_ADD_COLUMN_OPERATORS))
+        issues.append(ValidationIssue(location, f"table.add_column.columns 每个对象必须且只能包含一个操作符：{allowed}"))
+        return
+    operator = operators[0]
+    if operator in {"copy", "format"} and (not isinstance(value[operator], str) or not value[operator]):
+        issues.append(ValidationIssue(location, f"table.add_column.{operator} 必须是非空字符串"))
+    if operator == "sum":
+        temp_step = {"sum": value[operator]}
+        _validate_string_or_nonempty_string_list(temp_step, "sum", location, issues)
 
 
 def _validate_open_browser_fields(

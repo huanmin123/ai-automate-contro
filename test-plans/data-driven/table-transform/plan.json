@@ -8,21 +8,34 @@
         "日期": "2026-06-01",
         "部门": "财务",
         "摘要": "差旅报销",
-        "金额": 1200
+        "金额": 1200,
+        "税额": 72
       },
       {
         "单号": "A002",
         "日期": "2026-06-01",
         "部门": "人事",
         "摘要": "办公用品",
-        "金额": 300
+        "金额": 300,
+        "税额": 18
       },
       {
         "单号": "A001",
         "日期": "2026-06-02",
         "部门": "财务",
         "摘要": "差旅补贴",
-        "金额": 1500
+        "金额": 1500,
+        "税额": 90
+      }
+    ],
+    "departments": [
+      {
+        "部门": "财务",
+        "负责人": "王经理"
+      },
+      {
+        "部门": "人事",
+        "负责人": "赵经理"
       }
     ]
   },
@@ -61,14 +74,79 @@
       "action": "table",
       "type": "select",
       "source": "{{unique_rows}}",
-      "columns": ["单号", "部门", "金额"],
+      "columns": ["单号", "部门", "金额", "税额"],
       "save_as": "selected_rows"
+    },
+    {
+      "action": "table",
+      "type": "join",
+      "source": "{{selected_rows}}",
+      "right": "{{departments}}",
+      "on": "部门",
+      "how": "left",
+      "save_as": "joined_rows"
+    },
+    {
+      "action": "table",
+      "type": "add_column",
+      "source": "{{joined_rows}}",
+      "columns": {
+        "标签": {
+          "format": "{部门}-{单号}-{负责人}"
+        },
+        "含税金额": {
+          "sum": ["金额", "税额"]
+        }
+      },
+      "save_as": "labeled_rows"
+    },
+    {
+      "action": "table",
+      "type": "group",
+      "source": "{{transactions}}",
+      "by": "部门",
+      "aggregations": {
+        "笔数": {
+          "count": "*"
+        },
+        "总金额": {
+          "sum": "金额"
+        },
+        "平均金额": {
+          "avg": "金额"
+        }
+      },
+      "save_as": "summary_rows"
     },
     {
       "action": "write",
       "type": "json",
       "path": "table-result.json",
-      "value": "{{selected_rows}}"
+      "value": {
+        "rows": "{{labeled_rows}}",
+        "summary": "{{summary_rows}}"
+      }
+    },
+    {
+      "action": "write",
+      "type": "excel",
+      "path": "table-transform.xlsx",
+      "sheets": [
+        {
+          "sheet": "明细",
+          "value": "{{labeled_rows}}",
+          "freeze_header": true,
+          "auto_filter": true,
+          "table": true
+        },
+        {
+          "sheet": "部门汇总",
+          "value": "{{summary_rows}}",
+          "freeze_header": true,
+          "auto_filter": true,
+          "table": true
+        }
+      ]
     }
   ]
 }

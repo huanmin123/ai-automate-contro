@@ -217,8 +217,8 @@ def validate_action_specific_fields(
 
     if action == "write":
         if step.get("type") == "excel":
-            if not any(field in step for field in ("value", "cells")):
-                issues.append(ValidationIssue(location, "write.type=excel 需要 value 或 cells 之一"))
+            if not any(field in step for field in ("value", "cells", "sheets")):
+                issues.append(ValidationIssue(location, "write.type=excel 需要 value、cells 或 sheets 之一"))
         elif step.get("type") != "variables" and "value" not in step:
             issues.append(ValidationIssue(location, "write 在 type 不是 variables 时必须提供 value"))
 

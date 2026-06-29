@@ -66,32 +66,15 @@ def write_excel_file(executor: Any, step: dict[str, Any]) -> None:
     else:
         workbook = excel["Workbook"]()
 
-    worksheet = _prepare_excel_worksheet(
-        workbook,
-        step.get("sheet"),
-        write_mode=str(step.get("write_mode") or ("replace_sheet" if template_path else "create")),
-        template=bool(template_path),
-    )
-
-    has_rows = "value" in step
-    if has_rows:
-        rows = _coerce_excel_rows(step.get("value"))
-        _write_excel_rows(
-            worksheet,
-            rows,
-            headers=step.get("headers"),
-            append=str(step.get("write_mode") or "").lower() == "append_rows",
-            include_header=bool(step.get("include_header", True)),
+    sheet_steps = _excel_write_sheet_steps(step)
+    for sheet_step in sheet_steps:
+        _write_excel_sheet(
+            workbook,
+            sheet_step,
+            template=bool(template_path),
+            get_column_letter=excel["get_column_letter"],
         )
 
-    cells = step.get("cells")
-    if isinstance(cells, dict):
-        for address, value in cells.items():
-            if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
-                raise ValueError(f"Excel cells 的 key 必须是 A1 单元格地址：{address}")
-            worksheet[address] = _excel_cell_value(value)
-
-    _apply_excel_sheet_options(worksheet, step, excel["get_column_letter"])
     workbook.save(output_path)
     executor.state.logger.log("info", "excel written", path=str(output_path))
 
@@ -125,8 +108,15 @@ def read_file(executor: Any, step: dict[str, Any]) -> Any:
 def read_excel_file(path: Any, step: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
     excel = _load_openpyxl()
     formula_mode = str(step.get("formula_mode", "cached"))
-    date_format = str(step.get("date_format", "iso"))
     workbook = excel["load_workbook"](path, read_only=True, data_only=formula_mode != "formula")
+    try:
+        return _read_excel_workbook(path, step, excel, workbook)
+    finally:
+        workbook.close()
+
+
+def _read_excel_workbook(path: Any, step: dict[str, Any], excel: dict[str, Any], workbook: Any) -> tuple[Any, dict[str, Any]]:
+    date_format = str(step.get("date_format", "iso"))
     worksheet = _select_excel_worksheet(workbook, step.get("sheet"))
     min_col, min_row, max_col, max_row = _excel_bounds(worksheet, step.get("range"), excel["range_boundaries"])
     mode = str(step.get("mode", "records"))
@@ -379,6 +369,73 @@ def _prepare_excel_worksheet(workbook: Any, raw_sheet: Any, *, write_mode: str, 
     raise ValueError(f"不支持的 Excel write_mode：{write_mode}")
 
 
+def _excel_write_sheet_steps(step: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_sheets = step.get("sheets")
+    if raw_sheets is None:
+        return [_normalize_excel_sheet_step(step)]
+    if not isinstance(raw_sheets, list) or not raw_sheets:
+        raise ValueError("write.type=excel.sheets 必须是非空数组。")
+    sheet_steps: list[dict[str, Any]] = []
+    for index, raw_sheet_step in enumerate(raw_sheets):
+        if not isinstance(raw_sheet_step, dict):
+            raise ValueError(f"write.type=excel.sheets[{index}] 必须是对象。")
+        merged = {
+            key: value
+            for key, value in step.items()
+            if key
+            not in {
+                "path",
+                "template_path",
+                "sheets",
+                "sheet",
+                "value",
+                "rows",
+                "cells",
+            }
+        }
+        merged.update(raw_sheet_step)
+        sheet_steps.append(_normalize_excel_sheet_step(merged))
+    return sheet_steps
+
+
+def _normalize_excel_sheet_step(step: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(step)
+    if "value" not in normalized and "rows" in normalized:
+        normalized["value"] = normalized["rows"]
+    if "value" not in normalized and "cells" not in normalized:
+        raise ValueError("write.type=excel 需要 value、cells 或 sheets[].value/cells 之一。")
+    return normalized
+
+
+def _write_excel_sheet(workbook: Any, step: dict[str, Any], *, template: bool, get_column_letter: Any) -> None:
+    write_mode = str(step.get("write_mode") or ("replace_sheet" if template else "create"))
+    worksheet = _prepare_excel_worksheet(
+        workbook,
+        step.get("sheet"),
+        write_mode=write_mode,
+        template=template,
+    )
+
+    if "value" in step:
+        rows = _coerce_excel_rows(step.get("value"))
+        _write_excel_rows(
+            worksheet,
+            rows,
+            headers=step.get("headers"),
+            append=write_mode == "append_rows",
+            include_header=bool(step.get("include_header", True)),
+        )
+
+    cells = step.get("cells")
+    if isinstance(cells, dict):
+        for address, value in cells.items():
+            if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
+                raise ValueError(f"Excel cells 的 key 必须是 A1 单元格地址：{address}")
+            worksheet[address] = _excel_cell_value(value)
+
+    _apply_excel_sheet_options(worksheet, step, get_column_letter)
+
+
 def _worksheet_is_empty(worksheet: Any) -> bool:
     return worksheet.max_row == 1 and worksheet.max_column == 1 and worksheet["A1"].value is None
 
@@ -520,7 +577,11 @@ def _add_excel_table(worksheet: Any, step: dict[str, Any], get_column_letter: An
     excel = _load_openpyxl()
     ref = _excel_range_text(1, 1, worksheet.max_column, worksheet.max_row, get_column_letter)
     table_name = _safe_excel_table_name(str(step.get("table_name") or worksheet.title or "Table1"))
-    existing = {table.name for table in worksheet.tables.values()}
+    existing = {
+        table.name
+        for workbook_sheet in worksheet.parent.worksheets
+        for table in workbook_sheet.tables.values()
+    }
     base_name = table_name
     index = 1
     while table_name in existing:
