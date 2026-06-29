@@ -16,8 +16,9 @@ def self_check_desktop_scenarios(project_root: str | Path) -> dict[str, Any]:
     root = Path(project_root).resolve()
     scenarios = [_game_daily_scenario(), _wechat_blessing_scenario(), _qq_schedule_scenario()]
     results = [run_desktop_scenario(scenario) for scenario in scenarios]
+    stuck_detector_case = _frozen_game_stuck_detector_case()
     return {
-        "ok": all(bool(result.get("ok")) for result in results),
+        "ok": all(bool(result.get("ok")) for result in results) and bool(stuck_detector_case.get("ok")),
         "check": "desktop_scenarios",
         "project_root": str(root),
         "limits": dict(DEFAULT_SCENARIO_LIMITS),
@@ -30,7 +31,8 @@ def self_check_desktop_scenarios(project_root: str | Path) -> dict[str, Any]:
                 "summary": result.get("summary", {}),
             }
             for result in results
-        ],
+        ]
+        + [stuck_detector_case],
         "commands": {
             "run": "python .\\cplan.py self-check desktop-scenarios",
             "release_matrix": "python .\\cplan.py self-check release-matrix --only desktop_scenarios",
@@ -129,7 +131,10 @@ def _assert_game_daily(state: dict[str, Any], context: dict[str, Any]) -> list[d
         {"name": "dungeon_run_completed", "ok": int(state.get("dungeon_runs", 0) or 0) == 1},
         {"name": "covered_window_recovered", "ok": "window_refocused" in events},
         {"name": "blocking_popup_closed", "ok": "popup_closed" in events},
-        {"name": "battle_stuck_recovered", "ok": "repeated_observation_unstuck" in events},
+        {
+            "name": "battle_stuck_recovered",
+            "ok": "repeated_observation_unstuck" in events or "no_progress_unstuck" in events,
+        },
         {"name": "bounded_runtime", "ok": len(context["trace"]) < int(context["limits"]["max_steps"])},
     ]
 
@@ -138,6 +143,67 @@ def _recover_game_repeated_observation(state: dict[str, Any], _context: dict[str
     if state.get("surface") == "battle":
         state["battle_progress"] = max(int(state.get("battle_progress", 0) or 0), 2)
         state["game_stuck_recovered"] = True
+
+
+def _frozen_game_stuck_detector_case() -> dict[str, Any]:
+    scenario = DesktopScenario(
+        name="mock_game_frozen_fail_fast",
+        intent=[
+            "simulate a game battle surface that never changes",
+            "verify runtime stuck detector exits with diagnostics instead of infinite loop",
+        ],
+        initial_state={
+            "app": "MockFrozenGame",
+            "app_open": True,
+            "window_state": "active",
+            "surface": "battle",
+            "reward_claimed": True,
+            "target_dungeon_runs": 1,
+            "dungeon_runs": 0,
+            "battle_progress": 1,
+            "sent_messages": {},
+        },
+        decide=lambda _observation, _state, _context: "press_skill_rotation",
+        apply_action=lambda _state, _action, context: record_desktop_scenario_event(
+            context,
+            "frozen_battle_no_progress",
+        ),
+        goal_reached=lambda _state: False,
+        assertions=lambda _state, _context: [{"name": "negative_case_expected_failure", "ok": True}],
+        recover_repeated_observation=lambda _state, context: record_desktop_scenario_event(
+            context,
+            "frozen_recovery_attempted",
+        ),
+    )
+    result = run_desktop_scenario(
+        scenario,
+        limits={
+            "max_steps": 12,
+            "max_no_progress_actions": 1,
+            "max_recoveries": 1,
+            "max_same_action_attempts": 6,
+        },
+    )
+    error_types = [
+        str(error.get("type", ""))
+        for error in result.get("errors", [])
+        if isinstance(error, dict)
+    ]
+    event_names = list(result.get("events", []))
+    event_names = [str(item.get("name", "")) for item in event_names if isinstance(item, dict)]
+    detector_triggered = (
+        "no_progress_limit_exceeded" in error_types
+        or "recovery_limit_exceeded" in error_types
+        or "same_action_limit_exceeded" in error_types
+    )
+    return {
+        "name": "desktop_stuck_detector_negative_case",
+        "ok": bool(detector_triggered and not bool(result.get("ok"))),
+        "detector_triggered": detector_triggered,
+        "error_types": error_types,
+        "events": event_names,
+        "summary": result.get("summary", {}),
+    }
 
 
 def _wechat_blessing_scenario() -> DesktopScenario:

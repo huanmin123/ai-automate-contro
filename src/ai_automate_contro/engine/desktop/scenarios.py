@@ -9,6 +9,7 @@ from typing import Any, Callable
 DEFAULT_SCENARIO_LIMITS = {
     "max_steps": 40,
     "max_repeated_observations": 2,
+    "max_no_progress_actions": 2,
     "max_recoveries": 8,
     "max_same_action_attempts": 8,
 }
@@ -77,6 +78,8 @@ def run_desktop_scenario(
             apply_desktop_scenario_guard_action(state, action, context, scenario=scenario)
         else:
             scenario.apply_action(state, action, context)
+        after_observation = desktop_observation_from_state(state)
+        no_progress_streak = record_desktop_scenario_progress(context, observation, action, after_observation)
 
         context["trace"].append(
             {
@@ -85,9 +88,22 @@ def run_desktop_scenario(
                 "repeat_count": repeat_count,
                 "action": action,
                 "source": action_source,
+                "after_observation": after_observation,
+                "no_progress_streak": no_progress_streak,
                 "state_after": desktop_scenario_state_summary(state),
             }
         )
+        if no_progress_streak > int(context["limits"]["max_no_progress_actions"]):
+            context["errors"].append(
+                {
+                    "type": "no_progress_limit_exceeded",
+                    "action": action,
+                    "streak": no_progress_streak,
+                    "observation": observation,
+                    "after_observation": after_observation,
+                }
+            )
+            break
         if total_desktop_scenario_recoveries(context) > int(context["limits"]["max_recoveries"]):
             context["errors"].append(
                 {
@@ -116,6 +132,7 @@ def run_desktop_scenario(
             "recoveries": total_desktop_scenario_recoveries(context),
             "guard_counts": dict(context["guard_counts"]),
             "max_repeated_observation_seen": context["max_repeated_observation_seen"],
+            "max_no_progress_streak": context["max_no_progress_streak"],
             "final_surface": state.get("surface", ""),
         },
         "events": context["events"],
@@ -137,6 +154,8 @@ def build_desktop_scenario_context(*, limits: dict[str, Any] | None = None) -> d
         "action_counts": {},
         "errors": [],
         "max_repeated_observation_seen": 0,
+        "no_progress_streak": 0,
+        "max_no_progress_streak": 0,
     }
 
 
@@ -171,6 +190,28 @@ def record_desktop_scenario_action(context: dict[str, Any], action: str) -> int:
     return counts[action]
 
 
+def record_desktop_scenario_progress(
+    context: dict[str, Any],
+    before: dict[str, Any],
+    action: str,
+    after: dict[str, Any],
+) -> int:
+    if json.dumps(before, sort_keys=True, ensure_ascii=True) == json.dumps(after, sort_keys=True, ensure_ascii=True):
+        context["no_progress_streak"] = int(context.get("no_progress_streak", 0) or 0) + 1
+        record_desktop_scenario_event(
+            context,
+            "no_progress_detected",
+            {"action": action, "streak": int(context["no_progress_streak"])},
+        )
+    else:
+        context["no_progress_streak"] = 0
+    context["max_no_progress_streak"] = max(
+        int(context.get("max_no_progress_streak", 0) or 0),
+        int(context["no_progress_streak"]),
+    )
+    return int(context["no_progress_streak"])
+
+
 def desktop_scenario_guard_action(
     state: dict[str, Any],
     observation: dict[str, Any],
@@ -186,6 +227,8 @@ def desktop_scenario_guard_action(
         return "runtime_focus_target_window"
     if observation.get("popup"):
         return "runtime_close_blocking_popup"
+    if int(context.get("no_progress_streak", 0) or 0) >= int(context["limits"]["max_no_progress_actions"]):
+        return "runtime_unstick_no_progress"
     if repeat_count > int(context["limits"]["max_repeated_observations"]):
         return "runtime_unstick_repeated_observation"
     return ""
@@ -223,6 +266,14 @@ def apply_desktop_scenario_guard_action(
             scenario.recover_repeated_observation(state, context)
         state["window_state"] = "active"
         record_desktop_scenario_event(context, "repeated_observation_unstuck", {"surface": state.get("surface", "")})
+        return
+    if action == "runtime_unstick_no_progress":
+        state["unstick_count"] = int(state.get("unstick_count", 0) or 0) + 1
+        if scenario.recover_repeated_observation is not None:
+            scenario.recover_repeated_observation(state, context)
+        state["window_state"] = "active"
+        context["no_progress_streak"] = 0
+        record_desktop_scenario_event(context, "no_progress_unstuck", {"surface": state.get("surface", "")})
         return
     context["errors"].append({"type": "unknown_guard_action", "action": action})
 

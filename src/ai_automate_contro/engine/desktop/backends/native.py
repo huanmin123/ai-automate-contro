@@ -123,6 +123,18 @@ class NativeDesktopBackend:
         focused = next((window for window in windows if bool(window.get("focused"))), None)
         return dict(focused) if isinstance(focused, dict) else {}
 
+    def window_from_point(self, *, x: int, y: int) -> dict[str, Any]:
+        if self.platform_name == "windows":
+            return _window_from_point_windows(int(x), int(y))
+        return {
+            "ok": False,
+            "available": False,
+            "platform": self.platform_name,
+            "backend": self.backend_name,
+            "point": {"x": int(x), "y": int(y)},
+            "reason": "window_from_point_not_implemented",
+        }
+
     def focus_window(self, query: dict[str, Any]) -> dict[str, Any]:
         window = self._select_window(query)
         if self.platform_name == "windows":
@@ -3942,6 +3954,85 @@ def _list_windows_windows(*, include_invisible: bool) -> list[dict[str, Any]]:
 
     user32.EnumWindows(enum_windows_proc(callback), 0)
     return windows
+
+
+def _window_from_point_windows(x: int, y: int) -> dict[str, Any]:
+    user32 = ctypes.windll.user32
+    point = ctypes.wintypes.POINT(int(x), int(y))
+    user32.WindowFromPoint.argtypes = [ctypes.wintypes.POINT]
+    user32.WindowFromPoint.restype = ctypes.wintypes.HWND
+    user32.GetAncestor.argtypes = [ctypes.wintypes.HWND, ctypes.c_uint]
+    user32.GetAncestor.restype = ctypes.wintypes.HWND
+    hwnd = user32.WindowFromPoint(point)
+    hwnd_int = _hwnd_to_int(hwnd)
+    if not hwnd_int:
+        return {
+            "ok": False,
+            "available": True,
+            "platform": "windows",
+            "backend": "native",
+            "point": {"x": int(x), "y": int(y)},
+            "reason": "no_window_at_point",
+        }
+    root_hwnd = user32.GetAncestor(hwnd, 2)
+    root_owner_hwnd = user32.GetAncestor(hwnd, 3)
+    return {
+        "ok": True,
+        "available": True,
+        "platform": "windows",
+        "backend": "native",
+        "point": {"x": int(x), "y": int(y)},
+        "window": _window_info_windows(hwnd_int),
+        "root_window": _window_info_windows(_hwnd_to_int(root_hwnd) or hwnd_int),
+        "root_owner_window": _window_info_windows(_hwnd_to_int(root_owner_hwnd) or _hwnd_to_int(root_hwnd) or hwnd_int),
+    }
+
+
+def _window_info_windows(hwnd: int) -> dict[str, Any]:
+    user32 = ctypes.windll.user32
+    hwnd_int = int(hwnd or 0)
+    if not hwnd_int or not user32.IsWindow(hwnd_int):
+        return {}
+    title_length = user32.GetWindowTextLengthW(hwnd_int)
+    title = ""
+    if title_length > 0:
+        title_buffer = ctypes.create_unicode_buffer(title_length + 1)
+        user32.GetWindowTextW(hwnd_int, title_buffer, title_length + 1)
+        title = title_buffer.value.strip()
+    class_buffer = ctypes.create_unicode_buffer(256)
+    user32.GetClassNameW(hwnd_int, class_buffer, 256)
+    rect = ctypes.wintypes.RECT()
+    user32.GetWindowRect(hwnd_int, ctypes.byref(rect))
+    pid = ctypes.c_ulong()
+    user32.GetWindowThreadProcessId(hwnd_int, ctypes.byref(pid))
+    process_name = _process_name_windows(int(pid.value))
+    return {
+        "id": hwnd_int,
+        "title": title,
+        "app": process_name,
+        "process_name": process_name,
+        "class_name": class_buffer.value,
+        "pid": int(pid.value),
+        "bounds": {
+            "x": int(rect.left),
+            "y": int(rect.top),
+            "width": int(rect.right - rect.left),
+            "height": int(rect.bottom - rect.top),
+        },
+        "visible": bool(user32.IsWindowVisible(hwnd_int)),
+        "focused": int(hwnd_int) == int(user32.GetForegroundWindow()),
+    }
+
+
+def _hwnd_to_int(value: Any) -> int:
+    if value in (None, ""):
+        return 0
+    if isinstance(value, ctypes.c_void_p):
+        return int(value.value or 0)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
 
 
 def _process_name_windows(pid: int) -> str:

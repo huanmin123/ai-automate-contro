@@ -289,6 +289,7 @@ def _run_required_input_case(input_probe_case: dict[str, Any], element_action_ca
         "latest_candidate_click_window_safety_ok",
         "candidate_click_window_safety_ok",
         "bounds_center_click_window_safety_ok",
+        "point_ownership_ok",
         "context_menu_ok",
         "scroll_ok",
         "clipboard_restore_ok",
@@ -4324,6 +4325,15 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "bounds_center_click_ok": bounds_center_click_ok,
             "bounds_center_click_window_safety_ok": system != "Windows"
             or _window_safety_ok(bounds_center_click_window_safety),
+            "point_ownership_ok": system != "Windows"
+            or all(
+                _window_safety_ownership_ok(value)
+                for value in (
+                    latest_candidate_click_window_safety,
+                    candidate_click_window_safety,
+                    bounds_center_click_window_safety,
+                )
+            ),
             "context_menu_ok": context_menu_ok,
             "scroll_ok": scroll_ok,
             "clipboard_restore_ok": clipboard_restore_ok,
@@ -5026,7 +5036,28 @@ def _window_safety_ok(value: Any) -> bool:
         and bounds.get("height", 0) > 0
         and bool(points)
         and all(isinstance(point, dict) and point.get("inside_window") is True for point in points)
+        and _window_safety_ownership_ok(value)
     )
+
+
+def _window_safety_ownership_ok(value: Any) -> bool:
+    if not isinstance(value, dict):
+        return False
+    points = value.get("points") if isinstance(value.get("points"), list) else []
+    if not points:
+        return False
+    checked = False
+    for point in points:
+        if not isinstance(point, dict):
+            return False
+        ownership = point.get("ownership") if isinstance(point.get("ownership"), dict) else {}
+        if not ownership:
+            continue
+        if ownership.get("checked") is True:
+            checked = True
+            if ownership.get("belongs_to_expected_window") is not True:
+                return False
+    return checked
 
 
 def _bounds_match(actual: Any, expected: Any, *, tolerance: int = 4) -> bool:

@@ -193,6 +193,8 @@ def _run_sqlite_features_case(project_root: Path) -> dict[str, Any]:
         bulk_path = output_root / "sql" / "bulk-batched.json"
         copy_path = output_root / "sql" / "copy-result.json"
         copy_rows_path = output_root / "sql" / "copy-rows.jsonl"
+        stream_copy_path = output_root / "sql" / "stream-copy-result.json"
+        stream_copy_rows_path = output_root / "sql" / "stream-copy-rows.jsonl"
         transaction_path = output_root / "sql" / "transaction.json"
         variables_path = output_root / "variables" / "sqlite-features-variables.json"
         evidence = [
@@ -202,6 +204,8 @@ def _run_sqlite_features_case(project_root: Path) -> dict[str, Any]:
             _expect("bulk_result_fresh", _file_nonempty_after(bulk_path, started_at)),
             _expect("copy_result_fresh", _file_nonempty_after(copy_path, started_at)),
             _expect("copy_rows_fresh", _file_nonempty_after(copy_rows_path, started_at)),
+            _expect("stream_copy_result_fresh", _file_nonempty_after(stream_copy_path, started_at)),
+            _expect("stream_copy_rows_fresh", _file_nonempty_after(stream_copy_rows_path, started_at)),
             _expect("transaction_result_fresh", _file_nonempty_after(transaction_path, started_at)),
             _expect("variables_fresh", _file_nonempty_after(variables_path, started_at)),
         ]
@@ -211,6 +215,8 @@ def _run_sqlite_features_case(project_root: Path) -> dict[str, Any]:
             bulk = _read_json(bulk_path)
             copy_result = _read_json(copy_path)
             copy_rows = _read_jsonl(copy_rows_path)
+            stream_copy_result = _read_json(stream_copy_path)
+            stream_copy_rows = _read_jsonl(stream_copy_rows_path)
             transaction = _read_json(transaction_path)
             variables = _read_json(variables_path)
             evidence.extend(
@@ -225,6 +231,13 @@ def _run_sqlite_features_case(project_root: Path) -> dict[str, Any]:
                     _expect("copy_batch_count", copy_result.get("batch_count") == 3),
                     _expect("copy_rows_row_count", len(copy_rows) == 5),
                     _expect("copy_target_count", _nested_value(variables, ("copy_target_count", "value")) == 5),
+                    _expect("stream_copy_flag", stream_copy_result.get("stream") is True),
+                    _expect("stream_copy_source_row_count", stream_copy_result.get("source_row_count") == 5),
+                    _expect("stream_copy_input_rows", stream_copy_result.get("input_rows") == 5),
+                    _expect("stream_copy_fetch_size", stream_copy_result.get("fetch_size") == 2),
+                    _expect("stream_copy_batch_count", stream_copy_result.get("batch_count") == 3),
+                    _expect("stream_copy_rows_row_count", len(stream_copy_rows) == 5),
+                    _expect("stream_copy_target_count", _nested_value(variables, ("stream_copy_target_count", "value")) == 5),
                     _expect("transaction_committed", transaction.get("committed") is True),
                     _expect("transaction_step_count", transaction.get("step_count") == 2),
                     _expect("balance_after_transaction", _nested_value(variables, ("balance_after_tx", "value")) == 37),
@@ -279,6 +292,12 @@ def _sqlite_features_plan() -> dict[str, Any]:
             {
                 "action": "sql",
                 "type": "execute",
+                "connection": "{{sqlite_target_connection}}",
+                "sql": "drop table if exists account_stream_export",
+            },
+            {
+                "action": "sql",
+                "type": "execute",
                 "connection": "{{sqlite_connection}}",
                 "sql": "create table accounts (id integer primary key, name text not null, balance integer not null)",
             },
@@ -293,6 +312,12 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "type": "execute",
                 "connection": "{{sqlite_target_connection}}",
                 "sql": "create table account_export (account_id integer primary key, account_name text not null, balance integer not null)",
+            },
+            {
+                "action": "sql",
+                "type": "execute",
+                "connection": "{{sqlite_target_connection}}",
+                "sql": "create table account_stream_export (account_id integer primary key, account_name text not null, balance integer not null)",
             },
             {
                 "action": "sql",
@@ -346,6 +371,32 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "connection": "{{sqlite_target_connection}}",
                 "sql": "select count(*) from account_export",
                 "save_as": "copy_target_count",
+            },
+            {
+                "action": "sql",
+                "type": "copy",
+                "connection": "{{sqlite_connection}}",
+                "target_connection": "{{sqlite_target_connection}}",
+                "sql": "select id, name, balance from accounts order by id",
+                "table": "account_stream_export",
+                "column_map": {
+                    "account_id": "id",
+                    "account_name": "name",
+                    "balance": "balance"
+                },
+                "stream": True,
+                "fetch_size": 2,
+                "batch_size": 2,
+                "result_path": "stream-copy-result.json",
+                "rows_path": "stream-copy-rows.jsonl",
+                "save_as": "stream_copy_result",
+            },
+            {
+                "action": "sql",
+                "type": "scalar",
+                "connection": "{{sqlite_target_connection}}",
+                "sql": "select count(*) from account_stream_export",
+                "save_as": "stream_copy_target_count",
             },
             {
                 "action": "sql",

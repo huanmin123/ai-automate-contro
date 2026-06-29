@@ -5,7 +5,7 @@
 - `sqlite-basic/`: 默认确定性回归，不依赖外部服务。
 - `mysql-basic/`、`postgresql-basic/`、`oracle-basic/`、`redis-basic/`: 真实服务 smoke 示例，只引用连接名，不内置真实账号密码。
 
-`python .\cplan.py self-check database-components` 还会动态生成 SQLite 特性 plan，覆盖事务、批量拆分、JSONL 落盘、分页查询和 `sql.copy` 跨 SQLite 文件复制。
+`python .\cplan.py self-check database-components` 还会动态生成 SQLite 特性 plan，覆盖事务、批量拆分、JSONL 落盘、分页查询，以及 `sql.copy` buffered/stream 两种跨 SQLite 文件复制。
 
 SQLite 使用 Python 标准库，不需要额外依赖。真实服务驱动默认不安装，需要按目标库自行安装：
 

@@ -648,6 +648,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             resolution=resolution,
         )
         window_safety_check = _ensure_input_inside_interaction_window(
+            session,
             action_label="desktop_input.click",
             resolution=resolution,
             interaction_guard=interaction_guard,
@@ -678,6 +679,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             resolution=resolution,
         )
         window_safety_check = _ensure_input_inside_interaction_window(
+            session,
             action_label="desktop_input.double_click",
             resolution=resolution,
             interaction_guard=interaction_guard,
@@ -706,6 +708,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             resolution=resolution,
         )
         window_safety_check = _ensure_input_inside_interaction_window(
+            session,
             action_label="desktop_input.right_click",
             resolution=resolution,
             interaction_guard=interaction_guard,
@@ -730,6 +733,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             resolution=resolution,
         )
         window_safety_check = _ensure_input_inside_interaction_window(
+            session,
             action_label="desktop_input.scroll",
             resolution=resolution,
             interaction_guard=interaction_guard,
@@ -754,6 +758,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             resolution=resolution,
         )
         window_safety_check = _ensure_input_inside_interaction_window(
+            session,
             action_label="desktop_input.drag",
             resolution=resolution,
             interaction_guard=interaction_guard,
@@ -2439,6 +2444,7 @@ def _compact_guard_window(window: Any) -> dict[str, Any]:
 
 
 def _ensure_input_inside_interaction_window(
+    session: DesktopSession,
     *,
     action_label: str,
     resolution: dict[str, Any],
@@ -2465,20 +2471,28 @@ def _ensure_input_inside_interaction_window(
         {
             **point,
             "inside_window": _point_inside_bounds(point, window_bounds),
+            "ownership": _point_window_ownership(session, point, interaction_guard),
         }
         for point in points
     ]
     outside_points = [point for point in checked_points if not point["inside_window"]]
-    ok = bool(window_bounds) and not outside_points
+    ownership_failures = [
+        point
+        for point in checked_points
+        if _point_ownership_checked(point.get("ownership")) and not _point_ownership_ok(point.get("ownership"))
+    ]
+    ok = bool(window_bounds) and not outside_points and not ownership_failures
     reason = ""
     if not window_bounds:
         reason = "active_window_bounds_unavailable"
     elif outside_points:
         reason = "point_outside_active_window"
+    elif ownership_failures:
+        reason = "point_hits_different_window"
     if allow_outside_window:
         return {
             "ok": True,
-            "mode": "active_window_bounds",
+            "mode": "active_window_bounds_and_point_ownership",
             "allow_outside_window": True,
             "window_bounds": window_bounds,
             "points": checked_points,
@@ -2486,7 +2500,7 @@ def _ensure_input_inside_interaction_window(
         }
     payload = {
         "ok": ok,
-        "mode": "active_window_bounds",
+        "mode": "active_window_bounds_and_point_ownership",
         "allow_outside_window": False,
         "window_bounds": window_bounds,
         "points": checked_points,
@@ -2496,9 +2510,113 @@ def _ensure_input_inside_interaction_window(
         raise ValueError(
             f"{action_label} 输入前窗口范围检查失败：reason={reason} "
             f"window_bounds={window_bounds} points={checked_points}；"
-            "确需窗口外坐标时请显式设置 allow_outside_window=true。"
+            "确需窗口外坐标、跨窗口坐标或目标窗口外弹层时请显式设置 allow_outside_window=true。"
         )
     return payload
+
+
+def _point_window_ownership(
+    session: DesktopSession,
+    point: dict[str, Any],
+    interaction_guard: dict[str, Any],
+) -> dict[str, Any]:
+    inspector = getattr(session.backend, "window_from_point", None)
+    if not callable(inspector):
+        return {
+            "ok": True,
+            "checked": False,
+            "available": False,
+            "reason": "backend_window_from_point_unavailable",
+        }
+    try:
+        hit = inspector(x=int(point["x"]), y=int(point["y"]))
+    except Exception as error:
+        return {
+            "ok": True,
+            "checked": False,
+            "available": False,
+            "reason": "window_from_point_error",
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+    if not isinstance(hit, dict) or not bool(hit.get("available", False)):
+        return {
+            "ok": True,
+            "checked": False,
+            "available": False,
+            "reason": str(hit.get("reason") if isinstance(hit, dict) else "") or "window_from_point_unavailable",
+            "hit": hit if isinstance(hit, dict) else {},
+        }
+    expected = _expected_interaction_windows(interaction_guard)
+    hit_windows = _hit_test_windows(hit)
+    expected_ids = {str(window.get("id")) for window in expected if window.get("id") not in (None, "")}
+    hit_ids = {str(window.get("id")) for window in hit_windows if window.get("id") not in (None, "")}
+    query = interaction_guard.get("query") if isinstance(interaction_guard.get("query"), dict) else {}
+    belongs = bool(expected_ids and expected_ids.intersection(hit_ids))
+    if not belongs and query:
+        belongs = any(_window_matches_query(window, query) for window in hit_windows if isinstance(window, dict))
+    reason = "" if belongs else "hit_window_not_expected"
+    if not hit_windows:
+        reason = "no_window_at_point"
+    return {
+        "ok": belongs,
+        "checked": True,
+        "available": True,
+        "mode": "window_from_point",
+        "belongs_to_expected_window": belongs,
+        "reason": reason,
+        "expected_window_ids": sorted(expected_ids),
+        "hit_window_ids": sorted(hit_ids),
+        "expected_windows": [_compact_guard_window(window) for window in expected],
+        "hit_windows": [_compact_guard_window(window) for window in hit_windows],
+        "hit": {
+            "window": _compact_guard_window(hit.get("window")),
+            "root_window": _compact_guard_window(hit.get("root_window")),
+            "root_owner_window": _compact_guard_window(hit.get("root_owner_window")),
+        },
+    }
+
+
+def _expected_interaction_windows(interaction_guard: dict[str, Any]) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for field in ("active_window", "window"):
+        value = interaction_guard.get(field) if isinstance(interaction_guard.get(field), dict) else {}
+        if isinstance(value, dict) and value:
+            windows.append(dict(value))
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for window in windows:
+        key = str(window.get("id") or window.get("title") or len(unique))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(window)
+    return unique
+
+
+def _hit_test_windows(hit: dict[str, Any]) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    for field in ("window", "root_window", "root_owner_window"):
+        value = hit.get(field) if isinstance(hit.get(field), dict) else {}
+        if isinstance(value, dict) and value:
+            windows.append(dict(value))
+    unique: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for window in windows:
+        key = str(window.get("id") or window.get("title") or len(unique))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(window)
+    return unique
+
+
+def _point_ownership_checked(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("checked"))
+
+
+def _point_ownership_ok(value: Any) -> bool:
+    return isinstance(value, dict) and bool(value.get("belongs_to_expected_window", value.get("ok")))
 
 
 def _named_resolution_point(

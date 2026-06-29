@@ -185,6 +185,7 @@ SQLite 本地文件示例：
 - 指定 `rows_path` 时默认不把完整 rows 放入变量，避免变量池过大；可显式 `include_rows: true`。
 - `bulk_insert.batch_size` 允许把大批量拆分成小批次。
 - `copy.batch_size` 允许把查询结果分批写入目标连接。
+- `copy.stream=true` 允许从源游标按 `fetch_size` 分批读取、按 `batch_size` 分批写入目标连接，适合更大的复制任务。
 - `query`/`scalar` 支持 `limit`、`offset`、`page_size` 和 `page`，用于常见分页查询。
 - `copy` 支持 `limit`、`offset`、`page_size` 和 `page`，用于受控复制单页数据。
 - `transaction` 只写事务摘要到 `result_path`，不写 `rows_path`。
@@ -195,7 +196,8 @@ SQLite 本地文件示例：
 - `max_rows` 默认 1000，超过时报错。
 - 分页查询应显式写 `order by`，否则数据库返回顺序不稳定。
 - `bulk_insert` 的表名和列名只接受简单标识符或 `schema.table`。
-- `copy` 第一版仍受 `max_rows` 保护，不做无限流式复制；百万级同步后续使用 cursor/stream 能力。
+- `copy` 始终受 `max_rows` 保护；`stream=true` 解决内存占用和 JSONL 分批落盘问题，但不是无限 CDC 或后台同步。
+- `copy stream=true` 的 `rows_path` 只支持 `.jsonl`，并且不支持 `include_rows`。
 - DuckDB/PostgreSQL/MySQL/Oracle/Redis 驱动默认不安装，按连接类型安装 `db-duckdb`、`db-postgresql`、`db-mysql`、`db-oracle` 或 `db-redis`。
 
 ### 事务
@@ -245,7 +247,7 @@ SQLite 本地文件示例：
 ## 验证策略
 
 - 默认确定性回归使用 SQLite，不依赖外部服务。
-- SQLite 动态自检覆盖 `sql.copy` 从一个 SQLite 文件复制到另一个 SQLite 文件。
+- SQLite 动态自检覆盖 `sql.copy` buffered 和 `stream=true` 两种模式，从一个 SQLite 文件复制到另一个 SQLite 文件。
 - PostgreSQL、MySQL、Oracle 和 Redis 后续使用可选本地服务或容器回归，不纳入默认离线矩阵。
 - `handbook` 自检必须确保 action 文档链接有效。
 

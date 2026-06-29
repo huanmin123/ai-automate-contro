@@ -296,6 +296,7 @@ def _run_copy_stream(executor: Any, step: dict[str, Any]) -> None:
             try:
                 _execute(cursor, sql, params)
                 source_columns = [str(item[0]) for item in (cursor.description or [])]
+                _empty_target_rows, target_columns, column_map = _copy_target_rows(step, [], source_columns)
                 while True:
                     remaining = max_rows - source_row_count
                     if remaining <= 0:

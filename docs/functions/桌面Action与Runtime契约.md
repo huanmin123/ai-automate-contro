@@ -1017,7 +1017,7 @@ payload 必须包含：
 - 操作前按 Window Query、候选 `window_query` 或 `session.current_window` 恢复并激活目标窗口。
 - 对真实键盘/鼠标输入执行有限次数 `restore/focus/active-window` 复查；当前默认最多 3 次，失败直接返回诊断，不进入无限循环。
 - Windows native backend 在交互守卫里会对目标窗口执行 z-order 提升；目标窗口被其他 topmost 测试窗体或用户窗口遮挡时，runtime 优先把目标窗口提升到前台再发送输入，避免鼠标落到遮挡窗口。
-- 对坐标级鼠标动作执行屏幕边界、可点击来源和激活窗口 bounds 检查。
+- 对坐标级鼠标动作执行屏幕边界、可点击来源、激活窗口 bounds 和支持平台的点命中窗口归属检查。
 - 失败时写入失败现场、活动窗口、窗口候选、控件候选、指针位置和能力矩阵，供 AI 修复 plan。
 
 plan 只在这些情况承担额外细节：
@@ -1124,7 +1124,7 @@ plan 只在这些情况承担额外细节：
 - `offset_x` / `offset_y`: `current_window_offset` 和 `focused_window_offset` 必填，表示相对当前窗口左上角的像素偏移。
 - `bounds`: `bounds_center` 必填，形如 `{"x": 10, "y": 10, "width": 120, "height": 32}`，`width/height` 必须大于 `0`。
 - Window Query + Element Locator: `element_center` 必填，用于先定位控件再取 bounds 中心。
-- `allow_outside_window`: 可选布尔值，默认 `false`。坐标级鼠标动作必须落在激活后的目标窗口 bounds 内；确需窗口外弹层、跨窗口拖拽或系统区域时才显式设为 `true`。
+- `allow_outside_window`: 可选布尔值，默认 `false`。坐标级鼠标动作必须落在激活后的目标窗口 bounds 内；支持点命中检测的平台还会确认屏幕点属于目标窗口或其子控件。确需窗口外弹层、跨窗口拖拽或系统区域时才显式设为 `true`。
 - `button`: `left`、`right`、`middle`，默认 `left`。
 - `clicks`: 点击次数，默认 `1`。
 - `interval_ms`: 多次点击之间的间隔，默认 `0`。
@@ -1136,10 +1136,10 @@ plan 只在这些情况承担额外细节：
 - `target=candidate` 只接受 `semantic_locator` 和可点击 `visual_bounds`。`semantic_locator` 会重新查找控件后点击实时中心；`visual_bounds` 必须 `screen_clickable=true` 且置信度达到 `min_confidence`。中间又执行新的 observe/vision 时，`candidate_source=latest` 会指向新候选，跨多步复用应传显式 `target_candidates`。
 - `target=element_center` 使用 Window Query 和 Element Locator 定位控件，然后把控件 bounds 中心转成系统鼠标坐标。
 - `target=bounds_center` 使用前一步 `desktop_element get_state/dump`、截图识别或其他工具返回的 bounds 计算中心点。
-- 坐标级鼠标动作在真实输入前会执行窗口范围检查：默认要求 point 落在激活后的目标窗口 bounds 内；drag 会同时检查起点和终点。设置 `allow_outside_window=true` 时只记录 `window_safety_check.bypassed_reason`，不拦截。
-- 目标窗口被其它窗口挡住时，运行时会先通过 `interaction_guard` 抢回前台；若输入后活动窗口变成非目标窗口，失败现场会记录 `active_window`、截图和候选诊断，供后续修复。
+- 坐标级鼠标动作在真实输入前会执行窗口范围检查：默认要求 point 落在激活后的目标窗口 bounds 内；支持点命中检测的平台会进一步确认 `WindowFromPoint`/等价能力命中的窗口属于目标窗口或其子控件；drag 会同时检查起点和终点。设置 `allow_outside_window=true` 时只记录 `window_safety_check.bypassed_reason`，不拦截。
+- 目标窗口被其它窗口挡住时，运行时会先通过 `interaction_guard` 抢回前台；如果点击点仍命中其它窗口，输入前会失败并在 `window_safety_check.points[].ownership` 中记录命中窗口、root 窗口、期望窗口和失败原因；若输入后活动窗口变成非目标窗口，失败现场会记录 `active_window`、截图和候选诊断，供后续修复。
 - 鼠标点击是系统级坐标动作，不是浏览器 DOM selector；需要稳定控件操作时优先用 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`。
-- 鼠标类 payload 会返回 `interaction_guard`、`window_safety_check`、`input_resolution` 和 `safety_check`。`target=candidate` 会记录 `candidate_id`、候选策略、置信度、`screen_clickable`、最终 point/bounds 和安全检查结果。
+- 鼠标类 payload 会返回 `interaction_guard`、`window_safety_check`、`input_resolution` 和 `safety_check`。`window_safety_check.points[].ownership` 记录点命中归属；`target=candidate` 会记录 `candidate_id`、候选策略、置信度、`screen_clickable`、最终 point/bounds 和安全检查结果。
 - 坐标可能受窗口遮挡、多显示器、DPI/Retina 换算影响；失败或不确定时必须保留截图和状态证据。
 
 #### type=double_click
