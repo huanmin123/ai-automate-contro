@@ -27,6 +27,9 @@ class DesktopBackend(Protocol):
     def get_active_window(self) -> dict[str, Any]:
         ...
 
+    def window_from_point(self, *, x: int, y: int) -> dict[str, Any]:
+        ...
+
     def focus_window(self, query: dict[str, Any]) -> dict[str, Any]:
         ...
 
