@@ -127,6 +127,23 @@ NEGATIVE_VALIDATION_CASES = (
         },
     },
     {
+        "name": "excel-read-invalid-offset-rows",
+        "expected_message": "offset_rows 必须大于或等于 0",
+        "plan": {
+            "name": "excel-read-invalid-offset-rows",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "read",
+                    "type": "excel",
+                    "path": "resources/source.xlsx",
+                    "offset_rows": -1,
+                    "save_as": "rows",
+                }
+            ],
+        },
+    },
+    {
         "name": "excel-write-invalid-formula-column",
         "expected_message": "formula_columns.合计 必须是公式字符串或包含 formula 的对象",
         "plan": {
@@ -155,6 +172,24 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "excel",
                     "path": "bad.xlsx",
                     "range": "B4",
+                    "value": [{"金额": 10}],
+                }
+            ],
+        },
+    },
+    {
+        "name": "excel-write-named-range-conflict",
+        "expected_message": "write.type=excel.named_range 不能和 range 同时使用",
+        "plan": {
+            "name": "excel-write-named-range-conflict",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "write",
+                    "type": "excel",
+                    "path": "bad.xlsx",
+                    "named_range": "DetailArea",
+                    "range": "B4:F20",
                     "value": [{"金额": 10}],
                 }
             ],
@@ -219,6 +254,26 @@ NEGATIVE_VALIDATION_CASES = (
         },
     },
     {
+        "name": "table-fuzzy-lookup-invalid-threshold",
+        "expected_message": "table.fuzzy_lookup.threshold 必须在 0 到 1 之间",
+        "plan": {
+            "name": "table-fuzzy-lookup-invalid-threshold",
+            "automation_type": "browser",
+            "variables": {"left": [], "right": []},
+            "steps": [
+                {
+                    "action": "table",
+                    "type": "fuzzy_lookup",
+                    "source": "{{left}}",
+                    "right": "{{right}}",
+                    "on": "姓名",
+                    "threshold": 1.5,
+                    "save_as": "looked_up",
+                }
+            ],
+        },
+    },
+    {
         "name": "table-lookup-missing-key",
         "expected_message": "table.lookup 需要 on，或同时提供 left_on 和 right_on",
         "plan": {
@@ -242,7 +297,11 @@ NEGATIVE_VALIDATION_CASES = (
 def self_check_data_components(project_root: str | Path) -> dict[str, Any]:
     root = Path(project_root).resolve()
     positive_cases = [_run_regression_case(root, regression_case) for regression_case in DATA_REGRESSION_CASES]
-    dynamic_cases = [_run_template_style_case(root)]
+    dynamic_cases = [
+        _run_template_style_case(root),
+        _run_large_excel_paging_case(root),
+        _run_template_runtime_negative_cases(root),
+    ]
     negative_cases = _run_negative_validation_cases(root)
     positive_ok = all(case["ok"] for case in positive_cases)
     dynamic_ok = all(case["ok"] for case in dynamic_cases)
@@ -357,6 +416,107 @@ def _run_template_style_case(project_root: Path) -> dict[str, Any]:
         }
 
 
+def _run_large_excel_paging_case(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="data-components-large-excel-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir) / "large-excel-paging"
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        workbook_path = resources_dir / "large.xlsx"
+        _create_large_excel_workbook(workbook_path, row_count=12000)
+        plan_path = package_dir / "plan.json"
+        plan_path.write_text(json.dumps(_large_excel_paging_plan(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return _validation_failed_case("large-excel-paging", plan_path, validation)
+        try:
+            plan = load_plan(plan_path)
+            started_at = time.time()
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="data-components-large-excel-paging",
+                run_context_handler=_disable_run_log_echo,
+            )
+        except Exception as error:
+            return _run_failed_case("large-excel-paging", plan_path, error)
+
+        output_path = package_dir / "output" / "json" / "large-excel-paging.json"
+        evidence = [
+            _expect("run_passed", result.status == "passed"),
+            _expect("json_fresh", _file_nonempty_after(output_path, started_at)),
+        ]
+        try:
+            evidence.extend(_large_excel_paging_evidence(output_path))
+        except Exception as error:
+            evidence.append({"name": "large_excel_paging_evidence_read", "ok": False, "error": str(error), "error_type": type(error).__name__})
+        return {
+            "name": "large-excel-paging",
+            "ok": result.status == "passed" and all(item["ok"] for item in evidence),
+            "plan_path": str(plan_path),
+            "output_dir": result.output_dir,
+            "evidence": evidence,
+        }
+
+
+def _run_template_runtime_negative_cases(project_root: Path) -> dict[str, Any]:
+    cases: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory(prefix="data-components-template-negative-") as raw_temp_dir:
+        temp_dir = Path(raw_temp_dir)
+        for raw_case in _template_runtime_negative_case_specs():
+            cases.append(_run_template_runtime_negative_case(project_root, temp_dir, raw_case))
+    return {
+        "name": "excel-template-runtime-negative",
+        "ok": all(case["ok"] for case in cases),
+        "cases": cases,
+    }
+
+
+def _run_template_runtime_negative_case(project_root: Path, temp_dir: Path, raw_case: dict[str, Any]) -> dict[str, Any]:
+    name = str(raw_case["name"])
+    expected_message = str(raw_case["expected_message"])
+    package_dir = temp_dir / name
+    resources_dir = package_dir / "resources"
+    resources_dir.mkdir(parents=True, exist_ok=True)
+    _create_template_workbook(resources_dir / "template.xlsx")
+    plan_path = package_dir / "plan.json"
+    plan_path.write_text(json.dumps(raw_case["plan"], ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    validation = validate_plan_file(plan_path, project_root)
+    if not validation.ok:
+        return _validation_failed_case(name, plan_path, validation)
+    try:
+        plan = load_plan(plan_path)
+        result = execute_plan(
+            plan,
+            project_root,
+            plan_path=plan_path,
+            run_name=f"data-components-{name}",
+            run_context_handler=_disable_run_log_echo,
+        )
+    except Exception as error:
+        error_text = str(error)
+        return {
+            "name": name,
+            "ok": expected_message in error_text,
+            "plan_path": str(plan_path),
+            "validation_ok": True,
+            "run_ok": False,
+            "matched": expected_message in error_text,
+            "error": error_text,
+            "error_type": type(error).__name__,
+        }
+    return {
+        "name": name,
+        "ok": False,
+        "plan_path": str(plan_path),
+        "validation_ok": True,
+        "run_ok": result.status == "passed",
+        "expected_message": expected_message,
+        "error": "",
+    }
+
+
 def _run_negative_validation_cases(project_root: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="data-components-negative-") as raw_temp_dir:
@@ -396,14 +556,16 @@ def _template_style_plan() -> dict[str, Any]:
                 "type": "excel",
                 "path": "report.xlsx",
                 "template_path": "resources/template.xlsx",
-                "sheet": "模板",
-                "range": "B4:F7",
+                "named_range": "DetailArea",
                 "value": [
                     {"姓名": "张三", "部门": "财务", "基本工资": 12000, "奖金": 1000},
                     {"姓名": "李四", "部门": "人事", "基本工资": 9000, "奖金": 500},
                 ],
                 "formula_columns": {"实发": "={基本工资}+{奖金}"},
                 "cells": {"B2": "2026-06", "F2": "已生成"},
+                "copy_row_style": True,
+                "style_source_row": 5,
+                "extend_conditional_formatting": True,
             },
             {
                 "action": "read",
@@ -411,6 +573,8 @@ def _template_style_plan() -> dict[str, Any]:
                 "path": "output/excel/report.xlsx",
                 "sheet": "模板",
                 "range": "B4:F20",
+                "offset_rows": 1,
+                "limit_rows": 1,
                 "preview_rows": 1,
                 "max_cells": 20,
                 "save_as": "preview_rows",
@@ -426,19 +590,110 @@ def _template_style_plan() -> dict[str, Any]:
     }
 
 
+def _large_excel_paging_plan() -> dict[str, Any]:
+    return {
+        "name": "large-excel-paging",
+        "automation_type": "browser",
+        "steps": [
+            {
+                "action": "read",
+                "type": "excel",
+                "path": "resources/large.xlsx",
+                "sheet": "明细",
+                "range": "A1:H12001",
+                "offset_rows": 1000,
+                "limit_rows": 25,
+                "max_cells": 208,
+                "save_as": "page_rows",
+                "save_meta_as": "page_meta",
+            },
+            {
+                "action": "read",
+                "type": "excel",
+                "path": "resources/large.xlsx",
+                "sheet": "明细",
+                "range": "A1:H12001",
+                "offset_rows": 11990,
+                "limit_rows": 25,
+                "max_cells": 208,
+                "save_as": "tail_rows",
+                "save_meta_as": "tail_meta",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "large-excel-paging.json",
+                "value": {
+                    "page": "{{page_rows}}",
+                    "page_meta": "{{page_meta}}",
+                    "tail": "{{tail_rows}}",
+                    "tail_meta": "{{tail_meta}}",
+                },
+            },
+        ],
+    }
+
+
 def _create_template_workbook(path: Path) -> None:
     from openpyxl import Workbook
+    from openpyxl.formatting.rule import CellIsRule
     from openpyxl.styles import Font, PatternFill
+    from openpyxl.workbook.defined_name import DefinedName
 
     workbook = Workbook()
     worksheet = workbook.active
     worksheet.title = "模板"
     worksheet["A1"] = "人员模板"
+    worksheet.merge_cells("A1:F1")
     worksheet["A1"].fill = PatternFill(fill_type="solid", fgColor="FF4472C4")
     worksheet["A1"].font = Font(color="FFFFFFFF", bold=True)
-    worksheet["B1"] = "姓名"
-    worksheet["C1"] = "部门"
+    worksheet["B4"] = "姓名"
+    worksheet["C4"] = "部门"
+    worksheet["D4"] = "基本工资"
+    worksheet["E4"] = "奖金"
+    worksheet["F4"] = "实发"
+    header_fill = PatternFill(fill_type="solid", fgColor="FFD9EAF7")
+    data_fill = PatternFill(fill_type="solid", fgColor="FFFFF2CC")
+    high_value_fill = PatternFill(fill_type="solid", fgColor="FFFFC7CE")
+    for cell in worksheet["B4:F4"][0]:
+        cell.fill = header_fill
+        cell.font = Font(bold=True)
+    for cell in worksheet["B5:F5"][0]:
+        cell.fill = data_fill
     worksheet["A3"] = "保留行"
+    worksheet["F5"] = "=D5+E5"
+    worksheet.conditional_formatting.add(
+        "F5:F5",
+        CellIsRule(operator="greaterThan", formula=["10000"], fill=high_value_fill),
+    )
+    defined_name = DefinedName("DetailArea", attr_text=f"'{worksheet.title}'!$B$4:$F$7")
+    if hasattr(workbook.defined_names, "add"):
+        workbook.defined_names.add(defined_name)
+    else:
+        workbook.defined_names.append(defined_name)
+    workbook.save(path)
+
+
+def _create_large_excel_workbook(path: Path, *, row_count: int) -> None:
+    from openpyxl import Workbook
+
+    workbook = Workbook(write_only=True)
+    worksheet = workbook.create_sheet("明细")
+    worksheet.append(["序号", "单号", "部门", "金额", "税额", "状态", "日期", "备注"])
+    for index in range(1, row_count + 1):
+        department = "财务" if index % 2 else "人事"
+        worksheet.append(
+            [
+                index,
+                f"TXN-{index:05d}",
+                department,
+                index * 10,
+                round(index * 0.6, 2),
+                "有效",
+                f"2026-06-{(index % 28) + 1:02d}",
+                "",
+            ]
+        )
     workbook.save(path)
 
 
@@ -455,9 +710,14 @@ def _template_style_evidence(path: Path) -> list[dict[str, Any]]:
             _expect("range_header_b4", worksheet["B4"].value == "姓名"),
             _expect("range_header_f4", worksheet["F4"].value == "实发"),
             _expect("range_row_b5", worksheet["B5"].value == "张三"),
+            _expect("range_row_b6", worksheet["B6"].value == "李四"),
             _expect("formula_column_f5", worksheet["F5"].value == "=D5+E5"),
+            _expect("formula_column_f6", worksheet["F6"].value == "=D6+E6"),
             _expect("existing_value_preserved", worksheet["A3"].value == "保留行"),
             _expect("header_fill_preserved", worksheet["A1"].fill.fgColor.rgb == "FF4472C4"),
+            _expect("named_range_preserved", "DetailArea" in workbook.defined_names),
+            _expect("row_style_copied", worksheet["B6"].fill.fgColor.rgb == "FFFFF2CC"),
+            _expect("conditional_formatting_extended", _worksheet_has_conditional_range(worksheet, "F5:F6")),
         ]
     finally:
         workbook.close()
@@ -469,10 +729,38 @@ def _template_preview_evidence(path: Path) -> list[dict[str, Any]]:
     meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
     return [
         _expect("preview_row_count", isinstance(rows, list) and len(rows) == 1),
-        _expect("preview_first_row", isinstance(rows, list) and bool(rows) and rows[0].get("姓名") == "张三"),
+        _expect("preview_first_row", isinstance(rows, list) and bool(rows) and rows[0].get("姓名") == "李四"),
         _expect("preview_meta_truncated", isinstance(meta, dict) and meta.get("truncated") is True),
         _expect("preview_meta_max_cells", isinstance(meta, dict) and meta.get("max_cells") == 20),
+        _expect("preview_meta_offset_rows", isinstance(meta, dict) and meta.get("offset_rows") == 1),
+        _expect("preview_meta_limit_rows", isinstance(meta, dict) and meta.get("limit_rows") == 1),
     ]
+
+
+def _large_excel_paging_evidence(path: Path) -> list[dict[str, Any]]:
+    payload = _read_json(path)
+    page = payload.get("page", []) if isinstance(payload, dict) else []
+    page_meta = payload.get("page_meta", {}) if isinstance(payload, dict) else {}
+    tail = payload.get("tail", []) if isinstance(payload, dict) else []
+    tail_meta = payload.get("tail_meta", {}) if isinstance(payload, dict) else {}
+    return [
+        _expect("page_row_count", isinstance(page, list) and len(page) == 25),
+        _expect("page_first_row", isinstance(page, list) and bool(page) and page[0].get("序号") == 1001),
+        _expect("page_last_row", isinstance(page, list) and bool(page) and page[-1].get("序号") == 1025),
+        _expect("page_meta_offset", isinstance(page_meta, dict) and page_meta.get("offset_rows") == 1000),
+        _expect("page_meta_limit", isinstance(page_meta, dict) and page_meta.get("limit_rows") == 25),
+        _expect("page_meta_max_cells", isinstance(page_meta, dict) and page_meta.get("max_cells") == 208),
+        _expect("tail_row_count", isinstance(tail, list) and len(tail) == 10),
+        _expect("tail_first_row", isinstance(tail, list) and bool(tail) and tail[0].get("序号") == 11991),
+        _expect("tail_last_row", isinstance(tail, list) and bool(tail) and tail[-1].get("序号") == 12000),
+        _expect("tail_meta_offset", isinstance(tail_meta, dict) and tail_meta.get("offset_rows") == 11990),
+        _expect("tail_meta_truncated", isinstance(tail_meta, dict) and tail_meta.get("truncated") is True),
+    ]
+
+
+def _worksheet_has_conditional_range(worksheet: Any, range_text: str) -> bool:
+    expected = range_text.upper()
+    return any(expected in str(item.sqref).replace("$", "").upper().split() for item in worksheet.conditional_formatting)
 
 
 def _write_excel_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
@@ -527,7 +815,7 @@ def _table_cleaning_evidence(project_root: Path, started_at: float) -> list[dict
     rows = payload.get("rows", []) if isinstance(payload, dict) else []
     return [
         _expect("json_fresh", _file_nonempty_after(payload_path, started_at)),
-        _expect("cleaned_row_count", isinstance(rows, list) and len(rows) == 3),
+        _expect("cleaned_row_count", isinstance(rows, list) and len(rows) == 4),
         _expect(
             "split_replace_lookup_first_row",
             _contains_row(
@@ -539,11 +827,17 @@ def _table_cleaning_evidence(project_root: Path, started_at: float) -> list[dict
                     "入职日期": "2026-01-05",
                     "部门全称": "财务部",
                     "联系电话": "86-13800138000",
+                    "模糊部门编码": "FIN",
                 },
             ),
         ),
         _expect("global_replace_blank_phone", _contains_row(rows, {"姓名": "王五", "手机号": "未填写", "联系电话": "86-未填写"})),
         _expect("date_parse_slash_dash_dot", _contains_row(rows, {"姓名": "李四", "入职日期": "2026-02-10"})),
+        _expect(
+            "normalize_headers_union_row",
+            _contains_row(rows, {"姓名": "赵六", "部门编码": "FIN", "入职日期": "2026/04/01", "模糊部门编码": "FIN"}),
+        ),
+        _expect("fuzzy_lookup_score", _row_number_at_least(rows, {"姓名": "张三"}, "部门匹配分", 0.99)),
     ]
 
 
@@ -609,6 +903,17 @@ def _contains_row(rows: Any, expected: dict[str, Any]) -> bool:
     for row in rows:
         if isinstance(row, dict) and all(row.get(key) == value for key, value in expected.items()):
             return True
+    return False
+
+
+def _row_number_at_least(rows: Any, expected: dict[str, Any], column: str, minimum: float) -> bool:
+    if not isinstance(rows, list):
+        return False
+    for row in rows:
+        if not isinstance(row, dict) or not all(row.get(key) == value for key, value in expected.items()):
+            continue
+        value = row.get(column)
+        return isinstance(value, (int, float)) and value >= minimum
     return False
 
 

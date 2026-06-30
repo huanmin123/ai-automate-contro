@@ -7,7 +7,7 @@
 数据库能力拆成三个 action：
 
 - `sql`: 关系型数据库。SQLite 是本地化优先路径，DuckDB 是本地分析路径，另覆盖 PostgreSQL、MySQL/MariaDB、Oracle、SQL Server。
-- `mongo`: MongoDB 文档数据库，覆盖 CRUD、聚合和原生命令。
+- `mongo`: MongoDB 文档数据库，覆盖 CRUD、聚合、索引和原生命令。
 - `redis`: Redis 数据结构和原生命令。
 
 不把它们合并为一个 `database` action，原因是 SQL、MongoDB 和 Redis 的数据模型、参数、返回值、批量语义、事务语义都不同，合并后字段会快速失控。
@@ -72,8 +72,8 @@ DuckDB 驱动默认不安装。用户需要本地分析能力时安装 `db-duckd
 | `execute` | 执行单条 DDL/DML |
 | `executemany` | 用参数数组批量执行同一 SQL |
 | `bulk_insert` | 把数组数据写入表，支持 insert/replace/upsert |
-| `import` | 从 CSV/JSON/JSONL/Excel 文件读取对象行并批量写入表 |
-| `export` | 查询 SQL 并直接导出 CSV/JSON/JSONL/Excel 文件 |
+| `import` | 从 CSV/JSON/JSONL/Excel 文件读取对象行并批量写入表；CSV/JSONL 支持流式导入 |
+| `export` | 查询 SQL 并直接导出 CSV/JSON/JSONL/Excel 文件；CSV/JSONL 支持流式导出 |
 | `copy` | 从一个 SQL 连接查询数据，批量写入另一个 SQL 连接 |
 | `transaction` | 把多个 SQL 子步骤包在同一个事务内执行 |
 | `inspect` | 探测表、列和索引元数据 |
@@ -145,6 +145,14 @@ SQLite 本地文件示例：
   "source_path": "resources/orders.csv",
   "table": "orders",
   "create_table": true,
+  "stream": true,
+  "required_columns": ["id", "status"],
+  "unique_columns": ["id"],
+  "column_types": {
+    "id": "INTEGER",
+    "status": "TEXT",
+    "total": "REAL"
+  },
   "batch_size": 500,
   "result_path": "orders-import.json",
   "save_as": "orders_import"
@@ -226,8 +234,9 @@ SQLite 本地文件示例：
 - `bulk_insert.batch_size` 允许把大批量拆分成小批次。
 - `copy.batch_size` 允许把查询结果分批写入目标连接。
 - `copy.stream=true` 允许从源游标按 `fetch_size` 分批读取、按 `batch_size` 分批写入目标连接，适合更大的复制任务。
-- `import` 支持 CSV/JSON/JSONL/Excel，按文件后缀推断 `source_type`，也可用 `record_path` 从 JSON 对象中取行数组。
-- `export` 支持 CSV/JSON/JSONL/Excel，输出文件写入 `output/sql/`。
+- `import` 支持 CSV/JSON/JSONL/Excel，按文件后缀推断 `source_type`，也可用 `record_path` 从 JSON 对象中取行数组；`stream=true` 时支持 CSV/JSONL 分批导入。
+- `import` 支持 `required_columns`、`unique_columns` 和 `column_types`，用于导入前字段校验和自动建表类型覆盖。
+- `export` 支持 CSV/JSON/JSONL/Excel，输出文件写入 `output/sql/`；`stream=true` 时支持 CSV/JSONL 分批导出。
 - `inspect` 返回 `tables`、`columns`、`indexes` 和数量统计，用于把上一节点数据转换成后续 SQL 条件前先探测 schema。
 - `query`/`scalar` 支持 `limit`、`offset`、`page_size` 和 `page`，用于常见分页查询。
 - `copy` 支持 `limit`、`offset`、`page_size` 和 `page`，用于受控复制单页数据。
@@ -241,6 +250,8 @@ SQLite 本地文件示例：
 - `bulk_insert` 的表名和列名只接受简单标识符或 `schema.table`。
 - `copy` 始终受 `max_rows` 保护；`stream=true` 解决内存占用和 JSONL 分批落盘问题，但不是无限 CDC 或后台同步。
 - `copy stream=true` 的 `rows_path` 只支持 `.jsonl`，并且不支持 `include_rows`。
+- `import stream=true` 只支持 CSV/JSONL；JSON/Excel 仍使用普通模式。
+- `export stream=true` 只支持 CSV/JSONL，并且不支持 `include_rows`。
 - DuckDB/PostgreSQL/MySQL/Oracle/SQL Server/MongoDB/Redis 驱动默认不安装，按连接类型安装 `db-duckdb`、`db-postgresql`、`db-mysql`、`db-oracle`、`db-sqlserver`、`db-mongodb` 或 `db-redis`。
 
 ### 事务
@@ -259,8 +270,11 @@ SQLite 本地文件示例：
 | `delete_one` / `delete_many` | 按 filter 删除文档 |
 | `aggregate` | 执行聚合管道 |
 | `command` | 执行 MongoDB 原生命令 |
+| `list_indexes` | 列出 collection 索引 |
+| `create_index` | 创建 collection 索引 |
+| `drop_index` | 删除 collection 索引 |
 
-MongoDB 不并入 `sql`，因为它没有 SQL 参数绑定、表结构和事务批量语义。`mongo` 直接使用 JSON 文档、filter、update 和 pipeline，更贴近自动化节点之间的数据传递。
+MongoDB 不并入 `sql`，因为它没有 SQL 参数绑定、表结构和事务批量语义。`mongo` 直接使用 JSON 文档、filter、update、pipeline 和索引规格，更贴近自动化节点之间的数据传递。
 
 写操作中的 `filter` 必须显式提供，避免自动化流程误删或误更新整表数据。输出写入 `output/mongo/`，ObjectId、日期等非 JSON 原生值会转换为字符串或 ISO 文本。
 

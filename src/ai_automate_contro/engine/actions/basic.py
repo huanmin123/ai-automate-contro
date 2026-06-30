@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from difflib import SequenceMatcher
 import re
 import time
 from typing import Any
@@ -164,6 +165,12 @@ def action_table(executor: Any, step: dict[str, Any]) -> None:
         result = _table_date_parse(source, step)
     elif table_type == "lookup":
         result = _table_lookup(source, step)
+    elif table_type == "normalize_headers":
+        result = _table_normalize_headers(source, step)
+    elif table_type == "union":
+        result = _table_union(source, step)
+    elif table_type == "fuzzy_lookup":
+        result = _table_fuzzy_lookup(source, step)
     else:
         raise ValueError(f"不支持的 table type：{table_type}")
 
@@ -551,6 +558,109 @@ def _table_lookup(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]
     return result
 
 
+def _table_normalize_headers(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    explicit_mapping = step.get("columns", {})
+    if not isinstance(explicit_mapping, dict):
+        raise ValueError("table.normalize_headers.columns 必须是对象。")
+    case = str(step.get("case", "keep"))
+    if case not in {"keep", "lower", "upper", "snake"}:
+        raise ValueError("table.normalize_headers.case 只能是 keep、lower、upper 或 snake。")
+    separator = str(step.get("separator", "_"))
+    if not separator:
+        raise ValueError("table.normalize_headers.separator 必须是非空字符串。")
+    strip = bool(step.get("strip", True))
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.normalize_headers 当前只支持字典行。")
+        output: dict[str, Any] = {}
+        used: set[str] = set()
+        for key, value in row.items():
+            key_text = str(key)
+            target = explicit_mapping.get(key_text)
+            if target is None:
+                target = _table_normalized_header(key_text, case=case, separator=separator, strip=strip)
+            elif not isinstance(target, str) or not target:
+                raise ValueError("table.normalize_headers.columns 必须是非空字符串到非空字符串的对象。")
+            target = _table_unique_header(target, used)
+            used.add(target)
+            output[target] = value
+        result.append(output)
+    return result
+
+
+def _table_union(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    raw_sources = step.get("sources", [])
+    if raw_sources in (None, ""):
+        raw_sources = []
+    if not isinstance(raw_sources, list):
+        raise ValueError("table.union.sources 必须是数组。")
+    groups = [rows]
+    for index, source in enumerate(raw_sources):
+        if not isinstance(source, list):
+            raise ValueError(f"table.union.sources[{index}] 必须是数组。")
+        groups.append(source)
+
+    columns = _table_union_columns(groups, step.get("columns"))
+    fill_missing = step.get("fill_missing", "")
+    result: list[dict[str, Any]] = []
+    for group in groups:
+        for row in group:
+            if not isinstance(row, dict):
+                raise ValueError("table.union 当前只支持字典行。")
+            result.append({column: row.get(column, fill_missing) for column in columns})
+    return result
+
+
+def _table_fuzzy_lookup(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    right_rows = step["right"]
+    if not isinstance(right_rows, list):
+        raise ValueError("table.fuzzy_lookup.right 必须是数组。")
+    left_columns, right_columns = _table_pair_columns(step, "table.fuzzy_lookup")
+    value_map = _table_lookup_value_map(step.get("values"), right_rows, right_columns)
+    default_value = step.get("default")
+    threshold = float(step.get("threshold", 0.9))
+    if threshold < 0 or threshold > 1:
+        raise ValueError("table.fuzzy_lookup.threshold 必须在 0 到 1 之间。")
+    ignore_case = bool(step.get("ignore_case", True))
+    trim = bool(step.get("trim", True))
+    ignore_spaces = bool(step.get("ignore_spaces", False))
+    score_column = step.get("score_column")
+    if score_column is not None and (not isinstance(score_column, str) or not score_column):
+        raise ValueError("table.fuzzy_lookup.score_column 必须是非空字符串。")
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.fuzzy_lookup.source 当前只支持字典行。")
+        best_row: dict[str, Any] | None = None
+        best_score = -1.0
+        for right_row in right_rows:
+            if not isinstance(right_row, dict):
+                raise ValueError("table.fuzzy_lookup.right 当前只支持字典行。")
+            score = _table_fuzzy_key_score(
+                row,
+                right_row,
+                left_columns,
+                right_columns,
+                ignore_case=ignore_case,
+                trim=trim,
+                ignore_spaces=ignore_spaces,
+            )
+            if score > best_score:
+                best_score = score
+                best_row = right_row
+        output = dict(row)
+        match = best_row if best_score >= threshold else None
+        for right_column, output_column in value_map.items():
+            output[output_column] = match.get(right_column, default_value) if match is not None else default_value
+        if score_column:
+            output[score_column] = round(best_score if match is not None else 0, 6)
+        result.append(output)
+    return result
+
+
 def _table_aggregation_spec(raw_spec: Any) -> tuple[str, str]:
     if not isinstance(raw_spec, dict) or len(raw_spec) != 1:
         raise ValueError("table.group.aggregations 每个聚合必须是只包含一个操作符的对象。")
@@ -716,6 +826,83 @@ def _table_lookup_value_map(value: Any, right_rows: list[Any], right_key_columns
     if isinstance(value, dict) and value:
         return _table_string_mapping(value, "table.lookup.values")
     raise ValueError("table.lookup.values 必须是非空字符串、字符串数组或对象。")
+
+
+def _table_normalized_header(value: str, *, case: str, separator: str, strip: bool) -> str:
+    text = value.strip() if strip else value
+    text = re.sub(r"\s+", separator, text)
+    if case == "snake":
+        text = re.sub(r"[^\w\u4e00-\u9fff]+", separator, text, flags=re.UNICODE)
+        text = re.sub(re.escape(separator) + r"+", separator, text).strip(separator).lower()
+    elif case == "lower":
+        text = text.lower()
+    elif case == "upper":
+        text = text.upper()
+    return text or "column"
+
+
+def _table_unique_header(value: str, used: set[str]) -> str:
+    if value not in used:
+        return value
+    index = 2
+    while f"{value}_{index}" in used:
+        index += 1
+    return f"{value}_{index}"
+
+
+def _table_union_columns(groups: list[list[Any]], raw_columns: Any) -> list[str]:
+    if raw_columns not in (None, ""):
+        return _table_columns(raw_columns, "table.union.columns")
+    columns: list[str] = []
+    for group in groups:
+        for row in group:
+            if not isinstance(row, dict):
+                raise ValueError("table.union 当前只支持字典行。")
+            for column in row:
+                text = str(column)
+                if text not in columns:
+                    columns.append(text)
+    return columns
+
+
+def _table_pair_columns(step: dict[str, Any], field_name: str) -> tuple[list[str], list[str]]:
+    if "on" in step:
+        columns = _table_columns(step["on"], f"{field_name}.on")
+        return columns, columns
+    left_columns = _table_columns(step.get("left_on"), f"{field_name}.left_on")
+    right_columns = _table_columns(step.get("right_on"), f"{field_name}.right_on")
+    if len(left_columns) != len(right_columns):
+        raise ValueError(f"{field_name}.left_on 和 right_on 长度必须一致。")
+    return left_columns, right_columns
+
+
+def _table_fuzzy_key_score(
+    left_row: dict[str, Any],
+    right_row: dict[str, Any],
+    left_columns: list[str],
+    right_columns: list[str],
+    *,
+    ignore_case: bool,
+    trim: bool,
+    ignore_spaces: bool,
+) -> float:
+    scores: list[float] = []
+    for left_column, right_column in zip(left_columns, right_columns):
+        left_value = _table_fuzzy_text(left_row.get(left_column), ignore_case=ignore_case, trim=trim, ignore_spaces=ignore_spaces)
+        right_value = _table_fuzzy_text(right_row.get(right_column), ignore_case=ignore_case, trim=trim, ignore_spaces=ignore_spaces)
+        scores.append(1.0 if left_value == right_value else SequenceMatcher(None, left_value, right_value).ratio())
+    return sum(scores) / len(scores) if scores else 0.0
+
+
+def _table_fuzzy_text(value: Any, *, ignore_case: bool, trim: bool, ignore_spaces: bool) -> str:
+    text = "" if value is None else str(value)
+    if trim:
+        text = text.strip()
+    if ignore_spaces:
+        text = re.sub(r"\s+", "", text)
+    if ignore_case:
+        text = text.casefold()
+    return text
 
 
 def _table_columns(value: Any, field_name: str) -> list[str]:

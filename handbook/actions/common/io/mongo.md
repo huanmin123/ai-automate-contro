@@ -15,7 +15,7 @@ pip install -e '.[db-mongodb]'
 ## 必填字段
 
 - `action`: 固定为 `mongo`
-- `type`: `find`、`find_one`、`insert_one`、`insert_many`、`update_one`、`update_many`、`delete_one`、`delete_many`、`aggregate`、`command`
+- `type`: `find`、`find_one`、`insert_one`、`insert_many`、`update_one`、`update_many`、`delete_one`、`delete_many`、`aggregate`、`command`、`list_indexes`、`create_index`、`drop_index`
 - `connection`: 连接名或连接对象
 
 ## 连接
@@ -122,6 +122,52 @@ pip install -e '.[db-mongodb]'
 }
 ```
 
+### create_index
+
+```json
+{
+  "action": "mongo",
+  "type": "create_index",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "keys": {
+    "author_id": 1,
+    "created_at": -1
+  },
+  "name": "author_created_idx",
+  "result_path": "article-index-create.json",
+  "save_as": "article_index"
+}
+```
+
+`keys` 可以写成对象、字段名、`[["field", 1]]` 或 `[{ "field": "title", "direction": "text" }]`。方向支持 `1`、`-1`、`asc`、`desc`、`text`、`hashed`、`2d` 和 `2dsphere`。
+
+### list_indexes
+
+```json
+{
+  "action": "mongo",
+  "type": "list_indexes",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "result_path": "article-indexes.json",
+  "save_as": "article_indexes"
+}
+```
+
+### drop_index
+
+```json
+{
+  "action": "mongo",
+  "type": "drop_index",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "name": "author_created_idx",
+  "result_path": "article-index-drop.json"
+}
+```
+
 ### command
 
 ```json
@@ -146,6 +192,9 @@ pip install -e '.[db-mongodb]'
 - `pipeline`: `aggregate` 管道数组。
 - `projection`: 查询投影，对象或字段数组。
 - `sort`: 排序，对象或 `[field, direction]` 数组。
+- `keys`: `create_index` 的索引键。
+- `name` / `index`: 索引名称；`create_index` 可用 `name` 指定，`drop_index` 使用 `name` 或 `index` 删除。
+- `unique`、`sparse`、`background`、`expire_after_seconds`、`partial_filter_expression`、`collation`、`weights`: `create_index` 可选参数，透传给 MongoDB 驱动。
 - `limit` / `max_docs`: 最大返回文档数，默认 1000。
 - `upsert`: `update_one`/`update_many` 是否 upsert，默认 `false`。
 - `ordered`: `insert_many` 是否按顺序写入，默认 `true`。
@@ -156,7 +205,7 @@ pip install -e '.[db-mongodb]'
 
 所有类型都会返回 `type`、`connection`、`database`、`collection`、`result` 和 `elapsed_ms`。
 
-`find`/`find_one` 的 `result` 是文档或文档数组；`insert_*` 返回插入 ID 和数量；`update_*` 返回匹配/修改数量；`delete_*` 返回删除数量；`aggregate` 返回聚合文档数组；`command` 返回 MongoDB 原生命令结果。
+`find`/`find_one` 的 `result` 是文档或文档数组；`insert_*` 返回插入 ID 和数量；`update_*` 返回匹配/修改数量；`delete_*` 返回删除数量；`aggregate` 返回聚合文档数组；`command` 返回 MongoDB 原生命令结果；`list_indexes` 返回索引列表；`create_index` 返回索引名；`drop_index` 返回已删除的索引名。
 
 ## 输出约束
 

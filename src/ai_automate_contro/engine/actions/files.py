@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+from copy import copy
 from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 import json
@@ -177,6 +178,8 @@ def _read_excel_workbook(path: Any, step: dict[str, Any], excel: dict[str, Any],
     max_rows = int(step.get("max_rows", 10000))
     max_cells = int(step.get("max_cells", 500000))
     preview_rows = _optional_positive_int(step.get("preview_rows"), field_name="preview_rows")
+    offset_rows = _optional_nonnegative_int(step.get("offset_rows"), field_name="offset_rows") or 0
+    limit_rows = _optional_positive_int(step.get("limit_rows"), field_name="limit_rows")
     skip_blank_rows = bool(step.get("skip_blank_rows", True))
 
     if max_row < min_row or max_col < min_col:
@@ -186,66 +189,98 @@ def _read_excel_workbook(path: Any, step: dict[str, Any], excel: dict[str, Any],
 
     if mode == "matrix":
         original_max_row = max_row
-        if preview_rows is not None:
-            max_row = min(max_row, min_row + preview_rows - 1)
-        _ensure_max_cells(min_col, min_row, max_col, max_row, max_cells)
+        data_min_row, data_max_row, truncated = _excel_row_window(
+            min_row,
+            max_row,
+            offset_rows=offset_rows,
+            limit_rows=limit_rows,
+            preview_rows=preview_rows,
+        )
+        _ensure_max_cells(min_col, data_min_row, max_col, data_max_row, max_cells)
         rows = [
             [_json_safe_excel_value(cell, date_format=date_format) for cell in row]
             for row in worksheet.iter_rows(
-                min_row=min_row,
-                max_row=max_row,
+                min_row=data_min_row,
+                max_row=data_max_row,
                 min_col=min_col,
                 max_col=max_col,
                 values_only=True,
             )
             if not skip_blank_rows or not _excel_row_is_blank(row)
-        ]
+        ] if data_min_row <= data_max_row else []
         _ensure_max_rows(rows, max_rows)
         meta = _excel_meta(
             path,
             workbook,
             worksheet,
-            _excel_range_text(min_col, min_row, max_col, max_row, excel["get_column_letter"]),
+            _excel_range_text(min_col, data_min_row, max_col, data_max_row, excel["get_column_letter"]),
             [],
             rows,
         )
-        meta["truncated"] = original_max_row > max_row
-        meta["max_cells"] = max_cells
+        _apply_excel_read_window_meta(
+            meta,
+            max_cells=max_cells,
+            offset_rows=offset_rows,
+            limit_rows=limit_rows,
+            preview_rows=preview_rows,
+            truncated=truncated or original_max_row > data_max_row,
+        )
         return rows, meta
 
     if mode == "cells":
         original_max_row = max_row
-        if preview_rows is not None:
-            max_row = min(max_row, min_row + preview_rows - 1)
-        _ensure_max_cells(min_col, min_row, max_col, max_row, max_cells)
+        data_min_row, data_max_row, truncated = _excel_row_window(
+            min_row,
+            max_row,
+            offset_rows=offset_rows,
+            limit_rows=limit_rows,
+            preview_rows=preview_rows,
+        )
+        _ensure_max_cells(min_col, data_min_row, max_col, data_max_row, max_cells)
         cells: dict[str, Any] = {}
-        for row in worksheet.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
-            for cell in row:
-                value = _json_safe_excel_value(cell.value)
-                if value is not None and value != "":
-                    cells[cell.coordinate] = value
+        if data_min_row <= data_max_row:
+            for row in worksheet.iter_rows(min_row=data_min_row, max_row=data_max_row, min_col=min_col, max_col=max_col):
+                for cell in row:
+                    value = _json_safe_excel_value(cell.value, date_format=date_format)
+                    if value is not None and value != "":
+                        cells[cell.coordinate] = value
         meta = _excel_meta(
             path,
             workbook,
             worksheet,
-            _excel_range_text(min_col, min_row, max_col, max_row, excel["get_column_letter"]),
+            _excel_range_text(min_col, data_min_row, max_col, data_max_row, excel["get_column_letter"]),
             [],
             cells,
         )
-        meta["truncated"] = original_max_row > max_row
-        meta["max_cells"] = max_cells
+        _apply_excel_read_window_meta(
+            meta,
+            max_cells=max_cells,
+            offset_rows=offset_rows,
+            limit_rows=limit_rows,
+            preview_rows=preview_rows,
+            truncated=truncated or original_max_row > data_max_row,
+        )
         return cells, meta
 
-    headers, data_start_row = _excel_headers(worksheet, step, min_row, min_col, max_col)
+    headers, data_start_row, min_col, max_col = _excel_headers(worksheet, step, min_row, max_row, min_col, max_col)
     original_max_row = max_row
-    if preview_rows is not None and data_start_row <= max_row:
-        max_row = min(max_row, data_start_row + preview_rows - 1)
-    _ensure_max_cells(min_col, min_row, max_col, max_row, max_cells)
+    data_min_row, data_max_row, truncated = _excel_row_window(
+        data_start_row,
+        max_row,
+        offset_rows=offset_rows,
+        limit_rows=limit_rows,
+        preview_rows=preview_rows,
+    )
+    _ensure_max_cell_count(
+        max_col - min_col + 1,
+        (0 if "headers" in step else 1) + max(0, data_max_row - data_min_row + 1),
+        max_cells,
+    )
     records: list[dict[str, Any]] = []
-    if data_start_row <= max_row:
+    if data_min_row <= data_max_row:
         for row in worksheet.iter_rows(
-            min_row=data_start_row,
-            max_row=max_row,
+            min_row=data_min_row,
+            max_row=data_max_row,
             min_col=min_col,
             max_col=max_col,
             values_only=True,
@@ -259,12 +294,18 @@ def _read_excel_workbook(path: Any, step: dict[str, Any], excel: dict[str, Any],
         path,
         workbook,
         worksheet,
-        _excel_range_text(min_col, min_row, max_col, max_row, excel["get_column_letter"]),
+        _excel_range_text(min_col, min_row, max_col, data_max_row, excel["get_column_letter"]),
         headers,
         records,
     )
-    meta["truncated"] = original_max_row > max_row
-    meta["max_cells"] = max_cells
+    _apply_excel_read_window_meta(
+        meta,
+        max_cells=max_cells,
+        offset_rows=offset_rows,
+        limit_rows=limit_rows,
+        preview_rows=preview_rows,
+        truncated=truncated or original_max_row > data_max_row,
+    )
     return records, meta
 
 
@@ -321,25 +362,9 @@ def _excel_bounds(worksheet: Any, raw_range: Any, range_boundaries: Any) -> tupl
             raise
         dimension = worksheet.calculate_dimension(force=True)
     min_col, min_row, max_col, max_row = range_boundaries(dimension)
-    return _excel_tight_bounds(worksheet, min_col, min_row, max_col, max_row)
-
-
-def _excel_tight_bounds(worksheet: Any, min_col: int, min_row: int, max_col: int, max_row: int) -> tuple[int, int, int, int]:
-    tight_min_col: int | None = None
-    tight_min_row: int | None = None
-    tight_max_col = 0
-    tight_max_row = 0
-    for row in worksheet.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
-        for cell in row:
-            if not _excel_cell_has_value(cell.value):
-                continue
-            tight_min_col = cell.column if tight_min_col is None else min(tight_min_col, cell.column)
-            tight_min_row = cell.row if tight_min_row is None else min(tight_min_row, cell.row)
-            tight_max_col = max(tight_max_col, cell.column)
-            tight_max_row = max(tight_max_row, cell.row)
-    if tight_min_col is None or tight_min_row is None:
+    if min_col == max_col and min_row == max_row and not _excel_cell_has_value(worksheet.cell(row=min_row, column=min_col).value):
         return 1, 1, 0, 0
-    return tight_min_col, tight_min_row, tight_max_col, tight_max_row
+    return min_col, min_row, max_col, max_row
 
 
 def _excel_cell_has_value(value: Any) -> bool:
@@ -350,14 +375,21 @@ def _excel_cell_has_value(value: Any) -> bool:
     return True
 
 
-def _excel_headers(worksheet: Any, step: dict[str, Any], min_row: int, min_col: int, max_col: int) -> tuple[list[str], int]:
+def _excel_headers(
+    worksheet: Any,
+    step: dict[str, Any],
+    min_row: int,
+    max_row: int,
+    min_col: int,
+    max_col: int,
+) -> tuple[list[str], int, int, int]:
     raw_headers = step.get("headers")
     if raw_headers is not None:
         headers = [str(header).strip() for header in raw_headers]
         _validate_excel_headers(headers)
-        return headers, min_row
+        return headers, min_row, min_col, max_col
 
-    header_row = int(step.get("header_row", min_row))
+    header_row = int(step["header_row"]) if "header_row" in step else _excel_first_nonblank_row(worksheet, min_row, max_row, min_col, max_col)
     values = next(
         worksheet.iter_rows(
             min_row=header_row,
@@ -368,9 +400,29 @@ def _excel_headers(worksheet: Any, step: dict[str, Any], min_row: int, min_col: 
         ),
         (),
     )
+    header_min_col, header_max_col, values = _excel_header_bounds(values, min_col)
     headers = [str(_json_safe_excel_value(value) or "").strip() for value in values]
     _validate_excel_headers(headers)
-    return headers, header_row + 1
+    return headers, header_row + 1, header_min_col, header_max_col
+
+
+def _excel_header_bounds(values: tuple[Any, ...], min_col: int) -> tuple[int, int, tuple[Any, ...]]:
+    nonblank_indexes = [index for index, value in enumerate(values) if _excel_cell_has_value(value)]
+    if not nonblank_indexes:
+        return min_col, min_col + len(values) - 1, values
+    start_index = min(nonblank_indexes)
+    end_index = max(nonblank_indexes)
+    return min_col + start_index, min_col + end_index, tuple(values[start_index : end_index + 1])
+
+
+def _excel_first_nonblank_row(worksheet: Any, min_row: int, max_row: int, min_col: int, max_col: int) -> int:
+    for row_index, row in enumerate(
+        worksheet.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col, values_only=True),
+        start=min_row,
+    ):
+        if not _excel_row_is_blank(row):
+            return row_index
+    return min_row
 
 
 def _validate_excel_headers(headers: list[str]) -> None:
@@ -407,10 +459,64 @@ def _optional_positive_int(value: Any, *, field_name: str) -> int | None:
     return value
 
 
+def _optional_nonnegative_int(value: Any, *, field_name: str) -> int | None:
+    if value in (None, ""):
+        return None
+    if not isinstance(value, int) or value < 0:
+        raise ValueError(f"Excel {field_name} 必须是大于或等于 0 的整数。")
+    return value
+
+
+def _excel_row_window(
+    start_row: int,
+    max_row: int,
+    *,
+    offset_rows: int,
+    limit_rows: int | None,
+    preview_rows: int | None,
+) -> tuple[int, int, bool]:
+    effective_start = start_row + offset_rows
+    effective_max = max_row
+    limit_values = [value for value in (limit_rows, preview_rows) if value is not None]
+    if limit_values:
+        effective_max = min(effective_max, effective_start + min(limit_values) - 1)
+    if effective_start > max_row:
+        return effective_start, max_row, offset_rows > 0
+    return effective_start, effective_max, offset_rows > 0 or effective_max < max_row
+
+
+def _apply_excel_read_window_meta(
+    meta: dict[str, Any],
+    *,
+    max_cells: int,
+    offset_rows: int,
+    limit_rows: int | None,
+    preview_rows: int | None,
+    truncated: bool,
+) -> None:
+    meta["truncated"] = bool(truncated)
+    meta["max_cells"] = max_cells
+    meta["offset_rows"] = offset_rows
+    if limit_rows is not None:
+        meta["limit_rows"] = limit_rows
+    if preview_rows is not None:
+        meta["preview_rows"] = preview_rows
+
+
 def _ensure_max_cells(min_col: int, min_row: int, max_col: int, max_row: int, max_cells: int) -> None:
     if max_cells < 1:
         raise ValueError("Excel max_cells 必须大于 0。")
-    cell_count = (max_col - min_col + 1) * (max_row - min_row + 1)
+    if max_row < min_row or max_col < min_col:
+        return
+    _ensure_max_cell_count(max_col - min_col + 1, max_row - min_row + 1, max_cells)
+
+
+def _ensure_max_cell_count(column_count: int, row_count: int, max_cells: int) -> None:
+    if max_cells < 1:
+        raise ValueError("Excel max_cells 必须大于 0。")
+    if column_count <= 0 or row_count <= 0:
+        return
+    cell_count = column_count * row_count
     if cell_count > max_cells:
         raise ValueError(
             f"Excel 读取区域包含 {cell_count} 个单元格，超过 max_cells={max_cells}。"
@@ -537,6 +643,7 @@ def _write_excel_sheet(
     get_column_letter: Any,
     range_boundaries: Any,
 ) -> None:
+    step = _resolve_excel_named_range(workbook, step, range_boundaries)
     default_write_mode = "overlay_cells" if template and step.get("range") else ("replace_sheet" if template else "create")
     write_mode = str(step.get("write_mode") or default_write_mode)
     worksheet = _prepare_excel_worksheet(
@@ -550,12 +657,13 @@ def _write_excel_sheet(
     if "value" in step:
         rows = _coerce_excel_rows(step.get("value"))
         start_row, start_col, max_row, max_col = _excel_write_bounds(step, range_boundaries)
+        include_header = bool(step.get("include_header", True))
         data_range = _write_excel_rows(
             worksheet,
             rows,
             headers=step.get("headers"),
             append=write_mode == "append_rows",
-            include_header=bool(step.get("include_header", True)),
+            include_header=include_header,
             start_row=start_row,
             start_col=start_col,
             max_row=max_row,
@@ -563,12 +671,23 @@ def _write_excel_sheet(
             formula_columns=step.get("formula_columns"),
             get_column_letter=get_column_letter,
         )
+        if data_range is not None and bool(step.get("copy_row_style", template and step.get("range"))):
+            _copy_excel_template_row_style(
+                worksheet,
+                data_range,
+                include_header=include_header,
+                style_source_row=step.get("style_source_row"),
+            )
+        if data_range is not None and bool(step.get("extend_conditional_formatting", template and step.get("range"))):
+            _extend_excel_conditional_formatting(worksheet, data_range, get_column_letter, range_boundaries)
 
     cells = step.get("cells")
     if isinstance(cells, dict):
         for address, value in cells.items():
             if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
                 raise ValueError(f"Excel cells 的 key 必须是 A1 单元格地址：{address}")
+            row_number, column_number = _excel_cell_position(address, field_name="cells")
+            _ensure_excel_cell_writable(worksheet, row_number, column_number)
             worksheet[address] = _excel_cell_value(value)
 
     _apply_excel_sheet_options(worksheet, step, get_column_letter, data_range=data_range)
@@ -622,6 +741,7 @@ def _write_excel_rows(
     inferred_headers = _excel_write_headers(rows, headers, formula_columns=list(formula_specs.keys()))
     write_header = include_header and bool(inferred_headers) and (not append or existing_empty)
     _ensure_excel_write_fits_range(
+        worksheet,
         rows,
         inferred_headers,
         target_row=target_row,
@@ -721,7 +841,147 @@ def _excel_write_bounds(step: dict[str, Any], range_boundaries: Any) -> tuple[in
     return start_row, start_col, None, None
 
 
+def _resolve_excel_named_range(workbook: Any, step: dict[str, Any], range_boundaries: Any) -> dict[str, Any]:
+    raw_name = step.get("named_range")
+    if raw_name in (None, ""):
+        return step
+    if not isinstance(raw_name, str):
+        raise ValueError("write.type=excel.named_range 必须是非空字符串。")
+    if step.get("range"):
+        raise ValueError("write.type=excel.named_range 不能和 range 同时使用。")
+
+    defined_names = getattr(workbook, "defined_names", {})
+    try:
+        defined_name = defined_names[raw_name]
+    except (KeyError, TypeError):
+        defined_name = defined_names.get(raw_name) if hasattr(defined_names, "get") else None
+    if defined_name is None:
+        raise ValueError(f"Excel 模板中未找到命名区域：{raw_name}")
+
+    destinations = list(getattr(defined_name, "destinations", []))
+    if len(destinations) != 1:
+        raise ValueError(f"Excel named_range 必须指向唯一单元格区域：{raw_name}")
+    sheet_name, raw_range = destinations[0]
+    range_text = str(raw_range).replace("$", "")
+    if not EXCEL_A1_RE.match(range_text) or ":" not in range_text:
+        raise ValueError(f"Excel named_range 必须指向 A1 范围：{raw_name} -> {raw_range}")
+    range_boundaries(range_text)
+
+    explicit_sheet = step.get("sheet")
+    if explicit_sheet not in (None, "") and str(explicit_sheet) != str(sheet_name):
+        raise ValueError(f"Excel named_range={raw_name} 位于 sheet={sheet_name}，不能同时指定 sheet={explicit_sheet}。")
+
+    resolved = dict(step)
+    resolved["sheet"] = str(sheet_name)
+    resolved["range"] = range_text
+    return resolved
+
+
+def _ensure_excel_cell_writable(worksheet: Any, row_number: int, column_number: int) -> None:
+    for merged_range in worksheet.merged_cells.ranges:
+        if (
+            merged_range.min_row <= row_number <= merged_range.max_row
+            and merged_range.min_col <= column_number <= merged_range.max_col
+            and (row_number != merged_range.min_row or column_number != merged_range.min_col)
+        ):
+            raise ValueError(
+                f"Excel 写入目标 {worksheet.cell(row=row_number, column=column_number).coordinate} "
+                f"位于合并单元格 {merged_range.coord} 内，且不是左上角单元格。"
+            )
+
+
+def _ensure_excel_range_writable(
+    worksheet: Any,
+    min_row: int,
+    min_col: int,
+    max_row: int,
+    max_col: int,
+) -> None:
+    for row_number in range(min_row, max_row + 1):
+        for column_number in range(min_col, max_col + 1):
+            _ensure_excel_cell_writable(worksheet, row_number, column_number)
+
+
+def _copy_excel_template_row_style(
+    worksheet: Any,
+    data_range: tuple[int, int, int, int],
+    *,
+    include_header: bool,
+    style_source_row: Any,
+) -> None:
+    min_col, min_row, max_col, max_row = data_range
+    first_data_row = min_row + 1 if include_header else min_row
+    if first_data_row > max_row:
+        return
+    if style_source_row not in (None, ""):
+        if not isinstance(style_source_row, int) or style_source_row < 1:
+            raise ValueError("write.type=excel.style_source_row 必须是大于 0 的整数。")
+        source_row = style_source_row
+    else:
+        source_row = first_data_row
+    for target_row in range(first_data_row, max_row + 1):
+        if target_row == source_row:
+            continue
+        for column_number in range(min_col, max_col + 1):
+            _copy_excel_cell_style(
+                worksheet.cell(row=source_row, column=column_number),
+                worksheet.cell(row=target_row, column=column_number),
+            )
+
+
+def _copy_excel_cell_style(source_cell: Any, target_cell: Any) -> None:
+    if not getattr(source_cell, "has_style", False):
+        return
+    target_cell.font = copy(source_cell.font)
+    target_cell.fill = copy(source_cell.fill)
+    target_cell.border = copy(source_cell.border)
+    target_cell.alignment = copy(source_cell.alignment)
+    target_cell.number_format = source_cell.number_format
+    target_cell.protection = copy(source_cell.protection)
+
+
+def _extend_excel_conditional_formatting(
+    worksheet: Any,
+    data_range: tuple[int, int, int, int],
+    get_column_letter: Any,
+    range_boundaries: Any,
+) -> None:
+    data_min_col, data_min_row, data_max_col, data_max_row = data_range
+    for conditional_formatting in list(worksheet.conditional_formatting):
+        for raw_range in str(conditional_formatting.sqref).split():
+            source_ref = raw_range.replace("$", "")
+            if not EXCEL_A1_RE.match(source_ref):
+                continue
+            min_col, min_row, max_col, max_row = range_boundaries(source_ref)
+            source_range = (min_col, min_row, max_col, max_row)
+            if not _excel_ranges_intersect(source_range, data_range):
+                continue
+            target_ref = _excel_range_text(
+                max(min_col, data_min_col),
+                max(min_row, data_min_row),
+                min(max_col, data_max_col),
+                data_max_row,
+                get_column_letter,
+            )
+            if not target_ref or source_ref.upper() == target_ref.upper():
+                continue
+            for rule in getattr(conditional_formatting, "rules", []):
+                worksheet.conditional_formatting.add(target_ref, copy(rule))
+
+
+def _excel_ranges_intersect(left: tuple[int, int, int, int], right: tuple[int, int, int, int]) -> bool:
+    left_min_col, left_min_row, left_max_col, left_max_row = left
+    right_min_col, right_min_row, right_max_col, right_max_row = right
+    return not (
+        left_max_col < right_min_col
+        or right_max_col < left_min_col
+        or left_max_row < right_min_row
+        or right_max_row < left_min_row
+    )
+
+
 def _ensure_excel_write_fits_range(
+    worksheet: Any,
     rows: list[Any],
     headers: list[str],
     *,
@@ -747,6 +1007,14 @@ def _ensure_excel_write_fits_range(
         raise ValueError("write.type=excel.range 行数不足，数据会超出指定区域。")
     if max_col is not None and start_col + width - 1 > max_col:
         raise ValueError("write.type=excel.range 列数不足，数据会超出指定区域。")
+    if height > 0 and width > 0:
+        _ensure_excel_range_writable(
+            worksheet,
+            target_row,
+            start_col,
+            target_row + height - 1,
+            start_col + width - 1,
+        )
 
 
 def _normalize_excel_formula_columns(value: Any) -> dict[str, str]:

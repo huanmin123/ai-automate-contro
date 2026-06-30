@@ -22,6 +22,7 @@ def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[s
             _run_browser_generation_case(simulation_root),
             _run_excel_file_generation_case(simulation_root),
             _run_excel_ambiguous_file_data_quality_gate_case(simulation_root),
+            _run_excel_ambiguous_file_data_preview_case(simulation_root),
             _run_desktop_generation_case(simulation_root),
             _run_desktop_platform_contract_case(),
             _run_desktop_coordinate_quality_gate_case(simulation_root),
@@ -330,6 +331,61 @@ def _run_excel_ambiguous_file_data_quality_gate_case(project_root: Path) -> dict
     )
     return _self_check_result(
         name="scripted_ai_rejects_scene_word_hardcoded_excel_plan",
+        passed=passed,
+        detail={"decision": decision, **result},
+    )
+
+
+def _run_excel_ambiguous_file_data_preview_case(project_root: Path) -> dict[str, Any]:
+    user_message = "处理 resources/财务流水.xlsx，按常见报表输出。"
+    decision = simulate_execution_line_decision(user_message)
+    plan_document = {
+        "name": "ambiguous excel file data preview",
+        "automation_type": "browser",
+        "variables": {},
+        "steps": [
+            {
+                "action": "read",
+                "type": "excel",
+                "path": "resources/财务流水.xlsx",
+                "sheet": "流水",
+                "preview_rows": 20,
+                "max_cells": 2000,
+                "save_as": "preview_rows",
+                "save_meta_as": "preview_meta",
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "excel-preview.json",
+                "value": {"rows": "{{preview_rows}}", "meta": "{{preview_meta}}"},
+            },
+        ],
+    }
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/ambiguous-excel-file-data-preview",
+        automation_type="browser",
+        name="ambiguous excel file data preview",
+        plan_document=plan_document,
+        quality_user_request=user_message,
+        quality_evidence_summary=(
+            "用户只给了模糊表格处理目标；plan 仅用 read.type=excel "
+            "preview_rows/max_cells/save_meta_as 做只读预览，并写出 JSON preview/meta，"
+            "没有写入 filter/group/pivot/join/formula 等业务转换。"
+        ),
+        planned_output_path="excel-preview.json",
+    )
+    issue_codes = set(result.get("quality_issue_codes", []))
+    passed = (
+        decision.get("decision") == "browser"
+        and not decision.get("requires_confirmation")
+        and result.get("validation_ok") is True
+        and result.get("quality_review_ok") is True
+        and "ambiguous_file_data_transformation" not in issue_codes
+    )
+    return _self_check_result(
+        name="scripted_ai_allows_ambiguous_excel_preview_plan",
         passed=passed,
         detail={"decision": decision, **result},
     )

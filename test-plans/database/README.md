@@ -4,10 +4,10 @@
 
 - `sqlite-basic/`: 默认确定性回归，不依赖外部服务。
 - `duckdb-local-analysis/`: DuckDB 本地 CSV 分析示例，按需安装 DuckDB 后运行。
-- `mongodb-basic/`: MongoDB CRUD/aggregate 示例，按需安装 MongoDB 驱动后运行。
+- `mongodb-basic/`: MongoDB CRUD/aggregate/index 示例，按需安装 MongoDB 驱动后运行。
 - `mysql-basic/`、`postgresql-basic/`、`oracle-basic/`、`redis-basic/`: 真实服务 smoke 示例，只引用连接名，不内置真实账号密码。
 
-`python .\cplan.py self-check database-components` 还会动态生成 SQLite 特性 plan，覆盖事务、批量拆分、CSV 导入、CSV 导出、JSONL 落盘、分页查询、`sql.inspect`，以及 `sql.copy` buffered/stream 两种跨 SQLite 文件复制。
+`python .\cplan.py self-check database-components` 还会动态生成 SQLite 特性 plan，覆盖事务、批量拆分、CSV 流式导入、导入字段校验、CSV 流式导出、JSONL 落盘、分页查询、`sql.inspect`，以及 `sql.copy` buffered/stream 两种跨 SQLite 文件复制。
 
 SQLite 使用 Python 标准库，不需要额外依赖。真实服务驱动默认不安装，需要按目标库自行安装：
 
@@ -109,4 +109,4 @@ python .\cplan.py self-check database-components --include-real-db --database-co
 }
 ```
 
-没有设置环境变量时，真实服务 case 会返回 `skipped=true` 和 `unresolved_env_refs`，不会把缺变量当成默认离线回归失败。`--allow-writes` 只对临时写入 smoke 生效，默认不开。开启后，真实 SQL 服务还会把临时表流式复制到本地 SQLite，验证跨库 copy 链路。
+没有设置环境变量时，真实服务 case 会返回 `skipped=true` 和 `unresolved_env_refs`，不会把缺变量当成默认离线回归失败。`--allow-writes` 只对临时写入 smoke 生效，默认不开。开启后，真实 SQL 服务还会把临时表流式复制到本地 SQLite，验证跨库 copy 链路；MongoDB 写入回归会覆盖临时 collection 的插入、查询、索引创建/列出/删除和清理。

@@ -31,10 +31,14 @@
 - `sheets`: 仅 `type: excel` 有效，多工作表写入配置数组；每项可包含 `sheet`、`value`/`rows`、`cells`、`range`、`formula_columns` 和本节 Excel 选项。
 - `start_cell`: 仅 `type: excel` 有效，表格数据写入的左上角单元格，默认 `A1`。
 - `range`: 仅 `type: excel` 有效，A1 写入区域，例如 `B4:H20`；会限制表格不能写出区域。
+- `named_range`: 仅 `type: excel` 有效，使用模板工作簿中的命名区域作为写入区域；不能和 `range` 同时使用。
 - `template_path`: 仅 `type: excel` 有效，模板工作簿输入路径。
 - `write_mode`: 仅 `type: excel` 有效，`create`、`replace_sheet`、`append_rows`、`overlay_cells`。
 - `cells`: 仅 `type: excel` 有效，A1 单元格到值的对象。
 - `formula_columns`: 仅 `type: excel` 有效，给字典行追加公式列；公式可用 `{row}` 和 `{列名}` 引用当前行单元格。
+- `copy_row_style`: 仅 `type: excel` 有效，写模板区域时把样式源行复制到写入数据行；模板 + `range`/`named_range` 默认开启。
+- `style_source_row`: 仅 `type: excel` 有效，指定复制样式的源行号，默认使用写入区域首个数据行。
+- `extend_conditional_formatting`: 仅 `type: excel` 有效，写模板区域时把相交的条件格式延展到实际写入数据范围；模板 + `range`/`named_range` 默认开启。
 - `freeze_header`: 仅 `type: excel` 有效，冻结首行。
 - `auto_filter`: 仅 `type: excel` 有效，给首行添加筛选。
 
@@ -167,7 +171,30 @@
 }
 ```
 
-当同时提供 `template_path` 和 `range` 且没有显式写 `write_mode` 时，默认按 `overlay_cells` 写入，保留模板其它区域的样式、标题区和汇总区。
+当同时提供 `template_path` 和 `range`/`named_range` 且没有显式写 `write_mode` 时，默认按 `overlay_cells` 写入，保留模板其它区域的样式、标题区和汇总区。写入命中合并单元格时，只允许写合并区域左上角，避免把模板结构写坏。
+
+基于模板命名区域写入：
+
+```json
+{
+  "action": "write",
+  "type": "excel",
+  "template_path": "resources/报表模板.xlsx",
+  "path": "月度报表.xlsx",
+  "named_range": "DetailArea",
+  "value": "{{detail_rows}}",
+  "formula_columns": {
+    "实发": "={基本工资}+{奖金}"
+  },
+  "cells": {
+    "B2": "{{report_month}}",
+    "F2": "{{generated_at}}"
+  },
+  "copy_row_style": true,
+  "style_source_row": 5,
+  "extend_conditional_formatting": true
+}
+```
 
 导出变量：
 

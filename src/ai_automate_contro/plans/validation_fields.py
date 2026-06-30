@@ -330,6 +330,8 @@ def validate_type_specific_required_fields(
             required = ("columns",)
         elif step_type == "lookup":
             required = ("right",)
+        elif step_type == "fuzzy_lookup":
+            required = ("right",)
     elif action == "desktop_app" and step_type == "launch" and not any(
         step.get(field) for field in ("app", "path", "command", "profile", "app_profile")
     ):
@@ -641,6 +643,8 @@ def _validate_read_fields(
     _validate_int(step, "max_rows", location, issues, minimum=1)
     _validate_int(step, "max_cells", location, issues, minimum=1)
     _validate_int(step, "preview_rows", location, issues, minimum=1)
+    _validate_int(step, "offset_rows", location, issues, minimum=0)
+    _validate_int(step, "limit_rows", location, issues, minimum=1)
     _validate_string(step, "save_meta_as", location, issues)
     _validate_enum(step, "mode", {"records", "matrix", "cells"}, location, issues)
     _validate_enum(step, "formula_mode", {"cached", "formula"}, location, issues)
@@ -676,6 +680,7 @@ def _validate_write_fields(
     _validate_sheet_field(step, "sheet", location, issues)
     _validate_a1_cell(step, "start_cell", location, issues)
     _validate_a1_write_range(step, "range", location, issues)
+    _validate_string(step, "named_range", location, issues)
     _validate_string(step, "template_path", location, issues)
     _validate_string(step, "table_name", location, issues)
     _validate_nonempty_string_list(step, "headers", location, issues)
@@ -688,10 +693,15 @@ def _validate_write_fields(
     _validate_bool(step, "freeze_header", location, issues)
     _validate_bool(step, "auto_filter", location, issues)
     _validate_bool(step, "table", location, issues)
+    _validate_bool(step, "copy_row_style", location, issues)
+    _validate_bool(step, "extend_conditional_formatting", location, issues)
+    _validate_int(step, "style_source_row", location, issues, minimum=1)
     _validate_enum(step, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
     _validate_string(step, "date_format", location, issues)
     _validate_excel_cells(step.get("cells"), location, "cells", issues)
     _validate_excel_formula_columns(step.get("formula_columns"), location, "formula_columns", issues)
+    if "named_range" in step and "range" in step:
+        issues.append(ValidationIssue(location, "write.type=excel.named_range 不能和 range 同时使用"))
     sheets = step.get("sheets")
     if isinstance(sheets, list) and not _is_template(sheets):
         if not sheets:
@@ -707,6 +717,7 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
     _validate_sheet_field(value, "sheet", location, issues)
     _validate_a1_cell(value, "start_cell", location, issues)
     _validate_a1_write_range(value, "range", location, issues)
+    _validate_string(value, "named_range", location, issues)
     _validate_nonempty_string_list(value, "headers", location, issues)
     _validate_dict(value, "formula_columns", location, issues)
     _validate_dict(value, "cells", location, issues)
@@ -716,10 +727,15 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
     _validate_bool(value, "freeze_header", location, issues)
     _validate_bool(value, "auto_filter", location, issues)
     _validate_bool(value, "table", location, issues)
+    _validate_bool(value, "copy_row_style", location, issues)
+    _validate_bool(value, "extend_conditional_formatting", location, issues)
+    _validate_int(value, "style_source_row", location, issues, minimum=1)
     _validate_string(value, "table_name", location, issues)
     _validate_enum(value, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
     _validate_excel_cells(value.get("cells"), location, "cells", issues)
     _validate_excel_formula_columns(value.get("formula_columns"), location, "formula_columns", issues)
+    if "named_range" in value and "range" in value:
+        issues.append(ValidationIssue(location, "write.type=excel.named_range 不能和 range 同时使用"))
     if not any(field in value for field in ("value", "rows", "cells")):
         issues.append(ValidationIssue(location, "sheets 每一项需要 value、rows 或 cells 之一"))
 
@@ -743,6 +759,8 @@ def _validate_excel_read_sheet(value: Any, location: str, issues: list[Validatio
     _validate_int(value, "max_rows", location, issues, minimum=1)
     _validate_int(value, "max_cells", location, issues, minimum=1)
     _validate_int(value, "preview_rows", location, issues, minimum=1)
+    _validate_int(value, "offset_rows", location, issues, minimum=0)
+    _validate_int(value, "limit_rows", location, issues, minimum=1)
     _validate_enum(value, "mode", {"records", "matrix", "cells"}, location, issues)
     _validate_enum(value, "formula_mode", {"cached", "formula"}, location, issues)
     _validate_enum(value, "date_format", {"iso", "text"}, location, issues)
@@ -944,6 +962,40 @@ def _validate_table_fields(
         right_on = step.get("right_on")
         if isinstance(left_on, list) and isinstance(right_on, list) and len(left_on) != len(right_on):
             issues.append(ValidationIssue(location, "table.lookup.left_on 和 right_on 长度必须一致"))
+        return
+    if step_type == "normalize_headers":
+        _validate_dict(step, "columns", location, issues)
+        _validate_enum(step, "case", {"keep", "lower", "upper", "snake"}, location, issues)
+        _validate_string(step, "separator", location, issues)
+        _validate_bool(step, "strip", location, issues)
+        _validate_string_mapping(step.get("columns"), location, "table.normalize_headers.columns", issues)
+        return
+    if step_type == "union":
+        _validate_list(step, "sources", location, issues)
+        _validate_string_or_nonempty_string_list(step, "columns", location, issues)
+        return
+    if step_type == "fuzzy_lookup":
+        _validate_list(step, "right", location, issues)
+        _validate_string_or_nonempty_string_list(step, "on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "left_on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "right_on", location, issues)
+        _validate_table_lookup_values(step.get("values"), location, issues)
+        _validate_number(step, "threshold", location, issues)
+        _validate_bool(step, "ignore_case", location, issues)
+        _validate_bool(step, "trim", location, issues)
+        _validate_bool(step, "ignore_spaces", location, issues)
+        _validate_string(step, "score_column", location, issues)
+        if "on" not in step and not ("left_on" in step and "right_on" in step):
+            issues.append(ValidationIssue(location, "table.fuzzy_lookup 需要 on，或同时提供 left_on 和 right_on"))
+        if "on" in step and ("left_on" in step or "right_on" in step):
+            issues.append(ValidationIssue(location, "table.fuzzy_lookup 不能同时使用 on 和 left_on/right_on"))
+        left_on = step.get("left_on")
+        right_on = step.get("right_on")
+        if isinstance(left_on, list) and isinstance(right_on, list) and len(left_on) != len(right_on):
+            issues.append(ValidationIssue(location, "table.fuzzy_lookup.left_on 和 right_on 长度必须一致"))
+        threshold = step.get("threshold")
+        if isinstance(threshold, (int, float)) and not 0 <= threshold <= 1:
+            issues.append(ValidationIssue(location, "table.fuzzy_lookup.threshold 必须在 0 到 1 之间"))
 
 
 def _validate_table_aggregation_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
@@ -1254,8 +1306,11 @@ def _validate_sql_fields(
     _validate_list(step, "columns", location, issues)
     _validate_list(step, "conflict_keys", location, issues)
     _validate_list(step, "update_columns", location, issues)
+    _validate_list(step, "required_columns", location, issues)
+    _validate_list(step, "unique_columns", location, issues)
     _validate_list(step, "steps", location, issues)
     _validate_dict(step, "column_map", location, issues)
+    _validate_dict(step, "column_types", location, issues)
     _validate_string(step, "save_as", location, issues)
     _validate_string(step, "rows_path", location, issues)
     _validate_string(step, "result_path", location, issues)
@@ -1292,8 +1347,12 @@ def _validate_sql_fields(
             issues.append(ValidationIssue(location, "expect_affected_rows 必须是整数或整数数组"))
     if step_type in {"bulk_insert", "copy", "import"} and step.get("mode") == "upsert" and "conflict_keys" not in step:
         issues.append(ValidationIssue(location, f"sql.{step_type} mode=upsert 需要 conflict_keys"))
-    if step_type in {"import", "export"} and step.get("stream") is True:
-        issues.append(ValidationIssue(location, f"sql.{step_type} 暂不支持 stream=true"))
+    if step_type == "import" and step.get("stream") is True:
+        _validate_sql_stream_file_type(step, "source_type", "source_path", {"csv", "jsonl"}, location, issues)
+    if step_type == "export" and step.get("stream") is True:
+        _validate_sql_stream_file_type(step, "target_type", "target_path", {"csv", "jsonl"}, location, issues)
+        if step.get("include_rows") is True:
+            issues.append(ValidationIssue(location, "sql.export stream=true 不支持 include_rows"))
     if step_type == "copy" and step.get("stream") is True:
         if step.get("include_rows") is True:
             issues.append(ValidationIssue(location, "sql.copy stream=true 不支持 include_rows；请使用 rows_path=.jsonl 分批落盘"))
@@ -1306,7 +1365,7 @@ def _validate_sql_fields(
         if "commit" in step:
             issues.append(ValidationIssue(location, "sql.transaction 不支持 commit 字段；成功自动提交，失败自动回滚"))
         _validate_sql_transaction_steps(step, location, issues)
-    for field in ("columns", "conflict_keys", "update_columns"):
+    for field in ("columns", "conflict_keys", "update_columns", "required_columns", "unique_columns"):
         value = step.get(field)
         if isinstance(value, list):
             for index, item in enumerate(value):
@@ -1319,6 +1378,39 @@ def _validate_sql_fields(
                 issues.append(ValidationIssue(location, "column_map 的目标列名必须是非空字符串"))
             if not isinstance(value, str) or not value:
                 issues.append(ValidationIssue(location, "column_map 的源列名必须是非空字符串"))
+    column_types = step.get("column_types")
+    if isinstance(column_types, dict):
+        for key, value in column_types.items():
+            if not isinstance(key, str) or not key:
+                issues.append(ValidationIssue(location, "column_types 的列名必须是非空字符串"))
+            if not isinstance(value, str) or not value.strip():
+                issues.append(ValidationIssue(location, "column_types 的 SQL 类型必须是非空字符串"))
+            elif any(token in value for token in (";", "--", "/*", "*/", "\x00")):
+                issues.append(ValidationIssue(location, "column_types 的 SQL 类型不能包含 ;、注释或空字符"))
+
+
+def _validate_sql_stream_file_type(
+    step: dict[str, Any],
+    type_field: str,
+    path_field: str,
+    allowed: set[str],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    raw_type = step.get(type_field)
+    if isinstance(raw_type, str) and raw_type:
+        normalized = {"xlsx": "excel", "xlsm": "excel"}.get(raw_type, raw_type)
+        if normalized not in allowed:
+            allowed_text = ", ".join(sorted(allowed))
+            issues.append(ValidationIssue(location, f"sql.{step.get('type')} stream=true 只支持 {allowed_text}"))
+        return
+    raw_path = step.get(path_field)
+    if not isinstance(raw_path, str) or not raw_path or _is_template(raw_path):
+        return
+    suffix = raw_path.rsplit(".", 1)[-1].lower() if "." in raw_path else ""
+    if suffix and suffix not in allowed:
+        allowed_text = ", ".join(sorted(allowed))
+        issues.append(ValidationIssue(location, f"sql.{step.get('type')} stream=true 只支持 {allowed_text} 文件后缀"))
 
 
 def _validate_sql_transaction_steps(

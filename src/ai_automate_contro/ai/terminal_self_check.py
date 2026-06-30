@@ -2517,15 +2517,35 @@ class _FakeTerminal(AITerminalCommandsMixin):
     def _sync_current_session_index(self) -> None:
         update_ai_terminal_session_index(self.project_root, self.checkpointer, self.thread_id)
 
+    def _begin_agent_turn(self, text: str) -> int | None:
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        return AITerminal._begin_agent_turn(self, text)
+
+    def _set_agent_turn_text(self, turn_id: int, text: str) -> None:
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        AITerminal._set_agent_turn_text(self, turn_id, text)
+
+    def _finish_agent_turn(self, turn_id: int, *, error: str = "") -> bool:
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        return AITerminal._finish_agent_turn(self, turn_id, error=error)
+
+    def _ensure_turn_lock(self) -> threading.Lock:
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        return AITerminal._ensure_turn_lock(self)
+
     def _is_agent_busy(self) -> bool:
-        return self._current_turn_text is not None
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        return AITerminal._is_agent_busy(self)
 
     def _cancel_agent_turn(self) -> bool:
-        if self._current_turn_text is None:
-            return False
-        self._cancelled_turn_ids.add(self._current_turn_id)
-        self._current_turn_text = None
-        return True
+        from ai_automate_contro.ai.terminal import AITerminal
+
+        return AITerminal._cancel_agent_turn(self)
 
 
 def _check_busy_command_guard() -> tuple[bool, dict[str, Any]]:

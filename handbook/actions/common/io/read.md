@@ -27,7 +27,7 @@
 
 - `split_lines`: 仅 `type: text` 有效，设置为 `true` 时按行拆分，并过滤空行。
 - `sheet`: 仅 `type: excel` 有效，工作表名称或从 0 开始的索引，默认第一个工作表。
-- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode`、`preview_rows`、`max_cells` 等读取选项的对象。
+- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode`、`offset_rows`、`limit_rows`、`preview_rows`、`max_cells` 等读取选项的对象。
 - `range`: 仅 `type: excel` 有效，A1 范围，例如 `A1:F100`。
 - `header_row`: 仅 `type: excel` 且 `mode=records` 有效，表头所在行号。
 - `headers`: 仅 `type: excel` 且 `mode=records` 有效，自定义表头数组。
@@ -35,6 +35,8 @@
 - `skip_blank_rows`: 仅 `type: excel` 有效，是否跳过空白行，默认 `true`。
 - `max_rows`: 仅 `type: excel` 有效，读取结果最大行数，默认 `10000`。
 - `max_cells`: 仅 `type: excel` 有效，读取区域最大单元格数，默认 `500000`。
+- `offset_rows`: 仅 `type: excel` 有效，从数据区跳过 N 行后开始读；`records` 模式从表头后的数据行开始计算，`matrix`/`cells` 从 `range` 首行开始计算。
+- `limit_rows`: 仅 `type: excel` 有效，本次最多读取 N 行；适合分页处理大表。
 - `preview_rows`: 仅 `type: excel` 有效，只预览前 N 行数据；适合先看结构、避免一次读入超大表。
 - `save_meta_as`: 仅 `type: excel` 有效，额外保存工作簿、sheet、range、表头和行列数元数据。
 
@@ -130,6 +132,23 @@
   "max_cells": 2000,
   "save_as": "preview_rows",
   "save_meta_as": "preview_meta"
+}
+```
+
+分页读取大 Excel：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/原始数据.xlsx",
+  "sheet": "Sheet1",
+  "range": "A1:Z200000",
+  "offset_rows": 1000,
+  "limit_rows": 500,
+  "max_cells": 15000,
+  "save_as": "page_rows",
+  "save_meta_as": "page_meta"
 }
 ```
 

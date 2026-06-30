@@ -40,6 +40,26 @@
         "部门编码": "HR",
         "部门名称": "人事部"
       }
+    ],
+    "raw_import": [
+      {
+        " 姓名 ": "赵六",
+        "部门 编码": "FIN",
+        "状态": "在职",
+        "入职 日期": "2026/04/01",
+        "部门全称": "财务 部",
+        "联系电话": ""
+      }
+    ],
+    "department_aliases": [
+      {
+        "部门名称": "财务 部",
+        "部门编码标准": "FIN"
+      },
+      {
+        "部门名称": "人事部",
+        "部门编码标准": "HR"
+      }
     ]
   },
   "steps": [
@@ -101,11 +121,47 @@
       "save_as": "cleaned_rows"
     },
     {
+      "action": "table",
+      "type": "normalize_headers",
+      "source": "{{raw_import}}",
+      "columns": {
+        " 姓名 ": "姓名",
+        "部门 编码": "部门编码",
+        "入职 日期": "入职日期"
+      },
+      "save_as": "normalized_import"
+    },
+    {
+      "action": "table",
+      "type": "union",
+      "source": "{{cleaned_rows}}",
+      "sources": ["{{normalized_import}}"],
+      "columns": ["姓名", "部门短名", "部门编码", "状态", "入职日期", "部门全称", "手机号", "联系电话", "备注"],
+      "fill_missing": "",
+      "save_as": "union_rows"
+    },
+    {
+      "action": "table",
+      "type": "fuzzy_lookup",
+      "source": "{{union_rows}}",
+      "right": "{{department_aliases}}",
+      "left_on": "部门全称",
+      "right_on": "部门名称",
+      "values": {
+        "部门编码标准": "模糊部门编码"
+      },
+      "default": "未知",
+      "threshold": 0.8,
+      "ignore_spaces": true,
+      "score_column": "部门匹配分",
+      "save_as": "fuzzy_rows"
+    },
+    {
       "action": "write",
       "type": "json",
       "path": "table-cleaning.json",
       "value": {
-        "rows": "{{cleaned_rows}}"
+        "rows": "{{fuzzy_rows}}"
       }
     }
   ]

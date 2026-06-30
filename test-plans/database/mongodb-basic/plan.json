@@ -69,6 +69,28 @@
     },
     {
       "action": "mongo",
+      "type": "create_index",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "keys": {
+        "run_id": 1,
+        "item_id": 1
+      },
+      "name": "run_item_idx",
+      "unique": true,
+      "result_path": "mongodb-create-index.json",
+      "save_as": "mongo_create_index"
+    },
+    {
+      "action": "mongo",
+      "type": "list_indexes",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "result_path": "mongodb-list-indexes.json",
+      "save_as": "mongo_indexes"
+    },
+    {
+      "action": "mongo",
       "type": "find",
       "connection": "{{mongo_connection}}",
       "collection": "{{collection}}",
@@ -112,6 +134,15 @@
       ],
       "result_path": "mongodb-aggregate.json",
       "save_as": "mongo_summary"
+    },
+    {
+      "action": "mongo",
+      "type": "drop_index",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "name": "run_item_idx",
+      "result_path": "mongodb-drop-index.json",
+      "save_as": "mongo_drop_index"
     },
     {
       "action": "mongo",

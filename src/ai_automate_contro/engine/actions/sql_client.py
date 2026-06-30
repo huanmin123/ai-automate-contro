@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import time
+from contextlib import contextmanager
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -199,6 +200,9 @@ def _run_bulk_insert(executor: Any, step: dict[str, Any]) -> None:
 
 
 def _run_import(executor: Any, step: dict[str, Any]) -> None:
+    if bool(step.get("stream", False)):
+        _run_import_stream(executor, step)
+        return
     started_at = time.perf_counter()
     source_path = _resolve_input_path(executor, str(step["source_path"]))
     source_type = _file_table_type(step.get("source_type"), source_path, field_name="source_type")
@@ -208,6 +212,7 @@ def _run_import(executor: Any, step: dict[str, Any]) -> None:
         raise ValueError(f"sql.import 源数据超过 max_rows={max_rows}；请清洗输入、分批导入或提高 max_rows。")
     source_columns = _rows_columns(source_rows)
     target_rows, target_columns, column_map = _copy_target_rows(step, source_rows, source_columns)
+    _validate_import_rows(step, target_rows, target_columns)
     config = _connection_config(executor, step)
     commit = bool(step.get("commit", True))
     with _open_connection(executor, config, step) as opened:
@@ -247,6 +252,9 @@ def _run_import(executor: Any, step: dict[str, Any]) -> None:
 
 
 def _run_export(executor: Any, step: dict[str, Any]) -> None:
+    if bool(step.get("stream", False)):
+        _run_export_stream(executor, step)
+        return
     started_at = time.perf_counter()
     config = _connection_config(executor, step)
     max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS)))
@@ -289,6 +297,210 @@ def _run_export(executor: Any, step: dict[str, Any]) -> None:
         database_type=opened.database_type,
         target_type=target_type,
         row_count=len(rows),
+        elapsed_ms=elapsed_ms,
+        save_as=step.get("save_as", ""),
+    )
+
+
+def _run_import_stream(executor: Any, step: dict[str, Any]) -> None:
+    started_at = time.perf_counter()
+    source_path = _resolve_input_path(executor, str(step["source_path"]))
+    source_type = _file_table_type(step.get("source_type"), source_path, field_name="source_type")
+    if source_type not in {"csv", "jsonl"}:
+        raise ValueError("sql.import stream=true 只支持 csv 或 jsonl。")
+    max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS * 100)))
+    batch_size = max(1, int(step.get("batch_size", step.get("fetch_size", 1000))))
+    config = _connection_config(executor, step)
+    commit = bool(step.get("commit", True))
+    source_columns: list[str] = []
+    target_columns: list[str] = []
+    column_map: dict[str, str] = {}
+    first_row: dict[str, Any] | None = None
+    source_row_count = 0
+    input_rows = 0
+    affected_rows = 0
+    unknown_rowcount = False
+    batch_count = 0
+    mode = str(step.get("mode", "insert")).lower()
+    if mode not in {"insert", "replace", "upsert"}:
+        raise ValueError("sql.import.mode 只支持 insert、replace 或 upsert。")
+    unique_seen: set[tuple[Any, ...]] = set()
+    fixed_copy_step: dict[str, Any] | None = None
+
+    try:
+        with _open_connection(executor, config, step) as opened:
+            if source_type == "csv":
+                source_columns, batch_iterator = _iter_csv_import_batches(source_path, batch_size=batch_size)
+            else:
+                batch_iterator = _iter_jsonl_import_batches(source_path, step, batch_size=batch_size)
+            try:
+                try:
+                    for source_batch in batch_iterator:
+                        if not source_batch:
+                            continue
+                        source_row_count += len(source_batch)
+                        if source_row_count > max_rows:
+                            raise ValueError(f"sql.import 源数据超过 max_rows={max_rows}；请清洗输入、分批导入或提高 max_rows。")
+                        if source_type == "jsonl":
+                            _extend_columns(source_columns, source_batch)
+                        if fixed_copy_step is None:
+                            target_batch, target_columns, column_map = _copy_target_rows(step, source_batch, source_columns)
+                            fixed_copy_step = dict(step)
+                            fixed_copy_step["columns"] = target_columns
+                            fixed_copy_step["column_map"] = column_map
+                        else:
+                            target_batch, _ignored_columns, _ignored_map = _copy_target_rows(fixed_copy_step, source_batch, source_columns)
+                        if input_rows == 0:
+                            _validate_import_column_config(step, target_columns)
+                            if bool(step.get("create_table", False)):
+                                _create_import_table(opened, step, target_batch, target_columns, commit=False)
+                        unique_seen = _validate_import_rows(
+                            step,
+                            target_batch,
+                            target_columns,
+                            unique_seen=unique_seen,
+                            start_index=input_rows,
+                        )
+                        if target_batch and first_row is None:
+                            first_row = target_batch[0]
+                        bulk_step = _copy_bulk_step(step, target_batch, target_columns, include_expect=False)
+                        bulk_payload = _bulk_insert_operation(opened, bulk_step, commit=False)
+                        input_rows += int(bulk_payload["input_rows"])
+                        batch_count += int(bulk_payload["batch_count"])
+                        rowcount = int(bulk_payload["affected_rows"])
+                        if rowcount < 0:
+                            unknown_rowcount = True
+                        elif not unknown_rowcount:
+                            affected_rows += rowcount
+                finally:
+                    close_iterator = getattr(batch_iterator, "close", None)
+                    if callable(close_iterator):
+                        close_iterator()
+
+                if input_rows == 0:
+                    target_rows, target_columns, column_map = _copy_target_rows(step, [], source_columns)
+                    _validate_import_column_config(step, target_columns)
+                    if bool(step.get("create_table", False)):
+                        _create_import_table(opened, step, target_rows, target_columns, commit=False)
+                if unknown_rowcount:
+                    affected_rows = -1
+                _assert_affected_rows(step, affected_rows)
+                if commit:
+                    opened.connection.commit()
+            except BaseException:
+                _rollback_if_possible(opened.connection)
+                raise
+    except BaseException:
+        raise
+
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    payload: dict[str, Any] = {
+        "type": "import",
+        "stream": True,
+        "connection": opened.connection_name,
+        "database_type": opened.database_type,
+        "source_path": str(source_path),
+        "source_type": source_type,
+        "source_columns": source_columns,
+        "column_map": column_map,
+        "create_table": bool(step.get("create_table", False)),
+        "table": step["table"],
+        "columns": target_columns,
+        "mode": mode,
+        "input_rows": input_rows,
+        "affected_rows": affected_rows,
+        "batch_size": batch_size,
+        "batch_count": batch_count,
+        "first_row": first_row,
+        "elapsed_ms": elapsed_ms,
+    }
+    _write_optional_result(executor, step, payload)
+    _save_optional(executor, step, payload)
+    executor.state.logger.log(
+        "info",
+        "sql import stream finished",
+        connection=opened.connection_name,
+        database_type=opened.database_type,
+        source_type=source_type,
+        table=payload["table"],
+        input_rows=input_rows,
+        affected_rows=affected_rows,
+        elapsed_ms=elapsed_ms,
+        save_as=step.get("save_as", ""),
+    )
+
+
+def _run_export_stream(executor: Any, step: dict[str, Any]) -> None:
+    if bool(step.get("include_rows", False)):
+        raise ValueError("sql.export stream=true 不支持 include_rows。")
+    started_at = time.perf_counter()
+    config = _connection_config(executor, step)
+    max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS)))
+    fetch_size = max(1, int(step.get("fetch_size", step.get("batch_size", 1000))))
+    pagination = _query_pagination(step, max_rows, action_label="sql.export")
+    target_path = _resolve_sql_output_path(executor, str(step["target_path"]))
+    target_type = _file_table_type(step.get("target_type"), target_path, field_name="target_type")
+    if target_type not in {"csv", "jsonl"}:
+        raise ValueError("sql.export stream=true 只支持 csv 或 jsonl。")
+    columns: list[str] = []
+    first_row: dict[str, Any] | None = None
+    row_count = 0
+
+    try:
+        with _open_connection(executor, config, step) as opened:
+            sql, params = _prepare_sql(str(step["sql"]), step.get("params"), opened.database_type)
+            sql = _apply_query_pagination(sql, opened.database_type, pagination)
+            cursor = opened.connection.cursor()
+            try:
+                _execute(cursor, sql, params)
+                columns = [str(item[0]) for item in (cursor.description or [])]
+                with _open_export_stream(target_path, target_type=target_type, columns=columns) as writer:
+                    while True:
+                        remaining = max_rows - row_count
+                        if remaining <= 0:
+                            if cursor.fetchmany(1):
+                                raise ValueError(f"sql.export 查询结果超过 max_rows={max_rows}；请收窄条件、分页导出或提高 max_rows。")
+                            break
+                        fetched = cursor.fetchmany(min(fetch_size, remaining + 1))
+                        if len(fetched) > remaining:
+                            raise ValueError(f"sql.export 查询结果超过 max_rows={max_rows}；请收窄条件、分页导出或提高 max_rows。")
+                        if not fetched:
+                            break
+                        rows = [dict(zip(columns, row)) for row in fetched]
+                        if rows and first_row is None:
+                            first_row = rows[0]
+                        writer(rows)
+                        row_count += len(rows)
+            finally:
+                _close_cursor(cursor)
+    except BaseException:
+        _remove_partial_file(target_path)
+        raise
+
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    payload: dict[str, Any] = {
+        "type": "export",
+        "stream": True,
+        "connection": opened.connection_name,
+        "database_type": opened.database_type,
+        "target_path": str(target_path),
+        "target_type": target_type,
+        "columns": columns,
+        "row_count": row_count,
+        "first_row": first_row,
+        "fetch_size": fetch_size,
+        "elapsed_ms": elapsed_ms,
+    }
+    payload.update(_query_pagination_payload(pagination))
+    _write_optional_result(executor, step, payload)
+    _save_optional(executor, step, payload)
+    executor.state.logger.log(
+        "info",
+        "sql export stream finished",
+        connection=opened.connection_name,
+        database_type=opened.database_type,
+        target_type=target_type,
+        row_count=row_count,
         elapsed_ms=elapsed_ms,
         save_as=step.get("save_as", ""),
     )
@@ -818,6 +1030,153 @@ def _extract_record_rows(value: Any, *, record_path: Any) -> list[Any]:
     return value
 
 
+def _iter_csv_import_batches(path: Path, *, batch_size: int) -> tuple[list[str], Any]:
+    file = path.open("r", encoding="utf-8-sig", newline="")
+    reader = csv.DictReader(file)
+    source_columns = [str(field) for field in (reader.fieldnames or [])]
+
+    def iterator() -> Any:
+        try:
+            batch: list[dict[str, Any]] = []
+            for index, row in enumerate(reader):
+                if None in row:
+                    raise ValueError(f"sql.import CSV 第 {index + 2} 行列数超过表头。")
+                batch.append({str(key): value for key, value in row.items()})
+                if len(batch) >= batch_size:
+                    yield batch
+                    batch = []
+            if batch:
+                yield batch
+        finally:
+            file.close()
+
+    return source_columns, iterator()
+
+
+def _iter_jsonl_import_batches(path: Path, step: dict[str, Any], *, batch_size: int) -> Any:
+    def iterator() -> Any:
+        with path.open("r", encoding="utf-8") as file:
+            batch: list[dict[str, Any]] = []
+            for line_number, line in enumerate(file, start=1):
+                text = line.strip()
+                if not text:
+                    continue
+                try:
+                    value = json.loads(text)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"sql.import JSONL 第 {line_number} 行无效：{error.msg}") from error
+                for record in _stream_jsonl_records(value, record_path=step.get("record_path"), line_number=line_number):
+                    if not isinstance(record, dict):
+                        raise ValueError(f"sql.import JSONL 第 {line_number} 行必须解析为对象行。")
+                    batch.append({str(key): item for key, item in record.items()})
+                    if len(batch) >= batch_size:
+                        yield batch
+                        batch = []
+            if batch:
+                yield batch
+
+    return iterator()
+
+
+def _stream_jsonl_records(value: Any, *, record_path: Any, line_number: int) -> list[Any]:
+    if isinstance(record_path, str) and record_path.strip():
+        for part in record_path.split("."):
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:
+                raise ValueError(f"sql.import JSONL 第 {line_number} 行 record_path 无法在非对象上继续解析：{record_path}")
+    if isinstance(value, list):
+        return value
+    return [value]
+
+
+def _extend_columns(columns: list[str], rows: list[dict[str, Any]]) -> None:
+    seen = set(columns)
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                columns.append(key)
+                seen.add(key)
+
+
+def _validate_import_column_config(step: dict[str, Any], columns: list[str]) -> None:
+    for column in _import_checked_columns(step, "required_columns", columns):
+        _safe_identifier(column, field_name="required_columns")
+    for column in _import_checked_columns(step, "unique_columns", columns):
+        _safe_identifier(column, field_name="unique_columns")
+    column_types = _column_type_overrides(step)
+    for column in column_types:
+        _safe_identifier(column, field_name="column_types")
+        if column not in columns:
+            raise ValueError(f"sql.import.column_types 包含目标列中不存在的列：{column}")
+
+
+def _validate_import_rows(
+    step: dict[str, Any],
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    *,
+    unique_seen: set[tuple[Any, ...]] | None = None,
+    start_index: int = 0,
+) -> set[tuple[Any, ...]]:
+    _validate_import_column_config(step, columns)
+    required_columns = _import_checked_columns(step, "required_columns", columns)
+    unique_columns = _import_checked_columns(step, "unique_columns", columns)
+    seen = unique_seen if unique_seen is not None else set()
+    for offset, row in enumerate(rows):
+        row_number = start_index + offset + 1
+        for column in required_columns:
+            if row.get(column) in (None, ""):
+                raise ValueError(f"sql.import 第 {row_number} 行缺少必填列 {column} 的值。")
+        if unique_columns:
+            unique_key = tuple(row.get(column) for column in unique_columns)
+            if unique_key in seen:
+                joined = ", ".join(unique_columns)
+                raise ValueError(f"sql.import 第 {row_number} 行违反 unique_columns 唯一约束：{joined}")
+            seen.add(unique_key)
+    return seen
+
+
+def _import_checked_columns(step: dict[str, Any], field: str, columns: list[str]) -> list[str]:
+    raw_value = step.get(field, [])
+    if raw_value in (None, ""):
+        return []
+    if not isinstance(raw_value, list):
+        raise ValueError(f"sql.import.{field} 必须是字符串数组。")
+    result: list[str] = []
+    for index, item in enumerate(raw_value):
+        if not isinstance(item, str) or not item:
+            raise ValueError(f"sql.import.{field}[{index}] 必须是非空字符串。")
+        if item not in columns:
+            raise ValueError(f"sql.import.{field} 包含目标列中不存在的列：{item}")
+        result.append(item)
+    return result
+
+
+def _column_type_overrides(step: dict[str, Any]) -> dict[str, str]:
+    raw_value = step.get("column_types")
+    if raw_value in (None, ""):
+        return {}
+    if not isinstance(raw_value, dict):
+        raise ValueError("sql.import.column_types 必须是对象，格式为 {列名: SQL类型}。")
+    result: dict[str, str] = {}
+    for column, column_type in raw_value.items():
+        if not isinstance(column, str) or not column:
+            raise ValueError("sql.import.column_types 的列名必须是非空字符串。")
+        if not isinstance(column_type, str) or not column_type.strip():
+            raise ValueError(f"sql.import.column_types.{column} 必须是非空 SQL 类型字符串。")
+        result[column] = _safe_column_type(column_type)
+    return result
+
+
+def _safe_column_type(value: str) -> str:
+    text = value.strip()
+    forbidden_tokens = (";", "--", "/*", "*/", "\x00")
+    if any(token in text for token in forbidden_tokens):
+        raise ValueError(f"sql.import.column_types 包含不安全的 SQL 类型片段：{value}")
+    return text
+
+
 def _rows_columns(rows: list[dict[str, Any]]) -> list[str]:
     columns: list[str] = []
     seen: set[str] = set()
@@ -840,7 +1199,9 @@ def _create_import_table(
     if not columns:
         raise ValueError("sql.import create_table=true 需要至少一列。")
     table = _safe_identifier(str(step["table"]), field_name="table")
-    column_defs = ", ".join(f"{column} {_import_column_type(opened.database_type, rows, column)}" for column in columns)
+    _validate_import_column_config(step, columns)
+    column_types = _column_type_overrides(step)
+    column_defs = ", ".join(f"{column} {_import_column_type(opened.database_type, rows, column, column_types)}" for column in columns)
     if opened.database_type == "oracle":
         raise ValueError("Oracle 暂不支持 sql.import.create_table=true；请先用 execute 建表。")
     if opened.database_type == "sqlserver":
@@ -859,8 +1220,10 @@ def _create_import_table(
         _close_cursor(cursor)
 
 
-def _import_column_type(database_type: str, rows: list[dict[str, Any]], column: str) -> str:
+def _import_column_type(database_type: str, rows: list[dict[str, Any]], column: str, column_types: dict[str, str]) -> str:
     _safe_identifier(column, field_name="columns")
+    if column in column_types:
+        return column_types[column]
     values = [row.get(column) for row in rows if row.get(column) is not None and row.get(column) != ""]
     if not values:
         return _text_column_type(database_type)
@@ -903,6 +1266,27 @@ def _write_export_rows(path: Path, *, target_type: str, rows: list[dict[str, Any
         path.write_text(json.dumps(safe_rows, ensure_ascii=False, indent=2), encoding="utf-8")
         return
     _write_export_excel(path, safe_rows, columns=columns, sheet=sheet)
+
+
+@contextmanager
+def _open_export_stream(path: Path, *, target_type: str, columns: list[str]) -> Any:
+    if target_type == "csv":
+        with path.open("w", encoding="utf-8-sig", newline="") as file:
+            writer = csv.DictWriter(file, fieldnames=columns)
+            writer.writeheader()
+
+            def write_rows(rows: list[dict[str, Any]]) -> None:
+                writer.writerows(_json_safe(rows))
+
+            yield write_rows
+        return
+    with path.open("w", encoding="utf-8", newline="\n") as file:
+
+        def write_rows(rows: list[dict[str, Any]]) -> None:
+            for row in rows:
+                file.write(json.dumps(_json_safe(row), ensure_ascii=False, separators=(",", ":")) + "\n")
+
+        yield write_rows
 
 
 def _write_export_excel(path: Path, rows: list[dict[str, Any]], *, columns: list[str], sheet: Any) -> None:

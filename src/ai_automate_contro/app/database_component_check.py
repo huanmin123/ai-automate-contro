@@ -270,7 +270,9 @@ def _run_sqlite_features_case(project_root: Path) -> dict[str, Any]:
                     _expect("inspect_account_columns", {item.get("name") for item in inspect.get("columns", [])} >= {"id", "name", "balance"}),
                     _expect("import_input_rows", import_result.get("input_rows") == 2),
                     _expect("import_create_table", import_result.get("create_table") is True),
+                    _expect("import_stream_flag", import_result.get("stream") is True),
                     _expect("export_row_count", export_result.get("row_count") == 2),
+                    _expect("export_stream_flag", export_result.get("stream") is True),
                     _expect("balance_after_transaction", _nested_value(variables, ("balance_after_tx", "value")) == 37),
                 ]
             )
@@ -475,6 +477,14 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "source_type": "csv",
                 "table": "imported_accounts",
                 "create_table": True,
+                "stream": True,
+                "required_columns": ["id", "name"],
+                "unique_columns": ["id"],
+                "column_types": {
+                    "id": "INTEGER",
+                    "name": "TEXT",
+                    "balance": "INTEGER",
+                },
                 "batch_size": 1,
                 "result_path": "import-result.json",
                 "save_as": "import_result",
@@ -485,6 +495,8 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "connection": "{{sqlite_connection}}",
                 "sql": "select id, name, balance from imported_accounts order by id",
                 "target_path": "imported-accounts-export.csv",
+                "stream": True,
+                "fetch_size": 1,
                 "result_path": "export-result.json",
                 "save_as": "export_result",
             },
@@ -834,12 +846,21 @@ def _run_real_mongo_case(
             evidence.append(_expect("ping_result", isinstance(ping_result, dict) and str(ping_result.get("ok")) in {"1", "1.0"}))
             if allow_writes:
                 insert_result = _read_json(output_root / "mongodb-insert.json")
+                create_index_result = _read_json(output_root / "mongodb-create-index.json")
+                list_indexes_result = _read_json(output_root / "mongodb-list-indexes.json")
                 find_result = _read_json(output_root / "mongodb-find.json")
+                drop_index_result = _read_json(output_root / "mongodb-drop-index.json")
                 delete_result = _read_json(output_root / "mongodb-delete.json")
                 evidence.extend(
                     [
                         _expect("inserted_count", _nested_value(insert_result, ("result", "inserted_count")) == 2),
+                        _expect("created_index_name", _nested_value(create_index_result, ("result", "name")) == "aic_id_idx"),
+                        _expect(
+                            "listed_created_index",
+                            any(item.get("name") == "aic_id_idx" for item in list_indexes_result.get("result", [])),
+                        ),
                         _expect("find_row_count", isinstance(find_result.get("result"), list) and len(find_result["result"]) == 2),
+                        _expect("dropped_index_name", _nested_value(drop_index_result, ("result", "dropped")) == "aic_id_idx"),
                         _expect("deleted_count", _nested_value(delete_result, ("result", "deleted_count")) == 2),
                     ]
                 )
@@ -880,6 +901,24 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                 },
                 {
                     "action": "mongo",
+                    "type": "create_index",
+                    "connection": "{{mongo_connection}}",
+                    "collection": "{{mongo_collection}}",
+                    "keys": {"id": 1},
+                    "name": "aic_id_idx",
+                    "result_path": "mongodb-create-index.json",
+                    "save_as": "mongo_create_index",
+                },
+                {
+                    "action": "mongo",
+                    "type": "list_indexes",
+                    "connection": "{{mongo_connection}}",
+                    "collection": "{{mongo_collection}}",
+                    "result_path": "mongodb-list-indexes.json",
+                    "save_as": "mongo_indexes",
+                },
+                {
+                    "action": "mongo",
                     "type": "find",
                     "connection": "{{mongo_connection}}",
                     "collection": "{{mongo_collection}}",
@@ -888,6 +927,15 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "limit": 10,
                     "result_path": "mongodb-find.json",
                     "save_as": "mongo_find",
+                },
+                {
+                    "action": "mongo",
+                    "type": "drop_index",
+                    "connection": "{{mongo_connection}}",
+                    "collection": "{{mongo_collection}}",
+                    "name": "aic_id_idx",
+                    "result_path": "mongodb-drop-index.json",
+                    "save_as": "mongo_drop_index",
                 },
                 {
                     "action": "mongo",

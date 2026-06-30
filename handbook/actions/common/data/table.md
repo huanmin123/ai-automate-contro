@@ -4,12 +4,12 @@
 
 处理变量中的表格行数组。`table` 不关心数据来自 Excel、CSV、JSON、SQL 还是页面提取结果；它只处理已经在变量池中的数组。
 
-当前支持筛选、选列、排序、去重、分组聚合、连接、派生列、改列名、填补空值、类型转换、透视汇总、值替换、拆列、合列、日期解析和查表补字段。
+当前支持筛选、选列、排序、去重、分组聚合、连接、派生列、改列名、填补空值、类型转换、透视汇总、值替换、拆列、合列、日期解析、查表补字段、表头归一化、多来源合并和模糊查表。
 
 ## 必填字段
 
 - `action`: 固定写成 `table`
-- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`、`replace`、`split_column`、`merge_columns`、`date_parse`、`lookup`
+- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`、`replace`、`split_column`、`merge_columns`、`date_parse`、`lookup`、`normalize_headers`、`union`、`fuzzy_lookup`
 - `source`: 源行数组，通常写完整变量引用，例如 `{{employees}}`
 - `save_as`: 保存结果变量名
 
@@ -33,6 +33,9 @@
 | `merge_columns` | `columns`, `into` | 把多列拼成一列 |
 | `date_parse` | `columns` | 把日期文本统一成 ISO 或指定格式 |
 | `lookup` | `right`, `on` 或 `left_on` + `right_on` | 按 key 查右表字段并写入当前行 |
+| `normalize_headers` | 无 | 归一化或映射字典行的列名 |
+| `union` | 无 | 合并多个行数组，并按统一列集合补空 |
+| `fuzzy_lookup` | `right`, `on` 或 `left_on` + `right_on` | 按文本相似度查右表字段并写入当前行 |
 
 ## 示例
 
@@ -319,6 +322,56 @@
 }
 ```
 
+归一化表头：
+
+```json
+{
+  "action": "table",
+  "type": "normalize_headers",
+  "source": "{{raw_rows}}",
+  "columns": {
+    " 姓名 ": "姓名",
+    "部门 编码": "部门编码"
+  },
+  "case": "keep",
+  "save_as": "normalized_rows"
+}
+```
+
+合并多个来源：
+
+```json
+{
+  "action": "table",
+  "type": "union",
+  "source": "{{cleaned_rows}}",
+  "sources": ["{{normalized_rows}}"],
+  "columns": ["姓名", "部门编码", "状态", "入职日期"],
+  "fill_missing": "",
+  "save_as": "union_rows"
+}
+```
+
+模糊查表：
+
+```json
+{
+  "action": "table",
+  "type": "fuzzy_lookup",
+  "source": "{{union_rows}}",
+  "right": "{{department_aliases}}",
+  "left_on": "部门全称",
+  "right_on": "部门名称",
+  "values": {
+    "部门编码标准": "部门编码"
+  },
+  "threshold": 0.8,
+  "ignore_spaces": true,
+  "score_column": "匹配分",
+  "save_as": "matched_rows"
+}
+```
+
 ## `filter` 操作符
 
 `where` 的字段值可以直接写期望值，表示相等；也可以写对象：
@@ -383,6 +436,28 @@
 - 两边同名 key 用 `on`；左右 key 不同时用 `left_on` 和 `right_on`。
 - `values` 不写时复制右表所有非 key 列；写字符串或数组时复制同名列；写对象时表示右表列名到输出列名的映射。
 - 多条右表命中同一个 key 时使用第一条。
+
+## `normalize_headers` 规则
+
+- `columns` 是可选的旧列名到新列名映射，优先级高于自动归一化。
+- `case` 支持 `keep`、`lower`、`upper`、`snake`，默认 `keep`。
+- `separator` 默认 `_`，用于替换列名中的空白或分隔符。
+- 重名列会自动追加 `_2`、`_3` 后缀。
+
+## `union` 规则
+
+- `source` 是第一组行数组，`sources` 是额外行数组列表。
+- `columns` 不写时按首次出现顺序收集所有列；写了则按指定列顺序输出。
+- 缺失列填 `fill_missing`，默认空字符串。
+
+## `fuzzy_lookup` 规则
+
+- `right` 是右侧查找表；两边同名 key 用 `on`，不同 key 用 `left_on` 和 `right_on`。
+- `values` 规则同 `lookup`。
+- `threshold` 是 0 到 1 的相似度门槛，默认 `0.9`。
+- `ignore_case` 默认 `true`，`trim` 默认 `true`，`ignore_spaces` 默认 `false`。
+- `score_column` 可选；提供后会写入匹配分。
+- 该操作使用内置轻量相似度算法，适合小中型维表；大数据量或复杂匹配优先使用数据库或专项脚本。
 
 ## 规则
 

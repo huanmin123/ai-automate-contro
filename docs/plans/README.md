@@ -19,4 +19,5 @@
 - [计划-0014-SQL复制同步与DuckDB本地分析落地](./计划-0014-SQL复制同步与DuckDB本地分析落地.md)
 - [计划-0015-SQL复制分批Stream处理落地](./计划-0015-SQL复制分批Stream处理落地.md)
 - [计划-0016-数据库生态 SQL Server/Mongo/Inspect 增强](./计划-0016-数据库生态SQLServerMongoInspect增强.md)
+- [计划-0017-数据库导入导出与 Mongo 索引增强](./计划-0017-数据库导入导出与Mongo索引增强.md)
 - [计划-0014-Excel 文件与表格处理落地](./计划-0014-Excel文件与表格处理落地.md)
