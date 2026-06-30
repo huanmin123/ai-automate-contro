@@ -326,9 +326,16 @@ def validate_action_specific_fields(
                         )
 
     if action == "sql":
-        for field in ("rows_path", "result_path"):
+        for field in ("rows_path", "result_path", "target_path"):
             if field in step:
                 validate_output_path(step[field], "sql", location, package_root, issues)
+        validate_package_input_path(
+            step.get("source_path"),
+            f"{location}.source_path",
+            package_root,
+            issues,
+            step=step,
+        )
 
     if action == "redis":
         if "result_path" in step:

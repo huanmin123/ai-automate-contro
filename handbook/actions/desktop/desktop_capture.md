@@ -78,7 +78,7 @@
 - `path`: 必填，相对于 `output/desktop-screenshots/`。
 - `target`: 可选，`screen`、`region`、`window`、`element`。省略时默认全屏；省略 `target` 但提供 `region` 时按区域截图处理。
 - `region`: `target=region` 时必填，格式为 `{"x": 0, "y": 0, "width": 800, "height": 600}`。`x/y` 可以为负，用于副屏位于主屏左侧或上方的虚拟屏幕坐标；`width/height` 必须大于 `0`。`target=window/element` 不能同时使用 `region`。
-- Window Query: `target=window/element` 必填至少一种窗口定位字段，例如 `title_contains`、`title_regex`、`process_name`、`class_name`、`window_id`。
+- Window Query: `target=window/element` 必填至少一种窗口定位字段，例如 `profile`、`title_contains`、`title_regex`、`process_name`、`class_name`、`window_id`。profile 见 [app_profile](./app_profile.md)。
 - Element Locator: `target=element` 必填至少一种控件定位字段，例如 `automation_id`、`name_contains`、`text_contains`、`control_type`、`role`、`element_id`。
 - `state`: 仅 `target=element` 可用，`exists`、`enabled`、`disabled`、`focused`，默认 `exists`。
 - `timeout_ms`、`interval_ms`: 等待窗口或控件的超时与轮询间隔。
@@ -153,7 +153,7 @@
 - `include_invisible`: 可选，窗口列表是否包含不可见窗口，默认 `false`。
 - `include_elements`: 可选，是否返回选中窗口的控件摘要，默认 `false`。
 - `include_screenshot`: 可选，是否额外保存全屏截图；截图文件与 JSON 同名、扩展名为 `.png`，默认 `false`。
-- Window Query: 可选，用于选择目标窗口，例如 `title_contains`、`process_name`、`window_id`。省略时使用当前窗口、聚焦窗口或第一个可见窗口。
+- Window Query: 可选，用于选择目标窗口，例如 `profile`、`title_contains`、`process_name`、`window_id`。省略时使用当前窗口、聚焦窗口或第一个可见窗口。
 - Element Locator: 可选，`include_elements=true` 时过滤控件，例如 `automation_id`、`name_contains`、`text_contains`、`control_type`。
 - `max_windows`、`max_depth`、`max_elements`、`text_limit`: 可选，限制返回窗口数、控件树深度、控件数和文本长度。
 - `save_as`: 可选。

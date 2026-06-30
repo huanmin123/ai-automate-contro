@@ -27,9 +27,11 @@
 - `process_name`: 进程名包含文本。
 - `class_name`: Windows 窗口类名包含文本；macOS 通常为空。
 - `window_id`: 后端返回的窗口 id。
+- `profile`: App/窗口预设，见 [app_profile](./app_profile.md)。profile 可提供 `window_query`。
+- `app_profile`: `profile` 的别名。
 - `match_index`: 多个候选时的索引，默认 `0`。它不能单独作为定位字段。
 
-优先使用 `title_contains` + `app/process_name` 缩小范围；只用 `window_id` 时要注意窗口重建后 id 可能变化。
+优先使用 `profile` 或 `title_contains` + `app/process_name` 缩小范围；只用 `window_id` 时要注意窗口重建后 id 可能变化。
 
 ## type=list
 
@@ -177,6 +179,7 @@ payload 主要字段：
   "action": "desktop_window",
   "desktop": "desk",
   "type": "focus",
+  "profile": "notepad",
   "title_contains": "demo.txt",
   "save_as": "focused_window"
 }

@@ -13,6 +13,7 @@ from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.plans.results import PlanResult, write_report_markdown, write_result_json
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.state import RunStateWriter
+from ai_automate_contro.engine.desktop.run_protection import desktop_run_mutex_context
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp, sanitize_name
 
@@ -93,8 +94,21 @@ def execute_plan(
         state.state_writer.mark_started()
         state.logger.log("info", "plan started", run_name=resolved_run_name, plan_path=str(resolved_plan_path) if resolved_plan_path else None)
         executor = ActionExecutor(state)
+        desktop_mutex_context = (
+            desktop_run_mutex_context(
+                project_root=root_path,
+                plan_dir=plan_dir,
+                output_dir=resolved_output_dir,
+                run_name=resolved_run_name,
+                plan_config=plan_config,
+                logger=logger,
+            )
+            if automation_type == "desktop"
+            else nullcontext(None)
+        )
         try:
-            executor.run(plan.get("steps", []))
+            with desktop_mutex_context:
+                executor.run(plan.get("steps", []))
         except KeyboardInterrupt as error:
             status = "stopped"
             error_message = str(error) or "用户中断。"

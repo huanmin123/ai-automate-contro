@@ -24,7 +24,7 @@
 | `action` | 是 | 固定为 `desktop_wait` |
 | `desktop` | 是 | `open_desktop.name` |
 | `type` | 是 | 当前固定为 `window` |
-| Window Query | 是 | `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id` 至少一个 |
+| Window Query | 是 | `profile` 或 `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id` 至少一个；profile 见 [app_profile](./app_profile.md) |
 | `state` | 否 | `exists`、`not_exists`、`focused`，默认 `exists` |
 | `timeout_ms` | 否 | 超时毫秒，默认 `10000` |
 | `interval_ms` | 否 | 轮询间隔，默认 `250` |

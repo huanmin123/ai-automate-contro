@@ -35,7 +35,11 @@
 - `process_name`
 - `class_name`
 - `window_id`
+- `profile`
+- `app_profile`
 - `match_index`
+
+`profile` / `app_profile` 是 App/窗口预设，见 [app_profile](./app_profile.md)，可以提供 Window Query。
 
 `match_index` 只能在多个窗口候选时选择索引，不能单独作为定位字段。
 

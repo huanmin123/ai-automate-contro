@@ -23,7 +23,8 @@
 
 - `desktop`: 必填，`open_desktop.name`。
 - `state`: `exists`、`not_exists`、`focused`，默认 `exists`。
-- `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id`: 至少提供一种窗口定位字段。
+- `profile`: 可选，App/窗口预设，见 [app_profile](./app_profile.md)。
+- `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id`: 没有 `profile` 时至少提供一种窗口定位字段。
 - `match_index`: 多个候选时的索引，默认 `0`。
 - `timeout_ms`: 默认 `1000`。
 - `interval_ms`: 默认 `100`。
@@ -95,7 +96,7 @@
 字段：
 
 - `desktop`: 必填，`open_desktop.name`。
-- Window Query: `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id` 至少一种。
+- Window Query: `profile` 或 `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id` 至少一种。
 - Element Locator: `element_id`、`automation_id`、`name`、`name_contains`、`name_regex`、`text`、`text_contains`、`text_regex`、`control_type`、`role`、`element_class_name` 至少一种。
 - `state`: `exists`、`not_exists`、`enabled`、`disabled`、`focused`，默认 `exists`。
 - `expected`: 可选，控件文本期望值。

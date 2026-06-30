@@ -49,6 +49,12 @@ db-oracle = [
 db-duckdb = [
   "duckdb>=1.1.0,<2.0.0",
 ]
+db-sqlserver = [
+  "pyodbc>=5.2.0,<6.0.0",
+]
+db-mongodb = [
+  "pymongo>=4.8.0,<5.0.0",
+]
 database-local = [
   "duckdb>=1.1.0,<2.0.0",
 ]
@@ -57,6 +63,7 @@ database-sql = [
   "PyMySQL>=1.1.0,<2.0.0",
   "oracledb>=4.0.0,<5.0.0",
   "duckdb>=1.1.0,<2.0.0",
+  "pyodbc>=5.2.0,<6.0.0",
 ]
 database-basic = [
   "psycopg[binary]>=3.2.0,<4.0.0",
@@ -69,6 +76,8 @@ database-all = [
   "redis>=5.0.0,<7.0.0",
   "oracledb>=4.0.0,<5.0.0",
   "duckdb>=1.1.0,<2.0.0",
+  "pyodbc>=5.2.0,<6.0.0",
+  "pymongo>=4.8.0,<5.0.0",
 ]
 package = [
   "pyinstaller>=6.20.0,<7.0.0",

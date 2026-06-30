@@ -28,11 +28,13 @@
 - `headers`: 仅 `type: csv` 和 `type: excel` 有效，自定义表头
 - `indent`: 仅 `type: json` 和 `type: variables` 有效，默认 `2`
 - `sheet`: 仅 `type: excel` 有效，工作表名称，默认 `Sheet1`。
-- `sheets`: 仅 `type: excel` 有效，多工作表写入配置数组；每项可包含 `sheet`、`value`/`rows`、`cells` 和本节 Excel 选项。
+- `sheets`: 仅 `type: excel` 有效，多工作表写入配置数组；每项可包含 `sheet`、`value`/`rows`、`cells`、`range`、`formula_columns` 和本节 Excel 选项。
 - `start_cell`: 仅 `type: excel` 有效，表格数据写入的左上角单元格，默认 `A1`。
+- `range`: 仅 `type: excel` 有效，A1 写入区域，例如 `B4:H20`；会限制表格不能写出区域。
 - `template_path`: 仅 `type: excel` 有效，模板工作簿输入路径。
 - `write_mode`: 仅 `type: excel` 有效，`create`、`replace_sheet`、`append_rows`、`overlay_cells`。
 - `cells`: 仅 `type: excel` 有效，A1 单元格到值的对象。
+- `formula_columns`: 仅 `type: excel` 有效，给字典行追加公式列；公式可用 `{row}` 和 `{列名}` 引用当前行单元格。
 - `freeze_header`: 仅 `type: excel` 有效，冻结首行。
 - `auto_filter`: 仅 `type: excel` 有效，给首行添加筛选。
 
@@ -143,6 +145,29 @@
   }
 }
 ```
+
+基于模板保留样式并写入指定区域：
+
+```json
+{
+  "action": "write",
+  "type": "excel",
+  "template_path": "resources/报表模板.xlsx",
+  "path": "月度报表.xlsx",
+  "sheet": "明细",
+  "range": "B4:F20",
+  "value": "{{detail_rows}}",
+  "formula_columns": {
+    "合计": "={金额}+{税额}"
+  },
+  "cells": {
+    "B2": "{{report_month}}",
+    "F2": "{{generated_at}}"
+  }
+}
+```
+
+当同时提供 `template_path` 和 `range` 且没有显式写 `write_mode` 时，默认按 `overlay_cells` 写入，保留模板其它区域的样式、标题区和汇总区。
 
 导出变量：
 

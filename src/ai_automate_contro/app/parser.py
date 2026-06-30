@@ -321,7 +321,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     database_components_parser.add_argument(
         "--include-real-db",
         action="store_true",
-        help="同时尝试 MySQL、PostgreSQL、Redis、Oracle 和 Elasticsearch 真实服务回归。",
+        help="同时尝试 MySQL、PostgreSQL、Redis、Oracle、SQL Server、MongoDB 和 Elasticsearch 真实服务回归。",
     )
     database_components_parser.add_argument(
         "--allow-writes",
@@ -337,7 +337,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--only",
         action="append",
         default=[],
-        help="只运行指定用例；可重复传入，也可用逗号分隔。可选 sqlite-basic、sqlite-features、mysql、postgresql、redis、oracle、elasticsearch。",
+        help="只运行指定用例；可重复传入，也可用逗号分隔。可选 sqlite-basic、sqlite-features、mysql、postgresql、redis、oracle、sqlserver、mongodb、elasticsearch。",
     )
     desktop_env_parser = self_check_subparsers.add_parser(
         "desktop-env",

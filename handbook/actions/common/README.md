@@ -17,7 +17,7 @@
 | `variable` | 设置或复制变量 | `type`、`name`、`value` | 拼装后续步骤参数 |
 | `read` | 读取文本、JSON、CSV、Excel | `type`、`path` | 读取输入资源或本机文件 |
 | `write` | 写 JSON、文本、CSV、Excel、变量 | `type`、`path`、`value`/`cells`/`sheets` | 输出结果到当前 plan 包 `output/` |
-| `table` | 处理表格行数组 | `type`、`source`、`save_as` | Excel/CSV/JSON/SQL 读入后的筛选、清洗、改列名、汇总、连接和透视 |
+| `table` | 处理表格行数组 | `type`、`source`、`save_as` | Excel/CSV/JSON/SQL 读入后的筛选、清洗、拆列、合列、日期解析、查表、汇总、连接和透视 |
 | `http` | 发 HTTP 请求 | `method`、`url`、`headers`、`body` | 调接口、下载文本、检查服务 |
 | `sql` | 访问关系型数据库 | `type`、`connection`、`sql`/`table` | SQLite 本地落库、PG/MySQL/SQL Server 查询和更新、事务、schema 探测和批量写入 |
 | `mongo` | 访问 MongoDB | `type`、`connection`、`collection`/`command` | 文档写入、条件查询、更新、聚合和原生命令 |

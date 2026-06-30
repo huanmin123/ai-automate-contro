@@ -27,11 +27,15 @@
 
 - `split_lines`: 仅 `type: text` 有效，设置为 `true` 时按行拆分，并过滤空行。
 - `sheet`: 仅 `type: excel` 有效，工作表名称或从 0 开始的索引，默认第一个工作表。
-- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode` 等读取选项的对象。
+- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode`、`preview_rows`、`max_cells` 等读取选项的对象。
 - `range`: 仅 `type: excel` 有效，A1 范围，例如 `A1:F100`。
 - `header_row`: 仅 `type: excel` 且 `mode=records` 有效，表头所在行号。
 - `headers`: 仅 `type: excel` 且 `mode=records` 有效，自定义表头数组。
 - `mode`: 仅 `type: excel` 有效，`records`、`matrix`、`cells`，默认 `records`。
+- `skip_blank_rows`: 仅 `type: excel` 有效，是否跳过空白行，默认 `true`。
+- `max_rows`: 仅 `type: excel` 有效，读取结果最大行数，默认 `10000`。
+- `max_cells`: 仅 `type: excel` 有效，读取区域最大单元格数，默认 `500000`。
+- `preview_rows`: 仅 `type: excel` 有效，只预览前 N 行数据；适合先看结构、避免一次读入超大表。
 - `save_meta_as`: 仅 `type: excel` 有效，额外保存工作簿、sheet、range、表头和行列数元数据。
 
 ## 示例
@@ -112,6 +116,22 @@
 ```
 
 读取结果可以用 `{{workbook.employees}}`、`{{workbook.departments}}` 这样的别名引用。没有写 `name` 时，结果键使用实际 sheet 名。
+
+预览大 Excel 的结构：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/原始数据.xlsx",
+  "sheet": "Sheet1",
+  "range": "A1:Z200000",
+  "preview_rows": 20,
+  "max_cells": 2000,
+  "save_as": "preview_rows",
+  "save_meta_as": "preview_meta"
+}
+```
 
 读取文本并按行拆分：
 

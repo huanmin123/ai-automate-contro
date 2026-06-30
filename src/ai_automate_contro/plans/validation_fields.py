@@ -66,10 +66,16 @@ SQL_CONNECTION_TYPES = {
     "oracle",
     "oracledb",
     "duckdb",
+    "mssql",
+    "sqlserver",
+    "sql_server",
+    "sql-server",
 }
 SQL_ROW_MODES = {"dict", "list"}
 SQL_BULK_MODES = {"insert", "replace", "upsert"}
+SQL_FILE_TABLE_TYPES = {"csv", "json", "jsonl", "excel", "xlsx", "xlsm"}
 SQL_TRANSACTION_STEP_TYPES = {"query", "scalar", "execute", "executemany", "bulk_insert"}
+MONGO_CONNECTION_TYPES = {"mongo", "mongodb"}
 REDIS_VALUE_TYPES = {"set", "lpush", "rpush"}
 EXCEL_A1_RE = re.compile(r"^[A-Za-z]{1,3}[1-9][0-9]*(?::[A-Za-z]{1,3}[1-9][0-9]*)?$")
 TABLE_FILTER_OPERATORS = {
@@ -243,10 +249,35 @@ def validate_type_specific_required_fields(
             required = ("sql", "params_list")
         elif step_type == "bulk_insert":
             required = ("table", "rows")
+        elif step_type == "import":
+            required = ("source_path", "table")
+        elif step_type == "export":
+            required = ("sql", "target_path")
         elif step_type == "copy":
             required = ("sql", "target_connection", "table")
         elif step_type == "transaction":
             required = ("steps",)
+    elif action == "mongo":
+        if step_type in {"find", "find_one"}:
+            required = ("collection",)
+        elif step_type == "insert_one":
+            required = ("collection", "document")
+        elif step_type == "insert_many":
+            required = ("collection", "documents")
+        elif step_type in {"update_one", "update_many"}:
+            required = ("collection", "filter", "update")
+        elif step_type in {"delete_one", "delete_many"}:
+            required = ("collection", "filter")
+        elif step_type == "aggregate":
+            required = ("collection", "pipeline")
+        elif step_type == "command":
+            required = ("command",)
+        elif step_type == "list_indexes":
+            required = ("collection",)
+        elif step_type == "create_index":
+            required = ("collection", "keys")
+        elif step_type == "drop_index":
+            required = ("collection",)
     elif action == "redis":
         if step_type in {"get", "hgetall", "lrange", "smembers"}:
             required = ("key",)
@@ -291,8 +322,18 @@ def validate_type_specific_required_fields(
             required = ("columns",)
         elif step_type == "pivot":
             required = ("index", "columns")
-    elif action == "desktop_app" and step_type == "launch" and not any(step.get(field) for field in ("app", "path", "command")):
-        issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path 或 command 之一"))
+        elif step_type == "split_column":
+            required = ("column", "into", "separator")
+        elif step_type == "merge_columns":
+            required = ("columns", "into")
+        elif step_type == "date_parse":
+            required = ("columns",)
+        elif step_type == "lookup":
+            required = ("right",)
+    elif action == "desktop_app" and step_type == "launch" and not any(
+        step.get(field) for field in ("app", "path", "command", "profile", "app_profile")
+    ):
+        issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path、command 或 profile 之一"))
     elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
         _validate_window_query(step, action, "launch wait_for_window", location, issues)
     elif action == "desktop_window" and step_type in {"find", "focus", "close", "minimize", "maximize", "restore"}:
@@ -520,6 +561,9 @@ def _validate_optional_field_values(
     if action == "sql":
         _validate_sql_fields(step, step_type, location, issues)
         return
+    if action == "mongo":
+        _validate_mongo_fields(step, step_type, location, issues)
+        return
     if action == "redis":
         _validate_redis_fields(step, step_type, location, issues)
         return
@@ -595,6 +639,8 @@ def _validate_read_fields(
     _validate_nonempty_string_list(step, "headers", location, issues)
     _validate_bool(step, "skip_blank_rows", location, issues)
     _validate_int(step, "max_rows", location, issues, minimum=1)
+    _validate_int(step, "max_cells", location, issues, minimum=1)
+    _validate_int(step, "preview_rows", location, issues, minimum=1)
     _validate_string(step, "save_meta_as", location, issues)
     _validate_enum(step, "mode", {"records", "matrix", "cells"}, location, issues)
     _validate_enum(step, "formula_mode", {"cached", "formula"}, location, issues)
@@ -629,9 +675,11 @@ def _validate_write_fields(
         return
     _validate_sheet_field(step, "sheet", location, issues)
     _validate_a1_cell(step, "start_cell", location, issues)
+    _validate_a1_write_range(step, "range", location, issues)
     _validate_string(step, "template_path", location, issues)
     _validate_string(step, "table_name", location, issues)
     _validate_nonempty_string_list(step, "headers", location, issues)
+    _validate_dict(step, "formula_columns", location, issues)
     _validate_dict(step, "cells", location, issues)
     _validate_list(step, "sheets", location, issues)
     _validate_dict(step, "number_format", location, issues)
@@ -643,6 +691,7 @@ def _validate_write_fields(
     _validate_enum(step, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
     _validate_string(step, "date_format", location, issues)
     _validate_excel_cells(step.get("cells"), location, "cells", issues)
+    _validate_excel_formula_columns(step.get("formula_columns"), location, "formula_columns", issues)
     sheets = step.get("sheets")
     if isinstance(sheets, list) and not _is_template(sheets):
         if not sheets:
@@ -657,7 +706,9 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
         return
     _validate_sheet_field(value, "sheet", location, issues)
     _validate_a1_cell(value, "start_cell", location, issues)
+    _validate_a1_write_range(value, "range", location, issues)
     _validate_nonempty_string_list(value, "headers", location, issues)
+    _validate_dict(value, "formula_columns", location, issues)
     _validate_dict(value, "cells", location, issues)
     _validate_dict(value, "number_format", location, issues)
     _validate_dict(value, "column_widths", location, issues)
@@ -668,6 +719,7 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
     _validate_string(value, "table_name", location, issues)
     _validate_enum(value, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
     _validate_excel_cells(value.get("cells"), location, "cells", issues)
+    _validate_excel_formula_columns(value.get("formula_columns"), location, "formula_columns", issues)
     if not any(field in value for field in ("value", "rows", "cells")):
         issues.append(ValidationIssue(location, "sheets 每一项需要 value、rows 或 cells 之一"))
 
@@ -689,6 +741,8 @@ def _validate_excel_read_sheet(value: Any, location: str, issues: list[Validatio
     _validate_nonempty_string_list(value, "headers", location, issues)
     _validate_bool(value, "skip_blank_rows", location, issues)
     _validate_int(value, "max_rows", location, issues, minimum=1)
+    _validate_int(value, "max_cells", location, issues, minimum=1)
+    _validate_int(value, "preview_rows", location, issues, minimum=1)
     _validate_enum(value, "mode", {"records", "matrix", "cells"}, location, issues)
     _validate_enum(value, "formula_mode", {"cached", "formula"}, location, issues)
     _validate_enum(value, "date_format", {"iso", "text"}, location, issues)
@@ -700,6 +754,25 @@ def _validate_excel_cells(value: Any, location: str, field: str, issues: list[Va
     for address in value:
         if not isinstance(address, str) or not EXCEL_A1_RE.match(address):
             issues.append(ValidationIssue(location, f"{field} 的 key 必须是 A1 单元格地址：{address}"))
+
+
+def _validate_excel_formula_columns(value: Any, location: str, field: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value) or value in (None, ""):
+        return
+    if not isinstance(value, dict):
+        return
+    if not value:
+        issues.append(ValidationIssue(location, f"{field} 必须是非空对象"))
+        return
+    for column, spec in value.items():
+        if not isinstance(column, str) or not column:
+            issues.append(ValidationIssue(location, f"{field} 的列名必须是非空字符串"))
+            continue
+        if isinstance(spec, str) and spec:
+            continue
+        if isinstance(spec, dict) and isinstance(spec.get("formula"), str) and spec["formula"]:
+            continue
+        issues.append(ValidationIssue(location, f"{field}.{column} 必须是公式字符串或包含 formula 的对象"))
 
 
 def _validate_table_fields(
@@ -822,6 +895,55 @@ def _validate_table_fields(
         agg = step.get("agg", "sum" if step.get("values") else "count")
         if agg != "count" and not step.get("values"):
             issues.append(ValidationIssue(location, "table.pivot 使用 sum、avg、min 或 max 时必须提供 values"))
+        return
+    if step_type == "replace":
+        _validate_dict(step, "columns", location, issues)
+        _validate_dict(step, "values", location, issues)
+        columns = step.get("columns")
+        values = step.get("values")
+        if not columns and not values:
+            issues.append(ValidationIssue(location, "table.replace 需要 columns 或 values 至少一个非空对象"))
+        if isinstance(columns, dict):
+            for column, replacements in columns.items():
+                if not isinstance(column, str) or not column:
+                    issues.append(ValidationIssue(location, "table.replace.columns 的列名必须是非空字符串"))
+                if not isinstance(replacements, dict) or not replacements:
+                    issues.append(ValidationIssue(location, "table.replace.columns 每列替换规则必须是非空对象"))
+        return
+    if step_type == "split_column":
+        _validate_string(step, "column", location, issues)
+        _validate_string_or_nonempty_string_list(step, "into", location, issues)
+        _validate_string(step, "separator", location, issues)
+        _validate_bool(step, "regex", location, issues)
+        _validate_int(step, "maxsplit", location, issues, minimum=0)
+        _validate_bool(step, "remove_source", location, issues)
+        return
+    if step_type == "merge_columns":
+        _validate_string_or_nonempty_string_list(step, "columns", location, issues)
+        _validate_string(step, "into", location, issues)
+        if "separator" in step and not _is_template(step["separator"]) and not isinstance(step["separator"], str):
+            issues.append(ValidationIssue(location, "table.merge_columns.separator 必须是字符串"))
+        _validate_bool(step, "skip_empty", location, issues)
+        _validate_bool(step, "remove_sources", location, issues)
+        return
+    if step_type == "date_parse":
+        _validate_table_date_parse_columns(step.get("columns"), location, issues)
+        _validate_string(step, "output_format", location, issues)
+        return
+    if step_type == "lookup":
+        _validate_list(step, "right", location, issues)
+        _validate_string_or_nonempty_string_list(step, "on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "left_on", location, issues)
+        _validate_string_or_nonempty_string_list(step, "right_on", location, issues)
+        _validate_table_lookup_values(step.get("values"), location, issues)
+        if "on" not in step and not ("left_on" in step and "right_on" in step):
+            issues.append(ValidationIssue(location, "table.lookup 需要 on，或同时提供 left_on 和 right_on"))
+        if "on" in step and ("left_on" in step or "right_on" in step):
+            issues.append(ValidationIssue(location, "table.lookup 不能同时使用 on 和 left_on/right_on"))
+        left_on = step.get("left_on")
+        right_on = step.get("right_on")
+        if isinstance(left_on, list) and isinstance(right_on, list) and len(left_on) != len(right_on):
+            issues.append(ValidationIssue(location, "table.lookup.left_on 和 right_on 长度必须一致"))
 
 
 def _validate_table_aggregation_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
@@ -838,6 +960,41 @@ def _validate_table_aggregation_spec(value: Any, location: str, issues: list[Val
         return
     if not isinstance(source_column, str) or not source_column:
         issues.append(ValidationIssue(location, "table.group 聚合源列必须是非空字符串，count 可使用 *"))
+
+
+def _validate_table_date_parse_columns(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value):
+        return
+    if isinstance(value, str) and value:
+        return
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return
+    if isinstance(value, dict) and value:
+        for column, formats in value.items():
+            if not isinstance(column, str) or not column:
+                issues.append(ValidationIssue(location, "table.date_parse.columns 的列名必须是非空字符串"))
+            if isinstance(formats, str) and formats:
+                continue
+            if isinstance(formats, list) and all(isinstance(item, str) and item for item in formats):
+                continue
+            if formats in (None, ""):
+                continue
+            issues.append(ValidationIssue(location, "table.date_parse.columns 的格式必须是字符串或字符串数组"))
+        return
+    issues.append(ValidationIssue(location, "table.date_parse.columns 必须是非空字符串、字符串数组或对象"))
+
+
+def _validate_table_lookup_values(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value) or value in (None, ""):
+        return
+    if isinstance(value, str) and value:
+        return
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return
+    if isinstance(value, dict) and value:
+        _validate_string_mapping(value, location, "table.lookup.values", issues)
+        return
+    issues.append(ValidationIssue(location, "table.lookup.values 必须是非空字符串、字符串数组或对象"))
 
 
 def _validate_string_mapping(value: Any, location: str, field_name: str, issues: list[ValidationIssue]) -> None:
@@ -1084,6 +1241,11 @@ def _validate_sql_fields(
     _validate_connection_reference(step, "connection", location, issues, SQL_CONNECTION_TYPES)
     _validate_connection_reference(step, "target_connection", location, issues, SQL_CONNECTION_TYPES)
     _validate_string(step, "sql", location, issues)
+    _validate_string(step, "schema", location, issues)
+    _validate_string(step, "source_path", location, issues)
+    _validate_string(step, "target_path", location, issues)
+    _validate_string(step, "record_path", location, issues)
+    _validate_sheet_field(step, "sheet", location, issues)
     if "params" in step and not _is_template(step["params"]) and not isinstance(step["params"], (dict, list)):
         issues.append(ValidationIssue(location, "params 必须是对象或数组"))
     _validate_list(step, "params_list", location, issues)
@@ -1098,8 +1260,11 @@ def _validate_sql_fields(
     _validate_string(step, "rows_path", location, issues)
     _validate_string(step, "result_path", location, issues)
     _validate_bool(step, "include_rows", location, issues)
+    _validate_bool(step, "include_columns", location, issues)
+    _validate_bool(step, "include_indexes", location, issues)
     _validate_bool(step, "commit", location, issues)
     _validate_bool(step, "stream", location, issues)
+    _validate_bool(step, "create_table", location, issues)
     _validate_int(step, "max_rows", location, issues, minimum=1)
     _validate_int(step, "limit", location, issues, minimum=1)
     _validate_int(step, "offset", location, issues, minimum=0)
@@ -1110,7 +1275,9 @@ def _validate_sql_fields(
     _validate_int(step, "timeout_ms", location, issues, minimum=1)
     _validate_enum(step, "row_mode", SQL_ROW_MODES, location, issues)
     _validate_enum(step, "mode", SQL_BULK_MODES, location, issues)
-    if step_type in {"query", "scalar", "copy"}:
+    _validate_enum(step, "source_type", SQL_FILE_TABLE_TYPES, location, issues)
+    _validate_enum(step, "target_type", SQL_FILE_TABLE_TYPES, location, issues)
+    if step_type in {"query", "scalar", "copy", "export"}:
         if "limit" in step and "page_size" in step:
             issues.append(ValidationIssue(location, f"sql.{step_type} 不能同时使用 limit 和 page_size"))
         if "page" in step and "page_size" not in step:
@@ -1123,8 +1290,10 @@ def _validate_sql_fields(
             pass
         else:
             issues.append(ValidationIssue(location, "expect_affected_rows 必须是整数或整数数组"))
-    if step_type in {"bulk_insert", "copy"} and step.get("mode") == "upsert" and "conflict_keys" not in step:
+    if step_type in {"bulk_insert", "copy", "import"} and step.get("mode") == "upsert" and "conflict_keys" not in step:
         issues.append(ValidationIssue(location, f"sql.{step_type} mode=upsert 需要 conflict_keys"))
+    if step_type in {"import", "export"} and step.get("stream") is True:
+        issues.append(ValidationIssue(location, f"sql.{step_type} 暂不支持 stream=true"))
     if step_type == "copy" and step.get("stream") is True:
         if step.get("include_rows") is True:
             issues.append(ValidationIssue(location, "sql.copy stream=true 不支持 include_rows；请使用 rows_path=.jsonl 分批落盘"))
@@ -1198,6 +1367,110 @@ def _validate_sql_transaction_steps(
         _validate_sql_fields(item, child_type, item_location, issues)
 
 
+def _validate_mongo_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_connection_reference(step, "connection", location, issues, MONGO_CONNECTION_TYPES)
+    _validate_string(step, "database", location, issues)
+    _validate_string(step, "collection", location, issues)
+    _validate_string(step, "name", location, issues)
+    _validate_string(step, "index", location, issues)
+    _validate_string(step, "save_as", location, issues)
+    _validate_string(step, "result_path", location, issues)
+    _validate_dict(step, "filter", location, issues)
+    _validate_dict(step, "document", location, issues)
+    _validate_dict(step, "update", location, issues)
+    _validate_dict(step, "partial_filter_expression", location, issues)
+    _validate_dict(step, "partialFilterExpression", location, issues)
+    _validate_dict(step, "collation", location, issues)
+    _validate_dict(step, "weights", location, issues)
+    _validate_list(step, "documents", location, issues)
+    _validate_list(step, "pipeline", location, issues)
+    _validate_list(step, "args", location, issues)
+    _validate_bool(step, "upsert", location, issues)
+    _validate_bool(step, "ordered", location, issues)
+    _validate_bool(step, "unique", location, issues)
+    _validate_bool(step, "sparse", location, issues)
+    _validate_bool(step, "background", location, issues)
+    _validate_int(step, "limit", location, issues, minimum=1)
+    _validate_int(step, "max_docs", location, issues, minimum=1)
+    _validate_int(step, "timeout_ms", location, issues, minimum=1)
+    _validate_int(step, "expire_after_seconds", location, issues, minimum=0)
+    _validate_int(step, "expireAfterSeconds", location, issues, minimum=0)
+    if "command" in step and not _is_template(step["command"]) and not isinstance(step["command"], (str, dict)):
+        issues.append(ValidationIssue(location, "command 必须是字符串或对象"))
+    if "projection" in step and not _is_template(step["projection"]) and not isinstance(step["projection"], (dict, list)):
+        issues.append(ValidationIssue(location, "projection 必须是对象或数组"))
+    if "sort" in step and not _is_template(step["sort"]) and not isinstance(step["sort"], (dict, list)):
+        issues.append(ValidationIssue(location, "sort 必须是对象或数组"))
+    if "keys" in step and not _is_template(step["keys"]) and not isinstance(step["keys"], (str, dict, list)):
+        issues.append(ValidationIssue(location, "keys 必须是字段名、对象或数组"))
+    if step_type == "insert_many" and isinstance(step.get("documents"), list) and not step["documents"]:
+        issues.append(ValidationIssue(location, "mongo.insert_many.documents 必须是非空数组"))
+    if step_type == "aggregate" and isinstance(step.get("pipeline"), list) and not step["pipeline"]:
+        issues.append(ValidationIssue(location, "mongo.aggregate.pipeline 必须是非空数组"))
+    if step_type == "create_index":
+        _validate_mongo_index_keys(step.get("keys"), f"{location}.keys", issues)
+    if step_type == "drop_index" and "name" not in step and "index" not in step:
+        issues.append(ValidationIssue(location, "mongo.drop_index 需要 name 或 index"))
+
+
+def _validate_mongo_index_keys(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if value is None or _is_template(value):
+        return
+    if isinstance(value, str):
+        if not value:
+            issues.append(ValidationIssue(location, "keys 字段名不能为空"))
+        return
+    if isinstance(value, dict):
+        if not value:
+            issues.append(ValidationIssue(location, "keys 对象不能为空"))
+            return
+        for key, direction in value.items():
+            if not isinstance(key, str) or not key:
+                issues.append(ValidationIssue(location, "keys 对象的字段名必须是非空字符串"))
+            _validate_mongo_index_direction(direction, location, issues)
+        return
+    if isinstance(value, list):
+        if not value:
+            issues.append(ValidationIssue(location, "keys 数组不能为空"))
+            return
+        for index, item in enumerate(value):
+            item_location = f"{location}[{index}]"
+            if isinstance(item, str):
+                if not item:
+                    issues.append(ValidationIssue(item_location, "keys 字段名不能为空"))
+                continue
+            if isinstance(item, dict):
+                field = item.get("field") or item.get("key") or item.get("name")
+                if not isinstance(field, str) or not field:
+                    issues.append(ValidationIssue(item_location, "keys 项需要非空 field/key/name"))
+                _validate_mongo_index_direction(item.get("direction", item.get("order", 1)), item_location, issues)
+                continue
+            if isinstance(item, list) and len(item) == 2:
+                if not isinstance(item[0], str) or not item[0]:
+                    issues.append(ValidationIssue(item_location, "keys 二元组第一项必须是非空字段名"))
+                _validate_mongo_index_direction(item[1], item_location, issues)
+                continue
+            issues.append(ValidationIssue(item_location, "keys 项必须是字段名、{field, direction} 或 [field, direction]"))
+        return
+    issues.append(ValidationIssue(location, "keys 必须是字段名、对象或数组"))
+
+
+def _validate_mongo_index_direction(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if _is_template(value):
+        return
+    if isinstance(value, int) and not isinstance(value, bool):
+        if value in {-1, 1}:
+            return
+    if isinstance(value, str) and value.lower() in {"asc", "ascending", "desc", "descending", "text", "hashed", "2d", "2dsphere"}:
+        return
+    issues.append(ValidationIssue(location, "索引 direction 只支持 1、-1、asc、desc、text、hashed、2d 或 2dsphere"))
+
+
 def _validate_redis_fields(
     step: dict[str, Any],
     step_type: Any,
@@ -1254,7 +1527,29 @@ def _validate_connection_reference(
         if not isinstance(raw_type, str) or raw_type.lower() not in allowed_types:
             allowed = ", ".join(sorted(allowed_types))
             issues.append(ValidationIssue(location, f"{field}.type 不支持：{raw_type}；可选值：{allowed}"))
-    for item_field in ("type", "driver", "dsn", "url", "path", "database", "host", "username", "user", "password"):
+    for item_field in (
+        "type",
+        "driver",
+        "dsn",
+        "uri",
+        "url",
+        "path",
+        "database",
+        "host",
+        "server",
+        "username",
+        "user",
+        "password",
+        "connection_string",
+        "odbc_connect",
+        "odbc_driver",
+        "driver_name",
+        "odbc_driver_name",
+        "service_name",
+        "sid",
+        "auth_source",
+        "authSource",
+    ):
         if item_field in value and not _is_template(value[item_field]) and not isinstance(value[item_field], str):
             issues.append(ValidationIssue(location, f"{field}.{item_field} 必须是字符串"))
     for item_field in ("port", "db"):
@@ -1262,6 +1557,9 @@ def _validate_connection_reference(
             issues.append(ValidationIssue(location, f"{field}.{item_field} 必须是整数"))
     _validate_bool(value, "decode_responses", location, issues)
     _validate_bool(value, "read_only", location, issues)
+    _validate_bool(value, "autocommit", location, issues)
+    _validate_bool(value, "trusted_connection", location, issues)
+    _validate_bool(value, "trust_server_certificate", location, issues)
 
 
 def _validate_command_fields(
@@ -1530,7 +1828,19 @@ def _validate_desktop_input_target_requirements(
             {"bounds", "offset_x", "offset_y"}
             | DESKTOP_ELEMENT_LOCATOR_FIELDS
             | DESKTOP_ELEMENT_REQUIRED_LOCATOR_FIELDS
-            | {"title", "title_contains", "title_regex", "app", "process", "process_name", "class_name", "window_id", "match_index"}
+            | {
+                "title",
+                "title_contains",
+                "title_regex",
+                "app",
+                "process",
+                "process_name",
+                "class_name",
+                "window_id",
+                "match_index",
+                "profile",
+                "app_profile",
+            }
         )
         mixed = sorted(field for field in forbidden_fields if field in step)
         if mixed:
@@ -1738,6 +2048,8 @@ WINDOW_QUERY_FIELDS = {
     "process_name",
     "class_name",
     "window_id",
+    "profile",
+    "app_profile",
 }
 
 
@@ -1757,7 +2069,17 @@ def _validate_window_query_fields(
     location: str,
     issues: list[ValidationIssue],
 ) -> None:
-    for field in ("title", "title_contains", "title_regex", "app", "process", "process_name", "class_name"):
+    for field in (
+        "title",
+        "title_contains",
+        "title_regex",
+        "app",
+        "process",
+        "process_name",
+        "class_name",
+        "profile",
+        "app_profile",
+    ):
         _validate_string(step, field, location, issues)
     if "window_id" in step and not _is_template(step["window_id"]):
         value = step["window_id"]
@@ -1771,7 +2093,17 @@ def _validate_desktop_vision_window_query_fields(
     location: str,
     issues: list[ValidationIssue],
 ) -> None:
-    for field in ("title", "title_contains", "title_regex", "app", "process", "process_name", "class_name"):
+    for field in (
+        "title",
+        "title_contains",
+        "title_regex",
+        "app",
+        "process",
+        "process_name",
+        "class_name",
+        "profile",
+        "app_profile",
+    ):
         _validate_string(step, field, location, issues)
     if "window_id" in step and not _is_template(step["window_id"]):
         value = step["window_id"]
@@ -1986,6 +2318,20 @@ def _validate_a1_cell(
     if isinstance(value, str) and ":" not in value and EXCEL_A1_RE.match(value):
         return
     issues.append(ValidationIssue(location, f"{field} 必须是 A1 风格单元格地址，例如 B3"))
+
+
+def _validate_a1_write_range(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str) and ":" in value and EXCEL_A1_RE.match(value):
+        return
+    issues.append(ValidationIssue(location, f"{field} 必须是 A1 风格范围，例如 B3:H20"))
 
 
 def _validate_string(

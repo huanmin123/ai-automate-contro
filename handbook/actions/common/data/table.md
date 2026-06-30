@@ -4,12 +4,12 @@
 
 处理变量中的表格行数组。`table` 不关心数据来自 Excel、CSV、JSON、SQL 还是页面提取结果；它只处理已经在变量池中的数组。
 
-当前支持筛选、选列、排序、去重、分组聚合、连接、派生列、改列名、填补空值、类型转换和透视汇总。
+当前支持筛选、选列、排序、去重、分组聚合、连接、派生列、改列名、填补空值、类型转换、透视汇总、值替换、拆列、合列、日期解析和查表补字段。
 
 ## 必填字段
 
 - `action`: 固定写成 `table`
-- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`
+- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`、`replace`、`split_column`、`merge_columns`、`date_parse`、`lookup`
 - `source`: 源行数组，通常写完整变量引用，例如 `{{employees}}`
 - `save_as`: 保存结果变量名
 
@@ -28,6 +28,11 @@
 | `fill_empty` | `values` | 对空字符串、空白字符串或 null 填默认值 |
 | `type_convert` | `columns` | 把列转成 `string`、`number`、`integer` 或 `boolean` |
 | `pivot` | `index`, `columns` | 按行维度和列维度做透视；无 `values` 时默认计数，有 `values` 时默认求和 |
+| `replace` | `columns` 或 `values` | 全局或按列替换值 |
+| `split_column` | `column`, `into`, `separator` | 把一列拆成多列 |
+| `merge_columns` | `columns`, `into` | 把多列拼成一列 |
+| `date_parse` | `columns` | 把日期文本统一成 ISO 或指定格式 |
+| `lookup` | `right`, `on` 或 `left_on` + `right_on` | 按 key 查右表字段并写入当前行 |
 
 ## 示例
 
@@ -234,6 +239,86 @@
 }
 ```
 
+替换值：
+
+```json
+{
+  "action": "table",
+  "type": "replace",
+  "source": "{{rows}}",
+  "values": {
+    "": "未填写"
+  },
+  "columns": {
+    "状态": {
+      "A": "在职",
+      "I": "离职"
+    }
+  },
+  "save_as": "replaced_rows"
+}
+```
+
+拆列和合列：
+
+```json
+{
+  "action": "table",
+  "type": "split_column",
+  "source": "{{rows}}",
+  "column": "员工",
+  "separator": "|",
+  "into": ["姓名", "部门"],
+  "remove_source": true,
+  "save_as": "split_rows"
+}
+```
+
+```json
+{
+  "action": "table",
+  "type": "merge_columns",
+  "source": "{{split_rows}}",
+  "columns": ["区号", "手机号"],
+  "into": "联系电话",
+  "separator": "-",
+  "skip_empty": true,
+  "save_as": "phone_rows"
+}
+```
+
+日期解析：
+
+```json
+{
+  "action": "table",
+  "type": "date_parse",
+  "source": "{{rows}}",
+  "columns": {
+    "入职日期": ["%Y/%m/%d", "%Y-%m-%d", "%Y.%m.%d"]
+  },
+  "output_format": "iso",
+  "save_as": "dated_rows"
+}
+```
+
+查表补字段：
+
+```json
+{
+  "action": "table",
+  "type": "lookup",
+  "source": "{{dated_rows}}",
+  "right": "{{departments}}",
+  "on": "部门编码",
+  "values": {
+    "部门名称": "部门全称"
+  },
+  "default": "未知",
+  "save_as": "cleaned_rows"
+}
+```
+
 ## `filter` 操作符
 
 `where` 的字段值可以直接写期望值，表示相等；也可以写对象：
@@ -291,6 +376,13 @@
 - `values`: 数值列；不提供时只能计数。
 - `agg`: `count`、`sum`、`avg`、`min`、`max`，不提供时按 `values` 自动选择计数或求和。
 - `fill_value`: 没有数据的交叉格默认填充值，默认 `0`。
+
+## `lookup` 规则
+
+- `right` 是右侧查找表，通常写完整变量引用，例如 `{{departments}}`。
+- 两边同名 key 用 `on`；左右 key 不同时用 `left_on` 和 `right_on`。
+- `values` 不写时复制右表所有非 key 列；写字符串或数组时复制同名列；写对象时表示右表列名到输出列名的映射。
+- 多条右表命中同一个 key 时使用第一条。
 
 ## 规则
 

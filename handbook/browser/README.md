@@ -27,7 +27,7 @@
 
 通用 action 文档：
 
-- [actions/common](../actions/common/README.md): `if`、`foreach`、`retry`、`trigger`、`run_sub_plan`、`variable`、`read`、`write`、`http`、`sql`、`redis`、`command`、`print`、`sleep`、`manual_confirm`、`ai`。
+- [actions/common](../actions/common/README.md): `if`、`foreach`、`retry`、`trigger`、`run_sub_plan`、`variable`、`read`、`write`、`http`、`sql`、`mongo`、`redis`、`command`、`print`、`sleep`、`manual_confirm`、`ai`。
 
 禁止在 browser plan 中使用 `open_desktop` 或 `desktop_*` action。
 

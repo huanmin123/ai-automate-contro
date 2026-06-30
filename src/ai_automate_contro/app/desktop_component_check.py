@@ -31,6 +31,8 @@ from ai_automate_contro.engine.desktop.coordinates import (
     screen_to_local_bounds,
     screen_to_local_point,
 )
+from ai_automate_contro.engine.desktop.profiles import apply_desktop_app_profile
+from ai_automate_contro.engine.desktop.run_protection import desktop_run_mutex_context
 from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.config import load_plan_config
 from ai_automate_contro.plans.loader import load_plan
@@ -71,10 +73,13 @@ def self_check_desktop_components(
     resolved_root = Path(project_root).resolve()
     schema_cases = _run_schema_cases(resolved_root)
     coordinate_case = _run_coordinate_profile_case()
+    profile_merge_case = _run_desktop_profile_merge_case()
+    run_mutex_case = _run_desktop_run_mutex_case(resolved_root)
     runtime_case = _run_runtime_case(resolved_root)
     failure_case = _run_failure_capture_case(resolved_root)
     element_failure_case = _run_element_failure_capture_case(resolved_root)
     launch_only_case = _run_launch_only_case(resolved_root)
+    profile_case = _run_desktop_profile_case(resolved_root)
     vision_case = _run_vision_locator_case(resolved_root)
     ocr_case = _run_ocr_locator_case(resolved_root)
     ocr_zh_case = _run_ocr_zh_locator_case(resolved_root)
@@ -91,10 +96,13 @@ def self_check_desktop_components(
     required_ocr_zh_case = _run_required_ocr_zh_case(ocr_zh_case, resolved_root) if require_ocr_zh else None
     schema_ok = all(case["ok"] for case in schema_cases)
     coordinate_ok = bool(coordinate_case["ok"])
+    profile_merge_ok = bool(profile_merge_case["ok"])
+    run_mutex_ok = bool(run_mutex_case["ok"])
     runtime_ok = bool(runtime_case["ok"])
     failure_ok = bool(failure_case["ok"])
     element_failure_ok = bool(element_failure_case["ok"])
     launch_only_ok = bool(launch_only_case["ok"])
+    profile_ok = bool(profile_case["ok"])
     vision_ok = bool(vision_case["ok"])
     ocr_ok = bool(ocr_case["ok"])
     ocr_zh_ok = bool(ocr_zh_case["ok"])
@@ -116,10 +124,13 @@ def self_check_desktop_components(
             "cases": schema_cases,
         },
         coordinate_case,
+        profile_merge_case,
+        run_mutex_case,
         runtime_case,
         failure_case,
         element_failure_case,
         launch_only_case,
+        profile_case,
         vision_case,
         ocr_case,
         ocr_zh_case,
@@ -143,10 +154,13 @@ def self_check_desktop_components(
     return {
         "ok": schema_ok
         and coordinate_ok
+        and profile_merge_ok
+        and run_mutex_ok
         and runtime_ok
         and failure_ok
         and element_failure_ok
         and launch_only_ok
+        and profile_ok
         and vision_ok
         and ocr_ok
         and ocr_zh_ok
@@ -271,6 +285,144 @@ def _run_coordinate_profile_case() -> dict[str, Any]:
         "mapper_safety": safety,
         "offline_mapper_safety": offline_safety,
     }
+
+
+def _run_desktop_profile_merge_case() -> dict[str, Any]:
+    merged, profile = apply_desktop_app_profile(
+        {
+            "action": "desktop_app",
+            "desktop": "desktop",
+            "type": "launch",
+            "profile": "notepad",
+            "command": "python",
+            "args": ["-V"],
+        },
+        platform_name="windows",
+    )
+    custom_config = {
+        "desktop_profiles": {
+            "mock-chat": {
+                "platforms": {
+                    "windows": {
+                        "launch": {"command": "mock-chat.exe"},
+                        "window_query": {"process_name": "mock-chat.exe"},
+                        "defaults": {"wait_for_window": True, "focus": True},
+                    }
+                }
+            }
+        }
+    }
+    custom_merged, custom_profile = apply_desktop_app_profile(
+        {"profile": "mock-chat", "type": "launch"},
+        platform_name="windows",
+        desktop_config=custom_config,
+    )
+    passed = (
+        merged.get("command") == "python"
+        and "app" not in merged
+        and merged.get("args") == ["-V"]
+        and merged.get("process_name") == "notepad.exe"
+        and profile.get("source") == "builtin"
+        and custom_merged.get("command") == "mock-chat.exe"
+        and custom_merged.get("process_name") == "mock-chat.exe"
+        and custom_merged.get("wait_for_window") is True
+        and custom_profile.get("id") == "mock_chat"
+        and custom_profile.get("source") == "config"
+    )
+    return {
+        "name": "desktop_app_profile_merge",
+        "ok": passed,
+        "merged": merged,
+        "profile": profile,
+        "custom_merged": custom_merged,
+        "custom_profile": custom_profile,
+    }
+
+
+def _run_desktop_run_mutex_case(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-components-run-mutex-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        plan_path = package_dir / "plan.json"
+        plan = {
+            "name": "desktop run mutex regression",
+            "automation_type": "desktop",
+            "steps": [{"action": "print", "message": "desktop run mutex pass"}],
+        }
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return {
+                "name": "desktop_run_mutex_blocks_concurrent_runs",
+                "ok": False,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        owner_output = package_dir / "output" / "mutex-owner"
+        owner_output.mkdir(parents=True, exist_ok=True)
+        blocked_error = ""
+        blocked_ok = False
+        try:
+            with desktop_run_mutex_context(
+                project_root=project_root,
+                plan_dir=package_dir,
+                output_dir=owner_output,
+                run_name="desktop-components-held-mutex",
+                plan_config={},
+            ):
+                try:
+                    execute_plan(
+                        plan,
+                        project_root,
+                        plan_path=plan_path,
+                        run_name="desktop-components-mutex-blocked",
+                        run_context_handler=_disable_run_log_echo,
+                    )
+                except Exception as error:
+                    blocked_error = str(error)
+                    blocked_ok = "已有 desktop plan 正在控制当前项目桌面资源" in blocked_error
+                else:
+                    blocked_ok = False
+        except Exception as error:
+            return {
+                "name": "desktop_run_mutex_blocks_concurrent_runs",
+                "ok": False,
+                "validation_ok": True,
+                "lock_owner_error": str(error),
+            }
+        blocked_result_paths = sorted((package_dir / "output").glob("*desktop-components-mutex-blocked/result.json"))
+        blocked_result = _read_json(blocked_result_paths[-1]) if blocked_result_paths else {}
+        blocked_result_ok = (
+            isinstance(blocked_result, dict)
+            and blocked_result.get("status") == "failed"
+            and "已有 desktop plan 正在控制当前项目桌面资源" in str(blocked_result.get("error", ""))
+        )
+        run_error = ""
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-mutex-free",
+                run_context_handler=_disable_run_log_echo,
+            )
+            released_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            released_ok = False
+            output_dir = ""
+            run_error = str(error)
+        return {
+            "name": "desktop_run_mutex_blocks_concurrent_runs",
+            "ok": blocked_ok and blocked_result_ok and released_ok,
+            "validation_ok": True,
+            "blocked_ok": blocked_ok,
+            "blocked_error": blocked_error,
+            "blocked_result_ok": blocked_result_ok,
+            "blocked_result_paths": [str(path) for path in blocked_result_paths],
+            "released_ok": released_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+        }
 
 
 def _run_required_input_case(input_probe_case: dict[str, Any], element_action_case: dict[str, Any]) -> dict[str, Any]:
@@ -524,6 +676,108 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-app-profile-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop app profile",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_app",
+                        "desktop": "desktop",
+                        "type": "launch",
+                        "profile": "notepad",
+                        "save_as": "launch_result",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-window-profile-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop window profile",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_window",
+                        "desktop": "desktop",
+                        "type": "focus",
+                        "profile": "notepad",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-profile-config-rejects-bad-launch",
+            "expected_message": "launch 必须是 JSON 对象",
+            "files": {
+                "config.json": {
+                    "desktop_profiles": {
+                        "bad-profile": {
+                            "platforms": {
+                                "windows": {
+                                    "launch": "not-an-object"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "plan": {
+                "name": "bad desktop profile config",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_app",
+                        "desktop": "desktop",
+                        "type": "launch",
+                        "profile": "bad-profile",
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-run-mutex-config-rejects-bad-timeout",
+            "expected_message": "wait_timeout_seconds 必须是非负整数",
+            "files": {
+                "config.json": {
+                    "desktop": {
+                        "run_mutex": {
+                            "enabled": True,
+                            "wait_timeout_seconds": "slow",
+                        }
+                    }
+                }
+            },
+            "plan": {
+                "name": "bad desktop run mutex config",
+                "automation_type": "desktop",
+                "steps": [{"action": "print", "message": "ok"}],
+            },
+        },
+        {
+            "name": "desktop-foreground-protection-config-rejects-bad-attempts",
+            "expected_message": "activation_attempts 必须是正整数",
+            "files": {
+                "config.json": {
+                    "desktop": {
+                        "foreground_protection": {
+                            "activation_attempts": 0,
+                        }
+                    }
+                }
+            },
+            "plan": {
+                "name": "bad desktop foreground protection config",
+                "automation_type": "desktop",
+                "steps": [{"action": "print", "message": "ok"}],
+            },
+        },
+        {
             "name": "desktop-close-requires-query",
             "expected_message": "desktop_window.close 需要至少一种窗口定位字段",
             "plan": {
@@ -645,6 +899,25 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-click-element-center-profile-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop element center profile click",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "element_center",
+                        "profile": "notepad",
+                        "name_contains": "Save",
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-click-current-window-offset-requires-offset",
             "expected_message": "desktop_input.click target=current_window_offset 缺少必填字段：offset_x",
             "plan": {
@@ -748,6 +1021,26 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
                         "target_candidates": {"kind": "desktop_target_candidates", "candidates": []},
                         "candidate_id": "element_match-0",
                         "bounds": {"x": 1, "y": 1, "width": 10, "height": 10},
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-click-candidate-rejects-profile",
+            "expected_message": "target=candidate 不能同时展开 bounds",
+            "plan": {
+                "name": "mixed desktop candidate profile",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "click",
+                        "target": "candidate",
+                        "target_candidates": {"kind": "desktop_target_candidates", "candidates": []},
+                        "candidate_id": "element_match-0",
+                        "profile": "notepad",
                     },
                 ],
             },
@@ -2074,7 +2367,7 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
         },
         {
             "name": "desktop-app-launch-requires-target",
-            "expected_message": "desktop_app.launch 需要 app、path 或 command 之一",
+            "expected_message": "desktop_app.launch 需要 app、path、command 或 profile 之一",
             "plan": {
                 "name": "missing desktop app target",
                 "automation_type": "desktop",
@@ -2636,6 +2929,114 @@ def _run_launch_only_case(project_root: Path) -> dict[str, Any]:
             "exit_code": launch_result.get("exit_code") if isinstance(launch_result, dict) else None,
             "stdout": stdout,
             "pid": launch_result.get("pid") if isinstance(launch_result, dict) else None,
+        }
+
+
+def _run_desktop_profile_case(project_root: Path) -> dict[str, Any]:
+    system = platform.system()
+    if system not in {"Windows", "Darwin"}:
+        return {
+            "name": "desktop_app_profile_runtime",
+            "ok": True,
+            "skipped": True,
+            "reason": f"desktop app profile runtime only runs on Windows/macOS, current={system}",
+        }
+    platform_name = "windows" if system == "Windows" else "macos"
+    with tempfile.TemporaryDirectory(prefix="desktop-components-profile-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        plan_path = package_dir / "plan.json"
+        profile_name = "python-echo"
+        expected_stdout = "desktop_profile_launch_ok"
+        config = {
+            "desktop_profiles": {
+                profile_name: {
+                    "platforms": {
+                        platform_name: {
+                            "launch": {
+                                "command": sys.executable,
+                                "args": ["-c", f"print('{expected_stdout}')"],
+                            },
+                            "defaults": {
+                                "wait": True,
+                                "timeout_ms": 10000,
+                            },
+                        }
+                    }
+                }
+            }
+        }
+        plan = {
+            "name": "desktop app profile runtime",
+            "automation_type": "desktop",
+            "steps": [
+                {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+                {
+                    "action": "desktop_app",
+                    "desktop": "desktop",
+                    "type": "launch",
+                    "profile": profile_name,
+                    "save_as": "launch_result",
+                },
+                {"action": "write", "type": "json", "path": "profile-launch-result.json", "value": "{{launch_result}}"},
+                {"action": "close_desktop", "desktop": "desktop"},
+            ],
+        }
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        (package_dir / "config.json").write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return {
+                "name": "desktop_app_profile_runtime",
+                "ok": False,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        run_error = ""
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-profile",
+                run_context_handler=_disable_run_log_echo,
+            )
+            run_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            run_ok = False
+            output_dir = ""
+            run_error = str(error)
+        launch_result_path = package_dir / "output" / "json" / "profile-launch-result.json"
+        launch_result = _read_json(launch_result_path) if launch_result_path.exists() else {}
+        stdout = str(launch_result.get("stdout", "")) if isinstance(launch_result, dict) else ""
+        profile = launch_result.get("profile") if isinstance(launch_result, dict) else {}
+        profile_ok = (
+            isinstance(profile, dict)
+            and profile.get("id") == "python_echo"
+            and profile.get("requested") == profile_name
+            and profile.get("source") == "config"
+            and profile.get("platform") == platform_name
+        )
+        return {
+            "name": "desktop_app_profile_runtime",
+            "ok": (
+                run_ok
+                and isinstance(launch_result, dict)
+                and launch_result.get("exit_code") == 0
+                and expected_stdout in stdout
+                and launch_result.get("command") == sys.executable
+                and launch_result.get("args") == ["-c", f"print('{expected_stdout}')"]
+                and profile_ok
+            ),
+            "validation_ok": True,
+            "run_ok": run_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+            "launch_result_path": str(launch_result_path),
+            "exit_code": launch_result.get("exit_code") if isinstance(launch_result, dict) else None,
+            "stdout": stdout,
+            "profile": profile,
+            "profile_ok": profile_ok,
         }
 
 
@@ -3475,6 +3876,13 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             _file_nonempty_after(window_find_path, started_at)
             and int(window_find_payload.get("match_count", 0) or 0) > 0
         )
+        explorer_profile = window_find_payload.get("profile") if isinstance(window_find_payload, dict) else {}
+        profile_ok = (
+            isinstance(explorer_profile, dict)
+            and explorer_profile.get("id") == "explorer"
+            and explorer_profile.get("source") == "builtin"
+            and explorer_profile.get("platform") == "windows"
+        )
         elements_ok = (
             _file_nonempty_after(elements_path, started_at)
             and isinstance(elements_payload, dict)
@@ -3490,6 +3898,7 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             "ok": run_ok
             and window_found
             and window_find_ok
+            and profile_ok
             and elements_ok
             and sample_file_ok
             and _file_nonempty_after(windows_path, started_at)
@@ -3504,6 +3913,8 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             "windows_path": str(windows_path),
             "window_find_ok": window_find_ok,
             "window_find_path": str(window_find_path),
+            "profile_ok": profile_ok,
+            "profile": explorer_profile,
             "elements_path": str(elements_path),
             "elements_ok": elements_ok,
             "sample_file_ok": sample_file_ok,
@@ -3694,12 +4105,34 @@ def _run_windows_file_dialog_real_app_case(project_root: Path) -> dict[str, Any]
         result_content = result_file.read_text(encoding="utf-8", errors="replace") if result_file.exists() else ""
         save_content = save_file.read_text(encoding="utf-8", errors="replace") if save_file.exists() else ""
         form_elements_path = package_dir / "output" / "desktop-elements" / "file-dialog-form-elements.json"
+        open_dialog_elements_path = package_dir / "output" / "desktop-elements" / "open-dialog-elements.json"
+        save_dialog_elements_path = package_dir / "output" / "desktop-elements" / "save-dialog-elements.json"
         open_dialog_screenshot_path = package_dir / "output" / "desktop-screenshots" / "open-dialog-screen.png"
         save_dialog_screenshot_path = package_dir / "output" / "desktop-screenshots" / "save-dialog-screen.png"
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "file-dialog-final-screen.png"
+        open_dialog_elements_payload = _read_json(open_dialog_elements_path) if open_dialog_elements_path.exists() else {}
+        save_dialog_elements_payload = _read_json(save_dialog_elements_path) if save_dialog_elements_path.exists() else {}
         form_elements_ok = _desktop_elements_file_ok(form_elements_path, started_at)
         open_dialog_screenshot_ok = _file_nonempty_after(open_dialog_screenshot_path, started_at)
         save_dialog_screenshot_ok = _file_nonempty_after(save_dialog_screenshot_path, started_at)
+        open_profile = (
+            open_dialog_elements_payload.get("profile")
+            if isinstance(open_dialog_elements_payload, dict)
+            else {}
+        )
+        save_profile = (
+            save_dialog_elements_payload.get("profile")
+            if isinstance(save_dialog_elements_payload, dict)
+            else {}
+        )
+        profile_ok = (
+            isinstance(open_profile, dict)
+            and open_profile.get("id") == "file_dialog_open"
+            and open_profile.get("source") == "builtin"
+            and isinstance(save_profile, dict)
+            and save_profile.get("id") == "file_dialog_save"
+            and save_profile.get("source") == "builtin"
+        )
         result_ok = (
             expected_open_text in result_content
             and expected_save_text in result_content
@@ -3713,6 +4146,7 @@ def _run_windows_file_dialog_real_app_case(project_root: Path) -> dict[str, Any]
                 run_ok
                 and result_ok
                 and form_elements_ok
+                and profile_ok
                 and open_dialog_screenshot_ok
                 and save_dialog_screenshot_ok
                 and _file_nonempty_after(screenshot_path, started_at)
@@ -3727,6 +4161,11 @@ def _run_windows_file_dialog_real_app_case(project_root: Path) -> dict[str, Any]
             "save_file": str(save_file),
             "save_content_preview": save_content[:500],
             "form_elements_ok": form_elements_ok,
+            "profile_ok": profile_ok,
+            "open_profile": open_profile,
+            "save_profile": save_profile,
+            "open_dialog_elements_path": str(open_dialog_elements_path),
+            "save_dialog_elements_path": str(save_dialog_elements_path),
             "open_dialog_screenshot_ok": open_dialog_screenshot_ok,
             "save_dialog_screenshot_ok": save_dialog_screenshot_ok,
             "open_dialog_screenshot_path": str(open_dialog_screenshot_path),
@@ -7134,10 +7573,10 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_app",
                 "desktop": "desktop",
                 "type": "launch",
+                "profile": "explorer",
                 "app": "explorer.exe",
                 "args": [absolute_target_dir],
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "wait_for_window": True,
                 "focus": True,
                 "window_timeout_ms": 7000,
@@ -7148,8 +7587,8 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "state": "exists",
                 "timeout_ms": 7000,
                 "interval_ms": 150,
@@ -7159,16 +7598,16 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "focus",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "save_as": "explorer_focus",
             },
             {
                 "action": "desktop_assert",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "state": "focused",
                 "timeout_ms": 3000,
                 "interval_ms": 100,
@@ -7185,8 +7624,8 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "find",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "path": "explorer-window-find.json",
                 "save_as": "explorer_found_window",
             },
@@ -7194,8 +7633,8 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "path": "explorer-elements.json",
                 "save_as": "explorer_elements",
                 "max_depth": 4,
@@ -7205,8 +7644,8 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "find",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "name_contains": "sample.txt",
                 "path": "explorer-sample-file.json",
                 "save_as": "explorer_sample_file",
@@ -7231,16 +7670,16 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "close",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "save_as": "explorer_close",
             },
             {
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "explorer",
                 "title_contains": "{{folder_name}}",
-                "process_name": "explorer.exe",
                 "state": "not_exists",
                 "timeout_ms": 5000,
                 "interval_ms": 150,
@@ -7504,6 +7943,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "file_dialog_open",
                 "title_contains": open_dialog_title,
                 "state": "exists",
                 "timeout_ms": 8000,
@@ -7514,6 +7954,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "focus",
+                "profile": "file_dialog_open",
                 "title_contains": open_dialog_title,
                 "save_as": "open_dialog_focus",
             },
@@ -7521,6 +7962,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
+                "profile": "file_dialog_open",
                 "title_contains": open_dialog_title,
                 "path": "open-dialog-elements.json",
                 "save_as": "open_dialog_elements",
@@ -7531,6 +7973,9 @@ def _windows_file_dialog_plan(
                 "action": "desktop_capture",
                 "desktop": "desktop",
                 "type": "screenshot",
+                "target": "window",
+                "profile": "file_dialog_open",
+                "title_contains": open_dialog_title,
                 "path": "open-dialog-screen.png",
                 "save_as": "open_dialog_screen",
             },
@@ -7554,6 +7999,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "file_dialog_open",
                 "title_contains": open_dialog_title,
                 "state": "not_exists",
                 "timeout_ms": 5000,
@@ -7601,6 +8047,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "file_dialog_save",
                 "title_contains": save_dialog_title,
                 "state": "exists",
                 "timeout_ms": 8000,
@@ -7611,6 +8058,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_window",
                 "desktop": "desktop",
                 "type": "focus",
+                "profile": "file_dialog_save",
                 "title_contains": save_dialog_title,
                 "save_as": "save_dialog_focus",
             },
@@ -7618,6 +8066,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_element",
                 "desktop": "desktop",
                 "type": "list",
+                "profile": "file_dialog_save",
                 "title_contains": save_dialog_title,
                 "path": "save-dialog-elements.json",
                 "save_as": "save_dialog_elements",
@@ -7628,6 +8077,9 @@ def _windows_file_dialog_plan(
                 "action": "desktop_capture",
                 "desktop": "desktop",
                 "type": "screenshot",
+                "target": "window",
+                "profile": "file_dialog_save",
+                "title_contains": save_dialog_title,
                 "path": "save-dialog-screen.png",
                 "save_as": "save_dialog_screen",
             },
@@ -7651,6 +8103,7 @@ def _windows_file_dialog_plan(
                 "action": "desktop_wait",
                 "desktop": "desktop",
                 "type": "window",
+                "profile": "file_dialog_save",
                 "title_contains": save_dialog_title,
                 "state": "not_exists",
                 "timeout_ms": 5000,

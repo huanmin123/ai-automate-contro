@@ -42,6 +42,7 @@ AI 写 desktop plan 时优先读取本手册的 action 文档。
 - `write`
 - `http`
 - `sql`
+- `mongo`
 - `redis`
 - `command`
 - `print`
@@ -82,6 +83,12 @@ handbook/actions/desktop/
 桌面线按当前运行环境选择平台能力：Windows 环境使用 UI Automation / Win32 控件语义，macOS 环境使用 Accessibility/AX 能力；坐标和图像定位只作为兜底。macOS 必须检测 Accessibility、Screen Recording、Automation 等权限；代码可以触发授权提示、打开系统设置并暂停等待用户确认，但不能静默替用户授权。
 
 菜单和滚动容器可能受焦点、短生命周期弹出层或自绘 UI 影响；必要时配合截图、等待、状态断言或人工确认。
+
+## 运行保护
+
+desktop plan 默认串行占用当前项目的桌面控制资源；同一项目内已有 desktop plan 运行时，新的 desktop plan 会失败或按 `config.json` 的 `desktop.run_mutex` 等待。
+
+真实键盘、鼠标、控件 fallback 输入前，runtime 会根据 Window Query、候选窗口或当前 session 窗口激活目标并复查前台窗口。plan 只需要写清目标 App/窗口/控件和结果断言，不需要额外拆“抢前台”步骤。配置见 [config.json](../reference/config.md)。
 
 ## 能力边界
 

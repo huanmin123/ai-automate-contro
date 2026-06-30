@@ -50,6 +50,7 @@
 - `wait`: `actions/browser/navigation/wait.md`
 - `extract`: `actions/browser/data/extract.md`
 - `desktop_window`: `actions/desktop/desktop_window.md`
+- `desktop app profile`: `actions/desktop/app_profile.md`
 - `desktop_element`: `actions/desktop/desktop_element.md`，控件定位、读取、写值、选择、表格、树、菜单、滚动容器
 - `desktop_input`: `actions/desktop/desktop_input.md`
 - `desktop_capture`: `actions/desktop/desktop_capture.md`，截图、状态快照、统一观察
@@ -59,6 +60,7 @@
 - `table`: `actions/common/data/table.md`
 - `http`: `actions/common/io/http.md`
 - `sql`: `actions/common/io/sql.md`
+- `mongo`: `actions/common/io/mongo.md`
 - `redis`: `actions/common/io/redis.md`
 - `command`: `actions/common/utility/command.md`
 - `manual_confirm`: `actions/common/utility/manual_confirm.md`
@@ -67,6 +69,6 @@
 
 - 组件名就是 step 的 `action`。
 - 参数结构一致的能力用同一 action 的 `type` 区分，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`、`desktop_window`。
-- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`sql`、`redis`、`command`。
+- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`sql`、`mongo`、`redis`、`command`。
 - 专项 AI 统一使用 `ai` action，通过 `type` 区分抽取、分类、转换和摘要。
 - 变量使用 `{{变量名}}` 引用；业务变量放在 `plan.json.variables`，运行配置放在 `config.json`。

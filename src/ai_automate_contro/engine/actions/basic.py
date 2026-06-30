@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date, datetime
 import re
 import time
 from typing import Any
@@ -153,6 +154,16 @@ def action_table(executor: Any, step: dict[str, Any]) -> None:
         result = _table_type_convert(source, step["columns"])
     elif table_type == "pivot":
         result = _table_pivot(source, step)
+    elif table_type == "replace":
+        result = _table_replace(source, step)
+    elif table_type == "split_column":
+        result = _table_split_column(source, step)
+    elif table_type == "merge_columns":
+        result = _table_merge_columns(source, step)
+    elif table_type == "date_parse":
+        result = _table_date_parse(source, step)
+    elif table_type == "lookup":
+        result = _table_lookup(source, step)
     else:
         raise ValueError(f"不支持的 table type：{table_type}")
 
@@ -419,6 +430,127 @@ def _table_pivot(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
     return result
 
 
+def _table_replace(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    column_replacements = step.get("columns", {})
+    global_replacements = step.get("values", {})
+    if not isinstance(column_replacements, dict):
+        raise ValueError("table.replace.columns 必须是对象。")
+    if not isinstance(global_replacements, dict):
+        raise ValueError("table.replace.values 必须是对象。")
+    if not column_replacements and not global_replacements:
+        raise ValueError("table.replace 需要 columns 或 values 至少一个非空对象。")
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.replace 当前只支持字典行。")
+        output = dict(row)
+        for column, value in list(output.items()):
+            output[column] = _table_replacement_value(value, global_replacements)
+        for column, replacements in column_replacements.items():
+            if not isinstance(column, str) or not column:
+                raise ValueError("table.replace.columns 的列名必须是非空字符串。")
+            if not isinstance(replacements, dict):
+                raise ValueError("table.replace.columns 每列替换规则必须是对象。")
+            output[column] = _table_replacement_value(output.get(column), replacements)
+        result.append(output)
+    return result
+
+
+def _table_split_column(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    column = str(step["column"])
+    output_columns = _table_columns(step["into"], "table.split_column.into")
+    separator = step.get("separator")
+    regex = bool(step.get("regex", False))
+    maxsplit = int(step.get("maxsplit", len(output_columns) - 1))
+    remove_source = bool(step.get("remove_source", False))
+    if not isinstance(separator, str) or separator == "":
+        raise ValueError("table.split_column.separator 必须是非空字符串。")
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.split_column 当前只支持字典行。")
+        output = dict(row)
+        text = "" if row.get(column) is None else str(row.get(column))
+        parts = re.split(separator, text, maxsplit=maxsplit) if regex else text.split(separator, maxsplit)
+        padded = [*parts[: len(output_columns)], *[""] * max(0, len(output_columns) - len(parts))]
+        for output_column, value in zip(output_columns, padded):
+            output[output_column] = value
+        if remove_source:
+            output.pop(column, None)
+        result.append(output)
+    return result
+
+
+def _table_merge_columns(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    columns = _table_columns(step["columns"], "table.merge_columns.columns")
+    output_column = str(step["into"])
+    if not output_column:
+        raise ValueError("table.merge_columns.into 必须是非空字符串。")
+    separator = str(step.get("separator", ""))
+    skip_empty = bool(step.get("skip_empty", False))
+    remove_sources = bool(step.get("remove_sources", False))
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.merge_columns 当前只支持字典行。")
+        output = dict(row)
+        values = ["" if row.get(column) is None else str(row.get(column)) for column in columns]
+        if skip_empty:
+            values = [value for value in values if value.strip()]
+        output[output_column] = separator.join(values)
+        if remove_sources:
+            for column in columns:
+                if column != output_column:
+                    output.pop(column, None)
+        result.append(output)
+    return result
+
+
+def _table_date_parse(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    columns = _table_date_columns(step["columns"])
+    output_format = str(step.get("output_format", "iso"))
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.date_parse 当前只支持字典行。")
+        output = dict(row)
+        for column, formats in columns.items():
+            value = output.get(column)
+            output[column] = None if _table_is_empty(value) else _format_table_date(_parse_table_date(value, formats, column), output_format)
+        result.append(output)
+    return result
+
+
+def _table_lookup(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    right_rows = step["right"]
+    if not isinstance(right_rows, list):
+        raise ValueError("table.lookup.right 必须是数组。")
+    left_columns, right_columns = _table_join_columns(step)
+    value_map = _table_lookup_value_map(step.get("values"), right_rows, right_columns)
+    default_value = step.get("default")
+
+    index: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for right_row in right_rows:
+        if not isinstance(right_row, dict):
+            raise ValueError("table.lookup.right 当前只支持字典行。")
+        key = tuple(right_row.get(column) for column in right_columns)
+        index.setdefault(key, right_row)
+
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.lookup.source 当前只支持字典行。")
+        output = dict(row)
+        match = index.get(tuple(row.get(column) for column in left_columns))
+        for right_column, output_column in value_map.items():
+            output[output_column] = match.get(right_column, default_value) if match is not None else default_value
+        result.append(output)
+    return result
+
+
 def _table_aggregation_spec(raw_spec: Any) -> tuple[str, str]:
     if not isinstance(raw_spec, dict) or len(raw_spec) != 1:
         raise ValueError("table.group.aggregations 每个聚合必须是只包含一个操作符的对象。")
@@ -500,6 +632,90 @@ def _table_string_mapping(value: dict[Any, Any], field_name: str) -> dict[str, s
             raise ValueError(f"{field_name} 必须是非空字符串到非空字符串的对象。")
         result[key] = item
     return result
+
+
+def _table_replacement_value(value: Any, replacements: dict[Any, Any]) -> Any:
+    try:
+        if value in replacements:
+            return replacements[value]
+    except TypeError:
+        pass
+    text = str(value)
+    if text in replacements:
+        return replacements[text]
+    return value
+
+
+def _table_date_columns(value: Any) -> dict[str, list[str]]:
+    if isinstance(value, str) and value:
+        return {value: []}
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return {item: [] for item in value}
+    if isinstance(value, dict) and value:
+        result: dict[str, list[str]] = {}
+        for column, formats in value.items():
+            if not isinstance(column, str) or not column:
+                raise ValueError("table.date_parse.columns 的列名必须是非空字符串。")
+            if isinstance(formats, str) and formats:
+                result[column] = [formats]
+            elif isinstance(formats, list) and all(isinstance(item, str) and item for item in formats):
+                result[column] = list(formats)
+            elif formats in (None, ""):
+                result[column] = []
+            else:
+                raise ValueError("table.date_parse.columns 的格式必须是字符串或字符串数组。")
+        return result
+    raise ValueError("table.date_parse.columns 必须是非空字符串、字符串数组或对象。")
+
+
+def _parse_table_date(value: Any, formats: list[str], column: str) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day)
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"table.date_parse 日期列为空：{column}")
+    for fmt in formats:
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        pass
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%m/%d/%Y", "%d/%m/%Y"):
+        try:
+            return datetime.strptime(text, fmt)
+        except ValueError:
+            continue
+    raise ValueError(f"table.date_parse 无法解析日期列：{column}")
+
+
+def _format_table_date(value: datetime, output_format: str) -> str:
+    if output_format == "iso":
+        if value.hour == value.minute == value.second == value.microsecond == 0:
+            return value.date().isoformat()
+        return value.isoformat()
+    return value.strftime(output_format)
+
+
+def _table_lookup_value_map(value: Any, right_rows: list[Any], right_key_columns: list[str]) -> dict[str, str]:
+    if value in (None, ""):
+        columns: list[str] = []
+        for row in right_rows:
+            if isinstance(row, dict):
+                columns = [column for column in row if column not in right_key_columns]
+                break
+        return {column: column for column in columns}
+    if isinstance(value, str) and value:
+        return {value: value}
+    if isinstance(value, list) and value and all(isinstance(item, str) and item for item in value):
+        return {item: item for item in value}
+    if isinstance(value, dict) and value:
+        return _table_string_mapping(value, "table.lookup.values")
+    raise ValueError("table.lookup.values 必须是非空字符串、字符串数组或对象。")
 
 
 def _table_columns(value: Any, field_name: str) -> list[str]:

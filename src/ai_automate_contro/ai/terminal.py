@@ -543,14 +543,17 @@ class AITerminal(
         return True
 
     def _run_agent_turn(self, text: str) -> None:
-        if self._is_agent_busy():
+        turn_id = self._begin_agent_turn(text)
+        if turn_id is None:
             self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return
-        text, attachments = self._prepare_input_attachments(text)
-        with self._turn_lock:
-            self._current_turn_id += 1
-            turn_id = self._current_turn_id
-            self._current_turn_text = text
+        try:
+            text, attachments = self._prepare_input_attachments(text)
+            self._set_agent_turn_text(turn_id, text)
+        except Exception as error:
+            self._finish_agent_turn(turn_id, error=str(error))
+            self._emit_error(error)
+            return
         self._emit_user_message(text)
         try:
             final_state, streamed = self._invoke_agent_text_streaming(text, attachments, turn_id=turn_id)
@@ -584,31 +587,43 @@ class AITerminal(
         normalized = text.strip()
         if not normalized:
             raise ValueError("ai ask 需要一条非空消息。")
-        if self._is_agent_busy():
+        turn_id = self._begin_agent_turn(normalized)
+        if turn_id is None:
             raise RuntimeError("AI 正在处理上一轮请求；请等待当前轮次结束后再使用 ai ask。")
         if self._current_interrupts():
+            self._finish_agent_turn(turn_id)
             raise RuntimeError("AI 会话有等待审批的操作；请进入 Textual 客户端后输入 /approve 或 /reject。")
 
-        previous_ask_once_mode = self._ask_once_mode
+        previous_ask_once_mode = bool(getattr(self, "_ask_once_mode", False))
         self._ask_once_mode = True
-        normalized, attachments = self._prepare_input_attachments(normalized)
+        attachments: list[ImageAttachment] = []
         with self.client_event_sink(event_sink) if event_sink is not None else _null_event_sink():
             self.emit_client_status_snapshot()
             self._emit_activity("开始处理脚本化 AI 请求", category="thinking", phase="start", source_kind="turn")
             try:
+                normalized, attachments = self._prepare_input_attachments(normalized)
+                self._set_agent_turn_text(turn_id, normalized)
                 final_state = self._invoke_agent_text(normalized, attachments)
             except Exception as error:
+                self._finish_agent_turn(turn_id, error=str(error))
                 self._last_error = str(error)
                 self._sync_current_session_index()
                 self._emit_error(error)
+                self.emit_client_status_snapshot()
                 raise
             finally:
                 self._ask_once_mode = previous_ask_once_mode
+
+            if not self._finish_agent_turn(turn_id):
+                self.emit_client_status_snapshot()
+                raise RuntimeError("AI 请求已被取消。")
 
         if attachments:
             self._clear_pending_attachments()
         self._last_error = ""
         self._sync_current_session_index()
+        with self.client_event_sink(event_sink) if event_sink is not None else _null_event_sink():
+            self.emit_client_status_snapshot()
 
         messages = list(final_state.get("messages", []))
         interrupts = extract_interrupts(final_state) or self._current_interrupts()
@@ -726,27 +741,51 @@ class AITerminal(
             wait.event.set()
         self._close_checkpoint_connection()
 
+    def _begin_agent_turn(self, text: str) -> int | None:
+        lock = self._ensure_turn_lock()
+        with lock:
+            if getattr(self, "_current_turn_text", None) is not None:
+                return None
+            current_turn_id = int(getattr(self, "_current_turn_id", 0) or 0) + 1
+            self._current_turn_id = current_turn_id
+            if not isinstance(getattr(self, "_cancelled_turn_ids", None), set):
+                self._cancelled_turn_ids = set()
+            self._current_turn_text = str(text)
+            return current_turn_id
+
+    def _set_agent_turn_text(self, turn_id: int, text: str) -> None:
+        lock = self._ensure_turn_lock()
+        with lock:
+            if getattr(self, "_current_turn_id", 0) == turn_id and getattr(self, "_current_turn_text", None) is not None:
+                self._current_turn_text = str(text)
+
     def _finish_agent_turn(self, turn_id: int, *, error: str = "") -> bool:
-        with self._turn_lock:
-            if turn_id in self._cancelled_turn_ids:
-                self._cancelled_turn_ids.discard(turn_id)
-                if self._current_turn_id == turn_id:
+        lock = self._ensure_turn_lock()
+        with lock:
+            cancelled_turn_ids = getattr(self, "_cancelled_turn_ids", set())
+            if turn_id in cancelled_turn_ids:
+                cancelled_turn_ids.discard(turn_id)
+                if getattr(self, "_current_turn_id", 0) == turn_id:
                     self._current_turn_text = None
                 return False
-            if self._current_turn_id == turn_id:
+            if getattr(self, "_current_turn_id", 0) == turn_id:
                 self._current_turn_text = None
             if error:
                 self._last_error = error
         return True
 
     def _is_agent_busy(self) -> bool:
-        with self._turn_lock:
-            return self._current_turn_text is not None
+        lock = self._ensure_turn_lock()
+        with lock:
+            return getattr(self, "_current_turn_text", None) is not None
 
     def _cancel_agent_turn(self) -> bool:
-        with self._turn_lock:
-            if self._current_turn_text is None:
+        lock = self._ensure_turn_lock()
+        with lock:
+            if getattr(self, "_current_turn_text", None) is None:
                 return False
+            if not isinstance(getattr(self, "_cancelled_turn_ids", None), set):
+                self._cancelled_turn_ids = set()
             self._cancelled_turn_ids.add(self._current_turn_id)
             self._current_turn_text = None
         return True
@@ -762,12 +801,24 @@ class AITerminal(
         return self._agent_turn_cancelled(turn_id)
 
     def _agent_turn_cancelled(self, turn_id: int | None) -> bool:
+        lock = self._ensure_turn_lock()
+        with lock:
+            target_turn_id = getattr(self, "_current_turn_id", 0) if turn_id is None else turn_id
+            cancelled_turn_ids = getattr(self, "_cancelled_turn_ids", set())
+            return target_turn_id in cancelled_turn_ids
+
+    def _ensure_turn_lock(self) -> threading.Lock:
         lock = getattr(self, "_turn_lock", None)
         if lock is None:
-            return False
-        with lock:
-            target_turn_id = self._current_turn_id if turn_id is None else turn_id
-            return target_turn_id in self._cancelled_turn_ids
+            lock = threading.Lock()
+            self._turn_lock = lock
+        if not hasattr(self, "_current_turn_text"):
+            self._current_turn_text = None
+        if not hasattr(self, "_current_turn_id"):
+            self._current_turn_id = 0
+        if not isinstance(getattr(self, "_cancelled_turn_ids", None), set):
+            self._cancelled_turn_ids = set()
+        return lock
 
     def _command_allowed_while_busy(self, line: str) -> bool:
         text = str(line).rstrip()

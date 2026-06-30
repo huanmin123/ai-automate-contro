@@ -37,6 +37,11 @@ DATA_REGRESSION_CASES = (
         lambda root, started_at: _table_transform_evidence(root, started_at),
     ),
     DataRegressionCase(
+        "table-cleaning",
+        "test-plans/data-driven/table-cleaning/plan.json",
+        lambda root, started_at: _table_cleaning_evidence(root, started_at),
+    ),
+    DataRegressionCase(
         "enterprise-cookbook",
         "test-plans/data-driven/enterprise-cookbook/plan.json",
         lambda root, started_at: _enterprise_cookbook_evidence(root, started_at),
@@ -105,6 +110,57 @@ NEGATIVE_VALIDATION_CASES = (
         },
     },
     {
+        "name": "excel-read-invalid-max-cells",
+        "expected_message": "max_cells 必须大于或等于 1",
+        "plan": {
+            "name": "excel-read-invalid-max-cells",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "read",
+                    "type": "excel",
+                    "path": "resources/source.xlsx",
+                    "max_cells": 0,
+                    "save_as": "rows",
+                }
+            ],
+        },
+    },
+    {
+        "name": "excel-write-invalid-formula-column",
+        "expected_message": "formula_columns.合计 必须是公式字符串或包含 formula 的对象",
+        "plan": {
+            "name": "excel-write-invalid-formula-column",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "write",
+                    "type": "excel",
+                    "path": "bad.xlsx",
+                    "value": [{"金额": 10}],
+                    "formula_columns": {"合计": {"expression": "{金额}"}},
+                }
+            ],
+        },
+    },
+    {
+        "name": "excel-write-invalid-range-cell",
+        "expected_message": "range 必须是 A1 风格范围",
+        "plan": {
+            "name": "excel-write-invalid-range-cell",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "write",
+                    "type": "excel",
+                    "path": "bad.xlsx",
+                    "range": "B4",
+                    "value": [{"金额": 10}],
+                }
+            ],
+        },
+    },
+    {
         "name": "table-sort-descending-length",
         "expected_message": "table.sort.descending 数组长度必须与 by 一致",
         "plan": {
@@ -158,6 +214,24 @@ NEGATIVE_VALIDATION_CASES = (
                     "values": "工资",
                     "agg": "median",
                     "save_as": "pivot_rows",
+                }
+            ],
+        },
+    },
+    {
+        "name": "table-lookup-missing-key",
+        "expected_message": "table.lookup 需要 on，或同时提供 left_on 和 right_on",
+        "plan": {
+            "name": "table-lookup-missing-key",
+            "automation_type": "browser",
+            "variables": {"left": [], "right": []},
+            "steps": [
+                {
+                    "action": "table",
+                    "type": "lookup",
+                    "source": "{{left}}",
+                    "right": "{{right}}",
+                    "save_as": "looked_up",
                 }
             ],
         },
@@ -260,11 +334,20 @@ def _run_template_style_case(project_root: Path) -> dict[str, Any]:
             return _run_failed_case("excel-template-style", plan_path, error)
 
         output_path = package_dir / "output" / "excel" / "report.xlsx"
-        evidence = [_expect("run_passed", result.status == "passed"), _expect("report_fresh", _file_nonempty_after(output_path, started_at))]
+        preview_path = package_dir / "output" / "json" / "template-preview.json"
+        evidence = [
+            _expect("run_passed", result.status == "passed"),
+            _expect("report_fresh", _file_nonempty_after(output_path, started_at)),
+            _expect("preview_json_fresh", _file_nonempty_after(preview_path, started_at)),
+        ]
         try:
             evidence.extend(_template_style_evidence(output_path))
         except Exception as error:
             evidence.append({"name": "template_evidence_read", "ok": False, "error": str(error), "error_type": type(error).__name__})
+        try:
+            evidence.extend(_template_preview_evidence(preview_path))
+        except Exception as error:
+            evidence.append({"name": "template_preview_read", "ok": False, "error": str(error), "error_type": type(error).__name__})
         return {
             "name": "excel-template-style",
             "ok": result.status == "passed" and all(item["ok"] for item in evidence),
@@ -314,18 +397,31 @@ def _template_style_plan() -> dict[str, Any]:
                 "path": "report.xlsx",
                 "template_path": "resources/template.xlsx",
                 "sheet": "模板",
-                "write_mode": "overlay_cells",
-                "cells": {"B2": "张三", "C2": "财务"},
+                "range": "B4:F7",
+                "value": [
+                    {"姓名": "张三", "部门": "财务", "基本工资": 12000, "奖金": 1000},
+                    {"姓名": "李四", "部门": "人事", "基本工资": 9000, "奖金": 500},
+                ],
+                "formula_columns": {"实发": "={基本工资}+{奖金}"},
+                "cells": {"B2": "2026-06", "F2": "已生成"},
             },
             {
                 "action": "read",
                 "type": "excel",
                 "path": "output/excel/report.xlsx",
                 "sheet": "模板",
-                "mode": "cells",
-                "save_as": "cells",
+                "range": "B4:F20",
+                "preview_rows": 1,
+                "max_cells": 20,
+                "save_as": "preview_rows",
+                "save_meta_as": "preview_meta",
             },
-            {"action": "write", "type": "json", "path": "template-cells.json", "value": "{{cells}}"},
+            {
+                "action": "write",
+                "type": "json",
+                "path": "template-preview.json",
+                "value": {"rows": "{{preview_rows}}", "meta": "{{preview_meta}}"},
+            },
         ],
     }
 
@@ -354,13 +450,29 @@ def _template_style_evidence(path: Path) -> list[dict[str, Any]]:
         worksheet = workbook["模板"]
         return [
             _expect("template_sheet_preserved", "模板" in workbook.sheetnames),
-            _expect("overlay_cell_b2", worksheet["B2"].value == "张三"),
-            _expect("overlay_cell_c2", worksheet["C2"].value == "财务"),
+            _expect("title_cell_b2", worksheet["B2"].value == "2026-06"),
+            _expect("summary_cell_f2", worksheet["F2"].value == "已生成"),
+            _expect("range_header_b4", worksheet["B4"].value == "姓名"),
+            _expect("range_header_f4", worksheet["F4"].value == "实发"),
+            _expect("range_row_b5", worksheet["B5"].value == "张三"),
+            _expect("formula_column_f5", worksheet["F5"].value == "=D5+E5"),
             _expect("existing_value_preserved", worksheet["A3"].value == "保留行"),
             _expect("header_fill_preserved", worksheet["A1"].fill.fgColor.rgb == "FF4472C4"),
         ]
     finally:
         workbook.close()
+
+
+def _template_preview_evidence(path: Path) -> list[dict[str, Any]]:
+    payload = _read_json(path)
+    rows = payload.get("rows", []) if isinstance(payload, dict) else []
+    meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    return [
+        _expect("preview_row_count", isinstance(rows, list) and len(rows) == 1),
+        _expect("preview_first_row", isinstance(rows, list) and bool(rows) and rows[0].get("姓名") == "张三"),
+        _expect("preview_meta_truncated", isinstance(meta, dict) and meta.get("truncated") is True),
+        _expect("preview_meta_max_cells", isinstance(meta, dict) and meta.get("max_cells") == 20),
+    ]
 
 
 def _write_excel_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
@@ -406,6 +518,32 @@ def _table_transform_evidence(project_root: Path, started_at: float) -> list[dic
         _expect("tax_included_amount", isinstance(rows, list) and bool(rows) and rows[0].get("含税金额") == 1590),
         _expect("summary_contains_finance", _contains_row(summary, {"部门": "财务", "笔数": 2, "总金额": 2700, "平均金额": 1350})),
         _expect("multi_sheet_workbook", {"明细", "部门汇总"}.issubset(set(workbook_sheets))),
+    ]
+
+
+def _table_cleaning_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    payload_path = project_root / "test-plans/data-driven/table-cleaning/output/json/table-cleaning.json"
+    payload = _read_json(payload_path)
+    rows = payload.get("rows", []) if isinstance(payload, dict) else []
+    return [
+        _expect("json_fresh", _file_nonempty_after(payload_path, started_at)),
+        _expect("cleaned_row_count", isinstance(rows, list) and len(rows) == 3),
+        _expect(
+            "split_replace_lookup_first_row",
+            _contains_row(
+                rows,
+                {
+                    "姓名": "张三",
+                    "部门短名": "财务",
+                    "状态": "在职",
+                    "入职日期": "2026-01-05",
+                    "部门全称": "财务部",
+                    "联系电话": "86-13800138000",
+                },
+            ),
+        ),
+        _expect("global_replace_blank_phone", _contains_row(rows, {"姓名": "王五", "手机号": "未填写", "联系电话": "86-未填写"})),
+        _expect("date_parse_slash_dash_dot", _contains_row(rows, {"姓名": "李四", "入职日期": "2026-02-10"})),
     ]
 
 

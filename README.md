@@ -154,7 +154,7 @@ python .\cplan.py self-check data-components
 - `capture`: 通过 `type` 保存截图、HTML、storage state
 - `read`: 通过 `type` 读取 `json`、`text`、`csv`、`excel`
 - `write`: 通过 `type` 写出 `json`、`text`、`csv`、`excel`、`variables`
-- `table`: 通过 `type` 对行数组执行筛选、选列、排序、去重、分组、连接、派生列、清洗和透视
+- `table`: 通过 `type` 对行数组执行筛选、选列、排序、去重、分组、连接、派生列、清洗、拆列、合列、日期解析、查表和透视
 - `ai`: 通过 `type` 执行受控专项 AI 任务，例如连通性、文本抽取、分类、转换和摘要
 
 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download` 这类参数或生命周期明显不同的能力保持独立组件。

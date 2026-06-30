@@ -1,0 +1,132 @@
+{
+  "name": "database mongodb basic",
+  "automation_type": "browser",
+  "variables": {
+    "mongo_connection": {
+      "type": "mongodb",
+      "uri": "mongodb://127.0.0.1:27017/aic_demo",
+      "database": "aic_demo"
+    },
+    "collection": "aic_demo_items",
+    "run_id": "manual-demo"
+  },
+  "steps": [
+    {
+      "action": "mongo",
+      "type": "command",
+      "connection": "{{mongo_connection}}",
+      "command": "ping",
+      "result_path": "mongodb-ping.json",
+      "save_as": "mongo_ping"
+    },
+    {
+      "action": "mongo",
+      "type": "delete_many",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "filter": {
+        "run_id": "{{run_id}}"
+      },
+      "result_path": "mongodb-clean-before.json"
+    },
+    {
+      "action": "mongo",
+      "type": "insert_many",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "documents": [
+        {
+          "run_id": "{{run_id}}",
+          "item_id": 1,
+          "category": "software",
+          "amount": 120.5
+        },
+        {
+          "run_id": "{{run_id}}",
+          "item_id": 2,
+          "category": "hardware",
+          "amount": 340
+        }
+      ],
+      "result_path": "mongodb-insert.json",
+      "save_as": "mongo_insert"
+    },
+    {
+      "action": "mongo",
+      "type": "update_one",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "filter": {
+        "run_id": "{{run_id}}",
+        "item_id": 1
+      },
+      "update": {
+        "$set": {
+          "status": "checked"
+        }
+      },
+      "result_path": "mongodb-update.json"
+    },
+    {
+      "action": "mongo",
+      "type": "find",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "filter": {
+        "run_id": "{{run_id}}"
+      },
+      "sort": {
+        "item_id": 1
+      },
+      "limit": 20,
+      "result_path": "mongodb-find.json",
+      "save_as": "mongo_rows"
+    },
+    {
+      "action": "mongo",
+      "type": "aggregate",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "pipeline": [
+        {
+          "$match": {
+            "run_id": "{{run_id}}"
+          }
+        },
+        {
+          "$group": {
+            "_id": "$category",
+            "total_amount": {
+              "$sum": "$amount"
+            },
+            "item_count": {
+              "$sum": 1
+            }
+          }
+        },
+        {
+          "$sort": {
+            "total_amount": -1
+          }
+        }
+      ],
+      "result_path": "mongodb-aggregate.json",
+      "save_as": "mongo_summary"
+    },
+    {
+      "action": "mongo",
+      "type": "delete_many",
+      "connection": "{{mongo_connection}}",
+      "collection": "{{collection}}",
+      "filter": {
+        "run_id": "{{run_id}}"
+      },
+      "result_path": "mongodb-clean-after.json"
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "mongodb-basic-variables.json"
+    }
+  ]
+}

@@ -12,8 +12,9 @@ from urllib.parse import unquote, urlsplit
 
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
+from . import files
 
-SQL_ACTION_TYPES = {"query", "scalar", "execute", "executemany", "bulk_insert", "copy", "transaction"}
+SQL_ACTION_TYPES = {"query", "scalar", "execute", "executemany", "bulk_insert", "copy", "transaction", "inspect", "import", "export"}
 DEFAULT_MAX_ROWS = 1000
 IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -37,11 +38,20 @@ def run(executor: Any, step: dict[str, Any]) -> None:
     if step_type == "bulk_insert":
         _run_bulk_insert(executor, step)
         return
+    if step_type == "import":
+        _run_import(executor, step)
+        return
+    if step_type == "export":
+        _run_export(executor, step)
+        return
     if step_type == "copy":
         _run_copy(executor, step)
         return
     if step_type == "transaction":
         _run_transaction(executor, step)
+        return
+    if step_type == "inspect":
+        _run_inspect(executor, step)
         return
 
 
@@ -183,6 +193,102 @@ def _run_bulk_insert(executor: Any, step: dict[str, Any]) -> None:
         mode=payload["mode"],
         input_rows=payload["input_rows"],
         affected_rows=payload["affected_rows"],
+        elapsed_ms=elapsed_ms,
+        save_as=step.get("save_as", ""),
+    )
+
+
+def _run_import(executor: Any, step: dict[str, Any]) -> None:
+    started_at = time.perf_counter()
+    source_path = _resolve_input_path(executor, str(step["source_path"]))
+    source_type = _file_table_type(step.get("source_type"), source_path, field_name="source_type")
+    source_rows = _read_table_rows(executor, step, source_path=source_path, source_type=source_type)
+    max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS * 100)))
+    if len(source_rows) > max_rows:
+        raise ValueError(f"sql.import 源数据超过 max_rows={max_rows}；请清洗输入、分批导入或提高 max_rows。")
+    source_columns = _rows_columns(source_rows)
+    target_rows, target_columns, column_map = _copy_target_rows(step, source_rows, source_columns)
+    config = _connection_config(executor, step)
+    commit = bool(step.get("commit", True))
+    with _open_connection(executor, config, step) as opened:
+        if bool(step.get("create_table", False)):
+            _create_import_table(opened, step, target_rows, target_columns, commit=commit)
+        bulk_step = _copy_bulk_step(step, target_rows, target_columns)
+        payload = _bulk_insert_operation(opened, bulk_step, commit=commit)
+
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    payload.update(
+        {
+            "type": "import",
+            "connection": opened.connection_name,
+            "database_type": opened.database_type,
+            "source_path": str(source_path),
+            "source_type": source_type,
+            "source_columns": source_columns,
+            "column_map": column_map,
+            "create_table": bool(step.get("create_table", False)),
+            "elapsed_ms": elapsed_ms,
+        }
+    )
+    _write_optional_result(executor, step, payload)
+    _save_optional(executor, step, payload)
+    executor.state.logger.log(
+        "info",
+        "sql import finished",
+        connection=opened.connection_name,
+        database_type=opened.database_type,
+        source_type=source_type,
+        table=payload["table"],
+        input_rows=payload["input_rows"],
+        affected_rows=payload["affected_rows"],
+        elapsed_ms=elapsed_ms,
+        save_as=step.get("save_as", ""),
+    )
+
+
+def _run_export(executor: Any, step: dict[str, Any]) -> None:
+    started_at = time.perf_counter()
+    config = _connection_config(executor, step)
+    max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS)))
+    pagination = _query_pagination(step, max_rows, action_label="sql.export")
+    target_path = _resolve_sql_output_path(executor, str(step["target_path"]))
+    target_type = _file_table_type(step.get("target_type"), target_path, field_name="target_type")
+    with _open_connection(executor, config, step) as opened:
+        sql, params = _prepare_sql(str(step["sql"]), step.get("params"), opened.database_type)
+        sql = _apply_query_pagination(sql, opened.database_type, pagination)
+        cursor = opened.connection.cursor()
+        try:
+            _execute(cursor, sql, params)
+            columns = [str(item[0]) for item in (cursor.description or [])]
+            rows = _fetch_rows(cursor, columns, row_mode="dict", max_rows=max_rows)
+        finally:
+            _close_cursor(cursor)
+
+    _write_export_rows(target_path, target_type=target_type, rows=rows, columns=columns, sheet=step.get("sheet"))
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    payload: dict[str, Any] = {
+        "type": "export",
+        "connection": opened.connection_name,
+        "database_type": opened.database_type,
+        "target_path": str(target_path),
+        "target_type": target_type,
+        "columns": columns,
+        "row_count": len(rows),
+        "first_row": rows[0] if rows else None,
+        "elapsed_ms": elapsed_ms,
+    }
+    payload.update(_query_pagination_payload(pagination))
+    if bool(step.get("include_rows", False)):
+        payload["rows"] = _json_safe(rows)
+    _write_optional_result(executor, step, payload)
+    _save_optional(executor, step, payload)
+    executor.state.logger.log(
+        "info",
+        "sql export finished",
+        connection=opened.connection_name,
+        database_type=opened.database_type,
+        target_type=target_type,
+        row_count=len(rows),
         elapsed_ms=elapsed_ms,
         save_as=step.get("save_as", ""),
     )
@@ -374,6 +480,42 @@ def _run_copy_stream(executor: Any, step: dict[str, Any]) -> None:
         affected_rows=affected_rows,
         fetch_size=fetch_size,
         batch_count=batch_count,
+        elapsed_ms=elapsed_ms,
+        save_as=step.get("save_as", ""),
+    )
+
+
+def _run_inspect(executor: Any, step: dict[str, Any]) -> None:
+    started_at = time.perf_counter()
+    config = _connection_config(executor, step)
+    with _open_connection(executor, config, step) as opened:
+        schema_info = _inspect_schema(opened, step)
+
+    elapsed_ms = int((time.perf_counter() - started_at) * 1000)
+    payload: dict[str, Any] = {
+        "type": "inspect",
+        "connection": opened.connection_name,
+        "database_type": opened.database_type,
+        "schema": step.get("schema"),
+        "table": step.get("table"),
+        "tables": schema_info["tables"],
+        "columns": schema_info["columns"],
+        "indexes": schema_info["indexes"],
+        "table_count": len(schema_info["tables"]),
+        "column_count": len(schema_info["columns"]),
+        "index_count": len(schema_info["indexes"]),
+        "elapsed_ms": elapsed_ms,
+    }
+    _write_optional_result(executor, step, payload)
+    _save_optional(executor, step, payload)
+    executor.state.logger.log(
+        "info",
+        "sql inspect finished",
+        connection=opened.connection_name,
+        database_type=opened.database_type,
+        table_count=payload["table_count"],
+        column_count=payload["column_count"],
+        index_count=payload["index_count"],
         elapsed_ms=elapsed_ms,
         save_as=step.get("save_as", ""),
     )
@@ -599,6 +741,192 @@ def _chunks(values: list[Any], batch_size: int) -> list[list[Any]]:
     return [values[index : index + batch_size] for index in range(0, len(values), batch_size)]
 
 
+def _resolve_input_path(executor: Any, raw_path: str) -> Path:
+    path = executor._resolve_path(raw_path)
+    if not path.exists() or not path.is_file():
+        raise FileNotFoundError(f"sql.import.source_path 文件不存在：{raw_path}")
+    return path
+
+
+def _resolve_sql_output_path(executor: Any, raw_path: str) -> Path:
+    path = executor._resolve_output_path(raw_path, category="sql")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _file_table_type(raw_type: Any, path: Path, *, field_name: str) -> str:
+    if raw_type is not None and str(raw_type).strip():
+        value = str(raw_type).lower()
+    else:
+        suffix = path.suffix.lower()
+        aliases = {".csv": "csv", ".json": "json", ".jsonl": "jsonl", ".xlsx": "excel", ".xlsm": "excel"}
+        value = aliases.get(suffix, "")
+    aliases = {"xlsx": "excel", "xlsm": "excel"}
+    value = aliases.get(value, value)
+    if value not in {"csv", "json", "jsonl", "excel"}:
+        raise ValueError(f"sql.{field_name} 只支持 csv、json、jsonl、excel，或使用 .csv/.json/.jsonl/.xlsx 文件后缀。")
+    return value
+
+
+def _read_table_rows(executor: Any, step: dict[str, Any], *, source_path: Path, source_type: str) -> list[dict[str, Any]]:
+    if source_type == "jsonl":
+        rows = _read_jsonl_rows(source_path)
+    else:
+        read_step = dict(step)
+        read_step["type"] = "excel" if source_type == "excel" else source_type
+        read_step["path"] = str(source_path)
+        if source_type == "excel":
+            read_step.setdefault("mode", "records")
+        rows = files.read_file(executor, read_step)
+    rows = _extract_record_rows(rows, record_path=step.get("record_path"))
+    result: list[dict[str, Any]] = []
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            raise ValueError(f"sql.import 源数据第 {index} 行必须是对象；数组行请先用 read/table 转换为对象行。")
+        result.append({str(key): value for key, value in row.items()})
+    return result
+
+
+def _read_jsonl_rows(path: Path) -> list[Any]:
+    rows: list[Any] = []
+    with path.open("r", encoding="utf-8") as file:
+        for line_number, line in enumerate(file, start=1):
+            text = line.strip()
+            if not text:
+                continue
+            try:
+                rows.append(json.loads(text))
+            except json.JSONDecodeError as error:
+                raise ValueError(f"sql.import JSONL 第 {line_number} 行无效：{error.msg}") from error
+    return rows
+
+
+def _extract_record_rows(value: Any, *, record_path: Any) -> list[Any]:
+    if isinstance(record_path, str) and record_path.strip():
+        for part in record_path.split("."):
+            if isinstance(value, dict):
+                value = value.get(part)
+            else:
+                raise ValueError(f"sql.import.record_path 无法在非对象上继续解析：{record_path}")
+    elif isinstance(value, dict):
+        for key in ("rows", "data", "items"):
+            if isinstance(value.get(key), list):
+                value = value[key]
+                break
+    if not isinstance(value, list):
+        raise ValueError("sql.import 源数据必须是行对象数组，或 JSON 对象中的 rows/data/items 数组。")
+    return value
+
+
+def _rows_columns(rows: list[dict[str, Any]]) -> list[str]:
+    columns: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for key in row:
+            if key not in seen:
+                columns.append(key)
+                seen.add(key)
+    return columns
+
+
+def _create_import_table(
+    opened: "_OpenedConnection",
+    step: dict[str, Any],
+    rows: list[dict[str, Any]],
+    columns: list[str],
+    *,
+    commit: bool,
+) -> None:
+    if not columns:
+        raise ValueError("sql.import create_table=true 需要至少一列。")
+    table = _safe_identifier(str(step["table"]), field_name="table")
+    column_defs = ", ".join(f"{column} {_import_column_type(opened.database_type, rows, column)}" for column in columns)
+    if opened.database_type == "oracle":
+        raise ValueError("Oracle 暂不支持 sql.import.create_table=true；请先用 execute 建表。")
+    if opened.database_type == "sqlserver":
+        sql = f"IF OBJECT_ID(N'{table}', N'U') IS NULL CREATE TABLE {table} ({column_defs})"
+    else:
+        sql = f"CREATE TABLE IF NOT EXISTS {table} ({column_defs})"
+    cursor = opened.connection.cursor()
+    try:
+        _execute(cursor, sql, None)
+        if commit:
+            opened.connection.commit()
+    except BaseException:
+        _rollback_if_possible(opened.connection)
+        raise
+    finally:
+        _close_cursor(cursor)
+
+
+def _import_column_type(database_type: str, rows: list[dict[str, Any]], column: str) -> str:
+    _safe_identifier(column, field_name="columns")
+    values = [row.get(column) for row in rows if row.get(column) is not None and row.get(column) != ""]
+    if not values:
+        return _text_column_type(database_type)
+    if all(isinstance(value, bool) for value in values):
+        return "INTEGER" if database_type == "sqlite" else "BOOLEAN"
+    if all(isinstance(value, int) and not isinstance(value, bool) for value in values):
+        if database_type == "oracle":
+            return "NUMBER"
+        if database_type == "mysql":
+            return "BIGINT"
+        return "INTEGER"
+    if all(isinstance(value, (int, float, Decimal)) and not isinstance(value, bool) for value in values):
+        if database_type == "postgresql":
+            return "DOUBLE PRECISION"
+        if database_type == "oracle":
+            return "NUMBER"
+        return "REAL"
+    return _text_column_type(database_type)
+
+
+def _text_column_type(database_type: str) -> str:
+    if database_type == "oracle":
+        return "CLOB"
+    if database_type == "mysql":
+        return "TEXT"
+    if database_type == "sqlserver":
+        return "NVARCHAR(MAX)"
+    return "TEXT"
+
+
+def _write_export_rows(path: Path, *, target_type: str, rows: list[dict[str, Any]], columns: list[str], sheet: Any) -> None:
+    safe_rows = _json_safe(rows)
+    if target_type == "csv":
+        _write_csv(path, safe_rows)
+        return
+    if target_type == "jsonl":
+        _write_jsonl(path, safe_rows)
+        return
+    if target_type == "json":
+        path.write_text(json.dumps(safe_rows, ensure_ascii=False, indent=2), encoding="utf-8")
+        return
+    _write_export_excel(path, safe_rows, columns=columns, sheet=sheet)
+
+
+def _write_export_excel(path: Path, rows: list[dict[str, Any]], *, columns: list[str], sheet: Any) -> None:
+    excel = files._load_openpyxl()
+    workbook = excel["Workbook"]()
+    worksheet = workbook.active
+    worksheet.title = str(sheet or "Sheet1")
+    headers = columns or _rows_columns(rows)
+    for column_number, header in enumerate(headers, start=1):
+        worksheet.cell(row=1, column=column_number).value = header
+    for row_number, row in enumerate(rows, start=2):
+        for column_number, header in enumerate(headers, start=1):
+            worksheet.cell(row=row_number, column=column_number).value = _excel_export_cell_value(row.get(header))
+    workbook.save(path)
+
+
+def _excel_export_cell_value(value: Any) -> Any:
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
 def _copy_target_rows(step: dict[str, Any], source_rows: list[dict[str, Any]], source_columns: list[str]) -> tuple[list[dict[str, Any]], list[str], dict[str, str]]:
     raw_column_map = step.get("column_map")
     if raw_column_map is not None and not isinstance(raw_column_map, dict):
@@ -644,6 +972,219 @@ def _copy_bulk_step(
         if field in step:
             bulk_step[field] = step[field]
     return bulk_step
+
+
+def _inspect_schema(opened: "_OpenedConnection", step: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    schema = str(step["schema"]) if "schema" in step else None
+    table = str(step["table"]) if "table" in step else None
+    include_columns = bool(step.get("include_columns", True))
+    include_indexes = bool(step.get("include_indexes", False))
+    max_rows = max(1, int(step.get("max_rows", DEFAULT_MAX_ROWS * 5)))
+    if opened.database_type == "sqlite":
+        return _inspect_sqlite(opened, table=table, include_columns=include_columns, include_indexes=include_indexes)
+    if opened.database_type == "oracle":
+        return _inspect_oracle(opened, schema=schema, table=table, include_columns=include_columns, max_rows=max_rows)
+    return _inspect_information_schema(
+        opened,
+        schema=schema,
+        table=table,
+        include_columns=include_columns,
+        max_rows=max_rows,
+    )
+
+
+def _inspect_sqlite(
+    opened: "_OpenedConnection",
+    *,
+    table: str | None,
+    include_columns: bool,
+    include_indexes: bool,
+) -> dict[str, list[dict[str, Any]]]:
+    sql = "SELECT name, type FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'"
+    params: list[Any] = []
+    if table:
+        sql += " AND name = ?"
+        params.append(table)
+    sql += " ORDER BY name"
+    tables = [
+        {"schema": "main", "name": row["name"], "type": row["type"]}
+        for row in _select_dicts(opened, sql, params, max_rows=DEFAULT_MAX_ROWS * 5)
+    ]
+    columns: list[dict[str, Any]] = []
+    indexes: list[dict[str, Any]] = []
+    for table_info in tables:
+        table_name = str(table_info["name"])
+        quoted_table = _quote_sqlite_identifier(table_name)
+        if include_columns:
+            column_rows = _select_dicts(opened, f"PRAGMA table_info({quoted_table})", None, max_rows=DEFAULT_MAX_ROWS * 5)
+            for row in column_rows:
+                columns.append(
+                    {
+                        "schema": "main",
+                        "table": table_name,
+                        "name": row.get("name"),
+                        "ordinal": row.get("cid"),
+                        "data_type": row.get("type"),
+                        "nullable": not bool(row.get("notnull")),
+                        "default": row.get("dflt_value"),
+                        "primary_key_position": row.get("pk"),
+                    }
+                )
+        if include_indexes:
+            index_rows = _select_dicts(opened, f"PRAGMA index_list({quoted_table})", None, max_rows=DEFAULT_MAX_ROWS * 5)
+            for row in index_rows:
+                index_name = str(row.get("name") or "")
+                if not index_name:
+                    continue
+                index_columns = _select_dicts(
+                    opened,
+                    f"PRAGMA index_info({_quote_sqlite_identifier(index_name)})",
+                    None,
+                    max_rows=DEFAULT_MAX_ROWS * 5,
+                )
+                indexes.append(
+                    {
+                        "schema": "main",
+                        "table": table_name,
+                        "name": index_name,
+                        "unique": bool(row.get("unique")),
+                        "columns": [item.get("name") for item in index_columns],
+                        "origin": row.get("origin"),
+                        "partial": bool(row.get("partial")),
+                    }
+                )
+    return {"tables": tables, "columns": columns, "indexes": indexes}
+
+
+def _inspect_information_schema(
+    opened: "_OpenedConnection",
+    *,
+    schema: str | None,
+    table: str | None,
+    include_columns: bool,
+    max_rows: int,
+) -> dict[str, list[dict[str, Any]]]:
+    table_sql = """
+        SELECT table_schema, table_name, table_type
+        FROM information_schema.tables
+        WHERE (:schema IS NULL OR table_schema = :schema)
+          AND (:table IS NULL OR table_name = :table)
+    """
+    column_sql = """
+        SELECT table_schema, table_name, column_name, ordinal_position, data_type, is_nullable, column_default
+        FROM information_schema.columns
+        WHERE (:schema IS NULL OR table_schema = :schema)
+          AND (:table IS NULL OR table_name = :table)
+    """
+    if opened.database_type == "postgresql":
+        exclude = " AND table_schema NOT IN ('pg_catalog', 'information_schema')"
+    elif opened.database_type == "mysql":
+        exclude = " AND table_schema NOT IN ('information_schema', 'mysql', 'performance_schema', 'sys')"
+    elif opened.database_type == "sqlserver":
+        exclude = " AND table_schema NOT IN ('INFORMATION_SCHEMA', 'sys')"
+    elif opened.database_type == "duckdb":
+        exclude = " AND table_schema NOT IN ('information_schema', 'pg_catalog')"
+    else:
+        exclude = ""
+    params = {"schema": schema, "table": table}
+    table_rows = _select_dicts(opened, table_sql + exclude + " ORDER BY table_schema, table_name", params, max_rows=max_rows)
+    tables = [
+        {"schema": row.get("table_schema"), "name": row.get("table_name"), "type": row.get("table_type")}
+        for row in table_rows
+    ]
+    columns: list[dict[str, Any]] = []
+    if include_columns:
+        column_rows = _select_dicts(
+            opened,
+            column_sql + exclude + " ORDER BY table_schema, table_name, ordinal_position",
+            params,
+            max_rows=max_rows,
+        )
+        columns = [
+            {
+                "schema": row.get("table_schema"),
+                "table": row.get("table_name"),
+                "name": row.get("column_name"),
+                "ordinal": row.get("ordinal_position"),
+                "data_type": row.get("data_type"),
+                "nullable": _nullable_value(row.get("is_nullable")),
+                "default": row.get("column_default"),
+            }
+            for row in column_rows
+        ]
+    return {"tables": tables, "columns": columns, "indexes": []}
+
+
+def _inspect_oracle(
+    opened: "_OpenedConnection",
+    *,
+    schema: str | None,
+    table: str | None,
+    include_columns: bool,
+    max_rows: int,
+) -> dict[str, list[dict[str, Any]]]:
+    params = {"schema": schema.upper() if schema else None, "table": table.upper() if table else None}
+    table_sql = """
+        SELECT owner, table_name, 'TABLE' AS table_type
+        FROM all_tables
+        WHERE owner = COALESCE(:schema, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'))
+          AND (:table IS NULL OR table_name = :table)
+        ORDER BY owner, table_name
+    """
+    table_rows = _select_dicts(opened, table_sql, params, max_rows=max_rows)
+    tables = [
+        {"schema": row.get("owner"), "name": row.get("table_name"), "type": row.get("table_type")}
+        for row in table_rows
+    ]
+    columns: list[dict[str, Any]] = []
+    if include_columns:
+        column_sql = """
+            SELECT owner, table_name, column_name, column_id, data_type, nullable, data_default
+            FROM all_tab_columns
+            WHERE owner = COALESCE(:schema, SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA'))
+              AND (:table IS NULL OR table_name = :table)
+            ORDER BY owner, table_name, column_id
+        """
+        column_rows = _select_dicts(opened, column_sql, params, max_rows=max_rows)
+        columns = [
+            {
+                "schema": row.get("owner"),
+                "table": row.get("table_name"),
+                "name": row.get("column_name"),
+                "ordinal": row.get("column_id"),
+                "data_type": row.get("data_type"),
+                "nullable": _nullable_value(row.get("nullable")),
+                "default": row.get("data_default"),
+            }
+            for row in column_rows
+        ]
+    return {"tables": tables, "columns": columns, "indexes": []}
+
+
+def _select_dicts(opened: "_OpenedConnection", sql: str, params: Any, *, max_rows: int) -> list[dict[str, Any]]:
+    prepared_sql, prepared_params = _prepare_sql(sql, params, opened.database_type)
+    cursor = opened.connection.cursor()
+    try:
+        _execute(cursor, prepared_sql, prepared_params)
+        columns = [str(item[0]).lower() for item in (cursor.description or [])]
+        return _fetch_rows(cursor, columns, row_mode="dict", max_rows=max_rows)
+    finally:
+        _close_cursor(cursor)
+
+
+def _quote_sqlite_identifier(value: str) -> str:
+    return '"' + value.replace('"', '""') + '"'
+
+
+def _nullable_value(value: Any) -> bool | None:
+    if value is None:
+        return None
+    normalized = str(value).strip().lower()
+    if normalized in {"yes", "y", "true", "1"}:
+        return True
+    if normalized in {"no", "n", "false", "0"}:
+        return False
+    return None
 
 
 class _OpenedConnection:
@@ -726,6 +1267,18 @@ def _open_connection(executor: Any, config: dict[str, Any], step: dict[str, Any]
         kwargs = _oracle_connect_kwargs(config)
         connection = oracledb.connect(**kwargs)
         return _OpenedConnection(connection, database_type, connection_name)
+    if database_type == "sqlserver":
+        try:
+            import pyodbc
+        except ImportError as error:
+            raise RuntimeError(_driver_install_message("SQL Server", "db-sqlserver", "pyodbc")) from error
+        connect_string = _sqlserver_connect_string(config)
+        connection = pyodbc.connect(
+            connect_string,
+            timeout=max(1, int(timeout_seconds)),
+            autocommit=bool(config.get("autocommit", False)),
+        )
+        return _OpenedConnection(connection, database_type, connection_name)
     raise ValueError(f"sql.connection.type 不支持：{database_type}")
 
 
@@ -753,6 +1306,10 @@ def _database_type(config: dict[str, Any]) -> str:
         "sqlite": "sqlite",
         "sqlite3": "sqlite",
         "duckdb": "duckdb",
+        "mssql": "sqlserver",
+        "sqlserver": "sqlserver",
+        "sql_server": "sqlserver",
+        "sql-server": "sqlserver",
     }
     if raw_type in aliases:
         return aliases[raw_type]
@@ -851,11 +1408,73 @@ def _oracle_dsn_kwargs(dsn: str) -> dict[str, Any]:
     return kwargs
 
 
+def _sqlserver_connect_string(config: dict[str, Any]) -> str:
+    raw = config.get("connection_string") or config.get("odbc_connect")
+    if raw:
+        return str(raw)
+    dsn = str(config.get("dsn") or config.get("url") or "")
+    if dsn:
+        parts = urlsplit(dsn)
+        if parts.scheme not in {"mssql", "sqlserver", "sql-server"}:
+            return dsn
+        config = dict(config)
+        if parts.hostname:
+            config["host"] = parts.hostname
+        if parts.port:
+            config["port"] = parts.port
+        if parts.username:
+            config["user"] = unquote(parts.username)
+        if parts.password:
+            config["password"] = unquote(parts.password)
+        if parts.path and parts.path != "/":
+            config["database"] = unquote(parts.path.lstrip("/"))
+    if config.get("dsn") and not dsn.lower().startswith(("mssql://", "sqlserver://", "sql-server://")):
+        parts = [f"DSN={config['dsn']}"]
+    else:
+        raw_driver = str(config.get("driver") or "")
+        driver_aliases = {"mssql", "sqlserver", "sql_server", "sql-server"}
+        driver = str(
+            config.get("odbc_driver")
+            or config.get("driver_name")
+            or config.get("odbc_driver_name")
+            or (raw_driver if raw_driver.lower() not in driver_aliases else "")
+            or "ODBC Driver 18 for SQL Server"
+        )
+        host = str(config.get("host") or config.get("server") or "127.0.0.1")
+        server = host
+        if config.get("port"):
+            server = f"{host},{int(config['port'])}"
+        parts = [f"DRIVER={{{driver}}}", f"SERVER={server}"]
+    if config.get("database"):
+        parts.append(f"DATABASE={config['database']}")
+    user = config.get("user") or config.get("username")
+    password = config.get("password")
+    if user:
+        parts.append(f"UID={user}")
+    if password:
+        parts.append(f"PWD={password}")
+    if config.get("trusted_connection") is not None:
+        parts.append(f"Trusted_Connection={_odbc_bool(config['trusted_connection'])}")
+    if config.get("encrypt") is not None:
+        parts.append(f"Encrypt={_odbc_bool(config['encrypt'])}")
+    if config.get("trust_server_certificate") is not None:
+        parts.append(f"TrustServerCertificate={_odbc_bool(config['trust_server_certificate'])}")
+    return ";".join(str(part) for part in parts)
+
+
+def _odbc_bool(value: Any) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    return str(value)
+
+
 def _prepare_sql(sql: str, params: Any, database_type: str) -> tuple[str, Any]:
     if params is None:
         return sql, None
     if isinstance(params, dict) and database_type in {"postgresql", "mysql"}:
         return _convert_named_params(sql), params
+    if isinstance(params, dict) and database_type in {"sqlserver", "duckdb"}:
+        return _convert_named_params_to_qmark(sql, params)
     if isinstance(params, (dict, list, tuple)):
         return sql, params
     raise ValueError("sql.params 必须是对象、数组或省略。")
@@ -892,6 +1511,45 @@ def _convert_named_params(sql: str) -> str:
         result.append(char)
         index += 1
     return "".join(result)
+
+
+def _convert_named_params_to_qmark(sql: str, params: dict[str, Any]) -> tuple[str, tuple[Any, ...]]:
+    result: list[str] = []
+    ordered: list[Any] = []
+    index = 0
+    in_single = False
+    in_double = False
+    while index < len(sql):
+        char = sql[index]
+        if char == "'" and not in_double:
+            in_single = not in_single
+            result.append(char)
+            index += 1
+            continue
+        if char == '"' and not in_single:
+            in_double = not in_double
+            result.append(char)
+            index += 1
+            continue
+        if not in_single and not in_double and char == ":":
+            if index + 1 < len(sql) and sql[index + 1] == ":":
+                result.append("::")
+                index += 2
+                continue
+            match = re.match(r":([A-Za-z_][A-Za-z0-9_]*)", sql[index:])
+            if match:
+                name = match.group(1)
+                if name not in params:
+                    raise ValueError(f"sql.params 缺少命名参数：{name}")
+                result.append("?")
+                ordered.append(params[name])
+                index += len(name) + 1
+                continue
+        result.append(char)
+        index += 1
+    if ordered:
+        return "".join(result), tuple(ordered)
+    return sql, tuple(params.values())
 
 
 def _execute(cursor: Any, sql: str, params: Any) -> None:
@@ -960,6 +1618,13 @@ def _apply_query_pagination(sql: str, database_type: str, pagination: dict[str, 
             else:
                 clauses.append(f"FETCH NEXT {int(limit)} ROWS ONLY")
         return f"{base_sql} {' '.join(clauses)}"
+    if database_type == "sqlserver":
+        if not re.search(r"\border\s+by\b", base_sql, flags=re.IGNORECASE):
+            raise ValueError("SQL Server 使用 limit/offset/page_size 时查询必须包含 ORDER BY。")
+        clauses = [f"OFFSET {int(offset or 0)} ROWS"]
+        if limit is not None:
+            clauses.append(f"FETCH NEXT {int(limit)} ROWS ONLY")
+        return f"{base_sql} {' '.join(clauses)}"
     clauses = []
     if limit is not None:
         clauses.append(f"LIMIT {int(limit)}")
@@ -1011,6 +1676,8 @@ def _bulk_insert_sql(step: dict[str, Any], columns: list[str], database_type: st
     column_sql = ", ".join(columns)
     if database_type == "oracle" and mode in {"replace", "upsert"}:
         raise ValueError("Oracle 暂不支持 sql.bulk_insert.mode=replace/upsert；请使用 insert 或 execute MERGE。")
+    if database_type == "sqlserver" and mode in {"replace", "upsert"}:
+        raise ValueError("SQL Server 暂不支持 sql.bulk_insert.mode=replace/upsert；请使用 insert 或 execute MERGE。")
     if database_type == "duckdb" and mode == "replace":
         raise ValueError("DuckDB 暂不支持 sql.bulk_insert.mode=replace；请使用 insert 或 upsert。")
     values_sql = _bulk_insert_values_sql(database_type, len(columns))
@@ -1041,7 +1708,7 @@ def _bulk_insert_sql(step: dict[str, Any], columns: list[str], database_type: st
 
 
 def _bulk_insert_values_sql(database_type: str, column_count: int) -> str:
-    if database_type in {"sqlite", "duckdb"}:
+    if database_type in {"sqlite", "duckdb", "sqlserver"}:
         return ", ".join(["?"] * column_count)
     if database_type == "oracle":
         return ", ".join(f":{index}" for index in range(1, column_count + 1))

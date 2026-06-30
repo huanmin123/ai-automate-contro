@@ -83,6 +83,55 @@ PASSWORD_REQUEST_TOKENS = ("密码", "password", "passwd", "pwd", "口令")
 OUTPUT_TOKENS = ("写到", "写入", "保存", "导出", "输出", "文件", "产出", "一行一个", "下载", "Downloads", "Desktop")
 EXTRACTION_TOKENS = ("拿出来", "提取", "读取", "获取", "抓取", "导出", "列表", "全部", "所有", "一行一个")
 FILE_DATA_TOKENS = ("excel", ".xlsx", "csv", ".csv", "表格", "人员名单", "财务表", "报表", "流水", "台账", "清单")
+FILE_DATA_CONCRETE_RULE_TOKENS = (
+    "筛选",
+    "过滤",
+    "只保留",
+    "剔除",
+    "去掉",
+    "删除",
+    "去重",
+    "排序",
+    "汇总",
+    "统计",
+    "分组",
+    "聚合",
+    "透视",
+    "匹配",
+    "关联",
+    "连接",
+    "lookup",
+    "vlookup",
+    "合并列",
+    "拆分",
+    "替换",
+    "日期",
+    "公式",
+    "标题区",
+    "汇总区",
+    "指定区域",
+    "保留样式",
+    "sheet",
+    "工作表",
+    "列",
+    "字段",
+)
+FILE_DATA_TRANSFORM_ACTION_TYPES = {
+    "add_column",
+    "date_parse",
+    "dedupe",
+    "fill_empty",
+    "filter",
+    "group",
+    "join",
+    "lookup",
+    "merge_columns",
+    "pivot",
+    "replace",
+    "sort",
+    "split_column",
+    "type_convert",
+}
 NEGATIVE_EVIDENCE_TOKENS = (
     "没有探测",
     "未探测",
@@ -370,6 +419,7 @@ def review_plan_quality_tool(
     _review_credentials(profile, step_records, variables, raw_plan_text, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_login_progression(profile, step_records, variables, strict, checks, issues, facts, missing_facts, uncertain_facts)
     _review_output(profile, step_records, variables, planned_output_path, strict, checks, issues, facts, missing_facts, uncertain_facts)
+    _review_file_data_transform_intent(profile, step_records, strict, checks, issues, facts, missing_facts)
     _review_manual_confirm(profile, step_records, strict, checks, issues, facts, missing_facts, uncertain_facts)
 
     return _quality_result(
@@ -1176,6 +1226,46 @@ def _review_output(
         uncertain_facts.append("运行成功后的 export_local_file 交付")
 
 
+def _review_file_data_transform_intent(
+    profile: dict[str, Any],
+    steps: list[dict[str, Any]],
+    strict: bool,
+    checks: list[dict[str, Any]],
+    issues: list[dict[str, str]],
+    facts: list[str],
+    missing_facts: list[str],
+) -> None:
+    if not profile.get("file_data_intent"):
+        return
+    transform_records = [record for record in steps if _is_file_data_transform_record(record)]
+    has_explicit_rule = bool(profile.get("file_data_transform_explicit"))
+    passed = has_explicit_rule or not transform_records
+    checks.append(
+        {
+            "name": "file_data_transform_intent",
+            "passed": passed,
+            "detail": {
+                "file_data_transform_explicit": has_explicit_rule,
+                "transform_step_locations": [record["location"] for record in transform_records],
+            },
+        }
+    )
+    if passed:
+        if has_explicit_rule:
+            facts.append("已覆盖明确表格处理规则")
+        return
+    issues.append(
+        _issue(
+            "fail" if strict else "warn",
+            "ambiguous_file_data_transformation",
+            "用户只给了模糊表格处理目标，但 plan 已写入具体筛选、汇总、连接、公式或清洗转换。",
+            ", ".join(record["location"] for record in transform_records[:5]),
+            "先读取 workbook 预览和 meta，或向用户确认筛选、分组、汇总、连接、公式列、输出模板/区域等规则，再生成最终 plan。",
+        )
+    )
+    missing_facts.append("Excel/CSV 具体转换规则")
+
+
 def _review_manual_confirm(
     profile: dict[str, Any],
     steps: list[dict[str, Any]],
@@ -1397,6 +1487,9 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
     password_values = _credential_values(PASSWORD_VALUE_RE.findall(request))
     login_intent = _contains_any(request, LOGIN_TOKENS)
     file_data_intent = _contains_any(request_context, FILE_DATA_TOKENS)
+    file_data_transform_explicit = _has_explicit_file_data_transform_request(
+        request_context
+    ) or _has_explicit_file_data_transform_request(evidence_summary)
     is_real_site = any(_is_real_http_url(url) for url in urls)
     message_target_hint = _contains_any(
         request_context,
@@ -1418,6 +1511,8 @@ def _profile_request(user_request: str, evidence_summary: str, planned_output_pa
         "password_values": [value for value in password_values if value],
         "needs_output": bool(output_hint or output_filename) or _contains_any(request, OUTPUT_TOKENS),
         "needs_extraction": file_data_intent or _contains_any(request, EXTRACTION_TOKENS),
+        "file_data_intent": file_data_intent,
+        "file_data_transform_explicit": file_data_transform_explicit,
         "one_per_line": _contains_any(request, ("一行一个", "每行一个", "一行一条", "每行一条")),
         "output_filename": output_filename,
         "requested_output_hint": output_hint,
@@ -2287,6 +2382,27 @@ def _issue(severity: str, code: str, message: str, evidence: str, fix: str) -> d
 
 def _action(record: dict[str, Any]) -> str:
     return str(record.get("step", {}).get("action") or "")
+
+
+def _has_explicit_file_data_transform_request(text: Any) -> bool:
+    text_value = str(text or "")
+    if not _contains_any(text_value, FILE_DATA_CONCRETE_RULE_TOKENS):
+        return False
+    if _contains_any(text_value, ("没有确认", "未确认", "缺少确认", "没有规则", "未指定", "不明确", "不清楚")):
+        return False
+    return True
+
+
+def _is_file_data_transform_record(record: dict[str, Any]) -> bool:
+    step = record.get("step", {})
+    action = str(step.get("action") or "")
+    step_type = str(step.get("type") or "")
+    if action == "table":
+        return step_type in FILE_DATA_TRANSFORM_ACTION_TYPES
+    if action == "write" and step_type == "excel":
+        formula_columns = step.get("formula_columns")
+        return isinstance(formula_columns, dict) and bool(formula_columns)
+    return False
 
 
 def _locator_text(step: dict[str, Any]) -> str:

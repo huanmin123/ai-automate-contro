@@ -41,6 +41,33 @@
       "dsn": {
         "env": "AIC_DB_ORACLE_DSN"
       }
+    },
+    "sqlserver": {
+      "type": "sqlserver",
+      "host": {
+        "env": "AIC_DB_SQLSERVER_HOST"
+      },
+      "port": 1433,
+      "user": {
+        "env": "AIC_DB_SQLSERVER_USER"
+      },
+      "password": {
+        "env": "AIC_DB_SQLSERVER_PASSWORD"
+      },
+      "database": {
+        "env": "AIC_DB_SQLSERVER_DATABASE"
+      },
+      "trust_server_certificate": true
+    },
+    "mongodb": {
+      "type": "mongodb",
+      "uri": {
+        "env": "AIC_DB_MONGODB_URI"
+      },
+      "database": {
+        "env": "AIC_DB_MONGODB_DATABASE",
+        "default": "aic_demo"
+      }
     }
   },
   "elasticsearch": {
@@ -63,6 +90,14 @@
     },
     "oracle": {
       "connection": "oracle",
+      "allow_writes": false
+    },
+    "sqlserver": {
+      "connection": "sqlserver",
+      "allow_writes": false
+    },
+    "mongodb": {
+      "connection": "mongodb",
       "allow_writes": false
     }
   }

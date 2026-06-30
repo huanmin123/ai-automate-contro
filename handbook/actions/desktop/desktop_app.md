@@ -13,7 +13,7 @@
   "action": "desktop_app",
   "desktop": "desk",
   "type": "launch",
-  "app": "notepad.exe",
+  "profile": "notepad",
   "args": ["C:/tmp/demo.txt"],
   "wait": false,
   "timeout_ms": 10000,
@@ -30,12 +30,13 @@
 
 - `desktop`: 必填，桌面 session 名。
 - `type`: 必填，固定为 `launch`。
-- `app` / `path` / `command`: 三选一，必须提供一个且不能同时提供多个。
+- `profile`: 可选，App/窗口预设，见 [app_profile](./app_profile.md)。可以提供启动目标、Window Query 和默认等待参数。
+- `app` / `path` / `command`: 三选一；没有 `profile` 时必须提供一个且不能同时提供多个。显式字段会覆盖 profile 提供的启动目标。
 - `args`: 可选，非空字符串数组，作为启动参数传给目标。
 - `wait`: 可选，默认 `false`。为 `true` 时等待进程退出。
 - `timeout_ms`: 可选，`wait=true` 时的等待超时，默认 `10000`。
 - `wait_for_window`: 可选，默认 `false`。为 `true` 时，启动后等待匹配窗口出现。
-- Window Query: `wait_for_window=true` 时必填；可用 `title_contains`、`process_name`、`app`、`window_id` 等字段。
+- Window Query: `wait_for_window=true` 时必填；可用 `profile`、`title_contains`、`process_name`、`app`、`window_id` 等字段。
 - `focus`: 可选，默认 `false`。为 `true` 且 `wait_for_window=true` 时，等待窗口后聚焦该窗口。
 - `window_timeout_ms`: 可选，等待窗口超时，默认沿用 `timeout_ms` 或 `10000`。
 - `interval_ms`: 可选，等待窗口轮询间隔，默认 `250`。
@@ -73,6 +74,8 @@
 - `stdout`
 - `stderr`
 
+使用 `profile` 时，payload 会包含 `profile.id`、`profile.requested`、`profile.platform`、`profile.source` 和已应用的 `launch/window_query/defaults` 摘要。
+
 ## 平台行为
 
 - Windows: `app`、`path`、`command` 都作为进程启动目标传给系统。`args` 作为参数数组传入。
@@ -88,7 +91,7 @@
     "action": "desktop_app",
     "desktop": "desk",
     "type": "launch",
-    "app": "TextEdit",
+    "profile": "textedit",
     "args": ["/tmp/demo.txt"],
     "title_contains": "demo.txt",
     "wait_for_window": true,
@@ -117,6 +120,19 @@
     "title_contains": "demo.txt"
   }
 ]
+```
+
+内置或自定义 profile 可减少重复字段：
+
+```json
+{
+  "action": "desktop_app",
+  "desktop": "desk",
+  "type": "launch",
+  "profile": "notepad",
+  "args": ["C:/tmp/demo.txt"],
+  "save_as": "notepad_launch"
+}
 ```
 
 ## 边界

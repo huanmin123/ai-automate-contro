@@ -204,6 +204,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(_check_terminal_streaming_interrupt_drains_safely())
         checks.append(_check_terminal_structured_event_stream())
         checks.append(_check_ai_ask_once_emits_jsonl_ready_events())
+        checks.append(_check_ai_ask_once_blocks_concurrent_turns())
         checks.append(_check_terminal_busy_confirmation_route())
         checks.append(_check_ai_mode_manual_confirmation_dialog())
         checks.append(_check_ai_active_turn_input_classifier_routes_feedback())
@@ -1552,6 +1553,94 @@ def _check_ai_ask_once_emits_jsonl_ready_events() -> dict[str, Any]:
         passed=passed,
         detail={
             "result": result,
+            "events": [{"kind": event.kind, "text": event.text, "data": event.data} for event in events],
+        },
+    )
+
+
+def _check_ai_ask_once_blocks_concurrent_turns() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+
+    terminal = object.__new__(AITerminal)
+    terminal.thread_id = "ask-concurrency"
+    terminal.model_name = "fake-model"
+    terminal.checkpoint_path = Path(".keygen") / "ai-terminal-checkpoints.sqlite"
+    terminal._ask_once_mode = False
+    terminal._current_turn_text = None
+    terminal._current_turn_id = 0
+    terminal._cancelled_turn_ids = set()
+    terminal._turn_lock = threading.Lock()
+    terminal._pending_attachments = []
+    terminal._pending_attachment_placeholder_required = []
+    terminal._client_event_sink_local = threading.local()
+    terminal._client_event_sink = None
+    terminal._last_error = ""
+    terminal._current_interrupts = lambda: ()
+    terminal._prepare_input_attachments = lambda text: (text, [])
+    terminal._sync_current_session_index = lambda: None
+    terminal._context_state = lambda: {"current_plan_path": "plans/demo/plan.json"}
+    terminal.client_status_snapshot = lambda: {
+        "thread_id": terminal.thread_id,
+        "busy": AITerminal._is_agent_busy(terminal),
+        "pending_approval": False,
+        "context_state": terminal._context_state(),
+        "last_error": terminal._last_error,
+    }
+    terminal._emit_error = lambda value: setattr(terminal, "_last_error", str(value))
+    first_started = threading.Event()
+    release_first = threading.Event()
+
+    def invoke_agent_text(text: str, attachments: list[Any]) -> dict[str, Any]:
+        first_started.set()
+        if not release_first.wait(timeout=5):
+            raise TimeoutError("first ask_once did not release")
+        return {"messages": [HumanMessage(content=text), AIMessage(content="first done")]}
+
+    terminal._invoke_agent_text = invoke_agent_text
+    events: list[Any] = []
+    first_result: dict[str, Any] = {}
+    first_error = ""
+
+    def run_first() -> None:
+        nonlocal first_error
+        try:
+            first_result.update(AITerminal.ask_once(terminal, "第一轮", event_sink=events.append))
+        except Exception as error:
+            first_error = str(error)
+
+    worker = threading.Thread(target=run_first, daemon=True)
+    worker.start()
+    started = first_started.wait(timeout=2)
+    busy_during_first = AITerminal._is_agent_busy(terminal)
+    second_error = ""
+    try:
+        AITerminal.ask_once(terminal, "第二轮")
+    except Exception as error:
+        second_error = str(error)
+    finally:
+        release_first.set()
+        worker.join(timeout=5)
+    busy_after_release = AITerminal._is_agent_busy(terminal)
+    kinds = [event.kind for event in events]
+    passed = (
+        started
+        and busy_during_first
+        and "正在处理上一轮请求" in second_error
+        and first_error == ""
+        and first_result.get("assistant_message") == "first done"
+        and busy_after_release is False
+        and kinds.count("context_updated") >= 2
+    )
+    return _self_check_result(
+        name="ai_ask_once_blocks_concurrent_turns",
+        passed=passed,
+        detail={
+            "started": started,
+            "busy_during_first": busy_during_first,
+            "second_error": second_error,
+            "first_error": first_error,
+            "first_result": first_result,
+            "busy_after_release": busy_after_release,
             "events": [{"kind": event.kind, "text": event.text, "data": event.data} for event in events],
         },
     )

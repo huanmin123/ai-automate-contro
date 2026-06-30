@@ -74,7 +74,7 @@
 - `type`: 必填，`locate_image` 或 `locate_text`。
 - `source_path`: 可选，已有截图或图片；不能和 `source_target` 同时使用。
 - `source_target`: 可选，`screen`、`window`、`element`。省略且没有 `source_path` 时抓取屏幕。
-- Window Query: `source_target=window/element` 必填至少一种窗口定位字段。
+- Window Query: `source_target=window/element` 必填至少一种窗口定位字段，例如 `profile`、`title_contains`、`process_name`、`window_id`。profile 见 [app_profile](./app_profile.md)。
 - `window_match_index`: 可选，仅 `source_target=window/element` 使用，选择第几个窗口候选，默认 `0`。
 - Element Locator: `source_target=element` 必填至少一种控件定位字段。
 - `region`: 可选，限制搜索区域；使用 `source_path` 时相对图片，`source_target=screen` 时相对屏幕截图，`source_target=window/element` 时相对窗口或控件截图。

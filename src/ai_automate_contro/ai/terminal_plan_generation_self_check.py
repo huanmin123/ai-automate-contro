@@ -21,6 +21,7 @@ def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[s
         checks = [
             _run_browser_generation_case(simulation_root),
             _run_excel_file_generation_case(simulation_root),
+            _run_excel_ambiguous_file_data_quality_gate_case(simulation_root),
             _run_desktop_generation_case(simulation_root),
             _run_desktop_platform_contract_case(),
             _run_desktop_coordinate_quality_gate_case(simulation_root),
@@ -275,57 +276,141 @@ def _run_excel_file_generation_case(project_root: Path) -> dict[str, Any]:
     )
 
 
+def _run_excel_ambiguous_file_data_quality_gate_case(project_root: Path) -> dict[str, Any]:
+    user_message = "处理 resources/财务流水.xlsx，按常见报表输出。"
+    decision = simulate_execution_line_decision(user_message)
+    plan_document = {
+        "name": "ambiguous excel file data quality gate",
+        "automation_type": "browser",
+        "variables": {},
+        "steps": [
+            {
+                "action": "read",
+                "type": "excel",
+                "path": "resources/财务流水.xlsx",
+                "sheet": "流水",
+                "save_as": "rows",
+            },
+            {
+                "action": "table",
+                "type": "group",
+                "source": "{{rows}}",
+                "by": "账户",
+                "aggregations": {"金额合计": {"sum": "金额"}},
+                "save_as": "report_rows",
+            },
+            {
+                "action": "write",
+                "type": "excel",
+                "path": "常见报表.xlsx",
+                "sheet": "报表",
+                "value": "{{report_rows}}",
+                "freeze_header": True,
+                "auto_filter": True,
+            },
+        ],
+    }
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/ambiguous-excel-file-data-quality-gate",
+        automation_type="browser",
+        name="ambiguous excel file data quality gate",
+        plan_document=plan_document,
+        quality_user_request=user_message,
+        quality_evidence_summary="用户只给了模糊表格处理目标，没有确认具体处理规则。",
+        planned_output_path="常见报表.xlsx",
+    )
+    issue_codes = set(result.get("quality_issue_codes", []))
+    passed = (
+        decision.get("decision") == "browser"
+        and not decision.get("requires_confirmation")
+        and result.get("validation_ok") is True
+        and result.get("quality_review_ok") is False
+        and "ambiguous_file_data_transformation" in issue_codes
+    )
+    return _self_check_result(
+        name="scripted_ai_rejects_scene_word_hardcoded_excel_plan",
+        passed=passed,
+        detail={"decision": decision, **result},
+    )
+
+
 def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
     user_message = "请控制本机桌面 Notepad 窗口，截图并保存状态。"
     decision = simulate_execution_line_decision(user_message)
+    plan_document = {
+        "name": "desktop simulated plan",
+        "automation_type": "desktop",
+        "variables": {},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {
+                "action": "desktop_app",
+                "desktop": "desktop",
+                "type": "launch",
+                "profile": "notepad",
+                "wait_for_window": True,
+                "focus": True,
+                "save_as": "notepad_launch",
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "notepad",
+                "state": "exists",
+                "timeout_ms": 5000,
+                "save_as": "notepad_window",
+            },
+            {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "observe",
+                "path": "observe.json",
+                "include_windows": True,
+                "include_screenshot": True,
+            },
+            {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
+            {"action": "desktop_assert", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
     result = _simulate_plan_generation(
         project_root,
         package_path="plans/desktop-simulated-plan",
         automation_type="desktop",
         name="desktop simulated plan",
-        plan_document={
-            "name": "desktop simulated plan",
-            "automation_type": "desktop",
-            "variables": {},
-            "steps": [
-                {"action": "open_desktop", "name": "desktop", "backend": "auto"},
-                {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
-                {
-                    "action": "desktop_capture",
-                    "desktop": "desktop",
-                    "type": "observe",
-                    "path": "observe.json",
-                    "include_windows": True,
-                    "include_screenshot": True,
-                },
-                {"action": "desktop_capture", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
-                {"action": "desktop_assert", "desktop": "desktop", "type": "screenshot", "path": "screen.png"},
-                {"action": "close_desktop", "desktop": "desktop"},
-            ],
-        },
+        plan_document=plan_document,
         quality_user_request=(
             "这是本机桌面控制 desktop，不是浏览器自动化。"
-            "请做安全桌面探测：desktop_window list 写 windows.json，"
+            "请优先用内置 profile=notepad 启动并等待窗口，"
+            "再做安全桌面探测：desktop_window list 写 windows.json，"
             "desktop_capture observe 写 observe.json，desktop_capture screenshot 写 screen.png，并用 desktop_assert 验证截图。"
         ),
         quality_evidence_summary=(
             "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
-            "automation_type=desktop；plan 包含 open_desktop、desktop_window list、"
+            "automation_type=desktop；plan 使用 profile=notepad；包含 open_desktop、desktop_app launch、desktop_wait window、desktop_window list、"
             "desktop_capture observe、desktop_capture screenshot、desktop_assert screenshot、close_desktop。"
         ),
     )
+    steps = plan_document["steps"]
+    profile_steps = [step for step in steps if step.get("profile") == "notepad"]
     passed = (
         decision.get("decision") == "desktop"
         and not decision.get("requires_confirmation")
         and result.get("created_automation_type") == "desktop"
         and result.get("validation_ok") is True
         and result.get("quality_review_ok") is True
+        and any(step.get("action") == "desktop_app" and step.get("profile") == "notepad" for step in steps)
+        and any(step.get("action") == "desktop_wait" and step.get("profile") == "notepad" for step in steps)
+        and len(profile_steps) >= 2
         and "missing_browser_navigation" not in "\n".join(result.get("quality_issue_codes", []))
     )
     return _self_check_result(
         name="scripted_ai_generates_desktop_plan_with_automation_type",
         passed=passed,
-        detail={"decision": decision, **result},
+        detail={"decision": decision, **result, "profile_steps": profile_steps},
     )
 
 
@@ -842,81 +927,94 @@ def _run_platform_desktop_intent_cases() -> dict[str, Any]:
 def _run_file_dialog_generation_case(project_root: Path) -> dict[str, Any]:
     user_message = "请控制当前系统桌面 App 的 Open/Save 文件对话框，输入完整文件路径，截图留证并按 Enter 确认。"
     decision = simulate_execution_line_decision(user_message)
+    plan_document = {
+        "name": "file dialog simulated plan",
+        "automation_type": "desktop",
+        "variables": {"absolute_file_path": "C:/Temp/input.txt"},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto"},
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "file_dialog_open",
+                "state": "exists",
+                "timeout_ms": 5000,
+                "save_as": "open_dialog",
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "profile": "file_dialog_open",
+                "path": "open-dialog.png",
+                "save_as": "open_dialog_screen",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "type_text",
+                "value": "{{absolute_file_path}}",
+                "method": "clipboard",
+                "preserve_clipboard": True,
+                "save_as": "dialog_path_typed",
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "hotkey",
+                "keys": ["enter"],
+                "save_as": "dialog_confirmed",
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "file_dialog_open",
+                "state": "not_exists",
+                "timeout_ms": 5000,
+                "save_as": "open_dialog_closed",
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
     result = _simulate_plan_generation(
         project_root,
         package_path="plans/file-dialog-simulated-plan",
         automation_type="desktop",
         name="file dialog simulated plan",
-        plan_document={
-            "name": "file dialog simulated plan",
-            "automation_type": "desktop",
-            "variables": {"absolute_file_path": "C:/Temp/input.txt"},
-            "steps": [
-                {"action": "open_desktop", "name": "desktop", "backend": "auto"},
-                {
-                    "action": "desktop_wait",
-                    "desktop": "desktop",
-                    "type": "window",
-                    "title_contains": "Open",
-                    "state": "exists",
-                    "timeout_ms": 5000,
-                    "save_as": "open_dialog",
-                },
-                {
-                    "action": "desktop_capture",
-                    "desktop": "desktop",
-                    "type": "screenshot",
-                    "path": "open-dialog.png",
-                    "save_as": "open_dialog_screen",
-                },
-                {
-                    "action": "desktop_input",
-                    "desktop": "desktop",
-                    "type": "type_text",
-                    "value": "{{absolute_file_path}}",
-                    "method": "clipboard",
-                    "preserve_clipboard": True,
-                    "save_as": "dialog_path_typed",
-                },
-                {
-                    "action": "desktop_input",
-                    "desktop": "desktop",
-                    "type": "hotkey",
-                    "keys": ["enter"],
-                    "save_as": "dialog_confirmed",
-                },
-                {
-                    "action": "desktop_wait",
-                    "desktop": "desktop",
-                    "type": "window",
-                    "title_contains": "Open",
-                    "state": "not_exists",
-                    "timeout_ms": 5000,
-                    "save_as": "open_dialog_closed",
-                },
-                {"action": "close_desktop", "desktop": "desktop"},
-            ],
-        },
+        plan_document=plan_document,
         quality_user_request=user_message,
         quality_evidence_summary=(
             "inspect_desktop platform=auto backend=native capability_matrix.schema_version=1 window_count=3；"
             "desktop intent confirmed；系统 Open/Save 文件对话框按桌面窗口处理。"
-            "plan 使用 desktop_wait window、desktop_capture screenshot、"
+            "plan 使用 profile=file_dialog_open、desktop_wait window、desktop_capture screenshot target=window、"
             "desktop_input type_text method=clipboard 和 hotkey enter 留证并推进。"
         ),
     )
+    steps = plan_document["steps"]
+    profile_steps = [step for step in steps if step.get("profile") == "file_dialog_open"]
     passed = (
         decision.get("decision") == "desktop"
         and decision.get("requires_confirmation") is False
         and result.get("created_automation_type") == "desktop"
         and result.get("validation_ok") is True
         and result.get("quality_review_ok") is True
+        and any(step.get("action") == "desktop_wait" and step.get("profile") == "file_dialog_open" for step in steps)
+        and any(
+            step.get("action") == "desktop_capture"
+            and step.get("profile") == "file_dialog_open"
+            and step.get("target") == "window"
+            for step in steps
+        )
+        and len(profile_steps) >= 2
         and "missing_browser_navigation" not in "\n".join(result.get("quality_issue_codes", []))
     )
     return _self_check_result(
         name="scripted_ai_generates_file_dialog_desktop_plan",
         passed=passed,
-        detail={"decision": decision, **result},
+        detail={"decision": decision, **result, "profile_steps": profile_steps},
     )
 
 

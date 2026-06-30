@@ -82,6 +82,94 @@
 
 解析顺序：plan 包 `config.json` 覆盖集合级 `<plan-root>/config.json`；没有配置时运行时再尝试环境变量和系统路径。AI 写需要 OCR 的 desktop plan 前，先确认 `capability_matrix.dependencies.tesseract` 和所需 `tessdata.*` 为 `true`。
 
+## desktop.run_mutex
+
+控制同一项目内 desktop plan 的运行互斥。默认启用；同一时间只允许一个 desktop plan 控制当前项目的真实桌面资源。
+
+```json
+{
+  "desktop": {
+    "run_mutex": {
+      "enabled": true,
+      "scope": "project",
+      "on_conflict": "fail",
+      "wait_timeout_seconds": 0,
+      "stale_after_seconds": 7200
+    }
+  }
+}
+```
+
+字段：
+
+- `enabled`: 布尔值。默认 `true`。
+- `scope`: `project` 或 `plan_package`。默认 `project`。
+- `on_conflict`: `fail` 或 `wait`。默认 `fail`；冲突时直接失败，避免静默等待。
+- `wait_timeout_seconds`: 非负整数。`on_conflict=wait` 时最多等待秒数。
+- `stale_after_seconds`: 正整数。用于锁文件诊断信息，不绕过有效系统锁。
+
+## desktop.foreground_protection
+
+控制真实键鼠输入前的窗口激活和前台复查。默认启用；plan 通常不需要额外写“把窗口提到最前”的步骤。
+
+```json
+{
+  "desktop": {
+    "foreground_protection": {
+      "enabled": true,
+      "strict": true,
+      "activation_attempts": 3,
+      "retry_delay_ms": 80
+    }
+  }
+}
+```
+
+字段：
+
+- `enabled`: 布尔值。默认 `true`。
+- `strict`: 布尔值。默认 `true`；目标窗口无法成为前台时真实输入失败。
+- `activation_attempts`: 正整数。默认 `3`。
+- `retry_delay_ms`: 非负整数。默认 `80`。
+
+## desktop_profiles
+
+配置桌面 App/窗口定位预设。plan 中用 `profile` 引用，见 [desktop app profile](../actions/desktop/app_profile.md)。
+
+```json
+{
+  "desktop_profiles": {
+    "mock-chat": {
+      "platforms": {
+        "windows": {
+          "launch": {
+            "command": "C:/apps/mock-chat.exe"
+          },
+          "window_query": {
+            "process_name": "mock-chat.exe",
+            "title_contains": "Mock Chat"
+          },
+          "defaults": {
+            "wait_for_window": true,
+            "focus": true,
+            "window_timeout_ms": 10000
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+字段：
+
+- `launch`: 可选，提供 `app`、`path`、`command`、`args`。
+- `window_query`: 可选，提供 `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id`、`match_index`。
+- `defaults`: 可选，提供常用默认参数，例如 `wait_for_window`、`focus`、`timeout_ms`、`window_timeout_ms`、`interval_ms`。
+- `platforms.windows` / `platforms.macos`: 可选，按平台覆盖 profile。
+
+step 上显式字段优先级高于 profile。
+
 ## ai_services
 
 专项 AI 组件和 AI 终端使用的模型服务配置。
