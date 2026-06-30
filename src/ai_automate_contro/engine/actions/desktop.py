@@ -26,6 +26,7 @@ from ai_automate_contro.engine.desktop.coordinates import (
     normalize_bounds,
 )
 from ai_automate_contro.engine.desktop.observation import build_desktop_observation
+from ai_automate_contro.engine.desktop.profiles import apply_desktop_app_profile
 from ai_automate_contro.engine.desktop.targeting import confidence_meets, find_target_candidate, build_vision_targeting
 
 
@@ -105,6 +106,7 @@ def open_desktop(executor: Any, step: dict[str, Any]) -> None:
         permissions=dict(probe.get("permissions", {})) if isinstance(probe.get("permissions"), dict) else {},
         capability_matrix=dict(capability_matrix),
         coordinate_profile=dict(coordinate_profile),
+        runtime_config=desktop_config,
     )
     executor.state.desktop_sessions[name] = session
     payload = {
@@ -139,6 +141,7 @@ def close_desktop(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_app(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     app_type = str(step["type"])
     if app_type != "launch":
         raise ValueError(f"不支持的 desktop_app.type：{app_type}")
@@ -191,6 +194,8 @@ def desktop_app(executor: Any, step: dict[str, Any]) -> None:
         "window_focus": focus_payload,
         "elapsed_ms": _elapsed_ms(started),
     }
+    if profile_payload:
+        payload["profile"] = profile_payload
     if "save_as" in step:
         executor.state.variables[str(step["save_as"])] = payload
     executor.state.logger.log(
@@ -207,6 +212,7 @@ def desktop_app(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_window(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     window_type = str(step["type"])
     started = time.monotonic()
     if window_type == "list":
@@ -234,6 +240,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
         diagnostics = _window_list_diagnostics(session, include_invisible=include_invisible)
         if diagnostics:
             payload["diagnostics"] = diagnostics
+        _with_profile_payload(payload, profile_payload)
         if "path" in step:
             output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
             payload["path"] = str(output_path)
@@ -271,6 +278,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
         diagnostics = _window_list_diagnostics(session, include_invisible=include_invisible)
         if diagnostics:
             payload["diagnostics"] = diagnostics
+        _with_profile_payload(payload, profile_payload)
         if "path" in step:
             output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
             payload["path"] = str(output_path)
@@ -298,6 +306,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
             "window": window,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         if "path" in step:
             output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
             payload["path"] = str(output_path)
@@ -325,6 +334,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
             "window": window,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         if "save_as" in step:
             executor.state.variables[str(step["save_as"])] = payload
         executor.state.logger.log(
@@ -345,6 +355,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
             "query": query,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
         if window_type == "close":
             session.current_window = None
@@ -367,6 +378,7 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     element_type = str(step["type"])
     if element_type not in DESKTOP_ELEMENT_MESSAGES:
         raise ValueError(f"不支持的 desktop_element.type：{element_type}")
@@ -566,6 +578,7 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     }
     if interaction_guard:
         payload["interaction_guard"] = interaction_guard
+    _with_profile_payload(payload, profile_payload)
     window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
     if window:
         session.current_window = dict(window)
@@ -612,6 +625,7 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_input(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     input_type = str(step["type"])
     started = time.monotonic()
     annotation_points: list[dict[str, Any]] = []
@@ -791,6 +805,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         "type": input_type,
         "elapsed_ms": _elapsed_ms(started),
     }
+    _with_profile_payload(payload, profile_payload)
     if annotation_points:
         payload["annotation"] = _capture_desktop_annotation(
             executor,
@@ -815,6 +830,7 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     capture_type = str(step["type"])
     started = time.monotonic()
     if capture_type == "screenshot":
@@ -932,6 +948,7 @@ def desktop_capture(executor: Any, step: dict[str, Any]) -> None:
         "type": capture_type,
         "elapsed_ms": _elapsed_ms(started),
     }
+    _with_profile_payload(payload, profile_payload)
     if "save_as" in step:
         executor.state.variables[str(step["save_as"])] = payload
     executor.state.logger.log(
@@ -1067,6 +1084,7 @@ def _int_coordinate(value: Any, *, field: str, action_label: str) -> int:
 
 def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     vision_type = str(step["type"])
     if vision_type not in {"locate_image", "locate_text"}:
         raise ValueError(f"不支持的 desktop_vision.type：{vision_type}")
@@ -1142,6 +1160,7 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
         if source_input_path is not None or time.monotonic() >= deadline:
             payload["path"] = str(output_path)
             payload["relative_path"] = _output_relative_path(output_path)
+            _with_profile_payload(payload, profile_payload)
             _write_json(output_path, payload)
             raise TimeoutError(
                 f"desktop_vision.{vision_type} 未找到匹配目标："
@@ -1151,6 +1170,7 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
 
     last_payload["path"] = str(output_path)
     last_payload["relative_path"] = _output_relative_path(output_path)
+    _with_profile_payload(last_payload, profile_payload)
     _store_session_target_candidates(session, last_payload)
     _write_json(output_path, last_payload)
     if "save_as" in step:
@@ -1168,6 +1188,7 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_wait(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     wait_type = str(step["type"])
     if wait_type != "window":
         raise ValueError(f"不支持的 desktop_wait.type：{wait_type}")
@@ -1179,6 +1200,7 @@ def desktop_wait(executor: Any, step: dict[str, Any]) -> None:
         interval_ms=int(step.get("interval_ms", 250)),
     )
     payload = {**payload, "desktop": session.name, "type": wait_type, "query": query}
+    _with_profile_payload(payload, profile_payload)
     if isinstance(payload.get("window"), dict):
         session.current_window = dict(payload["window"])
     if "save_as" in step:
@@ -1194,6 +1216,7 @@ def desktop_wait(executor: Any, step: dict[str, Any]) -> None:
 
 def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
+    step, profile_payload = _apply_desktop_profile(executor, session, step)
     assert_type = str(step["type"])
     started = time.monotonic()
     if assert_type == "window":
@@ -1217,6 +1240,7 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
             "query": query,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         if "save_as" in step:
             executor.state.variables[str(step["save_as"])] = payload
         executor.state.logger.log(
@@ -1247,6 +1271,7 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
             "min_bytes": min_bytes,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         if "save_as" in step:
             executor.state.variables[str(step["save_as"])] = payload
         executor.state.logger.log(
@@ -1307,6 +1332,7 @@ def desktop_assert(executor: Any, step: dict[str, Any]) -> None:
             "property_assertion": property_assertion,
             "elapsed_ms": _elapsed_ms(started),
         }
+        _with_profile_payload(payload, profile_payload)
         window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
         if window:
             session.current_window = dict(window)
@@ -2163,6 +2189,26 @@ def _desktop_runtime_config(executor: Any) -> dict[str, Any]:
     return dict(config) if isinstance(config, dict) else {}
 
 
+def _apply_desktop_profile(
+    executor: Any,
+    session: DesktopSession,
+    step: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not (step.get("profile") or step.get("app_profile")):
+        return step, {}
+    return apply_desktop_app_profile(
+        step,
+        platform_name=session.platform,
+        desktop_config=_desktop_runtime_config(executor),
+    )
+
+
+def _with_profile_payload(payload: dict[str, Any], profile_payload: dict[str, Any]) -> dict[str, Any]:
+    if profile_payload:
+        payload["profile"] = profile_payload
+    return payload
+
+
 def _create_backend(
     *,
     platform_name: str,
@@ -2252,6 +2298,7 @@ def _ensure_interaction_window_active(
     resolution: dict[str, Any] | None = None,
     strict: bool = True,
 ) -> dict[str, Any]:
+    protection = _foreground_protection_config(session)
     query = _interaction_window_query(
         session,
         step=step,
@@ -2264,14 +2311,25 @@ def _ensure_interaction_window_active(
             f"{action_label} 发送真实桌面输入前无法确定目标窗口。"
             "请先执行 desktop_window focus、desktop_wait window，或在当前 action 中提供 Window Query。"
         )
+    if not protection["enabled"]:
+        return {
+            "ok": True,
+            "mode": "foreground_protection_disabled",
+            "query": query,
+            "attempt_count": 0,
+            "max_attempts": 0,
+        }
     attempts: list[dict[str, Any]] = []
     last_error: Exception | None = None
-    for attempt_index in range(1, DESKTOP_INTERACTION_GUARD_ATTEMPTS + 1):
+    max_attempts = int(protection["activation_attempts"])
+    retry_delay_seconds = float(protection["retry_delay_ms"]) / 1000
+    strict = bool(strict and protection["strict"])
+    for attempt_index in range(1, max_attempts + 1):
         focused_window: dict[str, Any] = {}
         active_window: dict[str, Any] = {}
         try:
             focused_window = session.backend.focus_window(query)
-            time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+            time.sleep(retry_delay_seconds)
             active_window = session.backend.get_active_window()
         except Exception as error:
             last_error = error
@@ -2286,8 +2344,8 @@ def _ensure_interaction_window_active(
                     "error_type": type(error).__name__,
                 }
             )
-            if attempt_index < DESKTOP_INTERACTION_GUARD_ATTEMPTS:
-                time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+            if attempt_index < max_attempts:
+                time.sleep(retry_delay_seconds)
             continue
         verified = _window_matches_expected_active(active_window, focused_window, query)
         attempt_payload = {
@@ -2309,19 +2367,21 @@ def _ensure_interaction_window_active(
                 "mode": "restore_focus_verify",
                 "query": query,
                 "attempt_count": attempt_index,
-                "max_attempts": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+                "max_attempts": max_attempts,
+                "retry_delay_ms": int(protection["retry_delay_ms"]),
                 "window": _compact_guard_window(focused_window),
                 "active_window": _compact_guard_window(active_window),
                 "attempts": attempts,
             }
-        if attempt_index < DESKTOP_INTERACTION_GUARD_ATTEMPTS:
-            time.sleep(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS)
+        if attempt_index < max_attempts:
+            time.sleep(retry_delay_seconds)
     payload = {
         "ok": False,
         "mode": "restore_focus_verify",
         "query": query,
-        "attempt_count": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
-        "max_attempts": DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+        "attempt_count": max_attempts,
+        "max_attempts": max_attempts,
+        "retry_delay_ms": int(protection["retry_delay_ms"]),
         "window": _compact_guard_window(focused_window),
         "active_window": _compact_guard_window(active_window),
         "attempts": attempts,
@@ -2342,6 +2402,36 @@ def _ensure_interaction_window_active(
             f"query={query} attempts={attempts}"
         )
     return payload
+
+
+def _foreground_protection_config(session: DesktopSession) -> dict[str, Any]:
+    config = session.runtime_config if isinstance(session.runtime_config, dict) else {}
+    desktop = config.get("desktop") if isinstance(config.get("desktop"), dict) else {}
+    raw = desktop.get("foreground_protection") if isinstance(desktop.get("foreground_protection"), dict) else {}
+    return {
+        "enabled": _bool_config(raw.get("enabled"), default=True),
+        "strict": _bool_config(raw.get("strict"), default=True),
+        "activation_attempts": _positive_int_config(
+            raw.get("activation_attempts"),
+            default=DESKTOP_INTERACTION_GUARD_ATTEMPTS,
+        ),
+        "retry_delay_ms": _non_negative_int_config(
+            raw.get("retry_delay_ms"),
+            default=int(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS * 1000),
+        ),
+    }
+
+
+def _bool_config(value: Any, *, default: bool) -> bool:
+    return value if isinstance(value, bool) else default
+
+
+def _positive_int_config(value: Any, *, default: int) -> int:
+    return value if isinstance(value, int) and value > 0 else default
+
+
+def _non_negative_int_config(value: Any, *, default: int) -> int:
+    return value if isinstance(value, int) and value >= 0 else default
 
 
 def _interaction_window_query(
