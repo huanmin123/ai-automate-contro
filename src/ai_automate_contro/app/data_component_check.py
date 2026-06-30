@@ -36,6 +36,11 @@ DATA_REGRESSION_CASES = (
         "test-plans/data-driven/table-transform/plan.json",
         lambda root, started_at: _table_transform_evidence(root, started_at),
     ),
+    DataRegressionCase(
+        "enterprise-cookbook",
+        "test-plans/data-driven/enterprise-cookbook/plan.json",
+        lambda root, started_at: _enterprise_cookbook_evidence(root, started_at),
+    ),
 )
 
 NEGATIVE_VALIDATION_CASES = (
@@ -63,6 +68,40 @@ NEGATIVE_VALIDATION_CASES = (
             "name": "excel-write-missing-data",
             "automation_type": "browser",
             "steps": [{"action": "write", "type": "excel", "path": "bad.xlsx"}],
+        },
+    },
+    {
+        "name": "excel-write-invalid-start-cell",
+        "expected_message": "start_cell 必须是 A1 风格单元格地址",
+        "plan": {
+            "name": "excel-write-invalid-start-cell",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "write",
+                    "type": "excel",
+                    "path": "bad.xlsx",
+                    "start_cell": "A1:B2",
+                    "value": [{"a": 1}],
+                }
+            ],
+        },
+    },
+    {
+        "name": "excel-read-empty-sheets",
+        "expected_message": "sheets 必须是非空数组",
+        "plan": {
+            "name": "excel-read-empty-sheets",
+            "automation_type": "browser",
+            "steps": [
+                {
+                    "action": "read",
+                    "type": "excel",
+                    "path": "resources/source.xlsx",
+                    "sheets": [],
+                    "save_as": "workbook",
+                }
+            ],
         },
     },
     {
@@ -98,6 +137,27 @@ NEGATIVE_VALIDATION_CASES = (
                     "source": "{{left}}",
                     "right": "{{right}}",
                     "save_as": "joined",
+                }
+            ],
+        },
+    },
+    {
+        "name": "table-pivot-invalid-agg",
+        "expected_message": "agg 不支持的取值",
+        "plan": {
+            "name": "table-pivot-invalid-agg",
+            "automation_type": "browser",
+            "variables": {"rows": [{"部门": "财务", "级别": "P2", "工资": 12000}]},
+            "steps": [
+                {
+                    "action": "table",
+                    "type": "pivot",
+                    "source": "{{rows}}",
+                    "index": "部门",
+                    "columns": "级别",
+                    "values": "工资",
+                    "agg": "median",
+                    "save_as": "pivot_rows",
                 }
             ],
         },
@@ -349,12 +409,58 @@ def _table_transform_evidence(project_root: Path, started_at: float) -> list[dic
     ]
 
 
+def _enterprise_cookbook_evidence(project_root: Path, started_at: float) -> list[dict[str, Any]]:
+    root = project_root / "test-plans/data-driven/enterprise-cookbook"
+    summary_path = root / "output/json/enterprise-summary.json"
+    exported_path = root / "output/json/enterprise-exported.json"
+    workbook_path = root / "output/excel/企业数据处理结果.xlsx"
+    payload = _read_json(summary_path)
+    exported_payload = _read_json(exported_path)
+    employees = payload.get("employees", []) if isinstance(payload, dict) else []
+    salary_pivot = payload.get("salary_pivot", []) if isinstance(payload, dict) else []
+    finance_summary = payload.get("finance_summary", []) if isinstance(payload, dict) else []
+    meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    exported_workbook = exported_payload.get("workbook", {}) if isinstance(exported_payload, dict) else {}
+    workbook_sheets = _workbook_sheetnames(workbook_path) if workbook_path.exists() else []
+    return [
+        _expect("summary_json_fresh", _file_nonempty_after(summary_path, started_at)),
+        _expect("exported_json_fresh", _file_nonempty_after(exported_path, started_at)),
+        _expect("workbook_fresh", _file_nonempty_after(workbook_path, started_at)),
+        _expect("active_employee_count", isinstance(employees, list) and len(employees) == 3),
+        _expect("finance_bonus_filled", _contains_row(employees, {"工号": "E001", "奖金": 1000, "部门名称": "财务部"})),
+        _expect("hr_blank_bonus_filled", _contains_row(employees, {"工号": "E002", "奖金": 0, "部门名称": "人事部"})),
+        _expect("salary_pivot_finance", _contains_row(salary_pivot, {"部门名称": "财务部", "P2": 12000, "P1": 0})),
+        _expect("salary_pivot_hr", _contains_row(salary_pivot, {"部门名称": "人事部", "P2": 0, "P1": 9000})),
+        _expect(
+            "finance_summary_finance",
+            _contains_row(
+                finance_summary,
+                {"部门编码": "FIN", "流水笔数": 2, "流水金额": 3200, "税额合计": 192, "部门名称": "财务部"},
+            ),
+        ),
+        _expect("multi_read_aliases", set(meta.get("value_names", [])) == {"employees", "departments", "transactions"}),
+        _expect("multi_sheet_workbook", {"在职员工", "薪资透视", "财务汇总"}.issubset(set(workbook_sheets))),
+        _expect("start_cell_header", _excel_cell_value(workbook_path, "在职员工", "B3") == "工号"),
+        _expect("exported_active_rows", isinstance(exported_workbook.get("active_export"), list) and len(exported_workbook["active_export"]) == 3),
+    ]
+
+
 def _workbook_sheetnames(path: Path) -> list[str]:
     from openpyxl import load_workbook
 
     workbook = load_workbook(path, read_only=True)
     try:
         return list(workbook.sheetnames)
+    finally:
+        workbook.close()
+
+
+def _excel_cell_value(path: Path, sheet_name: str, address: str) -> Any:
+    from openpyxl import load_workbook
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    try:
+        return workbook[sheet_name][address].value
     finally:
         workbook.close()
 

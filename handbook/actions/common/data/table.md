@@ -4,12 +4,12 @@
 
 处理变量中的表格行数组。`table` 不关心数据来自 Excel、CSV、JSON、SQL 还是页面提取结果；它只处理已经在变量池中的数组。
 
-当前支持筛选、选列、排序、去重、分组聚合、连接和派生列。
+当前支持筛选、选列、排序、去重、分组聚合、连接、派生列、改列名、填补空值、类型转换和透视汇总。
 
 ## 必填字段
 
 - `action`: 固定写成 `table`
-- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`
+- `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`
 - `source`: 源行数组，通常写完整变量引用，例如 `{{employees}}`
 - `save_as`: 保存结果变量名
 
@@ -24,6 +24,10 @@
 | `group` | `by`, `aggregations` | 按一列或多列分组聚合 |
 | `join` | `right`, `on` 或 `left_on` + `right_on` | 把右侧行数组连接到当前行数组 |
 | `add_column` | `columns` | 增加常量、复制、格式化或求和派生列 |
+| `rename` | `columns` | 批量改列名，保留未列出的列 |
+| `fill_empty` | `values` | 对空字符串、空白字符串或 null 填默认值 |
+| `type_convert` | `columns` | 把列转成 `string`、`number`、`integer` 或 `boolean` |
+| `pivot` | `index`, `columns` | 按行维度和列维度做透视；无 `values` 时默认计数，有 `values` 时默认求和 |
 
 ## 示例
 
@@ -158,6 +162,78 @@
 }
 ```
 
+批量改列名：
+
+```json
+{
+  "action": "table",
+  "type": "rename",
+  "source": "{{employees}}",
+  "columns": {
+    "姓名": "员工姓名",
+    "手机号": "电话"
+  },
+  "save_as": "renamed_employees"
+}
+```
+
+填补空值并转换类型：
+
+```json
+{
+  "action": "table",
+  "type": "fill_empty",
+  "source": "{{employees}}",
+  "values": {
+    "奖金": 0
+  },
+  "save_as": "employees_filled"
+}
+```
+
+```json
+{
+  "action": "table",
+  "type": "type_convert",
+  "source": "{{employees_filled}}",
+  "columns": {
+    "工资": "number",
+    "奖金": "number",
+    "是否在职": "boolean"
+  },
+  "save_as": "employees_typed"
+}
+```
+
+透视汇总：
+
+```json
+{
+  "action": "table",
+  "type": "pivot",
+  "source": "{{employees_typed}}",
+  "index": "部门",
+  "columns": "级别",
+  "values": "工资",
+  "agg": "sum",
+  "fill_value": 0,
+  "save_as": "salary_pivot"
+}
+```
+
+不写 `values` 时，`pivot` 默认按行数计数：
+
+```json
+{
+  "action": "table",
+  "type": "pivot",
+  "source": "{{employees}}",
+  "index": "部门",
+  "columns": "状态",
+  "save_as": "headcount_pivot"
+}
+```
+
 ## `filter` 操作符
 
 `where` 的字段值可以直接写期望值，表示相等；也可以写对象：
@@ -200,6 +276,21 @@
 - `copy`: 从已有列复制。
 - `format`: 用 `{列名}` 占位拼接字符串。
 - `sum`: 对一列或多列做数字求和。
+
+## `type_convert` 类型
+
+- `str` / `string` / `text`
+- `int` / `integer`
+- `float` / `number`
+- `bool` / `boolean`
+
+## `pivot` 聚合
+
+- `index`: 行维度，可以是一列或多列。
+- `columns`: 透视列维度。
+- `values`: 数值列；不提供时只能计数。
+- `agg`: `count`、`sum`、`avg`、`min`、`max`，不提供时按 `values` 自动选择计数或求和。
+- `fill_value`: 没有数据的交叉格默认填充值，默认 `0`。
 
 ## 规则
 

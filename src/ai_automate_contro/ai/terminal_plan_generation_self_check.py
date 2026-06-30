@@ -20,6 +20,7 @@ def self_check_ai_plan_generation_simulation(project_root: str | Path) -> dict[s
         _write_minimal_project_config(simulation_root)
         checks = [
             _run_browser_generation_case(simulation_root),
+            _run_excel_file_generation_case(simulation_root),
             _run_desktop_generation_case(simulation_root),
             _run_desktop_platform_contract_case(),
             _run_desktop_coordinate_quality_gate_case(simulation_root),
@@ -116,9 +117,23 @@ def simulate_execution_line_decision(user_message: str) -> dict[str, Any]:
         "后台页面",
         "页面表单",
     }
+    file_data_tokens = {
+        ".xlsx",
+        ".csv",
+        "excel 文件",
+        "excel表",
+        "xlsx",
+        "人员名单",
+        "财务表",
+        "报表",
+        "流水",
+        "台账",
+        "表格数据",
+    }
     platform_hits = sorted(token for token in platform_tokens if _token_hit(text, token))
     desktop_hits = sorted(token for token in desktop_tokens if _token_hit(text, token))
     browser_hits = sorted(token for token in browser_tokens if token in text)
+    file_data_hits = sorted(token for token in file_data_tokens if token in text)
     desktop_evidence = sorted(set(platform_hits + desktop_hits))
     if desktop_hits and not browser_hits:
         return {
@@ -133,6 +148,13 @@ def simulate_execution_line_decision(user_message: str) -> dict[str, Any]:
             "requires_confirmation": False,
             "confidence": "high",
             "evidence": browser_hits,
+        }
+    if file_data_hits and not desktop_hits and not browser_hits:
+        return {
+            "decision": "browser",
+            "requires_confirmation": False,
+            "confidence": "high",
+            "evidence": ["common_file_data", *file_data_hits],
         }
     return {
         "decision": "ambiguous",
@@ -179,6 +201,77 @@ def _run_browser_generation_case(project_root: Path) -> dict[str, Any]:
         name="scripted_ai_generates_browser_plan_with_automation_type",
         passed=passed,
         detail={"decision": decision, **result},
+    )
+
+
+def _run_excel_file_generation_case(project_root: Path) -> dict[str, Any]:
+    user_message = "读取 resources/人员名单.xlsx，筛选财务在职人员，并导出 Excel 和 JSON。"
+    decision = simulate_execution_line_decision(user_message)
+    plan_document = {
+        "name": "excel file data simulated plan",
+        "automation_type": "browser",
+        "variables": {},
+        "steps": [
+            {
+                "action": "read",
+                "type": "excel",
+                "path": "resources/人员名单.xlsx",
+                "sheet": "名单",
+                "save_as": "employees",
+                "save_meta_as": "employees_meta",
+            },
+            {
+                "action": "table",
+                "type": "filter",
+                "source": "{{employees}}",
+                "where": {"部门": "财务", "状态": "在职"},
+                "save_as": "finance_people",
+            },
+            {
+                "action": "write",
+                "type": "excel",
+                "path": "财务在职人员.xlsx",
+                "sheet": "名单",
+                "value": "{{finance_people}}",
+                "freeze_header": True,
+                "auto_filter": True,
+            },
+            {
+                "action": "write",
+                "type": "json",
+                "path": "财务在职人员.json",
+                "value": {"rows": "{{finance_people}}", "meta": "{{employees_meta}}"},
+            },
+        ],
+    }
+    result = _simulate_plan_generation(
+        project_root,
+        package_path="plans/excel-file-data-simulated-plan",
+        automation_type="browser",
+        name="excel file data simulated plan",
+        plan_document=plan_document,
+        quality_user_request=user_message,
+        quality_evidence_summary=(
+            "用户需求是 .xlsx 文件数据处理，不是 Excel 桌面版窗口控制；"
+            "plan 使用 read.type=excel 读取 resources/人员名单.xlsx，"
+            "table.filter 筛选财务在职人员，再用 write.type=excel/json 写出 output。"
+        ),
+        planned_output_path="财务在职人员.xlsx",
+    )
+    actions = [step.get("action") for step in plan_document["steps"]]
+    passed = (
+        decision.get("decision") == "browser"
+        and not decision.get("requires_confirmation")
+        and result.get("created_automation_type") == "browser"
+        and result.get("validation_ok") is True
+        and result.get("quality_review_ok") is True
+        and actions == ["read", "table", "write", "write"]
+        and "missing_data_extraction" not in set(result.get("quality_issue_codes", []))
+    )
+    return _self_check_result(
+        name="scripted_ai_generates_excel_file_data_plan",
+        passed=passed,
+        detail={"decision": decision, **result, "actions": actions},
     )
 
 
@@ -915,6 +1008,7 @@ def _simulate_plan_generation(
     plan_document: dict[str, Any],
     quality_user_request: str = "",
     quality_evidence_summary: str = "",
+    planned_output_path: str = "",
 ) -> dict[str, Any]:
     tool_calls: list[dict[str, Any]] = []
 
@@ -942,6 +1036,7 @@ def _simulate_plan_generation(
                 "plan_path": plan_path,
                 "user_request": quality_user_request,
                 "evidence_summary": quality_evidence_summary,
+                "planned_output_path": planned_output_path,
             },
         )
     return {

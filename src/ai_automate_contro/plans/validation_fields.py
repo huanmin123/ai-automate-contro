@@ -90,6 +90,7 @@ TABLE_FILTER_OPERATORS = {
 }
 TABLE_AGGREGATION_OPERATORS = {"count", "sum", "avg", "min", "max"}
 TABLE_ADD_COLUMN_OPERATORS = {"value", "copy", "format", "sum"}
+TABLE_TYPE_CONVERT_TYPES = {"str", "string", "text", "int", "integer", "float", "number", "bool", "boolean"}
 
 
 def validate_type_field(
@@ -282,6 +283,14 @@ def validate_type_specific_required_fields(
             required = ("right",)
         elif step_type == "add_column":
             required = ("columns",)
+        elif step_type == "rename":
+            required = ("columns",)
+        elif step_type == "fill_empty":
+            required = ("values",)
+        elif step_type == "type_convert":
+            required = ("columns",)
+        elif step_type == "pivot":
+            required = ("index", "columns")
     elif action == "desktop_app" and step_type == "launch" and not any(step.get(field) for field in ("app", "path", "command")):
         issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path 或 command 之一"))
     elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
@@ -580,6 +589,7 @@ def _validate_read_fields(
     if step_type != "excel":
         return
     _validate_sheet_field(step, "sheet", location, issues)
+    _validate_list(step, "sheets", location, issues)
     _validate_a1_range(step, "range", location, issues)
     _validate_int(step, "header_row", location, issues, minimum=1)
     _validate_nonempty_string_list(step, "headers", location, issues)
@@ -589,6 +599,12 @@ def _validate_read_fields(
     _validate_enum(step, "mode", {"records", "matrix", "cells"}, location, issues)
     _validate_enum(step, "formula_mode", {"cached", "formula"}, location, issues)
     _validate_enum(step, "date_format", {"iso", "text"}, location, issues)
+    sheets = step.get("sheets")
+    if isinstance(sheets, list) and not _is_template(sheets):
+        if not sheets:
+            issues.append(ValidationIssue(location, "sheets 必须是非空数组"))
+        for index, sheet in enumerate(sheets):
+            _validate_excel_read_sheet(sheet, f"{location}.sheets[{index}]", issues)
 
 
 def _validate_write_fields(
@@ -612,6 +628,7 @@ def _validate_write_fields(
     if step_type != "excel":
         return
     _validate_sheet_field(step, "sheet", location, issues)
+    _validate_a1_cell(step, "start_cell", location, issues)
     _validate_string(step, "template_path", location, issues)
     _validate_string(step, "table_name", location, issues)
     _validate_nonempty_string_list(step, "headers", location, issues)
@@ -639,6 +656,7 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
         issues.append(ValidationIssue(location, "sheets 每一项必须是对象"))
         return
     _validate_sheet_field(value, "sheet", location, issues)
+    _validate_a1_cell(value, "start_cell", location, issues)
     _validate_nonempty_string_list(value, "headers", location, issues)
     _validate_dict(value, "cells", location, issues)
     _validate_dict(value, "number_format", location, issues)
@@ -652,6 +670,28 @@ def _validate_excel_write_sheet(value: Any, location: str, issues: list[Validati
     _validate_excel_cells(value.get("cells"), location, "cells", issues)
     if not any(field in value for field in ("value", "rows", "cells")):
         issues.append(ValidationIssue(location, "sheets 每一项需要 value、rows 或 cells 之一"))
+
+
+def _validate_excel_read_sheet(value: Any, location: str, issues: list[ValidationIssue]) -> None:
+    if isinstance(value, (str, int)):
+        temp_step = {"sheet": value}
+        _validate_sheet_field(temp_step, "sheet", location, issues)
+        return
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, "sheets 每一项必须是 sheet 名称、索引或读取配置对象"))
+        return
+    if "sheet" not in value:
+        issues.append(ValidationIssue(location, "sheets 配置对象缺少必填字段：sheet"))
+    _validate_string(value, "name", location, issues)
+    _validate_sheet_field(value, "sheet", location, issues)
+    _validate_a1_range(value, "range", location, issues)
+    _validate_int(value, "header_row", location, issues, minimum=1)
+    _validate_nonempty_string_list(value, "headers", location, issues)
+    _validate_bool(value, "skip_blank_rows", location, issues)
+    _validate_int(value, "max_rows", location, issues, minimum=1)
+    _validate_enum(value, "mode", {"records", "matrix", "cells"}, location, issues)
+    _validate_enum(value, "formula_mode", {"cached", "formula"}, location, issues)
+    _validate_enum(value, "date_format", {"iso", "text"}, location, issues)
 
 
 def _validate_excel_cells(value: Any, location: str, field: str, issues: list[ValidationIssue]) -> None:
@@ -746,6 +786,42 @@ def _validate_table_fields(
                 if not isinstance(output_column, str) or not output_column:
                     issues.append(ValidationIssue(location, "table.add_column.columns 的列名必须是非空字符串"))
                 _validate_table_add_column_spec(spec, location, issues)
+        return
+    if step_type == "rename":
+        _validate_dict(step, "columns", location, issues)
+        _validate_string_mapping(step.get("columns"), location, "table.rename.columns", issues)
+        return
+    if step_type == "fill_empty":
+        _validate_dict(step, "values", location, issues)
+        values = step.get("values")
+        if isinstance(values, dict):
+            if not values:
+                issues.append(ValidationIssue(location, "table.fill_empty.values 必须是非空对象"))
+            for column in values:
+                if not isinstance(column, str) or not column:
+                    issues.append(ValidationIssue(location, "table.fill_empty.values 的列名必须是非空字符串"))
+        return
+    if step_type == "type_convert":
+        _validate_dict(step, "columns", location, issues)
+        columns = step.get("columns")
+        if isinstance(columns, dict):
+            if not columns:
+                issues.append(ValidationIssue(location, "table.type_convert.columns 必须是非空对象"))
+            for column, target_type in columns.items():
+                if not isinstance(column, str) or not column:
+                    issues.append(ValidationIssue(location, "table.type_convert.columns 的列名必须是非空字符串"))
+                if not isinstance(target_type, str) or target_type not in TABLE_TYPE_CONVERT_TYPES:
+                    allowed = ", ".join(sorted(TABLE_TYPE_CONVERT_TYPES))
+                    issues.append(ValidationIssue(location, f"table.type_convert 目标类型不支持：{target_type}；可选值：{allowed}"))
+        return
+    if step_type == "pivot":
+        _validate_string_or_nonempty_string_list(step, "index", location, issues)
+        _validate_string(step, "columns", location, issues)
+        _validate_string(step, "values", location, issues)
+        _validate_enum(step, "agg", TABLE_AGGREGATION_OPERATORS, location, issues)
+        agg = step.get("agg", "sum" if step.get("values") else "count")
+        if agg != "count" and not step.get("values"):
+            issues.append(ValidationIssue(location, "table.pivot 使用 sum、avg、min 或 max 时必须提供 values"))
 
 
 def _validate_table_aggregation_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
@@ -762,6 +838,16 @@ def _validate_table_aggregation_spec(value: Any, location: str, issues: list[Val
         return
     if not isinstance(source_column, str) or not source_column:
         issues.append(ValidationIssue(location, "table.group 聚合源列必须是非空字符串，count 可使用 *"))
+
+
+def _validate_string_mapping(value: Any, location: str, field_name: str, issues: list[ValidationIssue]) -> None:
+    if not isinstance(value, dict):
+        return
+    if not value:
+        issues.append(ValidationIssue(location, f"{field_name} 必须是非空对象"))
+    for key, item in value.items():
+        if not isinstance(key, str) or not key or not isinstance(item, str) or not item:
+            issues.append(ValidationIssue(location, f"{field_name} 必须是非空字符串到非空字符串的对象"))
 
 
 def _validate_table_add_column_spec(value: Any, location: str, issues: list[ValidationIssue]) -> None:
@@ -1886,6 +1972,20 @@ def _validate_a1_range(
     if isinstance(value, str) and EXCEL_A1_RE.match(value):
         return
     issues.append(ValidationIssue(location, f"{field} 必须是 A1 风格单元格或范围，例如 A1 或 A1:D20"))
+
+
+def _validate_a1_cell(
+    step: dict[str, Any],
+    field: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if field not in step or _is_template(step[field]):
+        return
+    value = step[field]
+    if isinstance(value, str) and ":" not in value and EXCEL_A1_RE.match(value):
+        return
+    issues.append(ValidationIssue(location, f"{field} 必须是 A1 风格单元格地址，例如 B3"))
 
 
 def _validate_string(

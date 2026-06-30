@@ -1,0 +1,198 @@
+{
+  "name": "enterprise-cookbook",
+  "automation_type": "browser",
+  "variables": {},
+  "steps": [
+    {
+      "action": "read",
+      "type": "excel",
+      "path": "resources/企业数据.xlsx",
+      "sheets": [
+        {
+          "sheet": "人员名单",
+          "name": "employees"
+        },
+        {
+          "sheet": "部门",
+          "name": "departments"
+        },
+        {
+          "sheet": "财务流水",
+          "name": "transactions"
+        }
+      ],
+      "save_as": "workbook",
+      "save_meta_as": "workbook_meta"
+    },
+    {
+      "action": "table",
+      "type": "filter",
+      "source": "{{workbook.employees}}",
+      "where": {
+        "状态": "在职"
+      },
+      "save_as": "active_employees"
+    },
+    {
+      "action": "table",
+      "type": "fill_empty",
+      "source": "{{active_employees}}",
+      "values": {
+        "奖金": 0
+      },
+      "save_as": "employees_filled"
+    },
+    {
+      "action": "table",
+      "type": "type_convert",
+      "source": "{{employees_filled}}",
+      "columns": {
+        "工资": "number",
+        "奖金": "number"
+      },
+      "save_as": "employees_typed"
+    },
+    {
+      "action": "table",
+      "type": "join",
+      "source": "{{employees_typed}}",
+      "right": "{{workbook.departments}}",
+      "left_on": "部门编码",
+      "right_on": "部门编码",
+      "how": "left",
+      "save_as": "employee_joined"
+    },
+    {
+      "action": "table",
+      "type": "rename",
+      "source": "{{employee_joined}}",
+      "columns": {
+        "姓名": "员工姓名",
+        "手机号": "电话"
+      },
+      "save_as": "employee_renamed"
+    },
+    {
+      "action": "table",
+      "type": "pivot",
+      "source": "{{employee_renamed}}",
+      "index": "部门名称",
+      "columns": "级别",
+      "values": "工资",
+      "agg": "sum",
+      "fill_value": 0,
+      "save_as": "salary_pivot"
+    },
+    {
+      "action": "table",
+      "type": "group",
+      "source": "{{workbook.transactions}}",
+      "by": "部门编码",
+      "aggregations": {
+        "流水笔数": {
+          "count": "*"
+        },
+        "流水金额": {
+          "sum": "金额"
+        },
+        "税额合计": {
+          "sum": "税额"
+        }
+      },
+      "save_as": "finance_grouped"
+    },
+    {
+      "action": "table",
+      "type": "join",
+      "source": "{{finance_grouped}}",
+      "right": "{{workbook.departments}}",
+      "left_on": "部门编码",
+      "right_on": "部门编码",
+      "how": "left",
+      "save_as": "finance_summary"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "enterprise-summary.json",
+      "value": {
+        "employees": "{{employee_renamed}}",
+        "salary_pivot": "{{salary_pivot}}",
+        "finance_summary": "{{finance_summary}}",
+        "meta": "{{workbook_meta}}"
+      }
+    },
+    {
+      "action": "write",
+      "type": "excel",
+      "path": "企业数据处理结果.xlsx",
+      "sheets": [
+        {
+          "sheet": "在职员工",
+          "value": "{{employee_renamed}}",
+          "start_cell": "B3",
+          "freeze_header": true,
+          "auto_filter": true,
+          "table": true,
+          "number_format": {
+            "工资": "#,##0",
+            "奖金": "#,##0"
+          },
+          "column_widths": {
+            "员工姓名": 12,
+            "电话": 16,
+            "工资": 12,
+            "奖金": 12,
+            "部门名称": 14
+          }
+        },
+        {
+          "sheet": "薪资透视",
+          "value": "{{salary_pivot}}",
+          "start_cell": "A2",
+          "freeze_header": true,
+          "auto_filter": true,
+          "table": true
+        },
+        {
+          "sheet": "财务汇总",
+          "value": "{{finance_summary}}",
+          "start_cell": "A2",
+          "freeze_header": true,
+          "auto_filter": true,
+          "table": true
+        }
+      ]
+    },
+    {
+      "action": "read",
+      "type": "excel",
+      "path": "output/excel/企业数据处理结果.xlsx",
+      "sheets": [
+        {
+          "sheet": "在职员工",
+          "name": "active_export"
+        },
+        {
+          "sheet": "薪资透视",
+          "name": "salary_export"
+        },
+        {
+          "sheet": "财务汇总",
+          "name": "finance_export"
+        }
+      ],
+      "save_as": "exported_workbook",
+      "save_meta_as": "exported_meta"
+    },
+    {
+      "action": "write",
+      "type": "json",
+      "path": "enterprise-exported.json",
+      "value": {
+        "workbook": "{{exported_workbook}}",
+        "meta": "{{exported_meta}}"
+      }
+    }
+  ]
+}

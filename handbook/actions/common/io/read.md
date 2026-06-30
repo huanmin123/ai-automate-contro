@@ -27,6 +27,7 @@
 
 - `split_lines`: 仅 `type: text` 有效，设置为 `true` 时按行拆分，并过滤空行。
 - `sheet`: 仅 `type: excel` 有效，工作表名称或从 0 开始的索引，默认第一个工作表。
+- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode` 等读取选项的对象。
 - `range`: 仅 `type: excel` 有效，A1 范围，例如 `A1:F100`。
 - `header_row`: 仅 `type: excel` 且 `mode=records` 有效，表头所在行号。
 - `headers`: 仅 `type: excel` 且 `mode=records` 有效，自定义表头数组。
@@ -83,6 +84,34 @@
   "save_as": "budget_matrix"
 }
 ```
+
+一次读取多个 Excel 工作表：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/企业数据.xlsx",
+  "sheets": [
+    {
+      "sheet": "人员名单",
+      "name": "employees"
+    },
+    {
+      "sheet": "部门",
+      "name": "departments"
+    },
+    {
+      "sheet": "财务流水",
+      "name": "transactions"
+    }
+  ],
+  "save_as": "workbook",
+  "save_meta_as": "workbook_meta"
+}
+```
+
+读取结果可以用 `{{workbook.employees}}`、`{{workbook.departments}}` 这样的别名引用。没有写 `name` 时，结果键使用实际 sheet 名。
 
 读取文本并按行拆分：
 

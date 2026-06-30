@@ -29,6 +29,7 @@
 - `indent`: 仅 `type: json` 和 `type: variables` 有效，默认 `2`
 - `sheet`: 仅 `type: excel` 有效，工作表名称，默认 `Sheet1`。
 - `sheets`: 仅 `type: excel` 有效，多工作表写入配置数组；每项可包含 `sheet`、`value`/`rows`、`cells` 和本节 Excel 选项。
+- `start_cell`: 仅 `type: excel` 有效，表格数据写入的左上角单元格，默认 `A1`。
 - `template_path`: 仅 `type: excel` 有效，模板工作簿输入路径。
 - `write_mode`: 仅 `type: excel` 有效，`create`、`replace_sheet`、`append_rows`、`overlay_cells`。
 - `cells`: 仅 `type: excel` 有效，A1 单元格到值的对象。
@@ -93,6 +94,7 @@
   "path": "财务在职人员.xlsx",
   "sheet": "名单",
   "value": "{{finance_people}}",
+  "start_cell": "A1",
   "freeze_header": true,
   "auto_filter": true
 }
@@ -109,6 +111,7 @@
     {
       "sheet": "明细",
       "value": "{{detail_rows}}",
+      "start_cell": "B3",
       "freeze_header": true,
       "auto_filter": true,
       "table": true

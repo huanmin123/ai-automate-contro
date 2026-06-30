@@ -145,6 +145,14 @@ def action_table(executor: Any, step: dict[str, Any]) -> None:
         result = _table_join(source, step["right"], step)
     elif table_type == "add_column":
         result = _table_add_columns(source, step["columns"])
+    elif table_type == "rename":
+        result = _table_rename(source, step["columns"])
+    elif table_type == "fill_empty":
+        result = _table_fill_empty(source, step["values"])
+    elif table_type == "type_convert":
+        result = _table_type_convert(source, step["columns"])
+    elif table_type == "pivot":
+        result = _table_pivot(source, step)
     else:
         raise ValueError(f"不支持的 table type：{table_type}")
 
@@ -327,6 +335,90 @@ def _table_add_columns(rows: list[Any], columns: Any) -> list[dict[str, Any]]:
     return result
 
 
+def _table_rename(rows: list[Any], columns: Any) -> list[dict[str, Any]]:
+    if not isinstance(columns, dict) or not columns:
+        raise ValueError("table.rename.columns 必须是非空对象。")
+    rename_map = _table_string_mapping(columns, "table.rename.columns")
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.rename 当前只支持字典行。")
+        output = dict(row)
+        for old_name, new_name in rename_map.items():
+            if old_name not in output:
+                continue
+            output[new_name] = output.pop(old_name) if new_name != old_name else output[old_name]
+        result.append(output)
+    return result
+
+
+def _table_fill_empty(rows: list[Any], values: Any) -> list[dict[str, Any]]:
+    if not isinstance(values, dict) or not values:
+        raise ValueError("table.fill_empty.values 必须是非空对象。")
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.fill_empty 当前只支持字典行。")
+        output = dict(row)
+        for column, default in values.items():
+            if not isinstance(column, str) or not column:
+                raise ValueError("table.fill_empty.values 的列名必须是非空字符串。")
+            if _table_is_empty(output.get(column)):
+                output[column] = default
+        result.append(output)
+    return result
+
+
+def _table_type_convert(rows: list[Any], columns: Any) -> list[dict[str, Any]]:
+    if not isinstance(columns, dict) or not columns:
+        raise ValueError("table.type_convert.columns 必须是非空对象。")
+    conversions = _table_string_mapping(columns, "table.type_convert.columns")
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.type_convert 当前只支持字典行。")
+        output = dict(row)
+        for column, target_type in conversions.items():
+            output[column] = _table_convert_value(output.get(column), target_type, column)
+        result.append(output)
+    return result
+
+
+def _table_pivot(rows: list[Any], step: dict[str, Any]) -> list[dict[str, Any]]:
+    index_columns = _table_columns(step["index"], "table.pivot.index")
+    pivot_column = str(step["columns"])
+    if not pivot_column:
+        raise ValueError("table.pivot.columns 必须是非空字符串。")
+    has_value_column = "values" in step and not _table_is_empty(step.get("values"))
+    value_column = str(step.get("values")) if has_value_column else "*"
+    agg = str(step.get("agg") or ("sum" if has_value_column else "count"))
+    if agg not in {"count", "sum", "avg", "min", "max"}:
+        raise ValueError("table.pivot.agg 只能是 count、sum、avg、min 或 max。")
+    if not has_value_column and agg != "count":
+        raise ValueError("table.pivot 使用 sum、avg、min 或 max 时必须提供 values。")
+    fill_value = step.get("fill_value", 0)
+
+    grouped: dict[tuple[Any, ...], dict[str, list[dict[str, Any]]]] = {}
+    pivot_values: list[str] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            raise ValueError("table.pivot 当前只支持字典行。")
+        key = tuple(row.get(column) for column in index_columns)
+        pivot_value = str(row.get(pivot_column, ""))
+        if pivot_value not in pivot_values:
+            pivot_values.append(pivot_value)
+        grouped.setdefault(key, {}).setdefault(pivot_value, []).append(row)
+
+    result: list[dict[str, Any]] = []
+    for key, pivot_groups in grouped.items():
+        output = {column: value for column, value in zip(index_columns, key)}
+        for pivot_value in pivot_values:
+            group_rows = pivot_groups.get(pivot_value, [])
+            output[pivot_value] = _table_aggregate(group_rows, agg, value_column) if group_rows else fill_value
+        result.append(output)
+    return result
+
+
 def _table_aggregation_spec(raw_spec: Any) -> tuple[str, str]:
     if not isinstance(raw_spec, dict) or len(raw_spec) != 1:
         raise ValueError("table.group.aggregations 每个聚合必须是只包含一个操作符的对象。")
@@ -401,6 +493,15 @@ def _table_add_column_value(row: dict[str, Any], spec: Any) -> Any:
     raise ValueError("table.add_column.columns 每个对象必须包含 value、copy、format 或 sum 之一。")
 
 
+def _table_string_mapping(value: dict[Any, Any], field_name: str) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for key, item in value.items():
+        if not isinstance(key, str) or not key or not isinstance(item, str) or not item:
+            raise ValueError(f"{field_name} 必须是非空字符串到非空字符串的对象。")
+        result[key] = item
+    return result
+
+
 def _table_columns(value: Any, field_name: str) -> list[str]:
     if isinstance(value, str) and value:
         return [value]
@@ -452,6 +553,28 @@ def _table_number(value: Any, column: str) -> float:
         except ValueError as error:
             raise ValueError(f"table 数字计算列不是数字：{column}") from error
     raise ValueError(f"table 数字计算列为空或不是数字：{column}")
+
+
+def _table_convert_value(value: Any, target_type: str, column: str) -> Any:
+    normalized_type = target_type.lower()
+    if _table_is_empty(value):
+        return None
+    if normalized_type in {"str", "string", "text"}:
+        return str(value)
+    if normalized_type in {"int", "integer"}:
+        return int(_table_number(value, column))
+    if normalized_type in {"float", "number"}:
+        return _table_normalize_number(_table_number(value, column))
+    if normalized_type in {"bool", "boolean"}:
+        if isinstance(value, bool):
+            return value
+        text = str(value).strip().lower()
+        if text in {"true", "1", "yes", "y", "是", "真"}:
+            return True
+        if text in {"false", "0", "no", "n", "否", "假"}:
+            return False
+        raise ValueError(f"table.type_convert 无法把列转换为 bool：{column}")
+    raise ValueError(f"不支持的 table.type_convert 目标类型：{target_type}")
 
 
 def _table_normalize_number(value: float) -> int | float:
