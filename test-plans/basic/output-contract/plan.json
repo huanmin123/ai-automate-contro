@@ -1,0 +1,71 @@
+{
+  "name": "output-contract",
+  "automation_type": "browser",
+  "tags": [
+    "output",
+    "command"
+  ],
+  "variables": {},
+  "steps": [
+    {
+      "action": "command",
+      "type": "run",
+      "argv": [
+        "python",
+        "-c",
+        "import json; print(json.dumps({'user': {'id': 'u-001', 'name': 'Ada'}, 'items': [1, 2, 3]}))"
+      ],
+      "stdout_type": "json",
+      "output": {
+        "as": "user_info",
+        "from": "stdout_json.user",
+        "type": "object!",
+        "fields": {
+          "id": "string!",
+          "name": "string!"
+        }
+      }
+    },
+    {
+      "action": "if",
+      "condition": {
+        "type": "all",
+        "conditions": [
+          {
+            "type": "equals",
+            "left": "{{user_info.id}}",
+            "right": "u-001"
+          },
+          {
+            "type": "equals",
+            "left": "{{last.name}}",
+            "right": "Ada"
+          }
+        ]
+      },
+      "then": [
+        {
+          "action": "print",
+          "message": "output contract passed: {{user_info.name}}"
+        }
+      ],
+      "else": [
+        {
+          "action": "command",
+          "type": "run",
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.exit(5)"
+          ],
+          "expect_exit_code": 0
+        }
+      ]
+    },
+    {
+      "action": "write",
+      "type": "variables",
+      "path": "output-contract-variables.json"
+    }
+  ]
+}

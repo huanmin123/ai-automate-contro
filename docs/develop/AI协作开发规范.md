@@ -28,7 +28,7 @@
 - 运行时代码、AI 终端、工具、日志、报告、归档、失败现场和自检不得自动脱敏、遮罩、替换、隐藏、摘要化或拒绝账号、密码、token、api_key、Cookie、storage state、验证码、请求头、命令、stdout/stderr、截图、HTML、DOM、图片 data URL 等本机数据。
 - 不新增“敏感字段掩码”“明文凭据拒写”“危险命令关键词拦截”“本机输入文件因路径不在 plan 包内被拒绝”等安全式防护，除非用户明确要求。
 - 用户明确要求把真实数据写入 plan、config、resources、docs、output、`.keygen` 或本机任意路径时，按请求执行，不因为字段看起来敏感而改成环境变量、模板引用、占位符或说明文字。
-- Git 是否提交这些内容由用户决定；项目规范只要求 `output/`、`.keygen/`、缓存、pyc、egg-info、IDE 配置和本地密钥配置默认不作为常规提交内容。
+- Git 是否提交这些内容由用户决定；项目规范只要求 `output/`、`profiles/`、`.keygen/`、缓存、pyc、egg-info、IDE 配置和本地密钥配置默认不作为常规提交内容。
 
 ## Plan 包与资源路径
 
@@ -62,7 +62,7 @@
 - 新增或修改桌面 action、desktop runtime、backend payload、桌面输出分区、失败采集或 self-check 时，必须先对照 [桌面Action与Runtime契约](../functions/桌面Action与Runtime契约.md)，不要在代码里临时发明字段。
 - `automation_type: "browser"` 只能使用浏览器专属 action 和通用 action；`automation_type: "desktop"` 只能使用桌面专属 action 和通用 action。跨线 action 必须在校验阶段失败。
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。
-- `read` 统一使用 `path`、`type`、`save_as`。
+- `read` 统一使用 `path`、`type`、`output`。
 - 新增动作组件时，同步更新 `src/ai_automate_contro/engine/actions/` 下对应行为模块和 action 注册出口、`handbook/<action>.md`、`handbook/README.md` 和必要的 `test-plans/` 示例。
 
 ## AI 终端与工具
@@ -72,7 +72,7 @@
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护。
 - 新增或修改 AI 终端工具后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
-- AI 新建 plan 包可使用 `create_plan_package`、`write_plan_package_file` 和资源导入工具写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。工具只拒绝 `output/`、`.keygen/`、缓存、pyc 和 egg-info 等非 plan 包结构路径，不得因明文账号、密码、token、api_key、Cookie 或验证码拒绝写入。
+- AI 新建 plan 包可使用 `create_plan_package`、`write_plan_package_file` 和资源导入工具写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。工具只拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 等非 plan 包结构路径，不得因明文账号、密码、token、api_key、Cookie 或验证码拒绝写入。
 - AI 根据自然语言创建 plan 时，先判断用户要的是浏览器网页自动化还是本机桌面控制。除非用户明确说网页、URL、浏览器、DOM，或明确说桌面应用、窗口、系统键鼠、macOS/Windows 应用，否则必须先追问确认执行线。
 - AI 终端线程状态包含当前 plan、当前 debug workspace 和最近输出目录等摘要状态，由选择、运行、调试 plan 和工具返回自动维护，不暴露旧式手动设置命令。
 

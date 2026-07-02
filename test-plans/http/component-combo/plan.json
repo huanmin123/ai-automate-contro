@@ -24,13 +24,17 @@
         "from pathlib import Path; import json, tempfile; p = Path(tempfile.gettempdir()) / 'aic-http-component-combo-items.json'; data = [{'id': 'alpha', 'secret': 'token-alpha', 'quantity': '2'}, {'id': 'beta', 'secret': 'token-beta', 'quantity': '5'}, {'id': 'gamma', 'secret': 'token-gamma', 'quantity': '8'}]; p.write_text(json.dumps(data, ensure_ascii=False), encoding='utf-8'); print(json.dumps({'path': str(p), 'count': len(data)}, ensure_ascii=False))"
       ],
       "stdout_type": "json",
-      "save_as": "external_fixture"
+      "output": {
+        "as": "external_fixture"
+      }
     },
     {
       "action": "read",
       "type": "json",
       "path": "{{external_fixture.stdout_json.path}}",
-      "save_as": "items"
+      "output": {
+        "as": "items"
+      }
     },
     {
       "action": "write",
@@ -60,7 +64,9 @@
               },
               "expect_status": 200,
               "body_type": "json",
-              "save_as": "flaky_response"
+              "output": {
+                "as": "flaky_response"
+              }
             }
           ]
         },
@@ -75,7 +81,9 @@
           },
           "expect_status": 200,
           "body_type": "json",
-          "save_as": "item_response"
+          "output": {
+            "as": "item_response"
+          }
         },
         {
           "action": "command",
@@ -87,7 +95,9 @@
           ],
           "stdin": "{\"id\":\"{{item_response.body.id}}\",\"secret\":\"{{item_response.body.query.secret}}\",\"quantity\":\"{{item_response.body.query.quantity}}\",\"source\":\"{{item_response.body.source}}\"}",
           "stdout_type": "json",
-          "save_as": "processed_item"
+          "output": {
+            "as": "processed_item"
+          }
         },
         {
           "action": "http",
@@ -102,7 +112,9 @@
           },
           "expect_status": 200,
           "body_type": "json",
-          "save_as": "aggregate_response"
+          "output": {
+            "as": "aggregate_response"
+          }
         },
         {
           "action": "write",

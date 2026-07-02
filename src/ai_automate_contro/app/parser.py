@@ -46,6 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers = parser.add_subparsers(dest="command")
+    _add_install_browser_parser(subparsers)
 
     tool_parser = subparsers.add_parser("tool", help="调用结构化 AI 工具。")
     tool_subparsers = tool_parser.add_subparsers(dest="tool_command")
@@ -152,6 +153,8 @@ def build_cplan_parser() -> argparse.ArgumentParser:
 
 
 def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
+    _add_install_browser_parser(subparsers)
+
     list_parser = subparsers.add_parser("list", help="列出 plan 包。")
     list_parser.add_argument("filter", nargs="?", help="可选文本过滤条件。")
 
@@ -402,6 +405,22 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "desktop-real-app",
         help="运行真实桌面 App 回归；Windows 覆盖 Notepad、Explorer、可见 PowerShell 终端和 Open/Save 文件对话框，macOS 使用 TextEdit 或系统可用轻量 App。",
     )
+
+
+def _add_install_browser_parser(subparsers: argparse._SubParsersAction) -> None:
+    install_browser_parser = subparsers.add_parser(
+        "install-browser",
+        help="安装与当前 Playwright 版本匹配的浏览器二进制。",
+    )
+    install_browser_parser.add_argument(
+        "--browser",
+        choices=["chromium", "firefox", "webkit"],
+        default="chromium",
+        help="要安装的 Playwright 浏览器，默认 chromium。",
+    )
+    install_browser_parser.add_argument("--force", action="store_true", help="强制重新安装浏览器。")
+    install_browser_parser.add_argument("--json", action="store_true", help="以 JSON 输出安装结果。")
+    install_browser_parser.add_argument("--compact", action="store_true", help="配合 --json 输出紧凑 JSON。")
 
 
 def _friendly_argparse_message(message: str) -> str:

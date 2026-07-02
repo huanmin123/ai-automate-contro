@@ -61,7 +61,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "excel",
                     "path": "resources/source.xlsx",
                     "range": "not-a-range",
-                    "save_as": "rows",
+                    "output": {"as": "rows"},
                 }
             ],
         },
@@ -104,7 +104,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "excel",
                     "path": "resources/source.xlsx",
                     "sheets": [],
-                    "save_as": "workbook",
+                    "output": {"as": "workbook"},
                 }
             ],
         },
@@ -121,7 +121,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "excel",
                     "path": "resources/source.xlsx",
                     "max_cells": 0,
-                    "save_as": "rows",
+                    "output": {"as": "rows"},
                 }
             ],
         },
@@ -138,7 +138,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "excel",
                     "path": "resources/source.xlsx",
                     "offset_rows": -1,
-                    "save_as": "rows",
+                    "output": {"as": "rows"},
                 }
             ],
         },
@@ -209,7 +209,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "source": "{{rows}}",
                     "by": ["a", "b"],
                     "descending": [True],
-                    "save_as": "sorted_rows",
+                    "output": {"as": "sorted_rows"},
                 }
             ],
         },
@@ -227,7 +227,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "join",
                     "source": "{{left}}",
                     "right": "{{right}}",
-                    "save_as": "joined",
+                    "output": {"as": "joined"},
                 }
             ],
         },
@@ -248,7 +248,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "columns": "级别",
                     "values": "工资",
                     "agg": "median",
-                    "save_as": "pivot_rows",
+                    "output": {"as": "pivot_rows"},
                 }
             ],
         },
@@ -268,7 +268,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "right": "{{right}}",
                     "on": "姓名",
                     "threshold": 1.5,
-                    "save_as": "looked_up",
+                    "output": {"as": "looked_up"},
                 }
             ],
         },
@@ -286,7 +286,7 @@ NEGATIVE_VALIDATION_CASES = (
                     "type": "lookup",
                     "source": "{{left}}",
                     "right": "{{right}}",
-                    "save_as": "looked_up",
+                    "output": {"as": "looked_up"},
                 }
             ],
         },
@@ -577,8 +577,10 @@ def _template_style_plan() -> dict[str, Any]:
                 "limit_rows": 1,
                 "preview_rows": 1,
                 "max_cells": 20,
-                "save_as": "preview_rows",
-                "save_meta_as": "preview_meta",
+                "output": {
+                    "as": "preview_rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "write",
@@ -604,8 +606,10 @@ def _large_excel_paging_plan() -> dict[str, Any]:
                 "offset_rows": 1000,
                 "limit_rows": 25,
                 "max_cells": 208,
-                "save_as": "page_rows",
-                "save_meta_as": "page_meta",
+                "output": {
+                    "as": "page_rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "read",
@@ -616,8 +620,10 @@ def _large_excel_paging_plan() -> dict[str, Any]:
                 "offset_rows": 11990,
                 "limit_rows": 25,
                 "max_cells": 208,
-                "save_as": "tail_rows",
-                "save_meta_as": "tail_meta",
+                "output": {
+                    "as": "tail_rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "write",
@@ -632,6 +638,70 @@ def _large_excel_paging_plan() -> dict[str, Any]:
             },
         ],
     }
+
+
+def _template_runtime_negative_case_specs() -> list[dict[str, Any]]:
+    return [
+        {
+            "name": "template-missing-named-range",
+            "expected_message": "未找到命名区域",
+            "plan": {
+                "name": "template-missing-named-range",
+                "automation_type": "browser",
+                "steps": [
+                    {
+                        "action": "write",
+                        "type": "excel",
+                        "path": "bad.xlsx",
+                        "template_path": "resources/template.xlsx",
+                        "named_range": "MissingArea",
+                        "value": [{"姓名": "张三", "部门": "财务"}],
+                    }
+                ],
+            },
+        },
+        {
+            "name": "template-named-range-overflow",
+            "expected_message": "range 行数不足",
+            "plan": {
+                "name": "template-named-range-overflow",
+                "automation_type": "browser",
+                "steps": [
+                    {
+                        "action": "write",
+                        "type": "excel",
+                        "path": "bad.xlsx",
+                        "template_path": "resources/template.xlsx",
+                        "named_range": "DetailArea",
+                        "value": [
+                            {"姓名": "张三", "部门": "财务", "基本工资": 12000, "奖金": 1000},
+                            {"姓名": "李四", "部门": "人事", "基本工资": 9000, "奖金": 500},
+                            {"姓名": "王五", "部门": "财务", "基本工资": 11000, "奖金": 600},
+                            {"姓名": "赵六", "部门": "运营", "基本工资": 10000, "奖金": 700},
+                        ],
+                    }
+                ],
+            },
+        },
+        {
+            "name": "template-merged-cell-non-anchor",
+            "expected_message": "位于合并单元格",
+            "plan": {
+                "name": "template-merged-cell-non-anchor",
+                "automation_type": "browser",
+                "steps": [
+                    {
+                        "action": "write",
+                        "type": "excel",
+                        "path": "bad.xlsx",
+                        "template_path": "resources/template.xlsx",
+                        "sheet": "模板",
+                        "cells": {"B1": "不允许写入"},
+                    }
+                ],
+            },
+        },
+    ]
 
 
 def _create_template_workbook(path: Path) -> None:

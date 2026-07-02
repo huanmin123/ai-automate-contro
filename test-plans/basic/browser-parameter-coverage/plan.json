@@ -149,7 +149,9 @@
       "type": "cookies",
       "browser": "coverage",
       "urls": "https://fixture.local",
-      "save_as": "cookies"
+      "output": {
+        "as": "cookies"
+      }
     },
     {
       "action": "storage",
@@ -207,12 +209,14 @@
       "action": "wait_for_download",
       "browser": "coverage",
       "path": "coverage-download.txt",
-      "save_as": "coverage_download_path",
       "trigger": {
         "action": "element",
         "type": "click",
         "browser": "coverage",
         "selector": "#download-link"
+      },
+      "output": {
+        "as": "coverage_download_path"
       }
     },
     {
@@ -220,7 +224,9 @@
       "type": "stop",
       "browser": "coverage",
       "path": "coverage-events.json",
-      "save_as": "coverage_events"
+      "output": {
+        "as": "coverage_events"
+      }
     },
     {
       "action": "network",

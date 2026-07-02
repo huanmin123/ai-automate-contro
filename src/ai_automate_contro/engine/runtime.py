@@ -15,9 +15,10 @@ from ai_automate_contro.support.paths import is_absolute_path_text, path_from_te
 @dataclass
 class BrowserSession:
     name: str
-    browser: Browser
+    browser: Browser | None
     context: BrowserContext
     headed: bool = False
+    persistent_profile: bool = False
     pages: dict[str, Page] = field(default_factory=dict)
     current_page_name: str = "main"
 
@@ -164,11 +165,12 @@ class RuntimeState:
                     owner=session.name,
                     resource="context",
                 )
-                self._close_runtime_resource(
-                    session.browser.close,
-                    owner=session.name,
-                    resource="browser",
-                )
+                if session.browser is not None:
+                    self._close_runtime_resource(
+                        session.browser.close,
+                        owner=session.name,
+                        resource="browser",
+                    )
         finally:
             self.desktop_sessions.clear()
             self.sessions.clear()

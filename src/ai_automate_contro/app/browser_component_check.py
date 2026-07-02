@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 import platform
+import sys
+from contextlib import contextmanager
+from functools import partial
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 import tempfile
 import time
 from dataclasses import dataclass
@@ -52,16 +56,23 @@ NEGATIVE_CASES_PATHS = (
 def self_check_browser_components(project_root: Path) -> dict[str, Any]:
     resolved_root = Path(project_root).resolve()
     positive_cases = [_run_browser_regression_case(resolved_root, regression_case) for regression_case in BROWSER_REGRESSION_CASES]
+    profile_case = _run_persistent_profile_regression_case(resolved_root)
     negative_cases = _run_negative_validation_cases(resolved_root)
     positive_ok = all(case["ok"] for case in positive_cases)
+    profile_ok = bool(profile_case["ok"])
     negative_ok = all(case["ok"] for case in negative_cases)
     return {
-        "ok": positive_ok and negative_ok,
+        "ok": positive_ok and profile_ok and negative_ok,
         "checks": [
             {
                 "name": "browser_plan_regression_matrix",
                 "ok": positive_ok,
                 "cases": positive_cases,
+            },
+            {
+                "name": "browser_persistent_profile",
+                "ok": profile_ok,
+                "case": profile_case,
             },
             {
                 "name": "browser_parameter_negative_validation",
@@ -71,7 +82,7 @@ def self_check_browser_components(project_root: Path) -> dict[str, Any]:
         ],
         "commands": {
             "run": f"python {_cplan_script_path()} self-check browser-components",
-            "playwright": "python -m playwright install chromium",
+            "install_browser": _install_browser_command(),
         },
     }
 
@@ -144,6 +155,118 @@ def _disable_run_log_echo(_output_dir: Path, logger: Any) -> None:
     logger.echo = False
 
 
+def _run_persistent_profile_regression_case(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="browser-persistent-profile-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir).resolve() / "persistent-profile"
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        (resources_dir / "profile.html").write_text(
+            "<!doctype html><html><head><title>Persistent Profile</title></head>"
+            "<body><main id=\"status\">ready</main></body></html>",
+            encoding="utf-8",
+        )
+        with _temporary_static_server(resources_dir) as base_url:
+            plan_path = package_dir / "plan.json"
+            plan = {
+                "name": "persistent-profile-regression",
+                "automation_type": "browser",
+                "variables": {"profile_url": f"{base_url}/profile.html"},
+                "steps": [
+                    {
+                        "action": "open_browser",
+                        "name": "main",
+                        "headed": False,
+                        "use_profile": True,
+                        "timeout_ms": 15000,
+                    },
+                    {
+                        "action": "navigate",
+                        "type": "goto",
+                        "browser": "main",
+                        "url": "{{profile_url}}",
+                    },
+                    {
+                        "action": "script",
+                        "type": "evaluate",
+                        "browser": "main",
+                        "js": (
+                            "() => {"
+                            "const before = localStorage.getItem('profile-local');"
+                            "const cookieBefore = document.cookie;"
+                            "document.cookie = 'profile_cookie=ok; path=/; max-age=3600; SameSite=Lax';"
+                            "localStorage.setItem('profile-local', 'persisted');"
+                            "return {before, after: localStorage.getItem('profile-local'), "
+                            "cookie_before: cookieBefore, cookie_after: document.cookie, href: location.href};"
+                            "}"
+                        ),
+                        "output": {"as": "profile_state"},
+                    },
+                    {
+                        "action": "write",
+                        "type": "json",
+                        "path": "persistent-profile-summary.json",
+                        "value": "{{profile_state}}",
+                    },
+                ],
+            }
+            plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            validation = validate_plan_file(plan_path, project_root)
+            if not validation.ok:
+                return {
+                    "name": "persistent-profile",
+                    "ok": False,
+                    "plan_path": str(plan_path),
+                    "validation_ok": False,
+                    "errors": [error.format() for error in validation.errors],
+                }
+            try:
+                first = execute_plan(
+                    plan,
+                    project_root,
+                    plan_path=plan_path,
+                    run_name="browser-components-persistent-profile-first",
+                    run_context_handler=_disable_run_log_echo,
+                )
+                second = execute_plan(
+                    plan,
+                    project_root,
+                    plan_path=plan_path,
+                    run_name="browser-components-persistent-profile-second",
+                    run_context_handler=_disable_run_log_echo,
+                )
+            except Exception as error:
+                return {
+                    "name": "persistent-profile",
+                    "ok": False,
+                    "plan_path": str(plan_path),
+                    "validation_ok": True,
+                    "run_ok": False,
+                    "error": str(error),
+                    "error_type": type(error).__name__,
+                }
+            summary_path = package_dir / "output" / "json" / "persistent-profile-summary.json"
+            summary = _read_json(summary_path) if summary_path.exists() else {}
+            cookie_before = str(summary.get("cookie_before", ""))
+            profile_dir = package_dir / "profiles" / "browser"
+            evidence = [
+                _expect("first_run_passed", first.status == "passed"),
+                _expect("second_run_passed", second.status == "passed"),
+                _expect("profile_dir_created", profile_dir.exists()),
+                _expect("local_storage_persisted", summary.get("before") == "persisted"),
+                _expect("cookie_persisted", "profile_cookie=ok" in cookie_before),
+            ]
+            return {
+                "name": "persistent-profile",
+                "ok": all(item["ok"] for item in evidence),
+                "plan_path": str(plan_path),
+                "validation_ok": True,
+                "run_ok": first.status == "passed" and second.status == "passed",
+                "profile_dir": str(profile_dir),
+                "summary": summary,
+                "evidence": evidence,
+            }
+
+
 def _run_negative_validation_cases(project_root: Path) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     with tempfile.TemporaryDirectory(prefix="browser-validation-negative-") as raw_temp_dir:
@@ -169,6 +292,28 @@ def _run_negative_validation_cases(project_root: Path) -> list[dict[str, Any]]:
             for raw_case in raw_cases:
                 results.append(_run_negative_validation_case(project_root, temp_dir, raw_case))
     return results
+
+
+@contextmanager
+def _temporary_static_server(directory: Path) -> Any:
+    handler = partial(_QuietStaticRequestHandler, directory=str(directory))
+    server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+    try:
+        host, port = server.server_address[:2]
+        server.daemon_threads = True
+        import threading
+
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        yield f"http://{host}:{port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+class _QuietStaticRequestHandler(SimpleHTTPRequestHandler):
+    def log_message(self, format: str, *args: Any) -> None:
+        return
 
 
 def _run_negative_validation_case(project_root: Path, temp_dir: Path, raw_case: Any) -> dict[str, Any]:
@@ -322,3 +467,9 @@ def _expect(name: str, ok: bool) -> dict[str, Any]:
 
 def _cplan_script_path() -> str:
     return ".\\cplan.py" if platform.system() == "Windows" else "./cplan.py"
+
+
+def _install_browser_command() -> str:
+    if getattr(sys, "frozen", False):
+        return ".\\cplan.exe install-browser" if platform.system() == "Windows" else "./cplan install-browser"
+    return f"python {_cplan_script_path()} install-browser"

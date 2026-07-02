@@ -7,14 +7,18 @@
       "action": "open_desktop",
       "name": "desktop",
       "backend": "auto",
-      "save_as": "desktop_probe"
+      "output": {
+        "as": "desktop_probe"
+      }
     },
     {
       "action": "desktop_window",
       "desktop": "desktop",
       "type": "list",
       "path": "windows.json",
-      "save_as": "desktop_windows"
+      "output": {
+        "as": "desktop_windows"
+      }
     },
     {
       "action": "desktop_capture",
@@ -24,14 +28,18 @@
       "include_windows": true,
       "include_elements": false,
       "include_screenshot": true,
-      "save_as": "desktop_observation"
+      "output": {
+        "as": "desktop_observation"
+      }
     },
     {
       "action": "desktop_capture",
       "desktop": "desktop",
       "type": "screenshot",
       "path": "screen.png",
-      "save_as": "desktop_screenshot"
+      "output": {
+        "as": "desktop_screenshot"
+      }
     },
     {
       "action": "desktop_assert",
@@ -39,14 +47,18 @@
       "type": "screenshot",
       "path": "screen.png",
       "min_bytes": 1,
-      "save_as": "desktop_screenshot_assertion"
+      "output": {
+        "as": "desktop_screenshot_assertion"
+      }
     },
     {
       "action": "desktop_capture",
       "desktop": "desktop",
       "type": "snapshot",
       "path": "snapshot.json",
-      "save_as": "desktop_snapshot"
+      "output": {
+        "as": "desktop_snapshot"
+      }
     },
     {
       "action": "close_desktop",

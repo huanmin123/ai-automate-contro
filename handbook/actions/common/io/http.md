@@ -40,11 +40,12 @@
 - `include_body`: 是否保存响应体
 - `body_type`: `text`、`json`、`bytes`
 - `response_body_path`: 把响应体写到当前 plan 包 `output/http/`
-- `save_as`: 保存响应摘要变量名
+- `output`: 发布给后续步骤的 JSON-safe 输出；`output.as` 是变量名
 
 ## 约束
 
 - `json`、`body`、`body_path`、`form`、`multipart` 只能选一种。
+- 要把响应体字段传给后续节点时，必须使用 `body_type: "json"`，再用 `output.from` 从响应 payload 中选择结构化片段。
 - `GET` 和 `HEAD` 默认不允许 body，除非显式开放。
 - 请求 body 文件和上传文件默认放当前 plan 包 `resources/`，例如 `resources/payload.json`、`resources/upload.txt`。
 - AI 创建 plan 时，用户没有指定固定本机上传路径时，推荐把文件导入当前包 `resources/`，再写 `resources/...`。
@@ -62,7 +63,34 @@
   "type": "request",
   "method": "GET",
   "url": "http://127.0.0.1:3000/echo",
-  "save_as": "echo_response"
+  "output": {
+    "as": "echo_response"
+  }
+}
+```
+
+用 `output` 发布下游真正需要的字段：
+
+```json
+{
+  "action": "http",
+  "type": "request",
+  "method": "POST",
+  "url": "http://127.0.0.1:3000/login",
+  "json": {
+    "username": "{{username}}",
+    "password": "{{password}}"
+  },
+  "body_type": "json",
+  "output": {
+    "as": "login",
+    "from": "body.data",
+    "type": "object!",
+    "fields": {
+      "token": "string!",
+      "user_id": "string!"
+    }
+  }
 }
 ```
 
@@ -83,6 +111,8 @@
       }
     ]
   },
-  "save_as": "upload_response"
+  "output": {
+    "as": "upload_response"
+  }
 }
 ```

@@ -21,8 +21,9 @@
           "name": "transactions"
         }
       ],
-      "save_as": "workbook",
-      "save_meta_as": "workbook_meta"
+      "output": {
+        "as": "workbook"
+      }
     },
     {
       "action": "table",
@@ -31,7 +32,9 @@
       "where": {
         "状态": "在职"
       },
-      "save_as": "active_employees"
+      "output": {
+        "as": "active_employees"
+      }
     },
     {
       "action": "table",
@@ -40,7 +43,9 @@
       "values": {
         "奖金": 0
       },
-      "save_as": "employees_filled"
+      "output": {
+        "as": "employees_filled"
+      }
     },
     {
       "action": "table",
@@ -50,7 +55,9 @@
         "工资": "number",
         "奖金": "number"
       },
-      "save_as": "employees_typed"
+      "output": {
+        "as": "employees_typed"
+      }
     },
     {
       "action": "table",
@@ -60,7 +67,9 @@
       "left_on": "部门编码",
       "right_on": "部门编码",
       "how": "left",
-      "save_as": "employee_joined"
+      "output": {
+        "as": "employee_joined"
+      }
     },
     {
       "action": "table",
@@ -70,7 +79,9 @@
         "姓名": "员工姓名",
         "手机号": "电话"
       },
-      "save_as": "employee_renamed"
+      "output": {
+        "as": "employee_renamed"
+      }
     },
     {
       "action": "table",
@@ -81,7 +92,9 @@
       "values": "工资",
       "agg": "sum",
       "fill_value": 0,
-      "save_as": "salary_pivot"
+      "output": {
+        "as": "salary_pivot"
+      }
     },
     {
       "action": "table",
@@ -99,7 +112,9 @@
           "sum": "税额"
         }
       },
-      "save_as": "finance_grouped"
+      "output": {
+        "as": "finance_grouped"
+      }
     },
     {
       "action": "table",
@@ -109,7 +124,9 @@
       "left_on": "部门编码",
       "right_on": "部门编码",
       "how": "left",
-      "save_as": "finance_summary"
+      "output": {
+        "as": "finance_summary"
+      }
     },
     {
       "action": "write",
@@ -182,8 +199,9 @@
           "name": "finance_export"
         }
       ],
-      "save_as": "exported_workbook",
-      "save_meta_as": "exported_meta"
+      "output": {
+        "as": "exported_workbook"
+      }
     },
     {
       "action": "write",

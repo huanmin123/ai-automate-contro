@@ -29,8 +29,19 @@ python .\cplan.py self-check desktop-components
 
 `desktop-components` 还会运行 schema、失败采集、launch-only、`desktop_vision locate_image`、临时表单、输入依赖和 capability diagnostics。
 
+场景级桌面回归：
+
+```powershell
+python .\cplan.py self-check desktop-scenarios
+python .\cplan.py self-check desktop-scenario-apps
+```
+
+`desktop-scenarios` 使用纯 mock 状态机覆盖游戏日常、聊天发送、定时群消息、窗口恢复、弹窗处理、重复观察和防无限循环。
+
+`desktop-scenario-apps` 在 Windows 上动态生成受控 WinForms mock chat、mock game、mock recovery 和 mock interference 窗口，运行真实 desktop plan，覆盖窗口启动、聚焦、控件操作、消息发送、游戏奖励/副本、最小化恢复、阻塞弹窗、同标题多窗口、topmost 遮挡、用户抢焦点、目标窗口移动、`window_id` 锁定、`desktop_input target=element_center` 点击归属、截图证据、状态断言、结果文件、关闭链路和 plan 合同检查。
+
 桌面稳定性复跑使用 release matrix 的重复入口：
 
 ```powershell
-python .\cplan.py self-check release-matrix --only desktop_env,desktop_examples,desktop_components,desktop_real_app,ai_desktop_loop --repeat 3 --fail-fast --step-timeout-seconds 1200
+python .\cplan.py self-check release-matrix --only desktop_env,desktop_examples,desktop_scenarios,desktop_scenario_apps,desktop_components,desktop_real_app,ai_desktop_loop --repeat 3 --fail-fast --step-timeout-seconds 1200
 ```

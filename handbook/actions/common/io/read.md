@@ -2,16 +2,16 @@
 
 ## 用途
 
-读取当前 plan 包资源、运行产物，或用户明确指定的本机路径，并保存为变量。
+读取当前 plan 包资源、运行产物，或用户明确指定的本机路径，并通过 `output` 发布为变量。
 
-`read` 是统一读文件组件。能共用 `path`、`type`、`save_as` 的读取能力都放在这里，通过 `type` 控制解析方式。
+`read` 是统一读文件组件。能共用 `path`、`type`、`output` 的读取能力都放在这里，通过 `type` 控制解析方式。
 
 ## 必填字段
 
 - `action`: 固定写成 `read`
 - `type`: 读取类型，支持 `json`、`text`、`csv`、`excel`、`storage_state`
 - `path`: 输入文件路径
-- `save_as`: 保存到变量池的变量名
+- `output`: 发布读取结果的声明；`output.as` 是变量名
 
 ## 类型说明
 
@@ -38,8 +38,6 @@
 - `offset_rows`: 仅 `type: excel` 有效，从数据区跳过 N 行后开始读；`records` 模式从表头后的数据行开始计算，`matrix`/`cells` 从 `range` 首行开始计算。
 - `limit_rows`: 仅 `type: excel` 有效，本次最多读取 N 行；适合分页处理大表。
 - `preview_rows`: 仅 `type: excel` 有效，只预览前 N 行数据；适合先看结构、避免一次读入超大表。
-- `save_meta_as`: 仅 `type: excel` 有效，额外保存工作簿、sheet、range、表头和行列数元数据。
-
 ## 示例
 
 读取资源 JSON：
@@ -49,7 +47,24 @@
   "action": "read",
   "type": "json",
   "path": "resources/accounts.json",
-  "save_as": "accounts"
+  "output": {
+    "as": "accounts",
+    "type": "object!"
+  }
+}
+```
+
+读取资源 JSON 数组：
+
+```json
+{
+  "action": "read",
+  "type": "json",
+  "path": "resources/accounts.json",
+  "output": {
+    "as": "accounts",
+    "type": "array!"
+  }
 }
 ```
 
@@ -60,7 +75,10 @@
   "action": "read",
   "type": "csv",
   "path": "output/csv/accounts.csv",
-  "save_as": "rows"
+  "output": {
+    "as": "rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -72,8 +90,10 @@
   "type": "excel",
   "path": "resources/人员名单.xlsx",
   "sheet": "名单",
-  "save_as": "employees",
-  "save_meta_as": "employees_meta"
+  "output": {
+    "as": "employees",
+    "type": "array!"
+  }
 }
 ```
 
@@ -87,7 +107,10 @@
   "sheet": "汇总",
   "range": "B2:F20",
   "mode": "matrix",
-  "save_as": "budget_matrix"
+  "output": {
+    "as": "budget_matrix",
+    "type": "array!"
+  }
 }
 ```
 
@@ -112,8 +135,10 @@
       "name": "transactions"
     }
   ],
-  "save_as": "workbook",
-  "save_meta_as": "workbook_meta"
+  "output": {
+    "as": "workbook",
+    "type": "object!"
+  }
 }
 ```
 
@@ -130,8 +155,10 @@
   "range": "A1:Z200000",
   "preview_rows": 20,
   "max_cells": 2000,
-  "save_as": "preview_rows",
-  "save_meta_as": "preview_meta"
+  "output": {
+    "as": "preview_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -147,8 +174,10 @@
   "offset_rows": 1000,
   "limit_rows": 500,
   "max_cells": 15000,
-  "save_as": "page_rows",
-  "save_meta_as": "page_meta"
+  "output": {
+    "as": "page_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -160,7 +189,10 @@
   "type": "text",
   "path": "resources/accounts.txt",
   "split_lines": true,
-  "save_as": "lines"
+  "output": {
+    "as": "lines",
+    "type": "array!"
+  }
 }
 ```
 
@@ -171,7 +203,10 @@
   "action": "read",
   "type": "storage_state",
   "path": "output/storage-states/state-demo.json",
-  "save_as": "saved_state_path"
+  "output": {
+    "as": "saved_state_path",
+    "type": "string!"
+  }
 }
 ```
 

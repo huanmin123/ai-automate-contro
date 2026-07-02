@@ -11,7 +11,7 @@
 - 新增 `http` action，第一版只提供 `type: request`。
 - 支持 `GET`、`POST`、`PUT`、`PATCH`、`DELETE`、`HEAD`、`OPTIONS`。
 - 支持 query、headers、JSON body、文本 body、文件 body、urlencoded form、multipart 本地文件上传。
-- 支持响应变量保存、响应体写入当前 plan 包 `output/http/`。
+- 支持通过 `output.as` 发布响应 payload，响应体写入当前 plan 包 `output/http/`。
 - 支持状态码断言、超时、重定向和 TLS 验证开关。
 - 使用 Node.js 本地 HTTP 服务构建完整回归测试。
 
@@ -36,7 +36,7 @@
 - Action 名称：`http`。
 - 类型：`type: request`。
 - 输出分类：`response_body_path` 固定进入 `output/http/`。
-- 保存变量：`save_as` 保存 `url`、`final_url`、`method`、`status`、`ok`、`headers`、`body`、`body_path`、`elapsed_ms`。
+- 输出协议：`output.as` 发布 JSON payload，包含 `url`、`final_url`、`method`、`status`、`ok`、`headers`、`body`、`body_path`、`elapsed_ms`。
 - 请求 body 字段互斥：`json`、`body`、`body_path`、`form`、`multipart` 同时最多一个。
 - 上传路径：`multipart.files[].path` 推荐使用当前 plan 包 `resources/...`；也支持用户要求的本机绝对路径、共享盘或越出 plan 包的相对路径。
 - 协议：第一版只接受 `http://` 和 `https://`。

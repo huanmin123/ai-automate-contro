@@ -126,7 +126,11 @@ AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 
     "email": "string",
     "status": "string"
   },
-  "save_as": "parsed"
+  "output": {
+
+    "as": "parsed"
+
+  }
 }
 ```
 

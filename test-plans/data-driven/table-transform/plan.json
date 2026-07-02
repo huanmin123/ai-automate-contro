@@ -52,15 +52,25 @@
           "contains": "差旅"
         }
       },
-      "save_as": "travel_rows"
+      "output": {
+        "as": "travel_rows"
+      }
     },
     {
       "action": "table",
       "type": "sort",
       "source": "{{travel_rows}}",
-      "by": ["日期", "金额"],
-      "descending": [false, true],
-      "save_as": "sorted_rows"
+      "by": [
+        "日期",
+        "金额"
+      ],
+      "descending": [
+        false,
+        true
+      ],
+      "output": {
+        "as": "sorted_rows"
+      }
     },
     {
       "action": "table",
@@ -68,14 +78,23 @@
       "source": "{{sorted_rows}}",
       "by": "单号",
       "keep": "last",
-      "save_as": "unique_rows"
+      "output": {
+        "as": "unique_rows"
+      }
     },
     {
       "action": "table",
       "type": "select",
       "source": "{{unique_rows}}",
-      "columns": ["单号", "部门", "金额", "税额"],
-      "save_as": "selected_rows"
+      "columns": [
+        "单号",
+        "部门",
+        "金额",
+        "税额"
+      ],
+      "output": {
+        "as": "selected_rows"
+      }
     },
     {
       "action": "table",
@@ -84,7 +103,9 @@
       "right": "{{departments}}",
       "on": "部门",
       "how": "left",
-      "save_as": "joined_rows"
+      "output": {
+        "as": "joined_rows"
+      }
     },
     {
       "action": "table",
@@ -95,10 +116,15 @@
           "format": "{部门}-{单号}-{负责人}"
         },
         "含税金额": {
-          "sum": ["金额", "税额"]
+          "sum": [
+            "金额",
+            "税额"
+          ]
         }
       },
-      "save_as": "labeled_rows"
+      "output": {
+        "as": "labeled_rows"
+      }
     },
     {
       "action": "table",
@@ -116,7 +142,9 @@
           "avg": "金额"
         }
       },
-      "save_as": "summary_rows"
+      "output": {
+        "as": "summary_rows"
+      }
     },
     {
       "action": "write",

@@ -44,7 +44,9 @@
   "type": "request",
   "method": "GET",
   "url": "http://127.0.0.1:3000/api/profile",
-  "save_as": "profile_response"
+  "output": {
+    "as": "profile_response"
+  }
 }
 ```
 
@@ -62,7 +64,9 @@ JSON POST：
   "json": {
     "name": "{{account_name}}"
   },
-  "save_as": "create_account_response"
+  "output": {
+    "as": "create_account_response"
+  }
 }
 ```
 
@@ -78,7 +82,9 @@ URL encoded form：
     "username": "{{login_username}}",
     "password": "{{login_password}}"
   },
-  "save_as": "login_response"
+  "output": {
+    "as": "login_response"
+  }
 }
 ```
 
@@ -103,7 +109,9 @@ Multipart 文件上传：
       }
     ]
   },
-  "save_as": "upload_response"
+  "output": {
+    "as": "upload_response"
+  }
 }
 ```
 
@@ -116,7 +124,9 @@ Multipart 文件上传：
   "method": "GET",
   "url": "{{api_base_url}}/report.csv",
   "response_body_path": "reports/latest.csv",
-  "save_as": "download_response"
+  "output": {
+    "as": "download_response"
+  }
 }
 ```
 
@@ -148,7 +158,7 @@ Multipart 文件上传：
 - `include_body`: 是否把响应体保存到变量，默认 `true`，大响应应改用 `response_body_path`。
 - `body_type`: 响应体解析方式，`text`、`json`、`bytes`，默认按 Content-Type 推断，推断失败为 `text`。
 - `response_body_path`: 响应体写入路径，相对于当前 plan 包 `output/http/`。
-- `save_as`: 响应摘要保存变量名。
+- `output`: 发布响应摘要的声明；`output.as` 是变量名。
 
 body 互斥规则：
 
@@ -157,7 +167,7 @@ body 互斥规则：
 
 ## 响应变量结构
 
-保存到 `save_as` 的变量固定为对象：
+发布到 `output.as` 指定的变量固定为对象：
 
 ```json
 {

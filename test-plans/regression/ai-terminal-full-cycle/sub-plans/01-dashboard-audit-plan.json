@@ -36,7 +36,9 @@
       "type": "text",
       "browser": "dashboard",
       "selector": "#report-status",
-      "save_as": "risk_report_text"
+      "output": {
+        "as": "risk_report_text"
+      }
     },
     {
       "action": "write",

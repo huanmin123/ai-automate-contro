@@ -219,15 +219,20 @@ def _run_excel_file_generation_case(project_root: Path) -> dict[str, Any]:
                 "type": "excel",
                 "path": "resources/人员名单.xlsx",
                 "sheet": "名单",
-                "save_as": "employees",
-                "save_meta_as": "employees_meta",
+                "output": {
+                    "as": "employees",
+                    "type": "array!",
+                },
             },
             {
                 "action": "table",
                 "type": "filter",
                 "source": "{{employees}}",
                 "where": {"部门": "财务", "状态": "在职"},
-                "save_as": "finance_people",
+                "output": {
+                    "as": "finance_people",
+                    "type": "array!",
+                },
             },
             {
                 "action": "write",
@@ -242,7 +247,7 @@ def _run_excel_file_generation_case(project_root: Path) -> dict[str, Any]:
                 "action": "write",
                 "type": "json",
                 "path": "财务在职人员.json",
-                "value": {"rows": "{{finance_people}}", "meta": "{{employees_meta}}"},
+                "value": {"rows": "{{finance_people}}"},
             },
         ],
     }
@@ -290,7 +295,10 @@ def _run_excel_ambiguous_file_data_quality_gate_case(project_root: Path) -> dict
                 "type": "excel",
                 "path": "resources/财务流水.xlsx",
                 "sheet": "流水",
-                "save_as": "rows",
+                "output": {
+                    "as": "rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "table",
@@ -298,7 +306,10 @@ def _run_excel_ambiguous_file_data_quality_gate_case(project_root: Path) -> dict
                 "source": "{{rows}}",
                 "by": "账户",
                 "aggregations": {"金额合计": {"sum": "金额"}},
-                "save_as": "report_rows",
+                "output": {
+                    "as": "report_rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "write",
@@ -351,14 +362,16 @@ def _run_excel_ambiguous_file_data_preview_case(project_root: Path) -> dict[str,
                 "sheet": "流水",
                 "preview_rows": 20,
                 "max_cells": 2000,
-                "save_as": "preview_rows",
-                "save_meta_as": "preview_meta",
+                "output": {
+                    "as": "preview_rows",
+                    "type": "array!",
+                },
             },
             {
                 "action": "write",
                 "type": "json",
                 "path": "excel-preview.json",
-                "value": {"rows": "{{preview_rows}}", "meta": "{{preview_meta}}"},
+                "value": {"rows": "{{preview_rows}}"},
             },
         ],
     }
@@ -371,7 +384,7 @@ def _run_excel_ambiguous_file_data_preview_case(project_root: Path) -> dict[str,
         quality_user_request=user_message,
         quality_evidence_summary=(
             "用户只给了模糊表格处理目标；plan 仅用 read.type=excel "
-            "preview_rows/max_cells/save_meta_as 做只读预览，并写出 JSON preview/meta，"
+            "preview_rows/max_cells 做只读预览，并写出 JSON preview rows，"
             "没有写入 filter/group/pivot/join/formula 等业务转换。"
         ),
         planned_output_path="excel-preview.json",
@@ -407,7 +420,7 @@ def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
                 "profile": "notepad",
                 "wait_for_window": True,
                 "focus": True,
-                "save_as": "notepad_launch",
+                "output": {"as": "notepad_launch"},
             },
             {
                 "action": "desktop_wait",
@@ -416,7 +429,7 @@ def _run_desktop_generation_case(project_root: Path) -> dict[str, Any]:
                 "profile": "notepad",
                 "state": "exists",
                 "timeout_ms": 5000,
-                "save_as": "notepad_window",
+                "output": {"as": "notepad_window"},
             },
             {"action": "desktop_window", "desktop": "desktop", "type": "list", "path": "windows.json"},
             {
@@ -996,7 +1009,7 @@ def _run_file_dialog_generation_case(project_root: Path) -> dict[str, Any]:
                 "profile": "file_dialog_open",
                 "state": "exists",
                 "timeout_ms": 5000,
-                "save_as": "open_dialog",
+                "output": {"as": "open_dialog"},
             },
             {
                 "action": "desktop_capture",
@@ -1005,7 +1018,7 @@ def _run_file_dialog_generation_case(project_root: Path) -> dict[str, Any]:
                 "target": "window",
                 "profile": "file_dialog_open",
                 "path": "open-dialog.png",
-                "save_as": "open_dialog_screen",
+                "output": {"as": "open_dialog_screen"},
             },
             {
                 "action": "desktop_input",
@@ -1014,14 +1027,14 @@ def _run_file_dialog_generation_case(project_root: Path) -> dict[str, Any]:
                 "value": "{{absolute_file_path}}",
                 "method": "clipboard",
                 "preserve_clipboard": True,
-                "save_as": "dialog_path_typed",
+                "output": {"as": "dialog_path_typed"},
             },
             {
                 "action": "desktop_input",
                 "desktop": "desktop",
                 "type": "hotkey",
                 "keys": ["enter"],
-                "save_as": "dialog_confirmed",
+                "output": {"as": "dialog_confirmed"},
             },
             {
                 "action": "desktop_wait",
@@ -1030,7 +1043,7 @@ def _run_file_dialog_generation_case(project_root: Path) -> dict[str, Any]:
                 "profile": "file_dialog_open",
                 "state": "not_exists",
                 "timeout_ms": 5000,
-                "save_as": "open_dialog_closed",
+                "output": {"as": "open_dialog_closed"},
             },
             {"action": "close_desktop", "desktop": "desktop"},
         ],

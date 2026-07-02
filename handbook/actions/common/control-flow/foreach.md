@@ -15,6 +15,8 @@
 - `item_var`: 当前元素变量名，默认 `item`
 - `index_var`: 当前索引变量名，默认 `index`
 
+`item_var` 和 `index_var` 不能使用保留输出变量 `last`。
+
 ## 示例
 
 ```json

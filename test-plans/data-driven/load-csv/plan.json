@@ -7,7 +7,9 @@
       "action": "read",
       "type": "csv",
       "path": "resources/sample_accounts.csv",
-      "save_as": "rows"
+      "output": {
+        "as": "rows"
+      }
     },
     {
       "action": "print",

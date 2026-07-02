@@ -14,7 +14,7 @@
 
 ## 可选字段
 
-- `save_as`: 把捕获到的请求或响应摘要保存为变量
+- `output.as`: 把捕获到的请求或响应摘要保存为变量
 - `include_headers`: 是否把 headers 写入摘要，默认 `false`
 - `include_post_data`: 仅 `type: request` 有效，是否保存请求体
 - `include_body`: 仅 `type: response` 有效，是否保存响应体
@@ -28,7 +28,7 @@
   "type": "response",
   "browser": "main",
   "url": "https://example.com/api",
-  "save_as": "response_info",
+  "output": {"as": "response_info"},
   "trigger": {
     "action": "element",
     "type": "click",
@@ -48,7 +48,7 @@
   "url": "https://example.com/api/profile",
   "include_body": true,
   "body_type": "json",
-  "save_as": "profile_response",
+  "output": {"as": "profile_response"},
   "trigger": {
     "action": "element",
     "type": "click",

@@ -1,7 +1,10 @@
 {
   "name": "redis-basic",
   "automation_type": "browser",
-  "tags": ["database", "redis"],
+  "tags": [
+    "database",
+    "redis"
+  ],
   "steps": [
     {
       "action": "redis",
@@ -9,7 +12,9 @@
       "connection": "redis",
       "command": "PING",
       "result_path": "redis-ping.json",
-      "save_as": "redis_ping"
+      "output": {
+        "as": "redis_ping"
+      }
     },
     {
       "action": "write",

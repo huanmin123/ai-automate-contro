@@ -5,9 +5,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
 from ai_automate_contro.engine.template import render_value
 from ai_automate_contro.plans.loader import load_plan
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
+
+
+RESERVED_OUTPUT_VARIABLES = {"last"}
 
 
 def action_run_sub_plan(executor: Any, step: dict[str, Any]) -> None:
@@ -41,6 +45,8 @@ def action_foreach(executor: Any, step: dict[str, Any]) -> None:
     items = render_value(step["items"], executor.state.variables)
     loop_var = step.get("item_var", "item")
     index_var = step.get("index_var", "index")
+    _ensure_loop_variable_allowed(str(loop_var))
+    _ensure_loop_variable_allowed(str(index_var))
     body = step.get("steps", [])
     total = len(items)
     executor.state.logger.log("info", "foreach start", loop_var=loop_var, total=total)
@@ -50,6 +56,11 @@ def action_foreach(executor: Any, step: dict[str, Any]) -> None:
         executor.state.logger.log("info", "foreach item", index=index, loop_var=loop_var, value=item)
         executor.run(body)
     executor.state.logger.log("info", "foreach finished", total=total)
+
+
+def _ensure_loop_variable_allowed(name: str) -> None:
+    if name in RESERVED_OUTPUT_VARIABLES:
+        raise ValueError(f"{name} 是保留输出变量，只能由 output 发布器维护。")
 
 
 def action_retry(executor: Any, step: dict[str, Any]) -> None:
@@ -99,9 +110,7 @@ def action_trigger(executor: Any, step: dict[str, Any]) -> None:
             continue
         _wait_runtime(executor, min(due_at - now, 0.25))
     status = _trigger_status(runtime)
-    save_as = step.get("save_as")
-    if save_as:
-        executor.state.variables[str(save_as)] = status
+    publish_step_output(executor, step, status, action="trigger")
     executor.state.logger.log(
         "info",
         "trigger wait finished",

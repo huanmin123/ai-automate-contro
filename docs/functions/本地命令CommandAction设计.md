@@ -38,7 +38,9 @@
   "stdout_type": "json",
   "stdout_path": "tool-stdout.json",
   "stderr_path": "tool-stderr.txt",
-  "save_as": "tool_result"
+  "output": {
+    "as": "tool_result"
+  }
 }
 ```
 
@@ -53,7 +55,9 @@
     "linux": "ls resources",
     "macos": "ls resources"
   },
-  "save_as": "listing"
+  "output": {
+    "as": "listing"
+  }
 }
 ```
 

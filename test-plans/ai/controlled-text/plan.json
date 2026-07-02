@@ -15,7 +15,9 @@
       "type": "connectivity",
       "service": "default",
       "input": "Return a JSON object confirming the model endpoint works.",
-      "save_as": "ai_connectivity",
+      "output": {
+        "as": "ai_connectivity"
+      },
       "path": "connectivity/result.json"
     },
     {
@@ -31,7 +33,9 @@
         "priority": "string",
         "expected_action": "string"
       },
-      "save_as": "ticket_fields",
+      "output": {
+        "as": "ticket_fields"
+      },
       "path": "extract-data/ticket-fields.json"
     },
     {
@@ -46,7 +50,9 @@
         "profile",
         "other"
       ],
-      "save_as": "ticket_category",
+      "output": {
+        "as": "ticket_category"
+      },
       "path": "classify-text/ticket-category.json"
     },
     {

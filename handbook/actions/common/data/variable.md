@@ -17,6 +17,8 @@
 | `set_many` | `values` | 批量设置变量 |
 | `copy` | `source`、`target` | 复制已有变量 |
 
+`last` 是保留输出变量，只能由 step 级 `output` 发布器维护，不能作为 `name`、`values` key 或 `target`。
+
 ## 示例
 
 ```json

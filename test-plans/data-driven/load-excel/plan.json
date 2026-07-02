@@ -8,8 +8,9 @@
       "type": "excel",
       "path": "resources/人员名单.xlsx",
       "sheet": "名单",
-      "save_as": "employees",
-      "save_meta_as": "employees_meta"
+      "output": {
+        "as": "employees"
+      }
     },
     {
       "action": "table",
@@ -19,17 +20,25 @@
         "部门": "财务",
         "状态": "在职"
       },
-      "save_as": "finance_people"
+      "output": {
+        "as": "finance_people"
+      }
     },
     {
       "action": "table",
       "type": "select",
       "source": "{{finance_people}}",
-      "columns": ["姓名", "部门", "手机号"],
+      "columns": [
+        "姓名",
+        "部门",
+        "手机号"
+      ],
       "rename": {
         "手机号": "电话"
       },
-      "save_as": "contact_rows"
+      "output": {
+        "as": "contact_rows"
+      }
     },
     {
       "action": "write",

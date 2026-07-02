@@ -128,49 +128,125 @@ def self_check_database_components(
 
 
 def _run_sqlite_basic_case(project_root: Path) -> dict[str, Any]:
-    plan_path = project_root / "test-plans" / "database" / "sqlite-basic" / "plan.json"
-    started_at = time.time()
-    validation = validate_plan_file(plan_path, project_root)
-    if not validation.ok:
-        return _validation_failed_case("sqlite-basic", plan_path, validation)
-    try:
-        plan = load_plan(plan_path)
-        result = execute_plan(
-            plan,
-            project_root,
-            plan_path=plan_path,
-            run_name="database-components-sqlite-basic",
-            run_context_handler=_disable_run_log_echo,
-        )
-    except Exception as error:
-        return _run_failed_case("sqlite-basic", plan_path, error)
+    with tempfile.TemporaryDirectory(prefix="database-components-sqlite-basic-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir) / "sqlite-basic"
+        package_dir.mkdir(parents=True, exist_ok=True)
+        plan_path = package_dir / "plan.json"
+        plan_path.write_text(json.dumps(_sqlite_basic_plan(), ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        started_at = time.time()
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            return _validation_failed_case("sqlite-basic", plan_path, validation)
+        try:
+            plan = load_plan(plan_path)
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="database-components-sqlite-basic",
+                run_context_handler=_disable_run_log_echo,
+            )
+        except Exception as error:
+            return _run_failed_case("sqlite-basic", plan_path, error)
 
-    output_root = plan_path.parent / "output"
-    rows_path = output_root / "sql" / "active-items.json"
-    variables_path = output_root / "variables" / "sqlite-basic-variables.json"
-    evidence = [
-        _expect("run_passed", result.status == "passed"),
-        _expect("active_rows_fresh", _file_nonempty_after(rows_path, started_at)),
-        _expect("variables_fresh", _file_nonempty_after(variables_path, started_at)),
-    ]
-    try:
-        rows = _read_json(rows_path)
-        variables = _read_json(variables_path)
-        evidence.extend(
-            [
-                _expect("active_row_count", isinstance(rows, list) and len(rows) == 2),
-                _expect("active_count_value", _nested_value(variables, ("active_count", "value")) == 3),
-            ]
-        )
-    except Exception as error:
-        evidence.append({"name": "evidence_read", "ok": False, "error": str(error), "error_type": type(error).__name__})
+        output_root = package_dir / "output"
+        rows_path = output_root / "sql" / "active-items.json"
+        variables_path = output_root / "variables" / "sqlite-basic-variables.json"
+        evidence = [
+            _expect("run_passed", result.status == "passed"),
+            _expect("active_rows_fresh", _file_nonempty_after(rows_path, started_at)),
+            _expect("variables_fresh", _file_nonempty_after(variables_path, started_at)),
+        ]
+        try:
+            rows = _read_json(rows_path)
+            variables = _read_json(variables_path)
+            evidence.extend(
+                [
+                    _expect("active_row_count", isinstance(rows, list) and len(rows) == 2),
+                    _expect("active_first_sku", isinstance(rows, list) and rows and rows[0].get("sku") == "A1"),
+                    _expect("insert_affected_rows", _nested_value(variables, ("insert_result", "affected_rows")) == 3),
+                    _expect("update_affected_rows", _nested_value(variables, ("update_result", "affected_rows")) == 1),
+                    _expect("active_count_value", _nested_value(variables, ("active_count", "value")) == 3),
+                ]
+            )
+        except Exception as error:
+            evidence.append({"name": "evidence_read", "ok": False, "error": str(error), "error_type": type(error).__name__})
 
+        return {
+            "name": "sqlite-basic",
+            "ok": result.status == "passed" and all(item["ok"] for item in evidence),
+            "plan_path": str(plan_path),
+            "output_dir": result.output_dir,
+            "evidence": evidence,
+        }
+
+
+def _sqlite_basic_plan() -> dict[str, Any]:
     return {
-        "name": "sqlite-basic",
-        "ok": result.status == "passed" and all(item["ok"] for item in evidence),
-        "plan_path": str(plan_path),
-        "output_dir": result.output_dir,
-        "evidence": evidence,
+        "name": "database sqlite basic",
+        "automation_type": "browser",
+        "variables": {
+            "sqlite_connection": {"type": "sqlite", "path": "output/sql/sqlite-basic.db"},
+            "seed_rows": [
+                {"sku": "A1", "title": "Alpha", "price": 12.5, "active": 1},
+                {"sku": "B2", "title": "Beta", "price": 9.75, "active": 0},
+                {"sku": "C3", "title": "Gamma", "price": 21, "active": 1},
+            ],
+        },
+        "steps": [
+            {
+                "action": "sql",
+                "type": "execute",
+                "connection": "{{sqlite_connection}}",
+                "sql": "drop table if exists items",
+                "output": {"as": "drop_result"},
+            },
+            {
+                "action": "sql",
+                "type": "execute",
+                "connection": "{{sqlite_connection}}",
+                "sql": "create table items (sku text primary key, title text not null, price real not null, active integer not null)",
+                "output": {"as": "create_result"},
+            },
+            {
+                "action": "sql",
+                "type": "bulk_insert",
+                "connection": "{{sqlite_connection}}",
+                "table": "items",
+                "rows": "{{seed_rows}}",
+                "columns": ["sku", "title", "price", "active"],
+                "result_path": "sqlite-bulk-insert.json",
+                "output": {"as": "insert_result"},
+            },
+            {
+                "action": "sql",
+                "type": "query",
+                "connection": "{{sqlite_connection}}",
+                "sql": "select sku, title, price from items where active = :active and price >= :min_price order by sku",
+                "params": {"active": 1, "min_price": 10},
+                "rows_path": "active-items.json",
+                "include_rows": True,
+                "output": {"as": "active_items"},
+            },
+            {
+                "action": "sql",
+                "type": "execute",
+                "connection": "{{sqlite_connection}}",
+                "sql": "update items set active = :active where sku = :sku",
+                "params": {"active": 1, "sku": "B2"},
+                "expect_affected_rows": 1,
+                "output": {"as": "update_result"},
+            },
+            {
+                "action": "sql",
+                "type": "scalar",
+                "connection": "{{sqlite_connection}}",
+                "sql": "select count(*) from items where active = :active",
+                "params": {"active": 1},
+                "output": {"as": "active_count"},
+            },
+            {"action": "write", "type": "variables", "path": "sqlite-basic-variables.json"},
+        ],
     }
 
 
@@ -367,7 +443,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "columns": ["id", "name", "balance"],
                 "batch_size": 2,
                 "result_path": "bulk-batched.json",
-                "save_as": "bulk_result",
+                "output": {"as": "bulk_result"},
             },
             {
                 "action": "sql",
@@ -375,7 +451,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "connection": "{{sqlite_connection}}",
                 "sql": "select id, name, balance from accounts order by id",
                 "rows_path": "accounts.jsonl",
-                "save_as": "account_rows",
+                "output": {"as": "account_rows"},
             },
             {
                 "action": "sql",
@@ -385,7 +461,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "page_size": 2,
                 "page": 2,
                 "rows_path": "accounts-page-2.json",
-                "save_as": "account_page",
+                "output": {"as": "account_page"},
             },
             {
                 "action": "sql",
@@ -402,14 +478,14 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "batch_size": 2,
                 "result_path": "copy-result.json",
                 "rows_path": "copy-rows.jsonl",
-                "save_as": "copy_result",
+                "output": {"as": "copy_result"},
             },
             {
                 "action": "sql",
                 "type": "scalar",
                 "connection": "{{sqlite_target_connection}}",
                 "sql": "select count(*) from account_export",
-                "save_as": "copy_target_count",
+                "output": {"as": "copy_target_count"},
             },
             {
                 "action": "sql",
@@ -428,14 +504,14 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "batch_size": 2,
                 "result_path": "stream-copy-result.json",
                 "rows_path": "stream-copy-rows.jsonl",
-                "save_as": "stream_copy_result",
+                "output": {"as": "stream_copy_result"},
             },
             {
                 "action": "sql",
                 "type": "scalar",
                 "connection": "{{sqlite_target_connection}}",
                 "sql": "select count(*) from account_stream_export",
-                "save_as": "stream_copy_target_count",
+                "output": {"as": "stream_copy_target_count"},
             },
             {
                 "action": "sql",
@@ -459,7 +535,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                     },
                 ],
                 "result_path": "transaction.json",
-                "save_as": "transaction_result",
+                "output": {"as": "transaction_result"},
             },
             {
                 "action": "sql",
@@ -467,7 +543,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "connection": "{{sqlite_connection}}",
                 "sql": "select balance from accounts where id = :id",
                 "params": {"id": 3},
-                "save_as": "balance_after_tx",
+                "output": {"as": "balance_after_tx"},
             },
             {
                 "action": "sql",
@@ -487,7 +563,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 },
                 "batch_size": 1,
                 "result_path": "import-result.json",
-                "save_as": "import_result",
+                "output": {"as": "import_result"},
             },
             {
                 "action": "sql",
@@ -498,7 +574,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "stream": True,
                 "fetch_size": 1,
                 "result_path": "export-result.json",
-                "save_as": "export_result",
+                "output": {"as": "export_result"},
             },
             {
                 "action": "sql",
@@ -507,7 +583,7 @@ def _sqlite_features_plan() -> dict[str, Any]:
                 "table": "accounts",
                 "include_indexes": True,
                 "result_path": "inspect-accounts.json",
-                "save_as": "accounts_schema",
+                "output": {"as": "accounts_schema"},
             },
             {
                 "action": "write",
@@ -602,7 +678,7 @@ def _real_sql_plan(
             "connection": "{{db_connection}}",
             "sql": SQL_SERVICE_QUERIES[service_name],
             "result_path": f"{service_name}-smoke.json",
-            "save_as": "smoke",
+            "output": {"as": "smoke"},
         }
     ]
     if allow_writes:
@@ -631,7 +707,7 @@ def _real_sql_plan(
                     "columns": ["id", "label"],
                     "batch_size": 1,
                     "result_path": f"{service_name}-bulk.json",
-                    "save_as": "bulk",
+                    "output": {"as": "bulk"},
                 },
                 {
                     "action": "sql",
@@ -639,7 +715,7 @@ def _real_sql_plan(
                     "connection": "{{db_connection}}",
                     "sql": f"select count(*) from {table_name}",
                     "result_path": f"{service_name}-write-count.json",
-                    "save_as": "write_count",
+                    "output": {"as": "write_count"},
                 },
                 {
                     "action": "sql",
@@ -654,7 +730,7 @@ def _real_sql_plan(
                     "batch_size": 1,
                     "result_path": f"{service_name}-copy.json",
                     "rows_path": f"{service_name}-copy-rows.jsonl",
-                    "save_as": "copy_result",
+                    "output": {"as": "copy_result"},
                 },
                 {
                     "action": "sql",
@@ -662,7 +738,7 @@ def _real_sql_plan(
                     "connection": "{{copy_target_connection}}",
                     "sql": "select count(*) from real_service_copy",
                     "result_path": f"{service_name}-copy-count.json",
-                    "save_as": "copy_count",
+                    "output": {"as": "copy_count"},
                 },
                 {"action": "sql", "type": "execute", "connection": "{{db_connection}}", "sql": drop_sql},
             ]
@@ -743,7 +819,7 @@ def _real_redis_plan(connection: dict[str, Any], *, allow_writes: bool, key: str
             "connection": "{{redis_connection}}",
             "command": "PING",
             "result_path": "redis-ping.json",
-            "save_as": "ping",
+            "output": {"as": "ping"},
         }
     ]
     if allow_writes:
@@ -760,7 +836,7 @@ def _real_redis_plan(connection: dict[str, Any], *, allow_writes: bool, key: str
                 ],
                 "batch_size": 2,
                 "result_path": "redis-pipeline.json",
-                "save_as": "pipeline",
+                "output": {"as": "pipeline"},
             }
         )
     return {
@@ -884,7 +960,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
             "connection": "{{mongo_connection}}",
             "command": "ping",
             "result_path": "mongodb-ping.json",
-            "save_as": "mongo_ping",
+            "output": {"as": "mongo_ping"},
         }
     ]
     if allow_writes:
@@ -897,7 +973,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "collection": "{{mongo_collection}}",
                     "documents": [{"id": 1, "label": "alpha"}, {"id": 2, "label": "beta"}],
                     "result_path": "mongodb-insert.json",
-                    "save_as": "mongo_insert",
+                    "output": {"as": "mongo_insert"},
                 },
                 {
                     "action": "mongo",
@@ -907,7 +983,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "keys": {"id": 1},
                     "name": "aic_id_idx",
                     "result_path": "mongodb-create-index.json",
-                    "save_as": "mongo_create_index",
+                    "output": {"as": "mongo_create_index"},
                 },
                 {
                     "action": "mongo",
@@ -915,7 +991,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "connection": "{{mongo_connection}}",
                     "collection": "{{mongo_collection}}",
                     "result_path": "mongodb-list-indexes.json",
-                    "save_as": "mongo_indexes",
+                    "output": {"as": "mongo_indexes"},
                 },
                 {
                     "action": "mongo",
@@ -926,7 +1002,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "sort": {"id": 1},
                     "limit": 10,
                     "result_path": "mongodb-find.json",
-                    "save_as": "mongo_find",
+                    "output": {"as": "mongo_find"},
                 },
                 {
                     "action": "mongo",
@@ -935,7 +1011,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "collection": "{{mongo_collection}}",
                     "name": "aic_id_idx",
                     "result_path": "mongodb-drop-index.json",
-                    "save_as": "mongo_drop_index",
+                    "output": {"as": "mongo_drop_index"},
                 },
                 {
                     "action": "mongo",
@@ -944,7 +1020,7 @@ def _real_mongo_plan(connection: dict[str, Any], *, allow_writes: bool, collecti
                     "collection": "{{mongo_collection}}",
                     "filter": {"id": {"$gte": 1}},
                     "result_path": "mongodb-delete.json",
-                    "save_as": "mongo_delete",
+                    "output": {"as": "mongo_delete"},
                 },
             ]
         )
@@ -1042,7 +1118,7 @@ def _real_elasticsearch_plan(config: dict[str, Any]) -> dict[str, Any]:
         "expect_status": 200,
         "body_type": "json",
         "response_body_path": "elasticsearch-root.json",
-        "save_as": "elasticsearch",
+        "output": {"as": "elasticsearch"},
     }
     for field in ("headers", "auth", "verify_tls", "timeout_ms"):
         if field in config:
@@ -1172,7 +1248,6 @@ def _dependency_diagnostics() -> dict[str, dict[str, Any]]:
         "mysql": {"module": "pymysql", "extra": "db-mysql", "package": "PyMySQL"},
         "redis": {"module": "redis", "extra": "db-redis", "package": "redis"},
         "oracle": {"module": "oracledb", "extra": "db-oracle", "package": "oracledb"},
-        "duckdb": {"module": "duckdb", "extra": "db-duckdb", "package": "duckdb"},
         "sqlserver": {"module": "pyodbc", "extra": "db-sqlserver", "package": "pyodbc"},
         "mongodb": {"module": "pymongo", "extra": "db-mongodb", "package": "pymongo"},
     }

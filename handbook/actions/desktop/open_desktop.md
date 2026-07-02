@@ -11,7 +11,7 @@
 | `platform` | 否 | `auto`、`windows`、`macos`，默认 `auto` |
 | `backend` | 否 | `auto`、`native`，默认 `auto` |
 | `request_permissions` | 否 | 是否触发权限提示或打开设置，默认 `false` |
-| `save_as` | 否 | 保存 probe payload 的变量名 |
+| `output` | 否 | 发布 probe payload，例如 `{"as":"desktop_probe"}` |
 
 ## 场景
 
@@ -28,13 +28,13 @@
   "platform": "auto",
   "backend": "auto",
   "request_permissions": true,
-  "save_as": "desktop_probe"
+  "output": {"as": "desktop_probe"}
 }
 ```
 
 ## 输出
 
-`save_as` payload 包含 `ok`、`desktop`、`platform`、`backend`、`probe`、`capability_matrix`、`elapsed_ms`。
+`output.as` 发布的 payload 包含 `ok`、`desktop`、`platform`、`backend`、`probe`、`capability_matrix`、`elapsed_ms`。
 
 `capability_matrix` 用于 AI 判断当前桌面线可用能力：
 

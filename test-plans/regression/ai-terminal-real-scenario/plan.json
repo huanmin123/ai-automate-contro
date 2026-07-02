@@ -33,7 +33,9 @@
       "action": "extract",
       "type": "title",
       "browser": "dashboard",
-      "save_as": "title_text"
+      "output": {
+        "as": "title_text"
+      }
     },
     {
       "action": "write",

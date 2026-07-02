@@ -7,6 +7,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
@@ -62,8 +63,7 @@ def run(executor: Any, step: dict[str, Any]) -> None:
     if completed.returncode not in expected:
         raise RuntimeError(f"command exit code assertion failed. expected={sorted(expected)}, actual={completed.returncode}")
 
-    if "save_as" in step:
-        executor.state.variables[str(step["save_as"])] = payload
+    publish_step_output(executor, step, payload, action="command")
 
     executor.state.logger.log(
         "info",
@@ -74,7 +74,7 @@ def run(executor: Any, step: dict[str, Any]) -> None:
         cwd=str(cwd),
         stdout_path=stdout_path,
         stderr_path=stderr_path,
-        save_as=step.get("save_as", ""),
+        output_as=step.get("output", {}).get("as", "") if isinstance(step.get("output"), dict) else "",
     )
 
 

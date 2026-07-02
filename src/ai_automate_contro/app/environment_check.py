@@ -13,6 +13,13 @@ from typing import Any
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project, load_runtime_config
 from ai_automate_contro.engine.desktop.backends.capabilities import desktop_dependencies, tesseract_binary_details
 from ai_automate_contro.plans.config import load_plan_config
+from ai_automate_contro.support.playwright_browsers import (
+    format_playwright_browser_missing_message,
+    is_playwright_browser_missing_error,
+    playwright_browser_storage_path,
+    playwright_browser_storage_source,
+    playwright_version,
+)
 
 
 def self_check_environment(project_root: Path) -> dict[str, Any]:
@@ -32,7 +39,7 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
         "install": {
             "project": "python -m pip install -e .",
             "ripgrep": _ripgrep_install_hint(),
-            "playwright_chromium": "python -m playwright install chromium",
+            "playwright_chromium": _playwright_install_hint(),
             "desktop_extra": r'python -m pip install -e ".[desktop]"',
             "tesseract": _tesseract_install_hint(),
             "verify": _self_check_env_command(),
@@ -175,17 +182,28 @@ def _check_playwright_chromium() -> dict[str, Any]:
             browser = playwright.chromium.launch(headless=True)
             browser.close()
     except Exception as error:
+        fix = (
+            format_playwright_browser_missing_message("chromium", error)
+            if is_playwright_browser_missing_error(error)
+            else _playwright_install_hint()
+        )
         return _check_result(
             "playwright_chromium",
             False,
             detail=str(error),
-            fix="python -m playwright install chromium",
+            fix=fix,
+            playwright_version=playwright_version(),
+            browser_path=str(playwright_browser_storage_path()),
+            browser_path_source=playwright_browser_storage_source(),
         )
     return _check_result(
         "playwright_chromium",
         True,
         detail="Playwright 可以正常启动 Chromium。",
-        fix="python -m playwright install chromium",
+        fix=_playwright_install_hint(),
+        playwright_version=playwright_version(),
+        browser_path=str(playwright_browser_storage_path()),
+        browser_path_source=playwright_browser_storage_source(),
     )
 
 
@@ -326,6 +344,13 @@ def _ripgrep_install_hint() -> str:
     if system == "Linux":
         return "使用系统包管理器安装 ripgrep，例如 sudo apt install ripgrep 或 sudo dnf install ripgrep。"
     return "winget install --id BurntSushi.ripgrep.MSVC -e"
+
+
+def _playwright_install_hint() -> str:
+    if getattr(sys, "frozen", False):
+        executable = ".\\aic.exe" if platform.system() == "Windows" else "./aic"
+        return f"{executable} install-browser --browser chromium"
+    return "python -m playwright install chromium"
 
 
 def _tesseract_install_hint() -> str:

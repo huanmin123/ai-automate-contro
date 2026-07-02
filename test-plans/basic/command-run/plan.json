@@ -20,7 +20,9 @@
       "stdout_type": "json",
       "stdout_path": "command-tool-stdout.json",
       "stderr_path": "command-tool-stderr.txt",
-      "save_as": "command_result"
+      "output": {
+        "as": "command_result"
+      }
     },
     {
       "action": "if",

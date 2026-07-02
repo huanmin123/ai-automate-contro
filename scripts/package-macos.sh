@@ -4,12 +4,12 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/package-macos.sh [--install-dependencies] [--clean] [--smoke-test]
+  ./scripts/package-macos.sh [--install-dependencies] [--smoke-test] [--bundle-browser]
 
 Options:
   --install-dependencies  Install editable project dependencies with package extras.
-  --clean                 Accepted for compatibility; package output is always removed before building.
-  --smoke-test            Run packaged executable self-checks and a browser smoke plan.
+  --smoke-test            Run packaged executable self-checks; browser smoke runs only with --bundle-browser.
+  --bundle-browser        Copy Playwright Chromium into the distribution package.
   --python PATH           Use a specific Python interpreter.
   -h, --help              Show this help.
 
@@ -45,6 +45,7 @@ HTML
   cat > "$browser_smoke_dir/plan.json" <<'JSON'
 {
   "name": "packaged-browser-smoke",
+  "automation_type": "browser",
   "variables": {
     "expected_title": "Packaged Browser Smoke"
   },
@@ -216,8 +217,8 @@ remove_existing_path() {
 }
 
 install_dependencies=0
-clean=0
 smoke_test=0
+bundle_browser=0
 python_bin="${PYTHON:-}"
 
 while [ "$#" -gt 0 ]; do
@@ -225,11 +226,11 @@ while [ "$#" -gt 0 ]; do
     --install-dependencies)
       install_dependencies=1
       ;;
-    --clean)
-      clean=1
-      ;;
     --smoke-test)
       smoke_test=1
+      ;;
+    --bundle-browser)
+      bundle_browser=1
       ;;
     --python)
       shift
@@ -296,16 +297,17 @@ for name in ("PyInstaller", "textual"):
         continue
     if name == "textual" and not spec.submodule_search_locations:
         missing.append(name)
+for name in ("psycopg", "pymysql", "redis", "oracledb", "pyodbc", "pymongo"):
+    if find_spec(name) is None:
+        missing.append(name)
 if missing:
     raise SystemExit(
         "当前 Python 解释器缺少打包依赖："
         + ", ".join(missing)
-        + "。请执行：./scripts/package-macos.sh --install-dependencies --clean --smoke-test，"
+        + "。请执行：./scripts/package-macos.sh --install-dependencies --smoke-test，"
         + "或用 --python 指向已安装项目依赖的解释器。"
     )
 PY
-
-run_checked env PLAYWRIGHT_BROWSERS_PATH=0 "$python_bin" -m playwright install chromium
 
 out_dir="$repo_root/out"
 package_dir="$out_dir/ai-automate-contro"
@@ -335,51 +337,68 @@ import playwright
 print(Path(playwright.__file__).resolve().parent / "driver" / "package" / ".local-browsers")
 PY
 )"
-[ -d "$browser_dir" ] || die "没有找到 Playwright 浏览器目录：$browser_dir"
 
-browser_backup_parent="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-contro-playwright-browsers.XXXXXX")"
-browser_backup="$browser_backup_parent/.local-browsers"
+if [ "$bundle_browser" -eq 1 ]; then
+  run_checked env PLAYWRIGHT_BROWSERS_PATH=0 "$python_bin" -m playwright install chromium
+  [ -d "$browser_dir" ] || die "没有找到 Playwright 浏览器目录：$browser_dir"
+else
+  printf '构建轻量分发包：不打包 Playwright 浏览器。\n'
+fi
+
+browser_backup_parent=""
+browser_backup=""
 
 restore_browsers() {
-  if [ -d "$browser_backup" ]; then
+  if [ -n "$browser_backup" ] && [ -d "$browser_backup" ]; then
     rm -rf "$browser_dir"
     mkdir -p "$(dirname "$browser_dir")"
     mv "$browser_backup" "$browser_dir"
   fi
-  rm -rf "$browser_backup_parent"
+  if [ -n "$browser_backup_parent" ]; then
+    rm -rf "$browser_backup_parent"
+  fi
 }
 
-trap restore_browsers EXIT
-mv "$browser_dir" "$browser_backup"
+if [ -d "$browser_dir" ]; then
+  browser_backup_parent="$(mktemp -d "${TMPDIR:-/tmp}/ai-automate-contro-playwright-browsers.XXXXXX")"
+  browser_backup="$browser_backup_parent/.local-browsers"
+  mv "$browser_dir" "$browser_backup"
+  trap restore_browsers EXIT
+fi
 
-env PYINSTALLER_CONFIG_DIR="$pyinstaller_config_dir" "$python_bin" -m PyInstaller \
-  --noconfirm \
-  --clean \
-  --onedir \
-  --console \
-  --noupx \
-  --contents-directory "_internal" \
-  --name "$executable_name" \
-  --distpath "$pyinstaller_dist_dir" \
-  --workpath "$build_dir" \
-  --specpath "$build_dir" \
-  --paths "$source_dir" \
-  --collect-data "playwright" \
-  --collect-data "textual" \
-  --collect-submodules "langchain" \
-  --collect-submodules "langchain_openai" \
-  --collect-submodules "langgraph" \
-  --collect-submodules "langgraph.checkpoint.sqlite" \
-  --collect-submodules "rich" \
-  --collect-submodules "textual" \
-  --hidden-import "ai_automate_contro.client.self_check" \
-  --hidden-import "ai_automate_contro.client.textual_app" \
-  --hidden-import "textual.app" \
-  --hidden-import "textual.containers" \
-  --hidden-import "textual.css.query" \
-  --hidden-import "textual.events" \
-  --hidden-import "textual.widgets" \
-  "$entry_point"
+pyinstaller_args=(
+  -m PyInstaller
+  --noconfirm
+  --clean
+  --onedir
+  --console
+  --noupx
+  --contents-directory "_internal"
+  --name "$executable_name"
+  --distpath "$pyinstaller_dist_dir"
+  --workpath "$build_dir"
+  --specpath "$build_dir"
+  --paths "$source_dir"
+  --collect-data "playwright"
+  --collect-data "textual"
+  --collect-submodules "langchain"
+  --collect-submodules "langchain_openai"
+  --collect-submodules "langgraph"
+  --collect-submodules "langgraph.checkpoint.sqlite"
+  --collect-submodules "rich"
+  --collect-submodules "textual"
+  --hidden-import "ai_automate_contro.client.self_check"
+  --hidden-import "ai_automate_contro.client.textual_app"
+  --hidden-import "textual.app"
+  --hidden-import "textual.containers"
+  --hidden-import "textual.css.query"
+  --hidden-import "textual.events"
+  --hidden-import "textual.widgets"
+)
+
+pyinstaller_args+=("$entry_point")
+
+env PYINSTALLER_CONFIG_DIR="$pyinstaller_config_dir" "$python_bin" "${pyinstaller_args[@]}"
 
 restore_browsers
 trap - EXIT
@@ -396,7 +415,12 @@ cp "$executable_path" "$cplan_executable_path"
 chmod +x "$cplan_executable_path"
 
 mkdir -p "$package_dir/_internal/playwright/driver/package"
-cp -R "$browser_dir" "$package_dir/_internal/playwright/driver/package/.local-browsers"
+if [ "$bundle_browser" -eq 1 ]; then
+  [ -d "$browser_dir" ] || die "需要打包浏览器，但没有找到 Playwright 浏览器目录：$browser_dir"
+  cp -R "$browser_dir" "$package_dir/_internal/playwright/driver/package/.local-browsers"
+else
+  rm -rf "$package_dir/_internal/playwright/driver/package/.local-browsers"
+fi
 
 rm -rf "$package_dir/handbook"
 cp -R "$repo_root/handbook" "$package_dir/handbook"
@@ -422,6 +446,7 @@ JSON
 cat > "$package_dir/plans/demo/plan.json" <<'JSON'
 {
   "name": "packaged-demo",
+  "automation_type": "browser",
   "variables": {},
   "steps": [
     {
@@ -446,7 +471,12 @@ EOF
 if [ "$smoke_test" -eq 1 ]; then
   (
     cd "$package_dir"
-    run_checked "./$executable_name" self-check env
+    if [ "$bundle_browser" -eq 1 ]; then
+      run_checked "./$executable_name" self-check env
+    else
+      run_checked "./$executable_name" install-browser --help
+      run_checked "./$cplan_executable_name" install-browser --help
+    fi
     run_checked "./$executable_name" self-check ai-stream
     run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" self-check ai-terminal
@@ -458,7 +488,11 @@ if [ "$smoke_test" -eq 1 ]; then
     run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "demo-smoke"
   )
 
-  run_packaged_browser_smoke "$cplan_executable_path"
+  if [ "$bundle_browser" -eq 1 ]; then
+    run_packaged_browser_smoke "$cplan_executable_path"
+  else
+    printf '跳过浏览器 smoke：轻量分发包未打包 Playwright 浏览器。\n'
+  fi
   rm -rf "$package_dir/plans/demo/output"
 fi
 
@@ -472,7 +506,12 @@ if [ "$smoke_test" -eq 1 ]; then
   unzip -q "$zip_path" -d "$zip_smoke_dir"
   (
     cd "$zip_smoke_dir/ai-automate-contro"
-    run_checked "./$executable_name" self-check env
+    if [ "$bundle_browser" -eq 1 ]; then
+      run_checked "./$executable_name" self-check env
+    else
+      run_checked "./$executable_name" install-browser --help
+      run_checked "./$cplan_executable_name" install-browser --help
+    fi
     run_checked "./$executable_name" self-check ai-stream
     run_checked "./$cplan_executable_name" self-check cli
     run_checked "./$cplan_executable_name" self-check runtime
@@ -482,7 +521,11 @@ if [ "$smoke_test" -eq 1 ]; then
     run_checked "./$executable_name" tool check
     run_checked "./$cplan_executable_name" validate --file "./plans/demo/plan.json"
     run_checked "./$cplan_executable_name" run --file "./plans/demo/plan.json" --run-name "zip-demo-smoke"
-    run_packaged_browser_smoke "./$cplan_executable_name"
+    if [ "$bundle_browser" -eq 1 ]; then
+      run_packaged_browser_smoke "./$cplan_executable_name"
+    else
+      printf '跳过 zip 浏览器 smoke：轻量分发包未打包 Playwright 浏览器。\n'
+    fi
   )
   rm -rf "$zip_smoke_dir"
 fi
@@ -495,4 +538,11 @@ fi
 printf '分发包可执行文件：\n%s\n' "$executable_path"
 printf '分发包 plan 控制 CLI：\n%s\n' "$cplan_executable_path"
 printf '分发包 zip：\n%s\n' "$zip_path"
+if [ "$bundle_browser" -eq 1 ]; then
+  printf '浏览器策略：已打包 Playwright Chromium。\n'
+else
+  printf '浏览器策略：轻量包未打包 Playwright 浏览器；首次运行浏览器 plan 前请在分发目录执行：./aic install-browser\n'
+fi
+printf 'Python 依赖策略：不显式排除代码依赖；需要支持的 Python 能力必须先装进打包 Python 环境，不能依赖用户后续 pip 补进 _internal。\n'
+printf '数据库驱动策略：PostgreSQL、MySQL、Oracle、SQL Server、Redis、MongoDB 驱动由 .[package] 打包环境随包提供。\n'
 printf '请从 out/ai-automate-contro 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。\n'

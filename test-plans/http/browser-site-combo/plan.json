@@ -88,7 +88,9 @@
       "type": "evaluate",
       "browser": "site",
       "js": "window.localStorage.getItem('sessionId')",
-      "save_as": "session_id"
+      "output": {
+        "as": "session_id"
+      }
     },
     {
       "action": "extract",
@@ -98,14 +100,18 @@
       "cell_selector": "td",
       "include_header": true,
       "header_selector": "#accounts thead th",
-      "save_as": "account_rows"
+      "output": {
+        "as": "account_rows"
+      }
     },
     {
       "action": "extract",
       "type": "all_texts",
       "browser": "site",
       "selector": "#accounts tbody tr td:nth-child(2)",
-      "save_as": "account_names"
+      "output": {
+        "as": "account_names"
+      }
     },
     {
       "action": "write",
@@ -123,7 +129,9 @@
       ],
       "stdin_path": "{{output_dir}}/json/browser-rows.json",
       "stdout_type": "json",
-      "save_as": "browser_summary"
+      "output": {
+        "as": "browser_summary"
+      }
     },
     {
       "action": "write",
@@ -149,7 +157,9 @@
           },
           "expect_status": 200,
           "body_type": "json",
-          "save_as": "account_detail"
+          "output": {
+            "as": "account_detail"
+          }
         },
         {
           "action": "write",
@@ -182,7 +192,9 @@
       },
       "expect_status": 200,
       "body_type": "json",
-      "save_as": "audit_response"
+      "output": {
+        "as": "audit_response"
+      }
     },
     {
       "action": "run_sub_plan",

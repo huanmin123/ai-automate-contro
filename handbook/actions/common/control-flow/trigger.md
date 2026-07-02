@@ -24,7 +24,7 @@
       "message": "poll {{trigger_run_index}}"
     }
   ],
-  "save_as": "poller_status"
+  "output": {"as": "poller_status"}
 }
 ```
 
@@ -39,7 +39,7 @@
   "run_immediately": true,
   "max_runs": 12,
   "path": "sub-plans/check-status-plan.json",
-  "save_as": "check_status_result"
+  "output": {"as": "check_status_result"}
 }
 ```
 
@@ -60,7 +60,7 @@
 - `stop_condition`: 条件对象，满足后结束。
 - `overlap`: 执行体耗时超过间隔时的处理，支持 `skip`、`queue`、`fail`，默认 `skip`。
 - `on_error`: 执行体失败时的处理，支持 `fail_plan`、`stop_trigger`，默认 `fail_plan`。
-- `save_as`: trigger 结束后把状态对象保存到变量。
+- `output.as`: trigger 结束后把状态对象保存到变量。
 
 没有 `max_runs` 或 `duration_seconds` 时，必须显式设置 `allow_infinite: true`，否则校验失败。无限 trigger 会阻塞父 plan 后续步骤，通常只适合由 `stop_condition` 或外部中断结束的场景。
 
@@ -78,7 +78,7 @@
 
 ## 状态对象
 
-`save_as` 保存的状态对象包含：
+`output.as` 保存的状态对象包含：
 
 - `name`
 - `status`: `completed` 或 `failed`

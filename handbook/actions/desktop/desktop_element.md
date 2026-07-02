@@ -71,7 +71,7 @@
 - `text_limit`: `dump/get_table/get_tree` 中单个文本字段最大长度，默认 `160`，`0` 表示不裁剪。
 - `max_nodes`: `get_tree` 最多返回树节点数，默认 `200`。
 - `path`: 可选，写入 `output/desktop-elements/`。
-- `save_as`: 可选，保存 payload。
+- `output.as`: 可选，保存 payload。
 
 ## type=list
 
@@ -82,7 +82,7 @@
   "type": "list",
   "title_contains": "Notepad",
   "path": "notepad-elements.json",
-  "save_as": "elements",
+  "output": {"as": "elements"},
   "max_depth": 4,
   "max_elements": 250
 }
@@ -103,7 +103,7 @@
   "automation_id": "DesktopElementTextBox",
   "control_type": "Edit",
   "path": "demo-elements-dump.json",
-  "save_as": "element_dump",
+  "output": {"as": "element_dump"},
   "max_depth": 6,
   "max_elements": 300
 }
@@ -135,7 +135,7 @@
   "title_contains": "Calculator",
   "name": "Five",
   "control_type": "Button",
-  "save_as": "five_button"
+  "output": {"as": "five_button"}
 }
 ```
 
@@ -175,7 +175,7 @@
   "type": "get_text",
   "title_contains": "Demo",
   "automation_id": "statusText",
-  "save_as": "status_text"
+  "output": {"as": "status_text"}
 }
 ```
 
@@ -191,7 +191,7 @@
   "title_contains": "Demo",
   "name_contains": "Submit",
   "control_type": "Button",
-  "save_as": "submit_state"
+  "output": {"as": "submit_state"}
 }
 ```
 
@@ -220,7 +220,7 @@
   "max_rows": 50,
   "max_columns": 20,
   "path": "orders-table.json",
-  "save_as": "orders_table"
+  "output": {"as": "orders_table"}
 }
 ```
 
@@ -253,7 +253,7 @@
   "automation_id": "NavigationTree",
   "max_nodes": 100,
   "path": "navigation-tree.json",
-  "save_as": "navigation_tree"
+  "output": {"as": "navigation_tree"}
 }
 ```
 
@@ -280,7 +280,7 @@
   "title_contains": "Demo",
   "name_contains": "Login",
   "control_type": "Button",
-  "save_as": "login_click"
+  "output": {"as": "login_click"}
 }
 ```
 
@@ -296,7 +296,7 @@
   "title_contains": "Demo",
   "automation_id": "username",
   "value": "alice@example.com",
-  "save_as": "username_set"
+  "output": {"as": "username_set"}
 }
 ```
 
@@ -325,7 +325,7 @@
   "automation_id": "modeCombo",
   "control_type": "ComboBox",
   "option_index": 2,
-  "save_as": "mode_selected"
+  "output": {"as": "mode_selected"}
 }
 ```
 
@@ -371,7 +371,7 @@
   "row": 1,
   "column": "Status",
   "path": "orders-selected-cell.json",
-  "save_as": "orders_selected_cell"
+  "output": {"as": "orders_selected_cell"}
 }
 ```
 
@@ -433,7 +433,7 @@
   "automation_id": "NavigationTree",
   "tree_path": ["Settings", "Accounts"],
   "path": "selected-tree-node.json",
-  "save_as": "selected_tree_node"
+  "output": {"as": "selected_tree_node"}
 }
 ```
 
@@ -460,7 +460,7 @@
   "title_contains": "Demo",
   "name": "Save",
   "control_type": "Button",
-  "save_as": "save_invoked"
+  "output": {"as": "save_invoked"}
 }
 ```
 
@@ -485,7 +485,7 @@
   "title_contains": "Demo",
   "menu_path": ["File", "Save"],
   "path": "menu-save.json",
-  "save_as": "menu_save"
+  "output": {"as": "menu_save"}
 }
 ```
 
@@ -502,7 +502,7 @@
   "open_context_menu": true,
   "menu_path": ["Open"],
   "path": "context-open.json",
-  "save_as": "context_open"
+  "output": {"as": "context_open"}
 }
 ```
 

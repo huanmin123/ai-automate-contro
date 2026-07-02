@@ -29,15 +29,19 @@
       "browser": "demo",
       "selector": "#username",
       "attribute": "placeholder",
-      "save_as": "username_placeholder",
-      "type": "attribute"
+      "type": "attribute",
+      "output": {
+        "as": "username_placeholder"
+      }
     },
     {
       "action": "extract",
       "browser": "demo",
       "selector": "input",
-      "save_as": "input_count",
-      "type": "count"
+      "type": "count",
+      "output": {
+        "as": "input_count"
+      }
     },
     {
       "action": "assert",

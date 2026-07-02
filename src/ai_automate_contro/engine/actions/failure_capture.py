@@ -339,7 +339,7 @@ DESKTOP_TARGET_FIELDS = {
     "wait",
     "path",
     "region",
-    "save_as",
+    "output",
     "target",
     "x",
     "y",

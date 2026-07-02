@@ -23,8 +23,10 @@
       "cell_selector": "td",
       "include_header": true,
       "header_selector": "thead th",
-      "save_as": "table_rows",
-      "type": "table"
+      "type": "table",
+      "output": {
+        "as": "table_rows"
+      }
     },
     {
       "action": "write",

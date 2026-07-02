@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
+
 
 def detect_challenge(executor: Any, step: dict[str, Any]) -> None:
     target_page = executor._page(step)
@@ -43,15 +45,11 @@ def detect_challenge(executor: Any, step: dict[str, Any]) -> None:
         "labels": [item["label"] for item in matches],
         "matches": matches,
     }
-    executor.state.variables[step["save_as"]] = result
-    if "save_detected_as" in step:
-        executor.state.variables[step["save_detected_as"]] = result["matched"]
-    if "save_label_as" in step:
-        executor.state.variables[step["save_label_as"]] = result["labels"][0] if result["labels"] else ""
+    publish_step_output(executor, step, result, action="detect_challenge")
     executor.state.logger.log(
         "info",
         "challenge detected",
         matched=result["matched"],
         labels=result["labels"],
-        save_as=step["save_as"],
+        output=step.get("output", {}),
     )

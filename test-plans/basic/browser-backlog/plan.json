@@ -169,21 +169,27 @@
       "selector": "body",
       "depth": 4,
       "mode": "default",
-      "save_as": "aria_snapshot"
+      "output": {
+        "as": "aria_snapshot"
+      }
     },
     {
       "action": "coverage",
       "type": "stop",
       "browser": "backlog",
       "path": "browser-backlog-coverage.json",
-      "save_as": "coverage_result"
+      "output": {
+        "as": "coverage_result"
+      }
     },
     {
       "action": "event",
       "type": "stop",
       "browser": "backlog",
       "path": "browser-backlog-events.json",
-      "save_as": "browser_events"
+      "output": {
+        "as": "browser_events"
+      }
     },
     {
       "action": "write",

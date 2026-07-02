@@ -27,7 +27,7 @@
 - `webrtc_include_sdp`: 是否在 WebRTC 事件中包含完整 SDP，默认 `false`
 - `webrtc_include_candidate`: 是否在 WebRTC 事件中包含完整 ICE candidate，默认 `false`
 - `serviceworker`: 是否采集 Service Worker 创建、console、请求和页面注册事件，默认 `false`
-- `save_as`: `type: stop` 时把事件数组保存为变量
+- `output.as`: `type: stop` 时把事件数组保存为变量
 
 ## 示例
 
@@ -49,6 +49,6 @@
   "type": "stop",
   "browser": "main",
   "path": "events.json",
-  "save_as": "browser_events"
+  "output": {"as": "browser_events"}
 }
 ```

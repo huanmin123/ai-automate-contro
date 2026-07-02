@@ -98,7 +98,9 @@
       "action": "extract",
       "type": "frames",
       "browser": "observe",
-      "save_as": "frames"
+      "output": {
+        "as": "frames"
+      }
     },
     {
       "action": "element",
@@ -135,7 +137,9 @@
       "type": "stop",
       "browser": "observe",
       "path": "browser-observability-events.json",
-      "save_as": "observability_events"
+      "output": {
+        "as": "observability_events"
+      }
     },
     {
       "action": "write",

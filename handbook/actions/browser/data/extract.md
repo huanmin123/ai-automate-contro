@@ -10,7 +10,7 @@
 - `type`: 提取类型
 - `browser`: 浏览器会话名
 - `selector`: Playwright 选择器
-- `save_as`: 保存变量名
+- `output.as`: 保存变量名
 
 除表格行提取外，元素定位支持 `selector`、frame 定位和语义定位字段：`role` + `name`、`text`、`label`、`placeholder`、`alt_text`、`title`、`test_id`。
 
@@ -54,7 +54,7 @@ frame 定位支持：
   "browser": "main",
   "selector": "#username",
   "attribute": "placeholder",
-  "save_as": "username_placeholder"
+  "output": {"as": "username_placeholder"}
 }
 ```
 
@@ -67,7 +67,7 @@ frame 定位支持：
   "browser": "main",
   "frame_selector": "#content-frame",
   "selector": "#result",
-  "save_as": "frame_result"
+  "output": {"as": "frame_result"}
 }
 ```
 
@@ -80,7 +80,7 @@ frame 定位支持：
   "browser": "main",
   "frame_name": "details-frame",
   "selector": "#result",
-  "save_as": "frame_result"
+  "output": {"as": "frame_result"}
 }
 ```
 
@@ -91,7 +91,7 @@ frame 定位支持：
   "action": "extract",
   "type": "frames",
   "browser": "main",
-  "save_as": "frames"
+  "output": {"as": "frames"}
 }
 ```
 
@@ -104,7 +104,7 @@ frame 定位支持：
   "browser": "main",
   "row_selector": "tbody tr",
   "cell_selector": "td",
-  "save_as": "rows"
+  "output": {"as": "rows"}
 }
 ```
 
@@ -117,6 +117,6 @@ frame 定位支持：
   "browser": "main",
   "selector": "body",
   "depth": 4,
-  "save_as": "aria_snapshot"
+  "output": {"as": "aria_snapshot"}
 }
 ```

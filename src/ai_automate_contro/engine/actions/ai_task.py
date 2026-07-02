@@ -6,6 +6,7 @@ from typing import Any
 from ai_automate_contro.ai.schemas import build_ai_schema
 from ai_automate_contro.ai.service import run_ai_task, service_config_for_artifact
 from ai_automate_contro.app.errors import UserFacingError
+from ai_automate_contro.engine.output_contract import publish_step_output
 
 
 def action_ai(executor: Any, step: dict[str, Any]) -> None:
@@ -47,9 +48,11 @@ def action_ai(executor: Any, step: dict[str, Any]) -> None:
         schema=schema,
         labels=step.get("labels"),
     )
-    executor.state.variables[step["save_as"]] = result.parsed
+    publish_step_output(executor, step, result.parsed, action="ai")
 
-    artifact_path = executor._resolve_output_path(step.get("path", f"{ai_type}/{step['save_as']}.json"), category="ai")
+    output_name = step.get("output", {}).get("as") if isinstance(step.get("output"), dict) else ""
+    default_artifact_name = str(output_name or ai_type)
+    artifact_path = executor._resolve_output_path(step.get("path", f"{ai_type}/{default_artifact_name}.json"), category="ai")
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact = {
         "type": ai_type,
@@ -71,7 +74,7 @@ def action_ai(executor: Any, step: dict[str, Any]) -> None:
         "ai task completed",
         type=ai_type,
         service=str(service_name),
-        save_as=step["save_as"],
+        output_as=str(output_name or ""),
         path=str(artifact_path),
     )
 

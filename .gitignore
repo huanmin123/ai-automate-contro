@@ -41,6 +41,8 @@ downloads/
 # Plan runtime outputs
 plans/**/output/
 test-plans/**/output/
+plans/**/profiles/
+test-plans/**/profiles/
 output/
 *.log
 

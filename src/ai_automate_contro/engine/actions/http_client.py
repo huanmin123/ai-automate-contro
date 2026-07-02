@@ -18,6 +18,7 @@ from urllib.request import (
     build_opener,
 )
 
+from ai_automate_contro.engine.output_contract import publish_step_output
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
@@ -81,8 +82,7 @@ def request(executor: Any, step: dict[str, Any]) -> None:
     if expected is not None and status not in _expected_statuses(expected):
         raise AssertionError(f"HTTP status assertion failed. expected={expected}, actual={status}")
 
-    if "save_as" in step:
-        executor.state.variables[str(step["save_as"])] = payload
+    publish_step_output(executor, step, payload, action="http")
 
     executor.state.logger.log(
         "info",
@@ -92,7 +92,7 @@ def request(executor: Any, step: dict[str, Any]) -> None:
         status=status,
         ok=payload["ok"],
         elapsed_ms=elapsed_ms,
-        save_as=step.get("save_as", ""),
+        output_as=step.get("output", {}).get("as", "") if isinstance(step.get("output"), dict) else "",
         body_path=body_path,
     )
 

@@ -6,7 +6,9 @@
       "type": "text",
       "path": "output/text/detail-ids.txt",
       "split_lines": true,
-      "save_as": "detail_ids"
+      "output": {
+        "as": "detail_ids"
+      }
     },
     {
       "action": "command",
@@ -18,7 +20,9 @@
       ],
       "stdin_path": "{{output_dir}}/text/detail-ids.txt",
       "stdout_type": "json",
-      "save_as": "detail_line_check"
+      "output": {
+        "as": "detail_line_check"
+      }
     },
     {
       "action": "http",
@@ -31,7 +35,9 @@
       },
       "expect_status": 200,
       "body_type": "json",
-      "save_as": "audit_lookup"
+      "output": {
+        "as": "audit_lookup"
+      }
     },
     {
       "action": "http",
@@ -51,7 +57,9 @@
       },
       "expect_status": 200,
       "body_type": "json",
-      "save_as": "final_response"
+      "output": {
+        "as": "final_response"
+      }
     },
     {
       "action": "if",

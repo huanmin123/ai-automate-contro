@@ -922,6 +922,14 @@ def _compact_path(value: Any) -> str:
     return _compact_tool_value(text)
 
 
+def _compact_output_ref(value: Any, *, limit: int = 48) -> str:
+    if isinstance(value, dict):
+        output_as = value.get("as")
+        if isinstance(output_as, str) and output_as.strip():
+            return _compact_tool_value(output_as, limit=limit)
+    return _compact_tool_value(value, limit=limit)
+
+
 def _client_safe_data(value: Any) -> Any:
     if isinstance(value, dict):
         result: dict[str, Any] = {}
@@ -1051,7 +1059,7 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
         method = _compact_tool_value(fields.get("method"), limit=40)
         fallback_used = fields.get("fallback_used")
         path = _compact_path(fields.get("path"))
-        save_as = _compact_tool_value(fields.get("save_as"), limit=48)
+        output = _compact_output_ref(fields.get("output"), limit=48)
         return _join_progress_parts(
             labels[message],
             desktop,
@@ -1060,13 +1068,13 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
             f"method={method}" if method else "",
             "fallback" if fallback_used is True else "",
             path,
-            f"save_as={save_as}" if save_as else "",
+            f"output={output}" if output else "",
         )
     if message == "desktop input sent":
         desktop = _compact_tool_value(fields.get("desktop"), limit=48)
         input_type = _compact_tool_value(fields.get("type"), limit=32)
-        save_as = _compact_tool_value(fields.get("save_as"), limit=48)
-        return _join_progress_parts("桌面输入已发送", desktop, input_type, f"save_as={save_as}" if save_as else "")
+        output = _compact_output_ref(fields.get("output"), limit=48)
+        return _join_progress_parts("桌面输入已发送", desktop, input_type, f"output={output}" if output else "")
     if message == "desktop capture saved":
         desktop = _compact_tool_value(fields.get("desktop"), limit=48)
         capture_type = _compact_tool_value(fields.get("type"), limit=32)

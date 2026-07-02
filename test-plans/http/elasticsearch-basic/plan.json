@@ -1,7 +1,11 @@
 {
   "name": "elasticsearch-basic",
   "automation_type": "browser",
-  "tags": ["database", "elasticsearch", "http"],
+  "tags": [
+    "database",
+    "elasticsearch",
+    "http"
+  ],
   "variables": {
     "elasticsearch_url": "http://127.0.0.1:9200"
   },
@@ -14,7 +18,9 @@
       "expect_status": 200,
       "body_type": "json",
       "response_body_path": "elasticsearch-root.json",
-      "save_as": "elasticsearch_root"
+      "output": {
+        "as": "elasticsearch_root"
+      }
     },
     {
       "action": "write",

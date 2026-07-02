@@ -13,7 +13,7 @@
   "state": "exists",
   "timeout_ms": 5000,
   "interval_ms": 250,
-  "save_as": "save_dialog"
+  "output": {"as": "save_dialog"}
 }
 ```
 
@@ -28,7 +28,7 @@
 | `state` | 否 | `exists`、`not_exists`、`focused`，默认 `exists` |
 | `timeout_ms` | 否 | 超时毫秒，默认 `10000` |
 | `interval_ms` | 否 | 轮询间隔，默认 `250` |
-| `save_as` | 否 | 保存 payload |
+| `output` | 否 | 保存 payload |
 
 ## 场景
 

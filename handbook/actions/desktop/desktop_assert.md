@@ -15,7 +15,7 @@
   "title_contains": "Notepad",
   "timeout_ms": 2000,
   "interval_ms": 100,
-  "save_as": "focused_window"
+  "output": {"as": "focused_window"}
 }
 ```
 
@@ -28,7 +28,7 @@
 - `match_index`: 多个候选时的索引，默认 `0`。
 - `timeout_ms`: 默认 `1000`。
 - `interval_ms`: 默认 `100`。
-- `save_as`: 可选，保存断言 payload。
+- `output.as`: 可选，保存断言 payload。
 
 行为：
 
@@ -47,7 +47,7 @@
   "desktop": "desk",
   "path": "screen.png",
   "min_bytes": 1,
-  "save_as": "screen_assertion"
+  "output": {"as": "screen_assertion"}
 }
 ```
 
@@ -56,7 +56,7 @@
 - `desktop`: 必填，`open_desktop.name`。
 - `path`: 必填，相对于 `output/desktop-screenshots/`。
 - `min_bytes`: 最小文件字节数，默认 `1`。
-- `save_as`: 可选，保存断言 payload。
+- `output.as`: 可选，保存断言 payload。
 
 示例通常先执行：
 
@@ -89,7 +89,7 @@
   "property": "visible",
   "property_expected": true,
   "path": "status-assertion.json",
-  "save_as": "status_assertion"
+  "output": {"as": "status_assertion"}
 }
 ```
 

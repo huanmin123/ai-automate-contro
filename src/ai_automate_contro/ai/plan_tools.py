@@ -33,6 +33,7 @@ FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS = {
     ".ruff_cache",
     "output",
 }
+FORBIDDEN_PLAN_PACKAGE_CREATE_PARTS = {*FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS, "profiles"}
 
 
 def list_plan_packages_tool(project_root: str | Path, *, filter_text: str = "") -> dict[str, Any]:
@@ -285,6 +286,8 @@ def _validate_plan_package_write_path(relative_path: Path) -> None:
     parts = relative_path.parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
         raise ValueError("relative_path 必须是 plan 包内的干净路径。")
+    if parts[0] == "profiles":
+        raise ValueError("拒绝写入 profiles/ 浏览器状态目录。")
     if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in parts):
         raise ValueError("拒绝写入 output、缓存、checkpoint、git 或 pycache 路径。")
     if relative_path.name.endswith((".pyc", ".pyo")) or ".egg-info" in parts:
@@ -368,8 +371,8 @@ def _validate_create_plan_package_path(package_dir: Path, project_root: Path) ->
     relative_parts = package_dir.relative_to(project_root).parts
     if not relative_parts or any(part in {"", ".", ".."} for part in relative_parts):
         raise ValueError("package_path 必须是干净的 plan 包路径。")
-    if any(part in FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS for part in relative_parts):
-        raise ValueError("拒绝在 output、缓存、checkpoint、git 或 pycache 路径创建 plan 包。")
+    if any(part in FORBIDDEN_PLAN_PACKAGE_CREATE_PARTS for part in relative_parts):
+        raise ValueError("拒绝在 output、profiles、缓存、checkpoint、git 或 pycache 路径创建 plan 包。")
     if package_dir.name.endswith((".pyc", ".pyo")) or ".egg-info" in relative_parts:
         raise ValueError("拒绝在 pyc、pyo 或 egg-info 路径创建 plan 包。")
 

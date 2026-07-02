@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
+
 
 def action_extract(executor: Any, step: dict[str, Any]) -> None:
     extract_type = step["type"]
@@ -52,8 +54,14 @@ def action_extract(executor: Any, step: dict[str, Any]) -> None:
         value = executor._locator(step).aria_snapshot(**options)
     else:
         raise ValueError(f"Unsupported extract type: {extract_type}")
-    executor.state.variables[step["save_as"]] = value
-    executor.state.logger.log("info", "value extracted", type=extract_type, save_as=step["save_as"], value=value)
+    publish_step_output(executor, step, value, action="extract")
+    executor.state.logger.log(
+        "info",
+        "value extracted",
+        type=extract_type,
+        output_as=step.get("output", {}).get("as", "") if isinstance(step.get("output"), dict) else "",
+        value=value,
+    )
 
 
 def _extract_table_value(executor: Any, step: dict[str, Any]) -> list[Any]:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
+
 
 def wait_for_download(executor: Any, step: dict[str, Any]) -> None:
     target_page = executor._page(step)
@@ -15,8 +17,7 @@ def wait_for_download(executor: Any, step: dict[str, Any]) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     download.save_as(str(output_path))
     executor.state.downloads.append(str(output_path))
-    if "save_as" in step:
-        executor.state.variables[step["save_as"]] = str(output_path)
+    publish_step_output(executor, step, str(output_path), action="wait_for_download")
     executor.state.logger.log("info", "download saved", path=str(output_path))
 
 
@@ -35,8 +36,7 @@ def wait_for_file_chooser(executor: Any, step: dict[str, Any]) -> None:
         files = [files]
     resolved_files = [str(executor._resolve_path(file_path)) for file_path in files]
     chooser_info.value.set_files(resolved_files)
-    if "save_as" in step:
-        executor.state.variables[step["save_as"]] = resolved_files
+    publish_step_output(executor, step, resolved_files, action="wait_for_file_chooser")
     executor.state.logger.log("info", "file chooser handled", files=resolved_files)
 
 
@@ -51,8 +51,7 @@ def wait_for_popup(executor: Any, step: dict[str, Any]) -> None:
         executor.run([trigger])
     popup_page = popup_info.value
     session.register_page(popup_name, popup_page, switch=bool(step.get("switch", True)))
-    if "save_as" in step:
-        executor.state.variables[step["save_as"]] = popup_name
+    publish_step_output(executor, step, popup_name, action="wait_for_popup")
     executor.state.logger.log(
         "info",
         "popup captured",
@@ -89,8 +88,7 @@ def _wait_for_request(executor: Any, step: dict[str, Any]) -> None:
     }
     if bool(step.get("include_post_data", False)):
         payload["post_data"] = request.post_data
-    if "save_as" in step:
-        executor.state.variables[step["save_as"]] = payload
+    publish_step_output(executor, step, payload, action="wait_for_network")
     executor.state.logger.log(
         "info",
         "request captured",
@@ -122,8 +120,7 @@ def _wait_for_response(executor: Any, step: dict[str, Any]) -> None:
             payload["body"] = list(response.body())
         else:
             payload["body"] = response.text()
-    if "save_as" in step:
-        executor.state.variables[step["save_as"]] = payload
+    publish_step_output(executor, step, payload, action="wait_for_network")
     executor.state.logger.log(
         "info",
         "response captured",

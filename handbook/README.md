@@ -72,3 +72,4 @@
 - 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`sql`、`mongo`、`redis`、`command`。
 - 专项 AI 统一使用 `ai` action，通过 `type` 区分抽取、分类、转换和摘要。
 - 变量使用 `{{变量名}}` 引用；业务变量放在 `plan.json.variables`，运行配置放在 `config.json`。
+- 跨节点数据由上游 step 使用 `output` 发布，声明 `as`、可选 `from`、`type` 和 `fields`；下游直接引用发布后的变量，不需要声明输入。

@@ -21,7 +21,7 @@
   "type": "screenshot",
   "target": "screen",
   "path": "screen.png",
-  "save_as": "screen"
+  "output": {"as": "screen"}
 }
 ```
 
@@ -35,7 +35,7 @@
   "target": "region",
   "path": "region.png",
   "region": {"x": 0, "y": 0, "width": 800, "height": 600},
-  "save_as": "region_screen"
+  "output": {"as": "region_screen"}
 }
 ```
 
@@ -49,7 +49,7 @@
   "target": "window",
   "title_contains": "Demo",
   "path": "demo-window.png",
-  "save_as": "window_screen"
+  "output": {"as": "window_screen"}
 }
 ```
 
@@ -65,7 +65,7 @@
   "automation_id": "UsernameTextBox",
   "control_type": "Edit",
   "path": "username-field.png",
-  "save_as": "username_screen",
+  "output": {"as": "username_screen"},
   "max_depth": 5,
   "max_elements": 200
 }
@@ -84,7 +84,7 @@
 - `timeout_ms`、`interval_ms`: 等待窗口或控件的超时与轮询间隔。
 - `max_depth`、`max_elements`: `target=element` 的控件树遍历限制。
 - `include_cursor`: 可选，请求截图包含鼠标指针，默认 `false`。是否实际包含由 backend 返回的 `cursor_included` 判断。
-- `save_as`: 可选，保存 payload。
+- `output.as`: 可选，保存 payload。
 
 输出：
 
@@ -104,7 +104,7 @@
   "path": "state.json",
   "include_windows": true,
   "include_displays": true,
-  "save_as": "desktop_state"
+  "output": {"as": "desktop_state"}
 }
 ```
 
@@ -115,7 +115,7 @@
 - `path`: 必填，相对于 `output/desktop-state/`。
 - `include_windows`: 可选，是否包含窗口列表，默认 `true`。
 - `include_displays`: 可选，是否包含显示器信息，默认 `true`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 输出：
 
@@ -139,7 +139,7 @@
   "max_depth": 4,
   "max_elements": 120,
   "text_limit": 120,
-  "save_as": "desktop_observation"
+  "output": {"as": "desktop_observation"}
 }
 ```
 
@@ -156,7 +156,7 @@
 - Window Query: 可选，用于选择目标窗口，例如 `profile`、`title_contains`、`process_name`、`window_id`。省略时使用当前窗口、聚焦窗口或第一个可见窗口。
 - Element Locator: 可选，`include_elements=true` 时过滤控件，例如 `automation_id`、`name_contains`、`text_contains`、`control_type`。
 - `max_windows`、`max_depth`、`max_elements`、`text_limit`: 可选，限制返回窗口数、控件树深度、控件数和文本长度。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 输出：
 

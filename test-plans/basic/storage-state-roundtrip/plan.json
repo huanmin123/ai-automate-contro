@@ -25,8 +25,10 @@
     {
       "action": "read",
       "path": "output/storage-states/state-demo.json",
-      "save_as": "saved_state_path",
-      "type": "storage_state"
+      "type": "storage_state",
+      "output": {
+        "as": "saved_state_path"
+      }
     },
     {
       "action": "write",

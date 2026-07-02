@@ -20,27 +20,31 @@
       "action": "wait_for_network",
       "browser": "demo",
       "url": "https://httpbin.org/get?case=request-demo",
-      "save_as": "request_info",
       "trigger": {
         "action": "element",
         "browser": "demo",
         "selector": "#request-btn",
         "type": "click"
       },
-      "type": "request"
+      "type": "request",
+      "output": {
+        "as": "request_info"
+      }
     },
     {
       "action": "wait_for_network",
       "browser": "demo",
       "url": "https://httpbin.org/get?case=response-demo",
-      "save_as": "response_info",
       "trigger": {
         "action": "element",
         "browser": "demo",
         "selector": "#response-btn",
         "type": "click"
       },
-      "type": "response"
+      "type": "response",
+      "output": {
+        "as": "response_info"
+      }
     },
     {
       "action": "write",

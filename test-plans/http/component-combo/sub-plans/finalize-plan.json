@@ -6,7 +6,9 @@
       "type": "text",
       "path": "output/text/loop-ids.txt",
       "split_lines": true,
-      "save_as": "loop_ids"
+      "output": {
+        "as": "loop_ids"
+      }
     },
     {
       "action": "command",
@@ -18,7 +20,9 @@
       ],
       "stdin_path": "{{output_dir}}/text/loop-ids.txt",
       "stdout_type": "json",
-      "save_as": "loop_lines_check"
+      "output": {
+        "as": "loop_lines_check"
+      }
     },
     {
       "action": "http",
@@ -27,7 +31,9 @@
       "url": "{{api_base_url}}/summary",
       "expect_status": 200,
       "body_type": "json",
-      "save_as": "summary_response"
+      "output": {
+        "as": "summary_response"
+      }
     },
     {
       "action": "http",
@@ -41,7 +47,9 @@
       },
       "expect_status": 200,
       "body_type": "json",
-      "save_as": "final_response"
+      "output": {
+        "as": "final_response"
+      }
     },
     {
       "action": "if",

@@ -38,14 +38,18 @@
       "type": "execute",
       "connection": "{{sqlite_connection}}",
       "sql": "drop table if exists items",
-      "save_as": "drop_result"
+      "output": {
+        "as": "drop_result"
+      }
     },
     {
       "action": "sql",
       "type": "execute",
       "connection": "{{sqlite_connection}}",
       "sql": "create table items (sku text primary key, title text not null, price real not null, active integer not null)",
-      "save_as": "create_result"
+      "output": {
+        "as": "create_result"
+      }
     },
     {
       "action": "sql",
@@ -53,9 +57,16 @@
       "connection": "{{sqlite_connection}}",
       "table": "items",
       "rows": "{{seed_rows}}",
-      "columns": ["sku", "title", "price", "active"],
+      "columns": [
+        "sku",
+        "title",
+        "price",
+        "active"
+      ],
       "result_path": "sqlite-bulk-insert.json",
-      "save_as": "insert_result"
+      "output": {
+        "as": "insert_result"
+      }
     },
     {
       "action": "sql",
@@ -68,7 +79,9 @@
       },
       "rows_path": "active-items.json",
       "include_rows": true,
-      "save_as": "active_items"
+      "output": {
+        "as": "active_items"
+      }
     },
     {
       "action": "sql",
@@ -80,7 +93,9 @@
         "sku": "B2"
       },
       "expect_affected_rows": 1,
-      "save_as": "update_result"
+      "output": {
+        "as": "update_result"
+      }
     },
     {
       "action": "sql",
@@ -90,7 +105,9 @@
       "params": {
         "active": 1
       },
-      "save_as": "active_count"
+      "output": {
+        "as": "active_count"
+      }
     },
     {
       "action": "if",
@@ -134,7 +151,11 @@
         {
           "action": "command",
           "type": "run",
-          "argv": ["python", "-c", "import sys; sys.exit(12)"],
+          "argv": [
+            "python",
+            "-c",
+            "import sys; sys.exit(12)"
+          ],
           "expect_exit_code": 0
         }
       ]

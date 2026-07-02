@@ -6,12 +6,35 @@ from ai_automate_contro.engine.browser import BrowserConfig
 from ai_automate_contro.engine.runtime import BrowserSession
 from ai_automate_contro.engine.actions.browser_challenge import detect_challenge
 from ai_automate_contro.engine.actions.browser_waits import wait
+from ai_automate_contro.support.playwright_browsers import (
+    format_playwright_browser_missing_message,
+    is_playwright_browser_missing_error,
+)
+from ai_automate_contro.support.utils import ensure_directory
+
+
+PLAN_PROFILE_DIR = "profiles/browser"
+UNSUPPORTED_PROFILE_FIELDS = {"profile_dir", "profile_name", "user_data_dir"}
 
 
 def open_browser(executor: Any, step: dict[str, Any]) -> None:
     name = step["name"]
     if name in executor.state.sessions:
         raise ValueError(f"浏览器会话已存在：{name}")
+    unsupported_fields = sorted(field for field in UNSUPPORTED_PROFILE_FIELDS if field in step)
+    if unsupported_fields:
+        raise ValueError(
+            "open_browser 不支持自定义 profile 路径或名称；"
+            f"当前 plan 包只允许一套浏览器状态 profiles/browser。包含字段：{', '.join(unsupported_fields)}"
+        )
+    raw_use_profile = step.get("use_profile", False)
+    if not isinstance(raw_use_profile, bool):
+        raise ValueError("open_browser.use_profile 必须是布尔值。")
+    use_profile = raw_use_profile
+    if use_profile and "storage_state_path" in step:
+        raise ValueError("open_browser.use_profile=true 时不能同时使用 storage_state_path。")
+    if use_profile and any(session.persistent_profile for session in executor.state.sessions.values()):
+        raise ValueError("当前运行已经打开 plan 级浏览器状态会话；同一时间只能打开一个 use_profile=true 浏览器。")
 
     config = BrowserConfig(
         headed=bool(step.get("headed", False)),
@@ -23,6 +46,8 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
     browser_type = step.get("browser_type", "chromium")
     if browser_type not in {"chromium", "firefox", "webkit"}:
         raise ValueError(f"不支持的 browser_type：{browser_type}")
+    if use_profile and browser_type != "chromium":
+        raise ValueError("open_browser.use_profile=true 仅支持 browser_type=chromium；Chrome/Edge 请使用 channel。")
     browser_launcher = getattr(executor.state.playwright, browser_type)
     launch_kwargs: dict[str, Any] = {
         "headless": not config.headed,
@@ -36,25 +61,47 @@ def open_browser(executor: Any, step: dict[str, Any]) -> None:
         launch_kwargs["channel"] = step["channel"]
     if "args" in step:
         launch_kwargs["args"] = step["args"]
-    browser = browser_launcher.launch(
-        **launch_kwargs,
-    )
     context_kwargs = _build_context_kwargs(executor, step)
-    if "storage_state_path" in step:
-        context_kwargs["storage_state"] = str(executor._resolve_path(step["storage_state_path"]))
-    context = browser.new_context(**context_kwargs)
+    try:
+        if use_profile:
+            profile_dir = ensure_directory(executor._package_root() / PLAN_PROFILE_DIR)
+            context = browser_launcher.launch_persistent_context(
+                str(profile_dir),
+                **launch_kwargs,
+                **context_kwargs,
+            )
+            browser = None
+        else:
+            browser = browser_launcher.launch(
+                **launch_kwargs,
+            )
+            if "storage_state_path" in step:
+                context_kwargs["storage_state"] = str(executor._resolve_path(step["storage_state_path"]))
+            context = browser.new_context(**context_kwargs)
+    except Exception as error:
+        if is_playwright_browser_missing_error(error):
+            raise RuntimeError(format_playwright_browser_missing_message(browser_type, error)) from error
+        raise
     context.set_default_timeout(config.timeout_ms)
-    page = context.new_page()
+    page = context.pages[0] if context.pages else context.new_page()
     session = BrowserSession(
         name=name,
         browser=browser,
         context=context,
         headed=config.headed,
+        persistent_profile=use_profile,
     )
     session.register_page("main", page, switch=True)
     executor.state.sessions[name] = session
     context.on("dialog", executor._handle_dialog)
-    executor.state.logger.log("info", "browser opened", browser=name, headed=config.headed)
+    executor.state.logger.log(
+        "info",
+        "browser opened",
+        browser=name,
+        headed=config.headed,
+        use_profile=use_profile,
+        profile_dir=PLAN_PROFILE_DIR if use_profile else "",
+    )
 
 
 def page(executor: Any, step: dict[str, Any]) -> None:
@@ -88,7 +135,8 @@ def close_browser(executor: Any, step: dict[str, Any]) -> None:
     session_name = step["browser"]
     session = executor.state.require_session(session_name)
     session.context.close()
-    session.browser.close()
+    if session.browser is not None:
+        session.browser.close()
     del executor.state.sessions[session_name]
     executor.state.logger.log("info", "browser closed", browser=session_name)
 

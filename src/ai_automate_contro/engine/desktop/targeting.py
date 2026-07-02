@@ -3,36 +3,12 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from ai_automate_contro.engine.desktop.locators import ELEMENT_LOCATOR_FIELDS, WINDOW_QUERY_FIELDS
+
 
 TARGETING_SCHEMA_VERSION = 1
 MAX_TARGET_CANDIDATES = 12
 CONFIDENCE_RANK = {"low": 1, "medium": 2, "high": 3}
-
-WINDOW_QUERY_FIELDS = {
-    "title",
-    "title_contains",
-    "title_regex",
-    "app",
-    "process",
-    "process_name",
-    "class_name",
-    "window_id",
-    "match_index",
-}
-ELEMENT_LOCATOR_FIELDS = {
-    "element_id",
-    "automation_id",
-    "name",
-    "name_contains",
-    "name_regex",
-    "text",
-    "text_contains",
-    "text_regex",
-    "control_type",
-    "role",
-    "element_class_name",
-    "element_match_index",
-}
 
 
 def build_observation_targeting(

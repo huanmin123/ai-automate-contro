@@ -19,7 +19,7 @@
 第一阶段：
 
 - 默认依赖增加 `openpyxl>=3.1,<4.0`。
-- `read.type=excel` 支持 `sheet`、`range`、`header_row`、`headers`、`mode`、`skip_blank_rows`、`formula_mode`、`save_meta_as`。
+- `read.type=excel` 支持 `sheet`、`range`、`header_row`、`headers`、`mode`、`skip_blank_rows`、`formula_mode`，读取结果通过 `output` 发布。
 - `write.type=excel` 支持新建工作簿、模板工作簿、替换 sheet、追加行、单元格填充、多工作表、冻结表头和自动筛选。
 - 新增 `output/excel/` 输出分区。
 - 新增 `test-plans/basic/write-excel/` 和 `test-plans/data-driven/load-excel/`。

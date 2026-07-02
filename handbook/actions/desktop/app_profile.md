@@ -32,7 +32,7 @@
   "type": "launch",
   "profile": "notepad",
   "args": ["C:/tmp/demo.txt"],
-  "save_as": "notepad_launch"
+  "output": {"as": "notepad_launch"}
 }
 ```
 
@@ -72,14 +72,14 @@
     "desktop": "desk",
     "type": "launch",
     "profile": "mock-chat",
-    "save_as": "chat_launch"
+    "output": {"as": "chat_launch"}
   },
   {
     "action": "desktop_window",
     "desktop": "desk",
     "type": "focus",
     "profile": "mock-chat",
-    "save_as": "chat_window"
+    "output": {"as": "chat_window"}
   }
 ]
 ```

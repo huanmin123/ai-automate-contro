@@ -28,7 +28,7 @@
   "timeout_ms": 3000,
   "interval_ms": 250,
   "path": "save-button-match.json",
-  "save_as": "save_button"
+  "output": {"as": "save_button"}
 }
 ```
 
@@ -49,7 +49,7 @@
   "timeout_ms": 3000,
   "interval_ms": 250,
   "path": "submit-text-match.json",
-  "save_as": "submit_text"
+  "output": {"as": "submit_text"}
 }
 ```
 
@@ -64,7 +64,7 @@
   "text_regex": "Order\\s+Total",
   "language": "eng",
   "path": "order-total-text.json",
-  "save_as": "order_total_text"
+  "output": {"as": "order_total_text"}
 }
 ```
 
@@ -84,7 +84,7 @@
 - `timeout_ms`、`interval_ms`: 没有 `source_path` 时等待屏幕目标出现。
 - `max_depth`、`max_elements`: `source_target=element` 的控件树遍历限制。
 - `path`: 必填，相对于 `output/desktop-vision/`。
-- `save_as`: 可选，保存 payload。
+- `output.as`: 可选，保存 payload。
 
 ## locate_image 参数
 

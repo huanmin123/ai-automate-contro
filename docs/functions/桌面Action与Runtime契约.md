@@ -218,11 +218,11 @@ class DesktopBackend:
     def close(self) -> None: ...
 ```
 
-Backend 不直接读写 plan 变量。Action 层负责把 backend payload 保存到 `save_as` 和输出文件。
+Backend 不直接读写 plan 变量。Action 层负责把 backend payload 保存到 `output.as` 和输出文件。
 
 ## Payload 字段
 
-desktop action 的 `save_as` 变量应尽量返回可诊断字段。不同 action 的业务字段不同，不强制统一包一层 `result/artifacts`；下列字段是推荐公共字段和诊断字段：
+desktop action 的 `output.as` 变量应尽量返回可诊断字段。不同 action 的业务字段不同，不强制统一包一层 `result/artifacts`；下列字段是推荐公共字段和诊断字段：
 
 ```json
 {
@@ -474,7 +474,7 @@ Phase 0 支持：
   "request_permissions": false,
   "permissions": ["accessibility", "screen_recording", "automation"],
   "timeout_ms": 10000,
-  "save_as": "desktop_open"
+  "output": {"as": "desktop_open"}
 }
 ```
 
@@ -486,7 +486,7 @@ Phase 0 支持：
 - `request_permissions`: 缺权限时是否触发授权提示或打开设置。默认 `false`。
 - `permissions`: macOS 需要检测的权限。默认按 backend 决定。
 - `timeout_ms`: 初始化和权限等待超时。
-- `save_as`: 可选，保存 probe payload。
+- `output.as`: 可选，保存 probe payload。
 
 输出：
 
@@ -537,7 +537,7 @@ Phase 0 支持：
   "focus": true,
   "window_timeout_ms": 10000,
   "interval_ms": 250,
-  "save_as": "app_launch"
+  "output": {"as": "app_launch"}
 }
 ```
 
@@ -555,7 +555,7 @@ Phase 0 支持：
 - `focus`: 可选，默认 `false`。为 `true` 且 `wait_for_window=true` 时聚焦等待到的窗口。
 - `window_timeout_ms`: 可选，等待窗口超时；未设置时沿用 `timeout_ms` 或默认 `10000`。
 - `interval_ms`: 可选，等待窗口轮询间隔。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -614,7 +614,7 @@ Window Query 字段：
   "title_contains": "demo",
   "max_windows": 20,
   "path": "windows.json",
-  "save_as": "windows"
+  "output": {"as": "windows"}
 }
 ```
 
@@ -625,7 +625,7 @@ Window Query 字段：
 - `include_invisible`: 可选，Windows 下是否包含不可见窗口，默认 `false`。macOS 当前 native backend 不支持不可见窗口枚举；请求后 payload 会返回 `diagnostics.include_invisible_supported=false` 和 warning。
 - `max_windows`: 可选，限制返回窗口数量。
 - `path`: 可选，写入 `output/desktop-windows/`。
-- `save_as`: 可选，保存窗口数组和诊断。
+- `output.as`: 可选，保存窗口数组和诊断。
 
 输出 payload：
 
@@ -660,7 +660,7 @@ Window Query 字段：
   "title_contains": "Notepad",
   "process_name": "notepad.exe",
   "path": "matched-window.json",
-  "save_as": "matched_window"
+  "output": {"as": "matched_window"}
 }
 ```
 
@@ -671,7 +671,7 @@ Window Query 字段：
 - `include_invisible`: 可选；Windows 支持，macOS 当前 native backend 会返回不支持诊断。
 - `max_windows`: 可选，限制返回候选数量。
 - `path`: 可选，写入 `output/desktop-windows/`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -686,7 +686,7 @@ Window Query 字段：
   "type": "active",
   "desktop": "desk",
   "path": "active-window.json",
-  "save_as": "active_window"
+  "output": {"as": "active_window"}
 }
 ```
 
@@ -704,7 +704,7 @@ Window Query 字段：
   "type": "focus",
   "desktop": "desk",
   "title_contains": "Notepad",
-  "save_as": "focused_window"
+  "output": {"as": "focused_window"}
 }
 ```
 
@@ -712,7 +712,7 @@ Window Query 字段：
 
 - `desktop`: 必填。
 - Window Query 字段至少一个。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -729,7 +729,7 @@ Window Query 字段：
   "type": "close",
   "desktop": "desk",
   "title_contains": "Notepad",
-  "save_as": "window_control"
+  "output": {"as": "window_control"}
 }
 ```
 
@@ -738,7 +738,7 @@ Window Query 字段：
 - `desktop`: 必填。
 - `type`: `close`、`minimize`、`maximize`、`restore`。
 - Window Query 字段至少一个。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -797,7 +797,7 @@ Window Query 字段：
   "desktop": "desk",
   "title_contains": "Notepad",
   "path": "notepad-elements.json",
-  "save_as": "elements",
+  "output": {"as": "elements"},
   "max_depth": 4,
   "max_elements": 250
 }
@@ -811,7 +811,7 @@ Window Query 字段：
 - `max_depth`: 可选，默认 `6`。
 - `max_elements`: 可选，默认 `200`。
 - `path`: 可选，写入 `output/desktop-elements/`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 `list` 是桌面状态采集证据。
 
@@ -826,7 +826,7 @@ Window Query 字段：
   "automation_id": "DesktopElementTextBox",
   "control_type": "Edit",
   "path": "demo-elements-dump.json",
-  "save_as": "element_dump",
+  "output": {"as": "element_dump"},
   "max_depth": 6,
   "max_elements": 300
 }
@@ -841,7 +841,7 @@ Window Query 字段：
 - `include_selector_hints`: 可选，默认 `true`。
 - `text_limit`: 可选，默认 `160`，`0` 表示不裁剪文本字段。
 - `path`: 可选，写入 `output/desktop-elements/`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 payload 必须包含：
 
@@ -877,7 +877,7 @@ payload 必须包含：
   "control_type": "Button",
   "timeout_ms": 1000,
   "interval_ms": 100,
-  "save_as": "five_button"
+  "output": {"as": "five_button"}
 }
 ```
 
@@ -891,7 +891,7 @@ payload 必须包含：
 - `max_depth`: 可选，默认 `6`。
 - `max_elements`: 可选，默认 `200`。
 - `path`: 可选，写入 `output/desktop-elements/`。建议只给识别类步骤使用。
-- `save_as`: 可选。
+- `output.as`: 可选。
 - `value`: `set_text` 必填；`select` 可用来按选项文本选择。
 - `option_index`: `select` 可用，从 `0` 开始选择选项；`select` 的 `value` 和 `option_index` 至少提供一个。
 - `preserve_clipboard`: `set_text` fallback 使用剪贴板时是否恢复原剪贴板，默认 `true`。
@@ -1051,7 +1051,7 @@ plan 只在这些情况承担额外细节：
   "method": "auto",
   "delay_ms": 20,
   "preserve_clipboard": true,
-  "save_as": "typed"
+  "output": {"as": "typed"}
 }
 ```
 
@@ -1080,7 +1080,7 @@ plan 只在这些情况承担额外细节：
   "type": "hotkey",
   "desktop": "desk",
   "keys": ["ctrl", "s"],
-  "save_as": "hotkey"
+  "output": {"as": "hotkey"}
 }
 ```
 
@@ -1106,7 +1106,7 @@ plan 只在这些情况承担额外细节：
   "button": "left",
   "clicks": 1,
   "interval_ms": 0,
-  "save_as": "clicked"
+  "output": {"as": "clicked"}
 }
 ```
 
@@ -1139,7 +1139,7 @@ plan 只在这些情况承担额外细节：
 - `button`: `left`、`right`、`middle`，默认 `left`。
 - `clicks`: 点击次数，默认 `1`。
 - `interval_ms`: 多次点击之间的间隔，默认 `0`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -1162,7 +1162,7 @@ plan 只在这些情况承担额外细节：
   "desktop": "desk",
   "target": "current_window_center",
   "interval_ms": 50,
-  "save_as": "double_clicked"
+  "output": {"as": "double_clicked"}
 }
 ```
 
@@ -1185,7 +1185,7 @@ plan 只在这些情况承担额外细节：
   "type": "right_click",
   "desktop": "desk",
   "target": "current_window_center",
-  "save_as": "right_clicked"
+  "output": {"as": "right_clicked"}
 }
 ```
 
@@ -1208,7 +1208,7 @@ plan 只在这些情况承担额外细节：
   "desktop": "desk",
   "target": "current_window_center",
   "amount": -3,
-  "save_as": "scrolled"
+  "output": {"as": "scrolled"}
 }
 ```
 
@@ -1236,7 +1236,7 @@ plan 只在这些情况承担额外细节：
   "delta_x": 80,
   "delta_y": 0,
   "duration_ms": 150,
-  "save_as": "dragged"
+  "output": {"as": "dragged"}
 }
 ```
 
@@ -1279,7 +1279,7 @@ plan 只在这些情况承担额外细节：
   "path": "screen.png",
   "target": "region",
   "region": {"x": 0, "y": 0, "width": 1200, "height": 800},
-  "save_as": "shot"
+  "output": {"as": "shot"}
 }
 ```
 
@@ -1295,7 +1295,7 @@ plan 只在这些情况承担额外细节：
 - `timeout_ms`、`interval_ms`: 等待窗口或控件的超时和轮询间隔。
 - `max_depth`、`max_elements`: `target=element` 的控件树遍历限制。
 - `include_cursor`: 可选，表示请求截图包含鼠标指针；backend payload 必须区分 `include_cursor_requested` 和 `cursor_included`，不能把未实际绘制的光标报告为已包含。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 输出：
 
@@ -1314,7 +1314,7 @@ plan 只在这些情况承担额外细节：
   "target": "window",
   "title_contains": "Demo",
   "path": "demo-window.png",
-  "save_as": "window_shot"
+  "output": {"as": "window_shot"}
 }
 ```
 
@@ -1330,7 +1330,7 @@ plan 只在这些情况承担额外细节：
   "automation_id": "UsernameTextBox",
   "control_type": "Edit",
   "path": "username-field.png",
-  "save_as": "element_shot"
+  "output": {"as": "element_shot"}
 }
 ```
 
@@ -1342,7 +1342,7 @@ plan 只在这些情况承担额外细节：
   "type": "snapshot",
   "desktop": "desk",
   "path": "state.json",
-  "save_as": "desktop_state"
+  "output": {"as": "desktop_state"}
 }
 ```
 
@@ -1350,7 +1350,7 @@ plan 只在这些情况承担额外细节：
 
 - `desktop`: 必填。
 - `path`: 必填，写入 `output/desktop-state/`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 内容：
 
@@ -1376,7 +1376,7 @@ plan 只在这些情况承担额外细节：
   "match_index": 0,
   "max_matches": 10,
   "path": "save-button-match.json",
-  "save_as": "save_button"
+  "output": {"as": "save_button"}
 }
 ```
 
@@ -1397,7 +1397,7 @@ plan 只在这些情况承担额外细节：
 - `timeout_ms` / `interval_ms`: 未传 `source_path` 时可等待目标出现在屏幕上。
 - `max_depth`、`max_elements`: `source_target=element` 的控件树遍历限制。
 - `path`: 必填，写入 `output/desktop-vision/`。
-- `save_as`: 可选，保存 payload 到变量。
+- `output.as`: 可选，保存 payload 到变量。
 
 输出：
 
@@ -1428,7 +1428,7 @@ plan 只在这些情况承担额外细节：
   "match_index": 0,
   "max_matches": 10,
   "path": "order-total-ocr.json",
-  "save_as": "order_total"
+  "output": {"as": "order_total"}
 }
 ```
 
@@ -1440,7 +1440,7 @@ plan 只在这些情况承担额外细节：
 - `provider`: 可选，`auto` 或 `tesseract`。
 - `min_confidence`: 可选，默认 `0.6`，取值 `0..1`。
 - `case_sensitive`: 可选，默认 `false`。
-- `source_path`、`source_target`、Window Query、`window_match_index`、Element Locator、`region`、`state`、`match_index`、`max_matches`、`timeout_ms`、`interval_ms`、`max_depth`、`max_elements`、`path`、`save_as` 与 `locate_image` 一致。
+- `source_path`、`source_target`、Window Query、`window_match_index`、Element Locator、`region`、`state`、`match_index`、`max_matches`、`timeout_ms`、`interval_ms`、`max_depth`、`max_elements`、`path`、`output.as` 与 `locate_image` 一致。
 
 输出：
 
@@ -1465,7 +1465,7 @@ plan 只在这些情况承担额外细节：
   "state": "exists",
   "timeout_ms": 5000,
   "interval_ms": 250,
-  "save_as": "save_dialog"
+  "output": {"as": "save_dialog"}
 }
 ```
 
@@ -1476,7 +1476,7 @@ plan 只在这些情况承担额外细节：
 - `state`: `exists`、`not_exists`、`focused`。默认 `exists`。
 - `timeout_ms`: 默认 session timeout。
 - `interval_ms`: 默认 `250`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -1497,7 +1497,7 @@ plan 只在这些情况承担额外细节：
   "title_contains": "Notepad",
   "timeout_ms": 2000,
   "interval_ms": 100,
-  "save_as": "focused_window"
+  "output": {"as": "focused_window"}
 }
 ```
 
@@ -1508,7 +1508,7 @@ plan 只在这些情况承担额外细节：
 - `state`: `exists`、`not_exists`、`focused`。默认 `exists`。
 - `timeout_ms`: 默认 `1000`。
 - `interval_ms`: 默认 `100`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -1525,7 +1525,7 @@ plan 只在这些情况承担额外细节：
   "desktop": "desk",
   "path": "screen.png",
   "min_bytes": 1,
-  "save_as": "screen_assertion"
+  "output": {"as": "screen_assertion"}
 }
 ```
 
@@ -1534,7 +1534,7 @@ plan 只在这些情况承担额外细节：
 - `desktop`: 必填。
 - `path`: 必填，相对于 `output/desktop-screenshots/`。
 - `min_bytes`: 最小文件字节数，默认 `1`。
-- `save_as`: 可选。
+- `output.as`: 可选。
 
 行为：
 
@@ -1554,7 +1554,7 @@ plan 只在这些情况承担额外细节：
   "expected": "Saved",
   "mode": "contains",
   "path": "status-assertion.json",
-  "save_as": "status_assertion"
+  "output": {"as": "status_assertion"}
 }
 ```
 

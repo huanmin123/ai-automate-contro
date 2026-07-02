@@ -44,7 +44,7 @@
   "include_invisible": false,
   "max_windows": 20,
   "path": "windows.json",
-  "save_as": "windows"
+  "output": {"as": "windows"}
 }
 ```
 
@@ -56,7 +56,7 @@
 - `include_invisible`: 可选，Windows 下是否包含不可见窗口，默认 `false`。macOS 当前后端不支持不可见窗口枚举；传入 `true` 时 payload 会在 `diagnostics` 里说明该限制。
 - `max_windows`: 可选，限制返回窗口数量。
 - `path`: 可选，相对于 `output/desktop-windows/` 写出窗口列表 JSON。
-- `save_as`: 可选，保存 payload。
+- `output.as`: 可选，保存 payload。
 
 payload 主要字段：
 
@@ -111,7 +111,7 @@ payload 主要字段：
   "title_contains": "demo.txt",
   "process_name": "notepad.exe",
   "path": "matched-window.json",
-  "save_as": "matched_window"
+  "output": {"as": "matched_window"}
 }
 ```
 
@@ -123,7 +123,7 @@ payload 主要字段：
 - `include_invisible`: 可选，是否包含不可见窗口；Windows 支持，macOS 当前后端会返回 `diagnostics.include_invisible_supported=false`。
 - `max_windows`: 可选，限制写入和返回的匹配窗口数量。
 - `path`: 可选，相对于 `output/desktop-windows/` 写出 JSON。
-- `save_as`: 可选，保存 payload。
+- `output.as`: 可选，保存 payload。
 
 payload 主要字段：
 
@@ -150,7 +150,7 @@ payload 主要字段：
   "desktop": "desk",
   "type": "active",
   "path": "active-window.json",
-  "save_as": "active_window"
+  "output": {"as": "active_window"}
 }
 ```
 
@@ -181,7 +181,7 @@ payload 主要字段：
   "type": "focus",
   "profile": "notepad",
   "title_contains": "demo.txt",
-  "save_as": "focused_window"
+  "output": {"as": "focused_window"}
 }
 ```
 
@@ -199,7 +199,7 @@ payload 主要字段：
   "desktop": "desk",
   "type": "close",
   "title_contains": "demo.txt",
-  "save_as": "closed_window"
+  "output": {"as": "closed_window"}
 }
 ```
 
@@ -208,7 +208,7 @@ payload 主要字段：
 - `desktop`: 必填，`open_desktop.name`。
 - `type`: 必填，`close`、`minimize`、`maximize` 或 `restore`。
 - Window Query: 除 `match_index` 外至少提供一种定位字段。
-- `save_as`: 可选，保存控制 payload。
+- `output.as`: 可选，保存控制 payload。
 
 payload 主要字段：
 
@@ -242,7 +242,7 @@ payload 主要字段：
     "desktop": "desk",
     "type": "close",
     "title_contains": "demo.txt",
-    "save_as": "close_request"
+    "output": {"as": "close_request"}
   },
   {
     "action": "desktop_wait",
@@ -252,7 +252,7 @@ payload 主要字段：
     "state": "not_exists",
     "timeout_ms": 4000,
     "interval_ms": 100,
-    "save_as": "window_closed"
+    "output": {"as": "window_closed"}
   }
 ]
 ```

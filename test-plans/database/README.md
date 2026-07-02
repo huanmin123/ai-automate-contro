@@ -3,7 +3,6 @@
 数据库示例分两类：
 
 - `sqlite-basic/`: 默认确定性回归，不依赖外部服务。
-- `duckdb-local-analysis/`: DuckDB 本地 CSV 分析示例，按需安装 DuckDB 后运行。
 - `mongodb-basic/`: MongoDB CRUD/aggregate/index 示例，按需安装 MongoDB 驱动后运行。
 - `mysql-basic/`、`postgresql-basic/`、`oracle-basic/`、`redis-basic/`: 真实服务 smoke 示例，只引用连接名，不内置真实账号密码。
 
@@ -16,12 +15,9 @@ pip install -e '.[db-mysql]'
 pip install -e '.[db-postgresql]'
 pip install -e '.[db-redis]'
 pip install -e '.[db-oracle]'
-pip install -e '.[db-duckdb]'
 pip install -e '.[db-sqlserver]'
 pip install -e '.[db-mongodb]'
 ```
-
-DuckDB 是本地分析型 SQL 选项，也默认不安装。需要本地分析能力时可以安装 `db-duckdb` 或聚合入口 `database-local`。
 
 真实服务连接建议写入本机 `config.json.connections` 或 `local/database-services.json`。`local/` 是本机私有目录，默认由 `.gitignore` 忽略；可提交样例见 `database-services.example.json`。
 

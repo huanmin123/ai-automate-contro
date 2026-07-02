@@ -18,7 +18,6 @@
       "max_runs": 2,
       "overlap": "skip",
       "on_error": "fail_plan",
-      "save_as": "inline_status",
       "steps": [
         {
           "action": "write",
@@ -27,7 +26,10 @@
           "value": "inline {{trigger_run_index}}\n",
           "append": true
         }
-      ]
+      ],
+      "output": {
+        "as": "inline_status"
+      }
     },
     {
       "action": "trigger",
@@ -38,8 +40,10 @@
       "max_runs": 2,
       "overlap": "skip",
       "on_error": "fail_plan",
-      "save_as": "sub_plan_status",
-      "path": "sub-plans/tick-once-plan.json"
+      "path": "sub-plans/tick-once-plan.json",
+      "output": {
+        "as": "sub_plan_status"
+      }
     },
     {
       "action": "write",

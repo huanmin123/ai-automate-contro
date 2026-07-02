@@ -2,7 +2,7 @@
 
 ## 背景
 
-数据库 common action 已支持关系型数据库、MongoDB、Redis、本地 SQLite/DuckDB、SQL Server、schema 探测和基础文件导入导出。自动化链路里仍有两个高频缺口：大 CSV/JSONL 进出库不应一次性占用内存，MongoDB collection 常需要在写入或查询前后管理索引。
+数据库 common action 已支持关系型数据库、MongoDB、Redis、本地 SQLite、SQL Server、schema 探测和基础文件导入导出。自动化链路里仍有两个高频缺口：大 CSV/JSONL 进出库不应一次性占用内存，MongoDB collection 常需要在写入或查询前后管理索引。
 
 ## 范围
 

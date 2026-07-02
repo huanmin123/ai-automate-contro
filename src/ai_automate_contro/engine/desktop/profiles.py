@@ -3,18 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-
-WINDOW_QUERY_FIELDS = {
-    "title",
-    "title_contains",
-    "title_regex",
-    "app",
-    "process",
-    "process_name",
-    "class_name",
-    "window_id",
-    "match_index",
-}
+from ai_automate_contro.engine.desktop.locators import WINDOW_QUERY_FIELDS
 
 
 BUILTIN_DESKTOP_APP_PROFILES: dict[str, dict[str, Any]] = {

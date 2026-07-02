@@ -22,7 +22,7 @@
   "focus": true,
   "window_timeout_ms": 10000,
   "interval_ms": 250,
-  "save_as": "app_launch"
+  "output": {"as": "app_launch"}
 }
 ```
 
@@ -40,9 +40,9 @@
 - `focus`: 可选，默认 `false`。为 `true` 且 `wait_for_window=true` 时，等待窗口后聚焦该窗口。
 - `window_timeout_ms`: 可选，等待窗口超时，默认沿用 `timeout_ms` 或 `10000`。
 - `interval_ms`: 可选，等待窗口轮询间隔，默认 `250`。
-- `save_as`: 可选，保存启动 payload。
+- `output.as`: 可选，保存启动 payload。
 
-`save_as` payload 主要字段：
+`output.as` payload 主要字段：
 
 ```json
 {
@@ -96,13 +96,13 @@
     "title_contains": "demo.txt",
     "wait_for_window": true,
     "focus": true,
-    "save_as": "app_launch"
+    "output": {"as": "app_launch"}
   },
   {
     "action": "desktop_window",
     "desktop": "desk",
     "type": "active",
-    "save_as": "active_window"
+    "output": {"as": "active_window"}
   },
   {
     "action": "desktop_wait",
@@ -111,7 +111,7 @@
     "title_contains": "demo.txt",
     "state": "exists",
     "timeout_ms": 10000,
-    "save_as": "app_window"
+    "output": {"as": "app_window"}
   },
   {
     "action": "desktop_window",
@@ -131,7 +131,7 @@
   "type": "launch",
   "profile": "notepad",
   "args": ["C:/tmp/demo.txt"],
-  "save_as": "notepad_launch"
+  "output": {"as": "notepad_launch"}
 }
 ```
 

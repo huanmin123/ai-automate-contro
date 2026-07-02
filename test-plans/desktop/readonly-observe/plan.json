@@ -7,7 +7,9 @@
       "action": "open_desktop",
       "name": "desktop",
       "backend": "auto",
-      "save_as": "desktop_probe"
+      "output": {
+        "as": "desktop_probe"
+      }
     },
     {
       "action": "desktop_capture",
@@ -20,7 +22,9 @@
       "max_windows": 8,
       "max_depth": 3,
       "max_elements": 120,
-      "save_as": "desktop_observation"
+      "output": {
+        "as": "desktop_observation"
+      }
     },
     {
       "action": "write",
@@ -40,7 +44,9 @@
       "type": "list",
       "path": "windows.json",
       "max_windows": 12,
-      "save_as": "desktop_windows"
+      "output": {
+        "as": "desktop_windows"
+      }
     },
     {
       "action": "close_desktop",

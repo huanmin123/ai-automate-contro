@@ -361,13 +361,13 @@ def _check_plan_generation_validation_hints() -> dict[str, Any]:
                             "browser": "main",
                             "selector": "body",
                             "mode": "interesting",
-                            "save_as": "snapshot",
+                            "output": {"as": "snapshot"},
                         },
                         {
                             "action": "extract",
                             "type": "all_texts",
                             "browser": "main",
-                            "save_as": "items",
+                            "output": {"as": "items"},
                         },
                         {
                             "action": "assert",
@@ -2288,7 +2288,7 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         {
             "level": "INFO",
             "message": "desktop element clicked",
-            "fields": {"desktop": "desk", "type": "click", "count": 1, "save_as": "button_click"},
+            "fields": {"desktop": "desk", "type": "click", "count": 1, "output": {"as": "button_click"}},
         },
     )
     AITerminal._handle_plan_run_event(
@@ -2297,7 +2297,7 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         {
             "level": "INFO",
             "message": "desktop element text set",
-            "fields": {"desktop": "desk", "type": "set_text", "method": "uia_value_pattern", "save_as": "entry_text"},
+            "fields": {"desktop": "desk", "type": "set_text", "method": "uia_value_pattern", "output": {"as": "entry_text"}},
         },
     )
     AITerminal._handle_plan_run_event(
@@ -2306,7 +2306,7 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         {
             "level": "INFO",
             "message": "desktop element invoked",
-            "fields": {"desktop": "desk", "type": "invoke", "method": "uia_invoke_pattern", "save_as": "button_invoke"},
+            "fields": {"desktop": "desk", "type": "invoke", "method": "uia_invoke_pattern", "output": {"as": "button_invoke"}},
         },
     )
     AITerminal._handle_plan_run_event(
@@ -2351,7 +2351,7 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         {
             "level": "INFO",
             "message": "desktop input sent",
-            "fields": {"desktop": "desk", "type": "click", "save_as": "clicked"},
+            "fields": {"desktop": "desk", "type": "click", "output": {"as": "clicked"}},
         },
     )
     AITerminal._handle_plan_run_event(
@@ -2376,6 +2376,15 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         terminal,
         "run_plan",
         {
+            "level": "INFO",
+            "message": "desktop wait completed",
+            "fields": {"desktop": "desk", "state": "exists", "matches": 1},
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
             "level": "ERROR",
             "message": "step 3 failed",
             "fields": {
@@ -2392,8 +2401,8 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
     activity_events = [event for event in events if event.kind == "activity"]
     texts = "\n".join(event.text for event in plan_events)
     passed = (
-        len(plan_events) == 24
-        and len(activity_events) == 24
+        len(plan_events) == 25
+        and len(activity_events) == 25
         and all(event.data.get("source_kind") == "plan_progress" for event in activity_events)
         and activity_events[-1].data.get("phase") == "failed"
         and "plan 开始" in texts
@@ -2433,6 +2442,8 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         and "click" in texts
         and "桌面截图/状态已保存" in texts
         and "桌面断言通过" in texts
+        and "桌面等待完成" in texts
+        and "matches=1" in texts
         and "failure-desktop-state" in texts
     )
     return _self_check_result(

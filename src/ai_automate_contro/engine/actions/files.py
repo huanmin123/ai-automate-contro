@@ -98,9 +98,7 @@ def read_file(executor: Any, step: dict[str, Any]) -> Any:
             reader = csv.DictReader(file)
             return list(reader)
     if file_type == "excel":
-        value, meta = read_excel_file(path, step)
-        if step.get("save_meta_as"):
-            executor.state.variables[str(step["save_meta_as"])] = meta
+        value, _meta = read_excel_file(path, step)
         return value
     if file_type == "storage_state":
         return str(path)
@@ -156,7 +154,7 @@ def _excel_read_sheet_steps(step: dict[str, Any]) -> list[dict[str, Any]]:
         merged = {
             key: value
             for key, value in step.items()
-            if key not in {"sheets", "sheet", "save_as", "save_meta_as"}
+            if key not in {"sheets", "sheet", "output"}
         }
         if isinstance(raw_sheet, dict):
             merged.update(raw_sheet)
@@ -644,7 +642,11 @@ def _write_excel_sheet(
     range_boundaries: Any,
 ) -> None:
     step = _resolve_excel_named_range(workbook, step, range_boundaries)
-    default_write_mode = "overlay_cells" if template and step.get("range") else ("replace_sheet" if template else "create")
+    default_write_mode = (
+        "overlay_cells"
+        if template and (step.get("range") or ("cells" in step and "value" not in step))
+        else ("replace_sheet" if template else "create")
+    )
     write_mode = str(step.get("write_mode") or default_write_mode)
     worksheet = _prepare_excel_worksheet(
         workbook,

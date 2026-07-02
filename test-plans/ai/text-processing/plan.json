@@ -17,8 +17,10 @@
       "service": "default",
       "instruction": "把输入中的邮箱清洗为小写，去重，并用逗号连接。只返回 result 字段。",
       "input": "{{raw_items}}",
-      "save_as": "cleaned_emails",
-      "path": "transform-data/cleaned-emails.json"
+      "path": "transform-data/cleaned-emails.json",
+      "output": {
+        "as": "cleaned_emails"
+      }
     },
     {
       "action": "ai",
@@ -26,8 +28,10 @@
       "service": "default",
       "instruction": "用一句中文总结处理结果，保留关键时间点。",
       "input": "{{incident_notes}}",
-      "save_as": "incident_summary",
-      "path": "summarize-text/incident-summary.json"
+      "path": "summarize-text/incident-summary.json",
+      "output": {
+        "as": "incident_summary"
+      }
     },
     {
       "action": "write",

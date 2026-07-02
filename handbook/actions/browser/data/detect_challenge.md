@@ -4,20 +4,18 @@
 
 检测页面是否进入验证状态，例如验证码、真人验证、多因素认证提示或其他登录阻断页面。
 
-这个组件只负责识别状态并保存变量，不负责绕过真实网站的人机验证。
+这个组件只负责识别状态并通过 `output.as` 发布结果，不负责绕过真实网站的人机验证。
 
 ## 必填字段
 
 - `action`: 固定写成 `detect_challenge`
 - `browser`: 浏览器会话名
-- `save_as`: 保存检测结果的变量名
+- `output.as`: 发布检测结果的变量名
 - `rules`: 检测规则数组
 
 ## 可选字段
 
 - `page`: 指定页面名
-- `save_detected_as`: 单独保存布尔值，表示是否命中任意规则
-- `save_label_as`: 单独保存第一个命中的标签
 
 ## 规则类型
 
@@ -32,9 +30,7 @@
 {
   "action": "detect_challenge",
   "browser": "demo",
-  "save_as": "challenge",
-  "save_detected_as": "challenge_detected",
-  "rules": [
+  "output": {"as": "challenge"},  "rules": [
     {
       "type": "selector_visible",
       "selector": "#verification-panel",
@@ -53,4 +49,5 @@
 ## 推荐处理方式
 
 - 在正式站点遇到验证时，优先让自动化正常尝试页面提供的验证流程；需要用户操作时，使用 `open_browser.headed=true` 加 `manual_confirm` 做同一个 Playwright 浏览器窗口内的人工交接。
-- 人工通过后，用 `capture` + `type: storage_state` 保存登录态，后续 plan 可用 `open_browser.storage_state_path` 复用。
+- 需要长期复用同一个 plan 包的登录态时，优先让 `open_browser.use_profile=true` 使用 plan 包内唯一的 `profiles/browser/`。人工通过后，Cookie、localStorage、IndexedDB 等状态会随 profile 保留。
+- 需要把状态导出成文件时，再用 `capture` + `type: storage_state` 保存登录态，后续 plan 可用 `open_browser.storage_state_path` 导入。

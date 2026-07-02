@@ -53,6 +53,10 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
         run_textual_client(project_root)
         return 0
 
+    browser_install_result = _run_install_browser_command(args)
+    if browser_install_result is not None:
+        return browser_install_result
+
     if args.command == "ai":
         if args.ai_command == "check":
             from ai_automate_contro.ai.terminal import check_ai_terminal_service
@@ -263,6 +267,10 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
     parser = build_cplan_parser()
     args = parser.parse_args(argv)
 
+    browser_install_result = _run_install_browser_command(args)
+    if browser_install_result is not None:
+        return browser_install_result
+
     if args.cplan_command == "self-check":
         if args.self_check_command == "cli":
             from ai_automate_contro.app.cli_self_check import self_check_cli_boundaries
@@ -402,6 +410,30 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
 
     parser.print_help()
     return 1
+
+
+def _run_install_browser_command(args: object) -> int | None:
+    command = str(getattr(args, "command", "") or getattr(args, "cplan_command", "") or "")
+    if command != "install-browser":
+        return None
+
+    from ai_automate_contro.support.playwright_browsers import install_playwright_browser
+
+    json_output = bool(getattr(args, "json", False))
+    result = install_playwright_browser(
+        str(getattr(args, "browser", "chromium") or "chromium"),
+        force=bool(getattr(args, "force", False)),
+        capture_output=json_output,
+    )
+    if json_output:
+        print_json(result, compact=bool(getattr(args, "compact", False)))
+    elif result.get("ok"):
+        print(f"Playwright {result.get('browser')} 浏览器安装完成。")
+        print(f"Playwright 版本：{result.get('playwright_version')}")
+        print(f"浏览器目录：{result.get('browser_path')}")
+    else:
+        print(f"Playwright {result.get('browser')} 浏览器安装失败。", file=sys.stderr)
+    return 0 if result.get("ok") else int(result.get("returncode") or 1)
 
 
 def _run_cplan_schedule_command(project_root: Path, args: object) -> int | None:

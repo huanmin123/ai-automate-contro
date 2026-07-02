@@ -24,7 +24,9 @@
       "action": "read",
       "type": "csv",
       "path": "output/csv/accounts.csv",
-      "save_as": "loaded_rows"
+      "output": {
+        "as": "loaded_rows"
+      }
     },
     {
       "action": "write",

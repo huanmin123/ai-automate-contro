@@ -127,7 +127,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "write_plan_package_file": ToolSpec(
         write_plan_package_file_tool,
         WritePlanPackageFileArgs,
-        "写受控 plan 文件：plan.json、config.json、docs/**、resources/**、sub-plans/*-plan.json。拒绝 output/ 等非 plan 包结构路径；内容保留原文，不因账号、密码、token 或 api_key 等明文字段拒绝；字段按当前 handbook；写后先 validate_plan，再 review_plan_quality。",
+        "写受控 plan 文件：plan.json、config.json、docs/**、resources/**、sub-plans/*-plan.json。拒绝 output/、profiles/ 等非 plan 包结构路径；内容保留原文，不因账号、密码、token 或 api_key 等明文字段拒绝；字段按当前 handbook；写后先 validate_plan，再 review_plan_quality。",
         requires_project_root=True,
     ),
     "find_debug_workspace": ToolSpec(

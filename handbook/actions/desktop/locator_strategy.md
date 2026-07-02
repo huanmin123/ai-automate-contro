@@ -70,7 +70,7 @@
   "desktop": "desk",
   "title_contains": "Calculator",
   "path": "calculator-elements.json",
-  "save_as": "calculator_elements"
+  "output": {"as": "calculator_elements"}
 }
 ```
 

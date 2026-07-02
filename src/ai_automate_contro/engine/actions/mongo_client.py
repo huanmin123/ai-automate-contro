@@ -5,6 +5,8 @@ import time
 from decimal import Decimal
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
+
 
 MONGO_ACTION_TYPES = {
     "find",
@@ -43,8 +45,7 @@ def run(executor: Any, step: dict[str, Any]) -> None:
         "elapsed_ms": elapsed_ms,
     }
     _write_optional_result(executor, step, payload)
-    if "save_as" in step:
-        executor.state.variables[str(step["save_as"])] = payload
+    publish_step_output(executor, step, payload, action="mongo")
     executor.state.logger.log(
         "info",
         "mongo action finished",
@@ -53,7 +54,7 @@ def run(executor: Any, step: dict[str, Any]) -> None:
         database=database.name,
         collection=step.get("collection", ""),
         elapsed_ms=elapsed_ms,
-        save_as=step.get("save_as", ""),
+        output_as=step.get("output", {}).get("as", "") if isinstance(step.get("output"), dict) else "",
         result_path=step.get("result_path", ""),
     )
 

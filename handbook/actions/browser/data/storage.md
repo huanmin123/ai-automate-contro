@@ -14,14 +14,14 @@
 
 | type | 必填字段 | 说明 |
 | --- | --- | --- |
-| `cookies` | `save_as` | 读取 cookies |
+| `cookies` | `output` | 读取 cookies |
 | `set_cookies` | `cookies` | 写入 cookies |
 | `clear_cookies` | 无 | 清空 cookies |
-| `local_storage` | `key`、`save_as` | 读取 localStorage |
+| `local_storage` | `key`、`output.as` | 读取 localStorage |
 | `set_local_storage` | `key`、`value` | 写入 localStorage |
 | `remove_local_storage` | `key` | 删除 localStorage 键 |
 | `clear_local_storage` | 无 | 清空 localStorage |
-| `session_storage` | `key`、`save_as` | 读取 sessionStorage |
+| `session_storage` | `key`、`output.as` | 读取 sessionStorage |
 | `set_session_storage` | `key`、`value` | 写入 sessionStorage |
 | `remove_session_storage` | `key` | 删除 sessionStorage 键 |
 | `clear_session_storage` | 无 | 清空 sessionStorage |
@@ -49,6 +49,6 @@
   "type": "local_storage",
   "browser": "main",
   "key": "demo-token",
-  "save_as": "stored_token"
+  "output": {"as": "stored_token"}
 }
 ```

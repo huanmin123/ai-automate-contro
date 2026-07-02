@@ -4,6 +4,8 @@ import base64
 import json
 from typing import Any
 
+from ai_automate_contro.engine.output_contract import publish_step_output
+
 
 def network(executor: Any, step: dict[str, Any]) -> None:
     network_type = step["type"]
@@ -56,9 +58,8 @@ def script(executor: Any, step: dict[str, Any]) -> None:
     if script_type == "evaluate":
         page = executor._page(step)
         result = page.evaluate(step["js"], step["arg"]) if "arg" in step else page.evaluate(step["js"])
-        if "save_as" in step:
-            executor.state.variables[step["save_as"]] = result
-        executor.state.logger.log("info", "page script evaluated", save_as=step.get("save_as"))
+        publish_step_output(executor, step, result, action="script")
+        executor.state.logger.log("info", "page script evaluated", output=step.get("output", {}))
         return
     if script_type == "add_init_script":
         session = executor.state.require_session(step["browser"])
@@ -75,8 +76,8 @@ def storage(executor: Any, step: dict[str, Any]) -> None:
     if storage_type == "cookies":
         urls = step.get("urls")
         cookies = session.context.cookies(urls) if urls is not None else session.context.cookies()
-        executor.state.variables[step["save_as"]] = cookies
-        executor.state.logger.log("info", "cookies read", browser=step["browser"], save_as=step["save_as"])
+        publish_step_output(executor, step, cookies, action="storage")
+        executor.state.logger.log("info", "cookies read", browser=step["browser"], output=step.get("output", {}))
         return
     if storage_type == "set_cookies":
         session.context.add_cookies(step["cookies"])
@@ -88,7 +89,7 @@ def storage(executor: Any, step: dict[str, Any]) -> None:
         return
     if storage_type == "local_storage":
         value = page.evaluate("(key) => window.localStorage.getItem(key)", step["key"])
-        executor.state.variables[step["save_as"]] = value
+        publish_step_output(executor, step, value, action="storage")
         executor.state.logger.log("info", "local storage read", browser=step["browser"], key=step["key"])
         return
     if storage_type == "set_local_storage":
@@ -108,7 +109,7 @@ def storage(executor: Any, step: dict[str, Any]) -> None:
         return
     if storage_type == "session_storage":
         value = page.evaluate("(key) => window.sessionStorage.getItem(key)", step["key"])
-        executor.state.variables[step["save_as"]] = value
+        publish_step_output(executor, step, value, action="storage")
         executor.state.logger.log("info", "session storage read", browser=step["browser"], key=step["key"])
         return
     if storage_type == "set_session_storage":
@@ -220,8 +221,7 @@ def event(executor: Any, step: dict[str, Any]) -> None:
 
         with output_path.open("w", encoding="utf-8") as file:
             json.dump(executor.state.browser_events.get(key, []), file, ensure_ascii=False, indent=2)
-        if "save_as" in step:
-            executor.state.variables[step["save_as"]] = executor.state.browser_events.get(key, [])
+        publish_step_output(executor, step, executor.state.browser_events.get(key, []), action="event")
         _remove_event_handlers(executor, key)
         executor.state.browser_event_options.pop(key, None)
         executor.state.logger.log("info", "browser event capture saved", browser=step["browser"], path=str(output_path))
@@ -302,8 +302,7 @@ def coverage(executor: Any, step: dict[str, Any]) -> None:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as file:
             json.dump(payload, file, ensure_ascii=False, indent=2)
-        if "save_as" in step:
-            executor.state.variables[step["save_as"]] = payload
+        publish_step_output(executor, step, payload, action="coverage")
         executor.state.logger.log("info", "coverage saved", browser=step["browser"], path=str(output_path))
         return
 

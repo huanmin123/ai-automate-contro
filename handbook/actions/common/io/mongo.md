@@ -6,11 +6,13 @@
 
 `mongo` 是 common action，`automation_type: "browser"` 和 `automation_type: "desktop"` 都可以使用。
 
-MongoDB 驱动默认不安装。需要时按需安装：
+源码开发环境默认不安装 MongoDB 驱动。需要时按需安装：
 
 ```powershell
 pip install -e '.[db-mongodb]'
 ```
+
+发行包支持 MongoDB 时，驱动必须在打包环境中安装并随包进入 `_internal/`。
 
 ## 必填字段
 
@@ -55,7 +57,9 @@ pip install -e '.[db-mongodb]'
   },
   "limit": 100,
   "result_path": "draft-articles.json",
-  "save_as": "draft_articles"
+  "output": {
+    "as": "draft_articles"
+  }
 }
 ```
 
@@ -69,7 +73,9 @@ pip install -e '.[db-mongodb]'
   "collection": "articles",
   "documents": "{{articles}}",
   "result_path": "articles-insert.json",
-  "save_as": "insert_result"
+  "output": {
+    "as": "insert_result"
+  }
 }
 ```
 
@@ -90,7 +96,9 @@ pip install -e '.[db-mongodb]'
     }
   },
   "upsert": false,
-  "save_as": "update_result"
+  "output": {
+    "as": "update_result"
+  }
 }
 ```
 
@@ -118,7 +126,9 @@ pip install -e '.[db-mongodb]'
     }
   ],
   "result_path": "author-counts.json",
-  "save_as": "author_counts"
+  "output": {
+    "as": "author_counts"
+  }
 }
 ```
 
@@ -136,7 +146,9 @@ pip install -e '.[db-mongodb]'
   },
   "name": "author_created_idx",
   "result_path": "article-index-create.json",
-  "save_as": "article_index"
+  "output": {
+    "as": "article_index"
+  }
 }
 ```
 
@@ -151,7 +163,9 @@ pip install -e '.[db-mongodb]'
   "connection": "content_mongo",
   "collection": "articles",
   "result_path": "article-indexes.json",
-  "save_as": "article_indexes"
+  "output": {
+    "as": "article_indexes"
+  }
 }
 ```
 
@@ -177,7 +191,9 @@ pip install -e '.[db-mongodb]'
   "connection": "content_mongo",
   "command": "ping",
   "result_path": "mongo-ping.json",
-  "save_as": "mongo_ping"
+  "output": {
+    "as": "mongo_ping"
+  }
 }
 ```
 
@@ -199,7 +215,7 @@ pip install -e '.[db-mongodb]'
 - `upsert`: `update_one`/`update_many` 是否 upsert，默认 `false`。
 - `ordered`: `insert_many` 是否按顺序写入，默认 `true`。
 - `result_path`: 执行摘要写入 `output/mongo/`。
-- `save_as`: 保存响应摘要变量名。
+- `output`: 发布响应摘要的声明；`output.as` 是变量名。
 
 ## 返回变量
 

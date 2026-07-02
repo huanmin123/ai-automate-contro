@@ -7,7 +7,9 @@
       "action": "open_desktop",
       "name": "desktop",
       "backend": "auto",
-      "save_as": "desktop_probe"
+      "output": {
+        "as": "desktop_probe"
+      }
     },
     {
       "action": "desktop_vision",
@@ -19,7 +21,9 @@
       "match_index": 0,
       "max_matches": 5,
       "path": "offline-vision-match.json",
-      "save_as": "offline_vision"
+      "output": {
+        "as": "offline_vision"
+      }
     },
     {
       "action": "write",

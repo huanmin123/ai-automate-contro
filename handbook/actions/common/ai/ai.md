@@ -25,7 +25,7 @@
 | `instruction` | 否 | 当前任务的补充指令 |
 | `schema` | 部分类型必填 | 输出 JSON Schema；`extract_data` 必填 |
 | `labels` | 分类必填 | `classify_text` 的候选标签；如果已提供 `schema` 可省略 |
-| `save_as` | 是 | 保存解析结果的变量名 |
+| `output` | 是 | 发布解析结果的声明；`output.as` 是变量名 |
 | `path` | 否 | 输出产物路径，相对于 `output/ai/` |
 
 ## 配置
@@ -82,12 +82,15 @@ output/ai/
     "email": "string",
     "issue": "string"
   },
-  "save_as": "ticket_fields",
+  "output": {
+    "as": "ticket_fields",
+    "type": "object!"
+  },
   "path": "extract-data/ticket-fields.json"
 }
 ```
 
 执行后：
 
-- 解析后的 JSON 保存到变量 `ticket_fields`。
+- 解析后的 JSON 发布到变量 `ticket_fields`。
 - 输出产物保存到 `output/ai/extract-data/ticket-fields.json`。

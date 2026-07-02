@@ -22,7 +22,7 @@
 
 - `page`: 页面名，默认当前页面
 - `arg`: `evaluate` 的参数
-- `save_as`: `evaluate` 返回值保存为变量
+- `output.as`: `evaluate` 返回值保存为变量
 
 ## 示例
 
@@ -32,7 +32,7 @@
   "type": "evaluate",
   "browser": "main",
   "js": "() => document.title",
-  "save_as": "page_title"
+  "output": {"as": "page_title"}
 }
 ```
 

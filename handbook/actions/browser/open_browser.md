@@ -14,6 +14,7 @@
 ## 可选字段
 
 - `headed`: 是否显示浏览器窗口，默认 `false`
+- `use_profile`: 是否使用当前 plan 包唯一的持久浏览器状态，默认 `false`
 - `slow_mo_ms`: 每个 Playwright 动作之间增加的延迟，默认 `0`
 - `timeout_ms`: 当前浏览器会话的默认超时时间，默认 `15000`
 - `browser_type`: 浏览器类型，支持 `chromium`、`firefox`、`webkit`，默认 `chromium`
@@ -70,19 +71,38 @@
 }
 ```
 
+复用当前 plan 包登录态：
+
+```json
+{
+  "action": "open_browser",
+  "name": "main",
+  "headed": true,
+  "channel": "chrome",
+  "use_profile": true
+}
+```
+
 ## 什么时候用
 
 - 你需要启动第一个浏览器窗口
 - 你需要多个浏览器并行工作
 - 你要给不同站点分配不同的会话
+- 你要在同一个 plan 包内复用登录态、Cookie、localStorage、IndexedDB 等浏览器状态
 
 ## 注意事项
 
 - `name` 不能重复。
 - 如果你后面要写 `browser: "main"`，这里的 `name` 就必须叫 `main`。
-- 默认新建一个空白上下文；需要继承状态时使用 `storage_state_path`。
+- 默认新建一个空白上下文；需要文件级状态导入时使用 `storage_state_path`。
+- 需要长期复用同一个 plan 包的登录态时，使用 `use_profile: true`。运行时固定使用当前 plan 包下的 `profiles/browser/`，不支持自定义 profile 目录、profile 名称或全局共享 profile。
+- `use_profile: true` 使用 Playwright persistent context。Cookie、localStorage、IndexedDB、Cache Storage、Service Worker 和站点数据会保留在 `profiles/browser/`；sessionStorage 和纯 session cookie 是否跨运行保留取决于浏览器和目标站点。
+- `use_profile: true` 仅支持 `browser_type: "chromium"`。需要真实 Chrome 或 Edge 时使用 `channel: "chrome"` 或 `channel: "msedge"`，仍然复用同一个 `profiles/browser/`。
+- 同一时间只能打开一个 `use_profile: true` 的浏览器会话。再次打开前先 `close_browser`，再次打开仍复用同一个 `profiles/browser/`。
+- `use_profile: true` 不能和 `storage_state_path` 同时使用。
 - `storage_state_path` 默认引用当前 plan 包 `resources/...` 或 `output/storage-states/...`。AI 创建 plan 时，用户给出本机 storage state 文件但没有明确要求长期依赖该路径，必须先导入当前包 `resources/`。
 - `storage_state_path` 支持绝对路径、共享盘、外部工作目录和越出 plan 包的相对路径；不需要审批字段。
+- `profiles/` 是本机浏览器状态目录，必须由 `.gitignore` 过滤，不作为常规提交内容。
 - plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠。
 - `device` 不会自动切换 `browser_type`；需要指定浏览器内核时显式填写 `browser_type`。
 - 多数真实站点调试时，优先显式设置 `viewport`、`locale`、`timezone_id`、`user_agent` 和必要的 `extra_http_headers`。

@@ -43,6 +43,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         "schedule",
     }
     cplan_required = {
+        "install-browser",
         "list",
         "create",
         "validate",
@@ -61,7 +62,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
     checks = [
         {
             "name": "main_cli_has_only_ai_commands",
-            "passed": main_commands == {"tool", "ai", "self-check"},
+            "passed": main_commands == {"install-browser", "tool", "ai", "self-check"},
             "detail": {"commands": sorted(main_commands)},
         },
         {
@@ -90,7 +91,9 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         },
         {
             "name": "cplan_validate_parses_without_main_cli",
-            "passed": _parse_accepted(build_cplan_parser(), ["validate", "--file", "plans/demo/plan.json"]),
+            "passed": _parse_accepted(build_cplan_parser(), ["validate", "--file", "plans/demo/plan.json"])
+            and _parse_accepted(build_cplan_parser(), ["install-browser", "--browser", "chromium", "--json"])
+            and _parse_accepted(build_parser(), ["install-browser", "--browser", "chromium", "--json"]),
             "detail": {},
         },
         {
@@ -505,7 +508,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
                             "append": True,
                         }
                     ],
-                    "save_as": "inline_status",
+                    "output": {"as": "inline_status"},
                 },
                 {
                     "action": "trigger",
@@ -515,7 +518,7 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
                     "run_immediately": True,
                     "max_runs": 2,
                     "path": "sub-plans/tick-once-plan.json",
-                    "save_as": "sub_plan_status",
+                    "output": {"as": "sub_plan_status"},
                 },
                 {
                     "action": "write",

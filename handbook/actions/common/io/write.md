@@ -171,7 +171,7 @@
 }
 ```
 
-当同时提供 `template_path` 和 `range`/`named_range` 且没有显式写 `write_mode` 时，默认按 `overlay_cells` 写入，保留模板其它区域的样式、标题区和汇总区。写入命中合并单元格时，只允许写合并区域左上角，避免把模板结构写坏。
+当同时提供 `template_path` 和 `range`/`named_range`，或只提供 `template_path + cells` 且没有显式写 `write_mode` 时，默认按 `overlay_cells` 写入，保留模板其它区域的样式、标题区和汇总区。写入命中合并单元格时，只允许写合并区域左上角，避免把模板结构写坏。
 
 基于模板命名区域写入：
 

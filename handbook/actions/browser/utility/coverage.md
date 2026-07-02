@@ -19,7 +19,7 @@
 - `page`: 页面名，默认当前页面
 - `js`: 是否采集 JS coverage，默认 `true`
 - `css`: 是否采集 CSS coverage，默认 `true`
-- `save_as`: `type: stop` 时把 coverage 结果保存为变量
+- `output.as`: `type: stop` 时把 coverage 结果保存为变量
 
 ## 注意事项
 
@@ -44,6 +44,6 @@
   "type": "stop",
   "browser": "main",
   "path": "coverage.json",
-  "save_as": "coverage_result"
+  "output": {"as": "coverage_result"}
 }
 ```

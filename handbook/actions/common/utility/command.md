@@ -21,7 +21,9 @@
   "action": "command",
   "type": "run",
   "argv": ["python", "resources/tool.py"],
-  "save_as": "tool_result"
+  "output": {
+    "as": "tool_result"
+  }
 }
 ```
 
@@ -33,7 +35,9 @@
   "type": "run",
   "command": "Get-ChildItem resources",
   "shell": "pwsh",
-  "save_as": "listing"
+  "output": {
+    "as": "listing"
+  }
 }
 ```
 
@@ -48,7 +52,9 @@
     "linux": "ls resources",
     "macos": "ls resources"
   },
-  "save_as": "listing"
+  "output": {
+    "as": "listing"
+  }
 }
 ```
 
@@ -66,7 +72,7 @@
 - `encoding`: 输出解码，默认 `utf-8`
 - `shell`: `auto`、`pwsh`、`powershell`、`cmd`、`sh`、`bash`
 - `env`: 追加环境变量对象
-- `save_as`: 保存命令结果变量名
+- `output`: 发布给后续步骤的 JSON-safe 输出；`output.as` 是变量名
 
 ## 响应变量
 
@@ -83,6 +89,25 @@
   "cwd": "<plan-package>",
   "stdout_json": {
     "ok": true
+  }
+}
+```
+
+用 `output` 只发布下游需要的结构化片段。命令 stdout 要作为 JSON 传递时，必须设置 `stdout_type: "json"`：
+
+```json
+{
+  "action": "command",
+  "type": "run",
+  "argv": ["python", "resources/tool.py"],
+  "stdout_type": "json",
+  "output": {
+    "as": "tool_data",
+    "from": "stdout_json",
+    "type": "object!",
+    "fields": {
+      "combined": "string!"
+    }
   }
 }
 ```

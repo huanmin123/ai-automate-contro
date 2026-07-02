@@ -32,8 +32,9 @@
       "type": "excel",
       "path": "output/excel/accounts.xlsx",
       "sheet": "名单",
-      "save_as": "loaded_rows",
-      "save_meta_as": "loaded_meta"
+      "output": {
+        "as": "loaded_rows"
+      }
     },
     {
       "action": "write",

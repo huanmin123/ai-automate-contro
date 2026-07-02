@@ -81,7 +81,9 @@
       "type": "text",
       "browser": "advanced",
       "selector": "#context-result",
-      "save_as": "context_text"
+      "output": {
+        "as": "context_text"
+      }
     },
     {
       "action": "assert",
@@ -265,7 +267,9 @@
       "type": "evaluate",
       "browser": "advanced",
       "js": "() => window.__fromInitScript",
-      "save_as": "init_script_value"
+      "output": {
+        "as": "init_script_value"
+      }
     },
     {
       "action": "storage",
@@ -279,7 +283,9 @@
       "type": "local_storage",
       "browser": "advanced",
       "key": "demo-token",
-      "save_as": "local_storage_value"
+      "output": {
+        "as": "local_storage_value"
+      }
     },
     {
       "action": "storage",
@@ -293,7 +299,9 @@
       "type": "session_storage",
       "browser": "advanced",
       "key": "session-flag",
-      "save_as": "session_storage_value"
+      "output": {
+        "as": "session_storage_value"
+      }
     },
     {
       "action": "wait_for_network",
@@ -302,12 +310,14 @@
       "url": "https://fixture.local/api/data",
       "include_body": true,
       "body_type": "json",
-      "save_as": "mock_response",
       "trigger": {
         "action": "script",
         "type": "evaluate",
         "browser": "advanced",
         "js": "() => window.loadMockData()"
+      },
+      "output": {
+        "as": "mock_response"
       }
     },
     {
@@ -322,7 +332,9 @@
       "type": "bounding_box",
       "browser": "advanced",
       "selector": "#semantic-btn",
-      "save_as": "semantic_button_box"
+      "output": {
+        "as": "semantic_button_box"
+      }
     },
     {
       "action": "extract",
@@ -330,7 +342,9 @@
       "browser": "advanced",
       "selector": "#drop-target",
       "property": "color",
-      "save_as": "drop_target_color"
+      "output": {
+        "as": "drop_target_color"
+      }
     },
     {
       "action": "write",
@@ -351,7 +365,9 @@
       "type": "stop",
       "browser": "advanced",
       "path": "browser-events.json",
-      "save_as": "browser_events"
+      "output": {
+        "as": "browser_events"
+      }
     },
     {
       "action": "trace",

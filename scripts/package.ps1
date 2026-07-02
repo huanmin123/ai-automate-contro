@@ -1,15 +1,14 @@
 param(
     [switch]$InstallDependencies,
     [switch]$SmokeTest,
-    [switch]$Clean,
     [string]$PythonPath,
     [switch]$SkipZip,
     [switch]$NoProcessCleanup,
     [switch]$ProbeOnly,
     [ValidateSet("None", "Cleanup", "DependencyCheck", "PlaywrightInstall", "PyInstaller", "CopyPackage")]
     [string]$StopAfter = "None",
+    [switch]$BundleBrowser,
     [switch]$SkipPlaywrightInstall,
-    [switch]$SkipBrowserCopy,
     [string]$OutputSuffix = ""
 )
 
@@ -112,6 +111,7 @@ function Invoke-PackagedBrowserSmoke {
         @"
 {
   "name": "packaged-browser-smoke",
+  "automation_type": "browser",
   "variables": {
     "expected_title": "Packaged Browser Smoke"
   },
@@ -385,36 +385,59 @@ if ($LASTEXITCODE -ne 0) {
 if ($LASTEXITCODE -ne 0) {
     throw "当前 Python 解释器缺少 textual。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
 }
+$RequiredPackageModules = @("psycopg", "pymysql", "redis", "oracledb", "pyodbc", "pymongo")
+$MissingPackageModules = @()
+foreach ($moduleName in $RequiredPackageModules) {
+    & $PythonCommand -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec(sys.argv[1]) else 1)" $moduleName 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        $MissingPackageModules += $moduleName
+    }
+}
+if ($MissingPackageModules.Count -gt 0) {
+    throw "当前 Python 解释器缺少发行包数据库驱动：$($MissingPackageModules -join ', ')。请执行：python -m pip install -e `".[package]`"，或用 -InstallDependencies 重新运行本脚本。"
+}
 if ($StopAfter -eq "DependencyCheck") {
     Write-PackageCheckpoint "StopAfter DependencyCheck"
     return
 }
 
+$BrowserDir = (& $PythonCommand -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).resolve().parent / 'driver' / 'package' / '.local-browsers')").Trim()
+$BrowserBackupParent = $null
+$BrowserBackupDir = $null
 $previousBrowsersPath = [Environment]::GetEnvironmentVariable("PLAYWRIGHT_BROWSERS_PATH", "Process")
 try {
-    $env:PLAYWRIGHT_BROWSERS_PATH = "0"
-    if ($SkipPlaywrightInstall) {
-        Write-PackageCheckpoint "Skip Playwright Chromium install"
+    if ($BundleBrowser) {
+        $env:PLAYWRIGHT_BROWSERS_PATH = "0"
+        if ($SkipPlaywrightInstall) {
+            Write-PackageCheckpoint "Skip Playwright Chromium install"
+        }
+        else {
+            Write-PackageCheckpoint "Install Playwright Chromium for bundled package"
+            Invoke-Checked $PythonCommand @("-m", "playwright", "install", "chromium")
+        }
+        if (-not (Test-Path -LiteralPath $BrowserDir)) {
+            throw "没有找到 Playwright 浏览器目录：$BrowserDir"
+        }
+        Write-PackageCheckpoint "Playwright browser dir: $BrowserDir"
     }
     else {
-        Write-PackageCheckpoint "Install Playwright Chromium"
-        Invoke-Checked $PythonCommand @("-m", "playwright", "install", "chromium")
+        Write-PackageCheckpoint "Build lightweight package without bundled Playwright browsers"
     }
-    $BrowserDir = (& $PythonCommand -c "from pathlib import Path; import playwright; print(Path(playwright.__file__).resolve().parent / 'driver' / 'package' / '.local-browsers')").Trim()
-    if (-not (Test-Path -LiteralPath $BrowserDir)) {
-        throw "没有找到 Playwright 浏览器目录：$BrowserDir"
-    }
-    Write-PackageCheckpoint "Playwright browser dir: $BrowserDir"
     if ($StopAfter -eq "PlaywrightInstall") {
         Write-PackageCheckpoint "StopAfter PlaywrightInstall"
         return
     }
 
-    $BrowserBackupParent = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-contro-playwright-browsers-{0}" -f [System.Guid]::NewGuid().ToString("N"))
-    $BrowserBackupDir = Join-Path $BrowserBackupParent ".local-browsers"
-    Write-PackageCheckpoint "Move Playwright browser cache to backup: $BrowserBackupDir"
-    New-Item -ItemType Directory -Force -Path $BrowserBackupParent | Out-Null
-    Move-Item -LiteralPath $BrowserDir -Destination $BrowserBackupDir -Force
+    if (Test-Path -LiteralPath $BrowserDir) {
+        $BrowserBackupParent = Join-Path ([System.IO.Path]::GetTempPath()) ("ai-automate-contro-playwright-browsers-{0}" -f [System.Guid]::NewGuid().ToString("N"))
+        $BrowserBackupDir = Join-Path $BrowserBackupParent ".local-browsers"
+        Write-PackageCheckpoint "Move Playwright browser cache away before PyInstaller: $BrowserBackupDir"
+        New-Item -ItemType Directory -Force -Path $BrowserBackupParent | Out-Null
+        Move-Item -LiteralPath $BrowserDir -Destination $BrowserBackupDir -Force
+    }
+    else {
+        Write-PackageCheckpoint "No package-local Playwright browser cache before PyInstaller: $BrowserDir"
+    }
     $pyinstallerArgs = @(
         "-m", "PyInstaller",
         "--noconfirm",
@@ -442,23 +465,23 @@ try {
         "--hidden-import", "textual.containers",
         "--hidden-import", "textual.css.query",
         "--hidden-import", "textual.events",
-        "--hidden-import", "textual.widgets",
-        $EntryPoint
+        "--hidden-import", "textual.widgets"
     )
+    $pyinstallerArgs += @($EntryPoint)
     try {
         Write-PackageCheckpoint "Run PyInstaller"
         Invoke-Checked $PythonCommand $pyinstallerArgs
     }
     finally {
         Write-PackageCheckpoint "Restore Playwright browser cache"
-        if (Test-Path -LiteralPath $BrowserBackupDir) {
+        if ($BrowserBackupDir -and (Test-Path -LiteralPath $BrowserBackupDir)) {
             if (Test-Path -LiteralPath $BrowserDir) {
                 Remove-Item -LiteralPath $BrowserDir -Recurse -Force
             }
             New-Item -ItemType Directory -Force -Path (Split-Path -Parent $BrowserDir) | Out-Null
             Move-Item -LiteralPath $BrowserBackupDir -Destination $BrowserDir -Force
         }
-        if (Test-Path -LiteralPath $BrowserBackupParent) {
+        if ($BrowserBackupParent -and (Test-Path -LiteralPath $BrowserBackupParent)) {
             Remove-Item -LiteralPath $BrowserBackupParent -Recurse -Force
         }
     }
@@ -499,12 +522,15 @@ if (Test-Path -LiteralPath $PackagedPlaywrightBrowserDir) {
     Remove-PackagePath $PackagedPlaywrightBrowserDir
 }
 New-Item -ItemType Directory -Force -Path $PackagedPlaywrightBrowserParent | Out-Null
-if ($SkipBrowserCopy) {
-    Write-PackageCheckpoint "Skip Playwright browsers copy"
-}
-else {
+if ($BundleBrowser) {
+    if (-not (Test-Path -LiteralPath $BrowserDir)) {
+        throw "需要打包浏览器，但没有找到 Playwright 浏览器目录：$BrowserDir"
+    }
     Write-PackageCheckpoint "Copy Playwright browsers into package"
     Copy-Item -LiteralPath $BrowserDir -Destination $PackagedPlaywrightBrowserDir -Recurse -Force
+}
+else {
+    Write-PackageCheckpoint "Skip Playwright browsers copy for lightweight package"
 }
 
 if (-not $IsWindows) {
@@ -535,6 +561,7 @@ $planConfig | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PlanConfigPath
 } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PackagePlansConfigPath -Encoding UTF8
 [ordered]@{
     name = "packaged-demo"
+    automation_type = "browser"
     variables = [ordered]@{}
     steps = @(
         [ordered]@{
@@ -562,7 +589,13 @@ if ($StopAfter -eq "CopyPackage") {
 if ($SmokeTest) {
     Push-Location $PackageDir
     try {
-        Invoke-Checked $ExecutablePath @("self-check", "env")
+        if ($BundleBrowser) {
+            Invoke-Checked $ExecutablePath @("self-check", "env")
+        }
+        else {
+            Invoke-Checked $ExecutablePath @("install-browser", "--help")
+            Invoke-Checked $CPlanExecutablePath @("install-browser", "--help")
+        }
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
@@ -572,7 +605,12 @@ if ($SmokeTest) {
         Invoke-Checked $ExecutablePath @("tool", "check")
         Invoke-Checked $CPlanExecutablePath @("validate", "--file", ".\plans\demo\plan.json")
         Invoke-Checked $CPlanExecutablePath @("run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
-        Invoke-PackagedBrowserSmoke $CPlanExecutablePath
+        if ($BundleBrowser) {
+            Invoke-PackagedBrowserSmoke $CPlanExecutablePath
+        }
+        else {
+            Write-PackageCheckpoint "Skip packaged browser smoke for lightweight package"
+        }
     }
     finally {
         Pop-Location
@@ -607,7 +645,13 @@ if ($SmokeTest -and -not $SkipZip) {
     $ExtractedCPlanExecutablePath = Join-Path $ExtractedPackageDir $CPlanExecutableFileName
     Push-Location $ExtractedPackageDir
     try {
-        Invoke-Checked $ExtractedExecutablePath @("self-check", "env")
+        if ($BundleBrowser) {
+            Invoke-Checked $ExtractedExecutablePath @("self-check", "env")
+        }
+        else {
+            Invoke-Checked $ExtractedExecutablePath @("install-browser", "--help")
+            Invoke-Checked $ExtractedCPlanExecutablePath @("install-browser", "--help")
+        }
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
@@ -617,7 +661,12 @@ if ($SmokeTest -and -not $SkipZip) {
         Invoke-Checked $ExtractedExecutablePath @("tool", "check")
         Invoke-Checked $ExtractedCPlanExecutablePath @("validate", "--file", ".\plans\demo\plan.json")
         Invoke-Checked $ExtractedCPlanExecutablePath @("run", "--file", ".\plans\demo\plan.json", "--run-name", "demo-smoke")
-        Invoke-PackagedBrowserSmoke $ExtractedCPlanExecutablePath
+        if ($BundleBrowser) {
+            Invoke-PackagedBrowserSmoke $ExtractedCPlanExecutablePath
+        }
+        else {
+            Write-PackageCheckpoint "Skip zip browser smoke for lightweight package"
+        }
     }
     finally {
         Pop-Location
@@ -643,4 +692,12 @@ Write-Host "分发包 zip："
 Write-Host $PackageZipPath
 Write-Host "打包日志："
 Write-Host $script:PackageLogPath
+if ($BundleBrowser) {
+    Write-Host "浏览器策略：已打包 Playwright Chromium。"
+}
+else {
+    Write-Host "浏览器策略：轻量包未打包 Playwright 浏览器；首次运行浏览器 plan 前请在分发目录执行：.\aic.exe install-browser"
+}
+Write-Host "Python 依赖策略：不显式排除代码依赖；需要支持的 Python 能力必须先装进打包 Python 环境，不能依赖用户后续 pip 补进 _internal。"
+Write-Host "数据库驱动策略：PostgreSQL、MySQL、Oracle、SQL Server、Redis、MongoDB 驱动由 .[package] 打包环境随包提供。"
 Write-Host "请从 out\$PackageName 目录运行，或编辑 plan.config 指向其他 handbook/plans 位置。"

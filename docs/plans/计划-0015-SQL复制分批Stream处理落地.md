@@ -60,7 +60,9 @@
   "batch_size": 500,
   "rows_path": "orders-copy.jsonl",
   "result_path": "orders-copy.json",
-  "save_as": "orders_copy"
+  "output": {
+    "as": "orders_copy"
+  }
 }
 ```
 

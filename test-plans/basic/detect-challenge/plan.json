@@ -19,9 +19,6 @@
     {
       "action": "detect_challenge",
       "browser": "demo",
-      "save_as": "challenge",
-      "save_detected_as": "challenge_detected",
-      "save_label_as": "challenge_label",
       "rules": [
         {
           "type": "selector_visible",
@@ -34,7 +31,10 @@
           "text": "验证码",
           "label": "captcha_text"
         }
-      ]
+      ],
+      "output": {
+        "as": "challenge"
+      }
     },
     {
       "action": "write",

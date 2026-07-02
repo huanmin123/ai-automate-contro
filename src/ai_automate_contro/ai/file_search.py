@@ -311,7 +311,7 @@ def resolve_project_path(project_root: Path, raw_path: str | Path) -> Path:
     if not is_relative_to(resolved, project_root):
         raise ValueError("路径必须位于项目根目录内。")
     if is_forbidden_read_path(resolved.relative_to(project_root)):
-        raise ValueError("拒绝读取或搜索缓存、checkpoint、git、pyc 或 egg-info 路径。")
+        raise ValueError("拒绝读取或搜索浏览器 profiles/browser 状态、缓存、checkpoint、git、pyc 或 egg-info 路径。")
     return resolved
 
 
@@ -319,6 +319,7 @@ def default_excluded_globs(*, include_output: bool) -> list[str]:
     globs = [
         "!**/.git/**",
         "!**/.keygen/**",
+        "!**/profiles/browser/**",
         "!**/__pycache__/**",
         "!**/.pytest_cache/**",
         "!**/.mypy_cache/**",
@@ -343,7 +344,16 @@ def is_forbidden_read_path(path: Path) -> bool:
     }
     if any(part in forbidden_parts for part in path.parts):
         return True
+    if _contains_browser_profile_parts(path.parts):
+        return True
     return path.name.endswith(".pyc") or path.name.endswith(".pyo") or ".egg-info" in path.parts
+
+
+def _contains_browser_profile_parts(parts: tuple[str, ...]) -> bool:
+    return any(
+        part == "profiles" and index + 1 < len(parts) and parts[index + 1] == "browser"
+        for index, part in enumerate(parts)
+    )
 
 
 def relative_to_project(project_root: Path, path: Path) -> str:

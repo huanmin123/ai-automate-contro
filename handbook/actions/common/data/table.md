@@ -11,7 +11,7 @@
 - `action`: 固定写成 `table`
 - `type`: 处理类型，支持 `filter`、`select`、`sort`、`dedupe`、`group`、`join`、`add_column`、`rename`、`fill_empty`、`type_convert`、`pivot`、`replace`、`split_column`、`merge_columns`、`date_parse`、`lookup`、`normalize_headers`、`union`、`fuzzy_lookup`
 - `source`: 源行数组，通常写完整变量引用，例如 `{{employees}}`
-- `save_as`: 保存结果变量名
+- `output`: 发布处理结果的声明；`output.as` 是变量名
 
 ## 类型说明
 
@@ -50,7 +50,25 @@
     "部门": "财务",
     "状态": "在职"
   },
-  "save_as": "finance_people"
+  "output": {
+    "as": "finance_people",
+    "type": "array!"
+  }
+}
+```
+
+使用 `output` 发布清洗后的行数组：
+
+```json
+{
+  "action": "table",
+  "type": "select",
+  "source": "{{employees}}",
+  "columns": ["姓名", "部门"],
+  "output": {
+    "as": "employee_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -69,7 +87,10 @@
       "contains": "差旅"
     }
   },
-  "save_as": "travel_transactions"
+  "output": {
+    "as": "travel_transactions",
+    "type": "array!"
+  }
 }
 ```
 
@@ -84,7 +105,10 @@
   "rename": {
     "手机号": "电话"
   },
-  "save_as": "contact_rows"
+  "output": {
+    "as": "contact_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -97,7 +121,10 @@
   "source": "{{transactions}}",
   "by": ["日期", "金额"],
   "descending": [false, true],
-  "save_as": "sorted_transactions"
+  "output": {
+    "as": "sorted_transactions",
+    "type": "array!"
+  }
 }
 ```
 
@@ -110,7 +137,10 @@
   "source": "{{employees}}",
   "by": ["工号"],
   "keep": "first",
-  "save_as": "unique_employees"
+  "output": {
+    "as": "unique_employees",
+    "type": "array!"
+  }
 }
 ```
 
@@ -133,7 +163,10 @@
       "avg": "金额"
     }
   },
-  "save_as": "department_summary"
+  "output": {
+    "as": "department_summary",
+    "type": "array!"
+  }
 }
 ```
 
@@ -147,7 +180,10 @@
   "right": "{{departments}}",
   "on": "部门",
   "how": "left",
-  "save_as": "joined_rows"
+  "output": {
+    "as": "joined_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -166,7 +202,10 @@
       "sum": ["金额", "税额"]
     }
   },
-  "save_as": "labeled_rows"
+  "output": {
+    "as": "labeled_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -181,7 +220,10 @@
     "姓名": "员工姓名",
     "手机号": "电话"
   },
-  "save_as": "renamed_employees"
+  "output": {
+    "as": "renamed_employees",
+    "type": "array!"
+  }
 }
 ```
 
@@ -195,7 +237,10 @@
   "values": {
     "奖金": 0
   },
-  "save_as": "employees_filled"
+  "output": {
+    "as": "employees_filled",
+    "type": "array!"
+  }
 }
 ```
 
@@ -209,7 +254,10 @@
     "奖金": "number",
     "是否在职": "boolean"
   },
-  "save_as": "employees_typed"
+  "output": {
+    "as": "employees_typed",
+    "type": "array!"
+  }
 }
 ```
 
@@ -225,7 +273,10 @@
   "values": "工资",
   "agg": "sum",
   "fill_value": 0,
-  "save_as": "salary_pivot"
+  "output": {
+    "as": "salary_pivot",
+    "type": "array!"
+  }
 }
 ```
 
@@ -238,7 +289,10 @@
   "source": "{{employees}}",
   "index": "部门",
   "columns": "状态",
-  "save_as": "headcount_pivot"
+  "output": {
+    "as": "headcount_pivot",
+    "type": "array!"
+  }
 }
 ```
 
@@ -258,7 +312,10 @@
       "I": "离职"
     }
   },
-  "save_as": "replaced_rows"
+  "output": {
+    "as": "replaced_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -273,7 +330,10 @@
   "separator": "|",
   "into": ["姓名", "部门"],
   "remove_source": true,
-  "save_as": "split_rows"
+  "output": {
+    "as": "split_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -286,7 +346,10 @@
   "into": "联系电话",
   "separator": "-",
   "skip_empty": true,
-  "save_as": "phone_rows"
+  "output": {
+    "as": "phone_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -301,7 +364,10 @@
     "入职日期": ["%Y/%m/%d", "%Y-%m-%d", "%Y.%m.%d"]
   },
   "output_format": "iso",
-  "save_as": "dated_rows"
+  "output": {
+    "as": "dated_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -318,7 +384,10 @@
     "部门名称": "部门全称"
   },
   "default": "未知",
-  "save_as": "cleaned_rows"
+  "output": {
+    "as": "cleaned_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -334,7 +403,10 @@
     "部门 编码": "部门编码"
   },
   "case": "keep",
-  "save_as": "normalized_rows"
+  "output": {
+    "as": "normalized_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -348,7 +420,10 @@
   "sources": ["{{normalized_rows}}"],
   "columns": ["姓名", "部门编码", "状态", "入职日期"],
   "fill_missing": "",
-  "save_as": "union_rows"
+  "output": {
+    "as": "union_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -368,7 +443,10 @@
   "threshold": 0.8,
   "ignore_spaces": true,
   "score_column": "匹配分",
-  "save_as": "matched_rows"
+  "output": {
+    "as": "matched_rows",
+    "type": "array!"
+  }
 }
 ```
 
@@ -463,4 +541,4 @@
 
 - 当前 `table` 只支持字典行数组。
 - `source` 推荐使用完整变量引用，例如 `{{rows}}`，避免把数组转成字符串。
-- 窗口函数、复杂多表查询或大数据量处理优先使用 `sql` + SQLite/DuckDB。
+- 窗口函数、复杂多表查询或大数据量处理优先使用 `sql` + SQLite 或服务型数据库。

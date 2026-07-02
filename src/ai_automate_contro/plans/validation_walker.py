@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.engine.actions import SUPPORTED_ACTIONS
+from ai_automate_contro.engine.output_contract import validate_output_contract_spec
 from ai_automate_contro.plans.validation_fields import (
     validate_type_field,
     validate_type_specific_required_fields,
@@ -18,6 +19,41 @@ from ai_automate_contro.plans.validation_rules import (
     REQUIRED_FIELDS,
 )
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
+
+
+OUTPUT_REQUIRED_ACTIONS = {"ai", "extract", "read", "table"}
+OUTPUT_REMOVED_FIELDS_BY_ACTION = {"detect_challenge": {"save_detected_as", "save_label_as"}, "read": {"save_meta_as"}}
+RESERVED_OUTPUT_VARIABLES = {"last"}
+OUTPUT_CAPABLE_ACTIONS = {
+    "ai",
+    "command",
+    "coverage",
+    "desktop_app",
+    "desktop_assert",
+    "desktop_capture",
+    "desktop_element",
+    "desktop_input",
+    "desktop_vision",
+    "desktop_wait",
+    "desktop_window",
+    "detect_challenge",
+    "event",
+    "extract",
+    "http",
+    "mongo",
+    "open_desktop",
+    "read",
+    "redis",
+    "script",
+    "sql",
+    "storage",
+    "table",
+    "trigger",
+    "wait_for_download",
+    "wait_for_file_chooser",
+    "wait_for_network",
+    "wait_for_popup",
+}
 
 
 def validate_plan_document(
@@ -155,6 +191,8 @@ def validate_step(
             issues.append(ValidationIssue(location, f"缺少必填字段：{field}"))
 
     validate_type_field(step, action, location, issues)
+    validate_step_output_contract(step, location, issues)
+    validate_step_output_publication(step, action, location, issues)
     validate_action_specific_fields(step, action, location, package_root, issues, stack, automation_type)
 
 
@@ -171,6 +209,47 @@ def validate_action_partition(
     issues.append(ValidationIssue(location, f"automation_type={automation_type} 不支持 action：{action}"))
 
 
+def validate_step_output_contract(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if "output" not in step:
+        return
+    for message in validate_output_contract_spec(step["output"]):
+        issues.append(ValidationIssue(location, message))
+
+
+def validate_step_output_publication(
+    step: dict[str, Any],
+    action: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if "save_as" in step:
+        issues.append(ValidationIssue(location, "节点输出统一使用 output 发布结果，不再支持 save_as。"))
+    for field in sorted(OUTPUT_REMOVED_FIELDS_BY_ACTION.get(action, set())):
+        if field in step:
+            issues.append(ValidationIssue(location, f"{action}.{field} 已移除；需要发布数据时请使用 output。"))
+    if "output" in step and not _step_can_publish_output(step, action):
+        issues.append(ValidationIssue(location, f"{action} 当前 type 不产生输出，不能声明 output。"))
+    if action in OUTPUT_REQUIRED_ACTIONS and "output" not in step:
+        issues.append(ValidationIssue(location, f"{action} 必须使用 output 发布结果。"))
+
+
+def _step_can_publish_output(step: dict[str, Any], action: str) -> bool:
+    if action not in OUTPUT_CAPABLE_ACTIONS:
+        return False
+    step_type = step.get("type")
+    if action == "script":
+        return step_type == "evaluate"
+    if action == "storage":
+        return step_type in {"cookies", "local_storage", "session_storage"}
+    if action in {"event", "coverage"}:
+        return step_type == "stop"
+    return True
+
+
 def validate_action_specific_fields(
     step: dict[str, Any],
     action: str,
@@ -183,6 +262,9 @@ def validate_action_specific_fields(
     if action == "run_sub_plan":
         validate_sub_plan(step.get("path"), location, package_root, issues, stack, automation_type)
         return
+
+    if action == "variable":
+        validate_variable_targets(step, location, issues)
 
     if action in {"if", "foreach", "retry"}:
         validate_control_flow(step, action, location, package_root, issues, stack, automation_type)
@@ -492,6 +574,10 @@ def validate_control_flow(
                 )
         return
 
+    if action == "foreach":
+        for field in ("item_var", "index_var"):
+            validate_variable_target_name(step.get(field), f"{location}.{field}", issues)
+
     child_steps = step.get("steps")
     if not isinstance(child_steps, list):
         issues.append(ValidationIssue(location, "steps 必须是数组"))
@@ -505,6 +591,36 @@ def validate_control_flow(
             stack=stack,
             automation_type=automation_type,
         )
+
+
+def validate_variable_targets(
+    step: dict[str, Any],
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    variable_type = step.get("type")
+    if variable_type == "set":
+        validate_variable_target_name(step.get("name"), f"{location}.name", issues)
+        return
+    if variable_type == "set_many":
+        values = step.get("values")
+        if isinstance(values, dict):
+            for key in values:
+                validate_variable_target_name(key, f"{location}.values.{key}", issues)
+        return
+    if variable_type == "copy":
+        validate_variable_target_name(step.get("target"), f"{location}.target", issues)
+
+
+def validate_variable_target_name(
+    raw_name: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if not isinstance(raw_name, str) or not raw_name:
+        return
+    if raw_name in RESERVED_OUTPUT_VARIABLES:
+        issues.append(ValidationIssue(location, f"{raw_name} 是保留输出变量，只能由 output 发布器维护。"))
 
 
 def validate_trigger_action(

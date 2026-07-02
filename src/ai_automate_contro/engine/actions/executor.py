@@ -243,7 +243,7 @@ def _locator_options(step: dict[str, Any], *allowed_fields: str) -> dict[str, An
 
 def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
     safe_fields_by_action = {
-        "open_browser": ("name", "headed", "browser_type", "device"),
+        "open_browser": ("name", "headed", "browser_type", "device", "use_profile"),
         "navigate": ("browser", "page", "type", "url", "wait_until"),
         "page": ("browser", "type", "page", "url"),
         "element": (
@@ -262,21 +262,21 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         ),
         "wait": ("browser", "page", "type", "selector", "text", "url", "timeout_ms", "state"),
         "capture": ("browser", "page", "type", "path", "full_page"),
-        "read": ("type", "path", "sheet", "sheets", "range", "offset_rows", "limit_rows", "preview_rows", "max_cells", "save_as"),
+        "read": ("type", "path", "sheet", "sheets", "range", "offset_rows", "limit_rows", "preview_rows", "max_cells", "output"),
         "write": ("type", "path", "sheet", "sheets", "range", "start_cell", "formula_columns"),
         "assert": ("browser", "page", "type", "selector", "text", "url", "expected"),
-        "extract": ("browser", "page", "type", "selector", "save_as"),
+        "extract": ("browser", "page", "type", "selector", "output"),
         "manual_confirm": ("browser", "prompt"),
         "run_sub_plan": ("path",),
-        "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "save_as"),
-        "http": ("type", "method", "url", "save_as", "response_body_path"),
-        "sql": ("type", "connection", "table", "source_path", "target_path", "save_as", "rows_path", "result_path"),
-        "mongo": ("type", "connection", "database", "collection", "save_as", "result_path"),
-        "redis": ("type", "connection", "key", "command", "save_as", "result_path"),
-        "command": ("type", "save_as", "cwd", "stdout_path", "stderr_path"),
+        "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "output"),
+        "http": ("type", "method", "url", "output", "response_body_path"),
+        "sql": ("type", "connection", "table", "source_path", "target_path", "output", "rows_path", "result_path"),
+        "mongo": ("type", "connection", "database", "collection", "output", "result_path"),
+        "redis": ("type", "connection", "key", "command", "output", "result_path"),
+        "command": ("type", "output", "cwd", "stdout_path", "stderr_path"),
         "table": (
             "type",
-            "save_as",
+            "output",
             "column",
             "columns",
             "into",
@@ -292,7 +292,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "threshold",
             "score_column",
         ),
-        "open_desktop": ("name", "platform", "backend", "request_permissions", "save_as"),
+        "open_desktop": ("name", "platform", "backend", "request_permissions", "output"),
         "close_desktop": ("desktop",),
         "desktop_app": (
             "desktop",
@@ -316,7 +316,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "match_index",
             "window_timeout_ms",
             "interval_ms",
-            "save_as",
+            "output",
         ),
         "desktop_window": (
             "desktop",
@@ -335,7 +335,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "timeout_ms",
             "interval_ms",
             "path",
-            "save_as",
+            "output",
         ),
         "desktop_element": (
             "desktop",
@@ -360,7 +360,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "include_selector_hints",
             "text_limit",
             "path",
-            "save_as",
+            "output",
         ),
         "desktop_input": (
             "desktop",
@@ -398,7 +398,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "delta_x",
             "delta_y",
             "duration_ms",
-            "save_as",
+            "output",
         ),
         "desktop_capture": (
             "desktop",
@@ -432,7 +432,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "interval_ms",
             "max_depth",
             "max_elements",
-            "save_as",
+            "output",
         ),
         "desktop_vision": (
             "desktop",
@@ -476,9 +476,9 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "max_depth",
             "max_elements",
             "path",
-            "save_as",
+            "output",
         ),
-        "desktop_wait": ("desktop", "type", "state", "title", "title_contains", "app", "timeout_ms", "save_as"),
+        "desktop_wait": ("desktop", "type", "state", "title", "title_contains", "app", "timeout_ms", "output"),
         "desktop_assert": (
             "desktop",
             "type",
@@ -497,12 +497,12 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "mode",
             "text_source",
             "path",
-            "save_as",
+            "output",
         ),
         "sleep": ("seconds",),
-        "ai": ("type", "save_as"),
+        "ai": ("type", "output"),
     }
-    fields = safe_fields_by_action.get(action, ("type", "browser", "page", "path", "save_as"))
+    fields = safe_fields_by_action.get(action, ("type", "browser", "page", "path", "output"))
     parts: list[str] = []
     for field in fields:
         if field not in step:

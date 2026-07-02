@@ -7,8 +7,10 @@
       "action": "read",
       "type": "text",
       "path": "resources/sample_lines.txt",
-      "save_as": "emails",
-      "split_lines": true
+      "split_lines": true,
+      "output": {
+        "as": "emails"
+      }
     },
     {
       "action": "write",

@@ -1,7 +1,11 @@
 {
   "name": "oracle-basic",
   "automation_type": "browser",
-  "tags": ["database", "sql", "oracle"],
+  "tags": [
+    "database",
+    "sql",
+    "oracle"
+  ],
   "steps": [
     {
       "action": "sql",
@@ -9,7 +13,9 @@
       "connection": "oracle",
       "sql": "select 1 as ok from dual",
       "result_path": "oracle-smoke.json",
-      "save_as": "oracle_smoke"
+      "output": {
+        "as": "oracle_smoke"
+      }
     },
     {
       "action": "write",

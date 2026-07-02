@@ -17,7 +17,7 @@
 | `variable` | 设置或复制变量 | `type`、`name`、`value` | 拼装后续步骤参数 |
 | `read` | 读取文本、JSON、CSV、Excel | `type`、`path` | 读取输入资源或本机文件 |
 | `write` | 写 JSON、文本、CSV、Excel、变量 | `type`、`path`、`value`/`cells`/`sheets` | 输出结果到当前 plan 包 `output/` |
-| `table` | 处理表格行数组 | `type`、`source`、`save_as` | Excel/CSV/JSON/SQL 读入后的筛选、清洗、拆列、合列、日期解析、查表、模糊查表、表头归一化、多来源合并、汇总、连接和透视 |
+| `table` | 处理表格行数组 | `type`、`source`、`output` | Excel/CSV/JSON/SQL 读入后的筛选、清洗、拆列、合列、日期解析、查表、模糊查表、表头归一化、多来源合并、汇总、连接和透视 |
 | `http` | 发 HTTP 请求 | `method`、`url`、`headers`、`body` | 调接口、下载文本、检查服务 |
 | `sql` | 访问关系型数据库 | `type`、`connection`、`sql`/`table` | SQLite 本地落库、PG/MySQL/SQL Server 查询和更新、事务、schema 探测、导入导出和批量写入 |
 | `mongo` | 访问 MongoDB | `type`、`connection`、`collection`/`command` | 文档写入、条件查询、更新、聚合、索引和原生命令 |
@@ -31,6 +31,7 @@
 
 - `write.path`、`read.path` 等 plan 内路径推荐使用 `/`。
 - 输出 action 的 `path` 相对于当前 plan 包 `output/` 的对应分区，不要以 `output/` 开头。
+- 上游 step 需要把结构化结果交给下游时，使用 `output` 发布 JSON-safe 值；`output.as` 是变量名，`output.from` 从 action 原始结果中选片段，`output.type`/`output.fields` 做轻量校验。
 - `command` 可以使用本机绝对路径、共享盘或外部工作目录；用户未指定固定路径时优先把输入放入当前 plan 包 `resources/`。
 - 用户没有指定服务型数据库时，优先用 `sql` + SQLite 本地文件，数据库文件放在当前 plan 包 `output/sql/`。
 - `manual_confirm` 只负责暂停和交接，不替代后续断言或状态采集。
