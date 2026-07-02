@@ -24,8 +24,9 @@ AI 终端工具是 plan 级能力，只服务创建、管理、运行、调试�
 - plan action 的运行证据和中间产物必须限制在当前 plan 包、debug workspace 或当前 plan 的 `output/` 约束内。
 - 用户明确要求最终交付物写到 Downloads、桌面或绝对路径时，使用 `export_local_file` 写入最终文件，或从当前 plan `output/` 复制已生成产物；不要要求用户手动复制。
 - 用户提供本机输入文件但没有明确要求长期依赖该路径时，使用 `import_plan_resource_file` 导入当前 plan 包 `resources/`，再在 plan 中引用 `resources/...`。
-- 新建 plan 包阶段可以使用 `write_plan_package_file` 写 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；它必须拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
+- 新建 plan 包阶段可以使用 `write_plan_package_file` 写 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；它只能写本 AI 工具创建并记录的新 plan 包，并必须拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
 - 已有原始 plan 的修复必须形成 debug workspace patch，并经用户批准后应用。
+- 会实际启动 plan 的工具必须走质量门禁。`run_schedule_now` 不能作为 AI 直接运行工具开放；立即触发 schedule 使用 `cplan schedule run-now <id>`。
 - 工具失败要抛出明确异常或返回 `ok=false` 的结构化结果，不能吞掉错误。
 - 不因文件未超过 1000 行或看起来偏大就拆模块；拆分必须服务职责边界、风险隔离、测试可读性或长期维护收益。
 - 为真实网站、URL、后台页面或网页流程创建最终 plan 时，AI 终端必须先跑通流程证据，不能只根据文字描述猜 selector。第一步用 `inspect_web_page` 获取入口 DOM/表单/按钮/链接/登录和验证信号；涉及登录、验证码、二次验证、后台菜单或动态页面时，继续创建并运行 `open_browser.headed=true` 的探索 plan。需要用户介入时，用 `manual_confirm` 停在同一个 Playwright 浏览器窗口里交接，不要让用户另开本机浏览器后再提供 URL、截图或 HTML。

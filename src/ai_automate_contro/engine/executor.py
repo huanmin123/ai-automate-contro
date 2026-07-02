@@ -9,6 +9,7 @@ from playwright.sync_api import sync_playwright
 
 from ai_automate_contro.engine.actions import ActionExecutor
 from ai_automate_contro.plans.config import load_plan_config
+from ai_automate_contro.plans.validator import validate_plan_file
 from ai_automate_contro.support.logger import RunLogger
 from ai_automate_contro.plans.results import PlanResult, write_report_markdown, write_result_json
 from ai_automate_contro.engine.runtime import RuntimeState
@@ -34,11 +35,18 @@ def execute_plan(
 ) -> PlanResult:
     root_path = Path(project_root).resolve()
     resolved_plan_path = path_from_text(plan_path).resolve() if plan_path else None
+    if resolved_plan_path is not None and resolved_plan_path.is_dir():
+        resolved_plan_path = resolved_plan_path / "plan.json"
     if resolved_plan_path is not None and resolved_plan_path.name != "plan.json":
         raise ValueError(
             "只能直接执行名为 plan.json 的包入口计划。"
             "子计划 sub-plans/*-plan.json 请通过包入口 plan 内的 run_sub_plan 调用。"
         )
+    if resolved_plan_path is not None:
+        validation = validate_plan_file(resolved_plan_path, root_path)
+        if not validation.ok:
+            first_error = validation.errors[0].format() if validation.errors else str(resolved_plan_path)
+            raise ValueError(f"plan 校验失败，拒绝运行：{first_error}")
     plan_dir = resolved_plan_path.parent if resolved_plan_path else root_path
     resolved_run_name = run_name or plan.get("name") or (resolved_plan_path.stem if resolved_plan_path else "plan-run")
     resolved_output_dir = (
@@ -68,6 +76,8 @@ def execute_plan(
         variable_overrides=variable_overrides or {},
     )
     automation_type = str(plan.get("automation_type") or "")
+    if automation_type not in {"browser", "desktop"}:
+        raise ValueError("plan.automation_type 必须是 browser 或 desktop。")
 
     started_at = datetime.now().isoformat(timespec="seconds")
     error_message: str | None = None
@@ -85,6 +95,7 @@ def execute_plan(
             output_dir=resolved_output_dir,
             logger=logger,
             state_writer=state_writer,
+            automation_type=automation_type,
             plan_path=resolved_plan_path,
             package_dir=plan_dir,
             variables=variables,

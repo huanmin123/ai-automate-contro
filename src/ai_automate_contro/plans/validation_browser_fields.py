@@ -5,6 +5,7 @@ from typing import Any
 from ai_automate_contro.plans.validation_field_helpers import (
     FRAME_FIELDS,
     LOCATOR_FIELDS,
+    _is_template,
     _validate_bool,
     _validate_dict,
     _validate_enum,

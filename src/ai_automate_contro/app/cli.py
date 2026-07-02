@@ -28,6 +28,12 @@ from ai_automate_contro.plans.packages import (
     create_plan_package,
     find_latest_run_output,
 )
+from ai_automate_contro.plans.templates import (
+    create_plan_package_from_template,
+    get_plan_template,
+    list_plan_templates,
+    parse_template_param_pairs,
+)
 from ai_automate_contro.plans.validator import validate_plan_file
 from ai_automate_contro.support.paths import path_from_text
 
@@ -296,6 +302,12 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_workspace_clean(project_root)
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "template-components":
+            from ai_automate_contro.app.template_component_check import self_check_template_components
+
+            result = self_check_template_components(project_root)
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "release-matrix":
             from ai_automate_contro.app.release_matrix_check import self_check_release_matrix
 
@@ -539,14 +551,49 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
     if command == "list":
         print_plan_list(project_root, getattr(args, "filter", "") or "")
         return 0
+    if command == "template":
+        template_command = str(getattr(args, "template_command", "") or "")
+        if template_command == "list":
+            templates = {"ok": True, "templates": list_plan_templates()}
+            if bool(getattr(args, "json", False)):
+                print_json(templates, compact=bool(getattr(args, "compact", False)))
+            else:
+                _print_template_list(templates["templates"], verbose=bool(getattr(args, "verbose", False)))
+            return 0
+        if template_command == "show":
+            template = get_plan_template(getattr(args, "id"))
+            if bool(getattr(args, "json", False)):
+                print_json({"ok": True, "template": template}, compact=bool(getattr(args, "compact", False)))
+            else:
+                _print_template_detail(template)
+            return 0
+        return None
     if command == "create":
-        package_dir = create_plan_package(
-            getattr(args, "path"),
-            project_root=project_root,
-            automation_type=getattr(args, "automation_type"),
-            name=getattr(args, "name", None),
-            force=bool(getattr(args, "force", False)),
-        )
+        template_id = str(getattr(args, "template", "") or "").strip()
+        template_params = parse_template_param_pairs(getattr(args, "param", []) or [])
+        if template_id:
+            package_dir = create_plan_package_from_template(
+                getattr(args, "path"),
+                project_root=project_root,
+                template_id=template_id,
+                automation_type=getattr(args, "automation_type", None),
+                template_params=template_params,
+                name=getattr(args, "name", None),
+                force=bool(getattr(args, "force", False)),
+            )
+        else:
+            if template_params:
+                raise ValueError("只有使用 --template 创建场景模板时才能传 --param。")
+            automation_type = getattr(args, "automation_type", None)
+            if not automation_type:
+                raise ValueError("创建空白 plan 包必须提供 --automation-type；使用场景模板时可改用 --template。")
+            package_dir = create_plan_package(
+                getattr(args, "path"),
+                project_root=project_root,
+                automation_type=automation_type,
+                name=getattr(args, "name", None),
+                force=bool(getattr(args, "force", False)),
+            )
         print(f"已创建 plan 包：{package_dir}")
         return 0
     if command == "validate":
@@ -607,6 +654,67 @@ def _run_cplan_plan_command(project_root: Path, args: object) -> int | None:
         print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
         return 0
     return None
+
+
+def _print_template_list(templates: list[dict[str, object]], *, verbose: bool = False) -> None:
+    if not templates:
+        print("暂无 plan 场景模板。")
+        return
+    for index, template in enumerate(templates, start=1):
+        variables = template.get("variables") if isinstance(template.get("variables"), list) else []
+        variable_names = [
+            str(item.get("name"))
+            for item in variables
+            if isinstance(item, dict) and item.get("name")
+        ]
+        print(
+            f"{index:02d}. {template.get('id')} "
+            f"| 类型={template.get('automation_type')} "
+            f"| 离线可跑={template.get('offline_runnable')} "
+            f"| 变量={', '.join(variable_names) or '-'}"
+        )
+        description = str(template.get("description") or "").strip()
+        if description:
+            print(f"    {description}")
+        if verbose:
+            _print_template_sections(template, indent="    ")
+
+
+def _print_template_detail(template: dict[str, object]) -> None:
+    print(f"{template.get('id')} | {template.get('title')}")
+    print(f"类型={template.get('automation_type')} | 离线可跑={template.get('offline_runnable')} | 默认运行={template.get('run_by_default')}")
+    description = str(template.get("description") or "").strip()
+    if description:
+        print(description)
+    _print_template_sections(template, indent="")
+
+
+def _print_template_sections(template: dict[str, object], *, indent: str) -> None:
+    variables = template.get("variables") if isinstance(template.get("variables"), list) else []
+    if variables:
+        print(f"{indent}参数:")
+        for variable in variables:
+            if isinstance(variable, dict):
+                print(f"{indent}  - {_format_template_parameter(variable)}")
+    expected_outputs = template.get("expected_outputs") if isinstance(template.get("expected_outputs"), list) else []
+    if expected_outputs:
+        print(f"{indent}预期产物:")
+        for output in expected_outputs:
+            print(f"{indent}  - {output}")
+    risk_notes = template.get("risk_notes") if isinstance(template.get("risk_notes"), list) else []
+    if risk_notes:
+        print(f"{indent}注意:")
+        for note in risk_notes:
+            print(f"{indent}  - {note}")
+
+
+def _format_template_parameter(parameter: dict[str, object]) -> str:
+    name = str(parameter.get("name") or "")
+    parameter_type = str(parameter.get("type") or "string")
+    item_type = str(parameter.get("item_type") or "").strip()
+    type_text = f"{parameter_type}[{item_type}]" if item_type else parameter_type
+    description = str(parameter.get("description") or "").strip()
+    return f"{name}: {type_text}" + (f" - {description}" if description else "")
 
 
 def _is_cplan_invocation(argv: list[str] | None) -> bool:

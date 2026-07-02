@@ -31,6 +31,19 @@ python .\main.py tool check
 python .\cplan.py create --path .\plans\new-plan --automation-type browser --name "New Plan"
 ```
 
+查看并使用场景模板：
+
+```powershell
+python .\cplan.py template list
+python .\cplan.py template list --verbose
+python .\cplan.py template show api-to-excel
+python .\cplan.py create --template excel-cleaning-report --path .\plans\excel-cleaning-demo
+python .\cplan.py create --template browser-download-process --path .\plans\download-process-demo
+python .\cplan.py create --template sql-import-export --path .\plans\sql-import-export-demo
+python .\cplan.py create --template excel-cleaning-report --path .\plans\inactive-report --param active_status=Inactive
+python .\cplan.py validate --file .\plans\excel-cleaning-demo\plan.json
+```
+
 进入 AI 终端：
 
 ```powershell
@@ -123,6 +136,7 @@ AI 终端或工具创建 plan 且没有明确目录时，会使用当前运行�
 - Textual 客户端保持输入区可用：AI 正在回复或运行工具时，普通输入会进入队列，当前轮完成后继续处理。
 - AI 为真实网站创建最终 plan 前必须先用自动化跑通流程证据：先用 `inspect_web_page` 获取入口证据；涉及登录、验证码、后台菜单或动态页面时，继续创建并运行 `open_browser.headed=true` 的探索 plan。需要用户介入时，用 `manual_confirm` 停在同一个 Playwright 浏览器窗口里交接，不要求用户另开本机浏览器。
 - 用户授权提供的账号、密码、token、api_key 和一次性验证码可以按需求直接写入 `plan.json`、`config.json`、`resources/**` 或 `sub-plans/**`。AI 工具不得因为字段看起来敏感就改写为环境变量、模板引用、占位符或拒绝保存。
+- AI 直接写 plan 包只限它通过工具新建并记录的包；已有原始 plan 的修复走 debug workspace、补丁和用户确认。
 - plan 的可复现运行证据仍归档在当前 plan 包 `output/`。当用户要求把最终结果保存为本机文件，例如 `C:\Users\...\Downloads\result.txt` 或 `/Users/.../Downloads/result.txt`，AI 终端会用 `export_local_file` 直接写入或从 `output/` 复制到该路径，不需要用户手动复制。
 - `cplan run` 遇到 `manual_confirm` 时在当前命令行等待用户确认；AI 通过工具运行到确认点时，确认会回到当前 Textual 对话里，用自然语言判断继续或停止。
 - AI 调试修复只能先写入 debug workspace 的 `injected-plan/`、`notes.md` 或 `report.md`，再生成 patch。
@@ -156,6 +170,8 @@ python .\cplan.py self-check data-components
 - `write`: 通过 `type` 写出 `json`、`text`、`csv`、`excel`、`variables`
 - `table`: 通过 `type` 对行数组执行筛选、选列、排序、去重、分组、连接、派生列、清洗、拆列、合列、日期解析、查表和透视
 - `ai`: 通过 `type` 执行受控专项 AI 任务，例如连通性、文本抽取、分类、转换和摘要
+
+常见组合场景可以先用 `cplan template list --verbose` 或 `cplan template show <id>` 查看官方模板，再用 `cplan create --template <id>` 生成普通 plan 包；创建时可用 `--param KEY=VALUE` 覆盖模板变量并按模板声明类型校验。当前模板覆盖网页登录表格抽取、Excel 清洗报表、HTTP API 到 Excel、浏览器下载处理、SQLite 导入导出和桌面文件对话框批处理脚手架。
 
 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download` 这类参数或生命周期明显不同的能力保持独立组件。
 

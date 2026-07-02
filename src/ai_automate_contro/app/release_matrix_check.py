@@ -177,11 +177,16 @@ def _deterministic_commands(
         desktop_examples_command.append("--require-vision")
     return [
         {"name": "compileall", "command": [_python(), "-m", "compileall", "-q", "src", "main.py", "cplan.py"]},
+        {"name": "cli", "command": [_python(), "cplan.py", "self-check", "cli"]},
         {"name": "tool_check", "command": [_python(), "main.py", "tool", "check"]},
         {"name": "handbook", "command": [_python(), "cplan.py", "self-check", "handbook"]},
         {"name": "workspace_clean", "command": [_python(), "cplan.py", "self-check", "workspace-clean"]},
+        {"name": "template_components", "command": [_python(), "cplan.py", "self-check", "template-components"]},
+        {"name": "browser_components", "command": [_python(), "cplan.py", "self-check", "browser-components"]},
         {"name": "data_components", "command": [_python(), "cplan.py", "self-check", "data-components"]},
         {"name": "database_components", "command": [_python(), "cplan.py", "self-check", "database-components"]},
+        {"name": "ai_stream", "command": [_python(), "main.py", "self-check", "ai-stream"]},
+        {"name": "textual_client", "command": [_python(), "main.py", "self-check", "textual-client"]},
         {"name": "ai_tools", "command": [_python(), "main.py", "self-check", "ai-tools"]},
         {"name": "ai_terminal", "command": [_python(), "main.py", "self-check", "ai-terminal"]},
         {"name": "ai_plan_generation", "command": [_python(), "main.py", "self-check", "ai-plan-generation"]},

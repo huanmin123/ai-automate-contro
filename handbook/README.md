@@ -9,6 +9,8 @@
 3. 写 step 时进入 [Action 手册索引](./actions/README.md)，只读对应执行线和通用 action。
 4. 需要最小样例时读 [第一个计划示例](./第一个计划示例.md)。
 
+如果只是想从常见场景快速开始，先看项目功能文档里的场景模板 Cookbook。模板生成后仍按本手册修改 `plan.json`。
+
 ## 执行线规则
 
 - 主 `plan.json` 必须写 `automation_type`，只能是 `browser` 或 `desktop`。

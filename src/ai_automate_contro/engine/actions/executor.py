@@ -8,6 +8,7 @@ from playwright.sync_api import Frame, FrameLocator, Locator, Page
 from ai_automate_contro.engine.conditions import ConditionEvaluator
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.template import render_value
+from ai_automate_contro.plans.validation_rules import ACTIONS_BY_AUTOMATION_TYPE
 
 from . import (
     ai_task,
@@ -83,6 +84,7 @@ class ActionExecutor:
         handler = self._resolve_action_handler(action)
         if handler is None:
             raise ValueError(f"Unsupported action: {action}")
+        self._ensure_action_allowed(action)
 
         try:
             handler(step)
@@ -140,6 +142,13 @@ class ActionExecutor:
                     ](self, step)
                 )
         return getattr(self, f"_action_{action}", None)
+
+    def _ensure_action_allowed(self, action: str) -> None:
+        automation_type = getattr(self.state, "automation_type", "")
+        allowed_actions = ACTIONS_BY_AUTOMATION_TYPE.get(automation_type)
+        if allowed_actions is None or action in allowed_actions:
+            return
+        raise ValueError(f"automation_type={automation_type} 不支持 action：{action}")
 
     @staticmethod
     def external_action_handlers() -> set[str]:

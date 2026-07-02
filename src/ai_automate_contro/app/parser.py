@@ -158,13 +158,31 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     list_parser = subparsers.add_parser("list", help="列出 plan 包。")
     list_parser.add_argument("filter", nargs="?", help="可选文本过滤条件。")
 
+    template_parser = subparsers.add_parser("template", help="查看可用 plan 场景模板。")
+    template_subparsers = template_parser.add_subparsers(dest="template_command")
+    template_list_parser = template_subparsers.add_parser("list", help="列出可用 plan 场景模板。")
+    template_list_parser.add_argument("--json", action="store_true", help="以 JSON 输出。")
+    template_list_parser.add_argument("--compact", action="store_true", help="配合 --json 输出紧凑 JSON。")
+    template_list_parser.add_argument("--verbose", action="store_true", help="文本输出时显示参数、风险说明和预期产物。")
+    template_show_parser = template_subparsers.add_parser("show", help="查看单个 plan 场景模板详情。")
+    template_show_parser.add_argument("id", help="模板 id。")
+    template_show_parser.add_argument("--json", action="store_true", help="以 JSON 输出。")
+    template_show_parser.add_argument("--compact", action="store_true", help="配合 --json 输出紧凑 JSON。")
+
     create_parser = subparsers.add_parser("create", help="创建 plan 包模板。")
     create_parser.add_argument("--path", required=True, help="要创建的 plan 包目录。")
     create_parser.add_argument(
         "--automation-type",
-        required=True,
         choices=["browser", "desktop"],
-        help="plan 执行线：browser 或 desktop。",
+        help="plan 执行线：browser 或 desktop。空白 plan 必填；使用 --template 时由模板声明。",
+    )
+    create_parser.add_argument("--template", help="用指定场景模板创建 plan 包，例如 browser-login-extract。")
+    create_parser.add_argument(
+        "--param",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="覆盖模板变量；可重复。对象、数组、true、false、null 使用 JSON 值。",
     )
     create_parser.add_argument("--name", help="写入 plan.json 的 plan 名称。")
     create_parser.add_argument("--force", action="store_true", help="允许使用已有的非空包目录。")
@@ -260,6 +278,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     self_check_subparsers.add_parser("runtime", help="检查 plan.config、handbook 和 plan 根目录。")
     self_check_subparsers.add_parser("handbook", help="检查 handbook action 分类、内链、旧路径和开发噪音。")
     self_check_subparsers.add_parser("workspace-clean", help="检查本地产物、日志和密钥类路径没有被 git 跟踪。")
+    self_check_subparsers.add_parser("template-components", help="检查 plan 场景模板发现、创建、校验和离线运行。")
     release_matrix_parser = self_check_subparsers.add_parser(
         "release-matrix",
         help="运行提交前回归矩阵；默认不调用真实 AI。",

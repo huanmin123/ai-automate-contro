@@ -8,6 +8,7 @@ from typing import Any
 from ai_automate_contro.engine.output_contract import publish_step_output
 from ai_automate_contro.engine.template import render_value
 from ai_automate_contro.plans.loader import load_plan
+from ai_automate_contro.plans.validation_rules import ALLOWED_AUTOMATION_TYPES
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
@@ -20,6 +21,7 @@ def action_run_sub_plan(executor: Any, step: dict[str, Any]) -> None:
     sub_plan = load_plan(sub_plan_path)
     if "steps" not in sub_plan:
         raise ValueError(f"子计划必须是带 steps 的 plan 文档：{sub_plan_path}")
+    _ensure_sub_plan_automation_type(executor, sub_plan, sub_plan_path)
 
     previous_plan_path = executor.state.plan_path
     executor.state.plan_path = sub_plan_path
@@ -77,8 +79,7 @@ def action_retry(executor: Any, step: dict[str, Any]) -> None:
             last_error = error
             executor.state.logger.log("warning", "retry failed", attempt=attempt, error=str(error))
             if attempt < attempts:
-                for session in executor.state.sessions.values():
-                    executor._wait_for_timeout(session.require_page(), int(wait_seconds * 1000))
+                _wait_runtime(executor, wait_seconds)
     if last_error is not None:
         raise last_error
 
@@ -362,6 +363,20 @@ def resolve_sub_plan_path(executor: Any, raw_path: str) -> Path:
     if not resolved_path.exists():
         raise FileNotFoundError(f"子计划不存在：{resolved_path}")
     return resolved_path
+
+
+def _ensure_sub_plan_automation_type(executor: Any, sub_plan: dict[str, Any], sub_plan_path: Path) -> None:
+    parent_type = str(getattr(executor.state, "automation_type", "") or "")
+    raw_child_type = sub_plan.get("automation_type")
+    if raw_child_type in (None, ""):
+        return
+    if not isinstance(raw_child_type, str) or raw_child_type not in ALLOWED_AUTOMATION_TYPES:
+        raise ValueError(f"子计划 automation_type 不支持：{raw_child_type}：{sub_plan_path}")
+    if raw_child_type != parent_type:
+        raise ValueError(
+            f"子计划 automation_type 必须与主 plan 一致：主 plan={parent_type}，"
+            f"子计划={raw_child_type}：{sub_plan_path}"
+        )
 
 
 def _is_relative_to(path: Path, parent: Path) -> bool:

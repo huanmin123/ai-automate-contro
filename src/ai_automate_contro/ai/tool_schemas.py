@@ -107,11 +107,16 @@ class ReadPlanPackageArgs(ToolArgsModel):
 class CreatePlanPackageArgs(ToolArgsModel):
     package_path: str | None = Field(default=None, description="目标 plan 包目录；空则用默认 plan 根和 name。")
     name: str | None = Field(default=None, description="plan 名称。省略 package_path 时必填。")
-    automation_type: Literal["browser", "desktop"] = Field(
-        ...,
-        description="plan 执行线：browser 表示 Playwright 浏览器自动化，desktop 表示跨平台桌面控制。",
+    automation_type: Literal["browser", "desktop"] | None = Field(
+        default=None,
+        description="plan 执行线：browser 表示 Playwright 浏览器自动化，desktop 表示跨平台桌面控制。空白 plan 必填；template_id 可自动声明。",
     )
-    force: bool = Field(default=False, description="允许已有非空包目录。")
+    template_id: str | None = Field(default=None, description="可选场景模板 id，例如 browser-login-extract。")
+    template_params: dict[str, Any] = Field(
+        default_factory=dict,
+        description="使用 template_id 时覆盖模板变量；键必须是模板声明的变量名，复杂值可传数组或对象。",
+    )
+    force: bool = Field(default=False, description="CLI 兼容字段；AI 工具不允许覆盖已有非空 plan 包。")
 
 
 class WritePlanPackageFileArgs(ToolArgsModel):

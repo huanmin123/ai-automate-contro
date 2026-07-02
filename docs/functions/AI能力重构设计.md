@@ -57,44 +57,17 @@ AI 终端文本定位依赖 `ripgrep` 的 `rg` 命令。`grep_project_text` 和 
 
 工具包装层还有二次确认：`apply_debug_patch_after_approval` 只接受 `/approve` 恢复期间的人工批准状态。模型即使在普通对话轮次中传入 `approved: true`，也不能绕过中断审批。该受保护工具不开放给 `python .\main.py tool call` 直接调用；无 AI 脚本应用补丁必须走 `python .\cplan.py debug-apply --yes` 这条显式管理入口。
 
-- `list_plan_packages`
-- `inspect_web_page`
-- `inspect_desktop`
-- `read_plan_package`
-- `create_plan_package`
-- `write_plan_package_file`
-- `validate_plan`
-- `review_plan_quality`
-- `run_plan`
-- `export_local_file`
-- `analyze_latest_run_failure`
-- `read_latest_run_state`
-- `read_latest_run_report`
-- `read_run_log`
-- `read_run_events`
-- `list_output_artifacts`
-- `read_output_artifact`
-- `grep_project_text`
-- `read_project_file_slice`
-- `read_compression_archive`
-- `update_work_plan`
-- `create_debug_workspace`
-- `prepare_failure_debug_workspace`
-- `find_debug_workspace`
-- `list_debug_workspaces`
-- `read_debug_workspace`
-- `inject_debug_steps`
-- `propose_debug_fix`
-- `patch_debug_workspace_json`
-- `write_debug_workspace_file`
-- `validate_debug_plan`
-- `run_debug_plan`
-- `generate_debug_patch`
-- `apply_debug_patch_after_approval`
+当前工具清单以 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 和 `python .\main.py tool list` 输出为准，文档不维护完整静态列表。工具按职责分为：
+
+- plan 包发现、读取、创建、资源导入和受控写入。
+- 执行线取证、质量复查和运行门禁。
+- 运行状态、日志、事件、报告和输出产物读取。
+- 失败分析、debug workspace、修复候选、debug plan 验证和补丁生成。
+- schedule 管理、会话召回、渐进式文本读取和用户可见工作计划。
 
 `inspect_desktop` 是 plan 级只读探测工具，用于真实桌面 plan 创建前获取平台、backend、权限/依赖、窗口列表、可选控件树摘要和截图路径。它不写入 plan steps，也不替代最终 plan 里的 `open_desktop`、窗口/控件/截图/断言证据。
 
-除受保护工具和 `run_plan` 外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；门禁按 `automation_type` 分流，browser 使用网页探测/探索证据，desktop 使用 `inspect_desktop` 摘要、`open_desktop`、`desktop_app`、`desktop_capture type=observe`、窗口、`desktop_element` 控件识别/dump/读取/表格/树、`desktop_assert element`、截图、状态快照、权限诊断和桌面产物证据，不能互相替代；`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 是操作推进，不单独算识别证据。无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
+除受保护工具、`run_plan` 和会实际启动 plan 的 schedule 运行工具外，同一组工具也可以通过 `python .\main.py tool call <name> --args-json '{...}'` 调用，便于真实回归和后续替换 agent 框架。`write_plan_package_file` 只能写本 AI 工具创建并记录的新 plan 包；已有原始 plan 的修复必须走 debug workspace、补丁和用户确认。`run_plan` 只能在 AI 终端通过最新 `review_plan_quality` 门禁后执行；门禁按 `automation_type` 分流，browser 使用网页探测/探索证据，desktop 使用 `inspect_desktop` 摘要、`open_desktop`、`desktop_app`、`desktop_capture type=observe`、窗口、`desktop_element` 控件识别/dump/读取/表格/树、`desktop_assert element`、截图、状态快照、权限诊断和桌面产物证据，不能互相替代；`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 是操作推进，不单独算识别证据。AI 工具直接调用 `run_schedule_now` 会被拒绝；需要立即触发 schedule 时使用 `cplan schedule run-now <id>`。无 AI 场景运行 plan 使用 `cplan run`。`apply_debug_patch_after_approval` 只能走 AI 终端 HITL 审批恢复流程，或无 AI 场景下走 `cplan debug-apply --yes`。
 
 其中 `patch_debug_workspace_json` 用于对 `injected-plan/` 下的 JSON 文件做路径级最小修改，例如只替换 `["steps",0,"message"]`。`write_debug_workspace_file` 保留为整文件写入、文档、资源、notes 和 report 的受限写入工具。
 

@@ -10,6 +10,8 @@ from ai_automate_contro.support.paths import format_missing_path_message, path_f
 
 def validate_plan_file(plan_path: str | Path, project_root: str | Path) -> ValidationResult:
     resolved_plan_path = path_from_text(plan_path).resolve()
+    if resolved_plan_path.is_dir():
+        resolved_plan_path = resolved_plan_path / "plan.json"
     resolved_project_root = Path(project_root).resolve()
     issues: list[ValidationIssue] = []
 

@@ -114,6 +114,8 @@ validator 必须在运行前拒绝跨线 action：
 plan automation_type=desktop，但 step[3] 使用浏览器 action navigate。桌面 plan 只能使用 desktop action 或 common action。
 ```
 
+运行核心也必须保留第二层守卫。`execute_plan(plan, project_root, plan_path=...)` 在真正执行前先调用 validator；如果传入的是 plan 包目录，则解析为该目录下的 `plan.json`。当调用方只传内存 plan、没有 `plan_path` 时，action 分发层仍按 `RuntimeState.automation_type` 检查当前 action 是否属于允许分区，避免绕过文件级 validator。`run_sub_plan` 加载子计划后再次确认显式 `automation_type` 与主 plan 一致；未声明的子计划继承主 plan 类型。
+
 ## Handbook 隔离
 
 handbook 入口应先让 AI 或维护者选择执行线：

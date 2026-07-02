@@ -24,9 +24,11 @@ def self_check_cli_boundaries() -> dict[str, Any]:
     debug_patch_forbidden_check = _check_debug_patch_rejects_forbidden_paths()
     output_dir_check = _check_cplan_output_dir_package_scope()
     trigger_parent_action_check = _check_cplan_trigger_parent_action()
+    runtime_boundary_check = _check_cplan_runtime_validation_and_execution_line_guard()
     schedule_management_check = _check_cplan_schedule_management()
     cplan_debug_prepare_boundary_check = _check_cplan_debug_prepare_uses_neutral_debug_core()
     cplan_error_boundary_check = _check_cplan_error_fix_does_not_reference_ai_side()
+    cplan_create_dispatch_check = _check_cplan_create_dispatch_and_template_commands()
 
     main_forbidden = {
         "cplan",
@@ -45,6 +47,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
     cplan_required = {
         "install-browser",
         "list",
+        "template",
         "create",
         "validate",
         "run",
@@ -101,6 +104,7 @@ def self_check_cli_boundaries() -> dict[str, Any]:
             "passed": {
                 "handbook",
                 "workspace-clean",
+                "template-components",
                 "release-matrix",
                 "browser-components",
                 "data-components",
@@ -142,15 +146,42 @@ def self_check_cli_boundaries() -> dict[str, Any]:
             "detail": {"commands": sorted(main_self_check_commands)},
         },
         {
-            "name": "cplan_create_requires_automation_type",
-            "passed": _parse_rejected(build_cplan_parser(), ["create", "--path", "plans/demo"])
-            and _parse_accepted(
+            "name": "cplan_create_and_template_commands_parse",
+            "passed": _parse_accepted(
                 build_cplan_parser(),
                 ["create", "--path", "plans/demo", "--automation-type", "browser"],
             )
             and _parse_accepted(
                 build_cplan_parser(),
                 ["create", "--path", "plans/demo", "--automation-type", "desktop"],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["create", "--path", "plans/demo", "--template", "excel-cleaning-report"],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                [
+                    "create",
+                    "--path",
+                    "plans/demo",
+                    "--template",
+                    "excel-cleaning-report",
+                    "--param",
+                    "active_status=Inactive",
+                ],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["template", "list", "--json"],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["template", "list", "--verbose"],
+            )
+            and _parse_accepted(
+                build_cplan_parser(),
+                ["template", "show", "excel-cleaning-report", "--json"],
             ),
             "detail": {},
         },
@@ -160,7 +191,9 @@ def self_check_cli_boundaries() -> dict[str, Any]:
         debug_patch_forbidden_check,
         output_dir_check,
         trigger_parent_action_check,
+        runtime_boundary_check,
         schedule_management_check,
+        cplan_create_dispatch_check,
         cplan_debug_prepare_boundary_check,
         cplan_error_boundary_check,
     ]
@@ -202,6 +235,77 @@ def _parse_rejected(parser: argparse.ArgumentParser, argv: list[str]) -> bool:
     except (SystemExit, UserFacingError):
         return True
     return False
+
+
+def _read_json(path: Path) -> Any:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _check_cplan_create_dispatch_and_template_commands() -> dict[str, Any]:
+    import contextlib
+    import io
+
+    from ai_automate_contro.app.cli import run_cplan_cli
+
+    def run(project_root: Path, argv: list[str]) -> dict[str, Any]:
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            code = run_cplan_cli(project_root, argv)
+        return {"code": code, "stdout": stdout.getvalue(), "stderr": stderr.getvalue()}
+
+    with TemporaryDirectory(prefix="cplan-create-dispatch-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+        missing_type = run(project_root, ["create", "--path", str(project_root / "plans" / "blank-missing-type")])
+        blank_browser = run(
+            project_root,
+            ["create", "--path", str(project_root / "plans" / "blank-browser"), "--automation-type", "browser"],
+        )
+        templated = run(
+            project_root,
+            [
+                "create",
+                "--path",
+                str(project_root / "plans" / "templated-excel"),
+                "--template",
+                "excel-cleaning-report",
+                "--param",
+                "active_status=Inactive",
+            ],
+        )
+        template_show = run(project_root, ["template", "show", "excel-cleaning-report", "--json", "--compact"])
+        template_list_verbose = run(project_root, ["template", "list", "--verbose"])
+        blank_plan = _read_json(project_root / "plans" / "blank-browser" / "plan.json")
+        templated_plan = _read_json(project_root / "plans" / "templated-excel" / "plan.json")
+        show_payload = json.loads(template_show["stdout"]) if template_show["stdout"].strip() else {}
+
+    passed = (
+        missing_type["code"] == 1
+        and "必须提供 --automation-type" in missing_type["stderr"]
+        and blank_browser["code"] == 0
+        and blank_plan.get("automation_type") == "browser"
+        and templated["code"] == 0
+        and templated_plan.get("variables", {}).get("active_status") == "Inactive"
+        and template_show["code"] == 0
+        and show_payload.get("template", {}).get("id") == "excel-cleaning-report"
+        and "active_status: string" in template_list_verbose["stdout"]
+    )
+    return {
+        "name": "cplan_create_dispatch_and_template_commands",
+        "passed": passed,
+        "detail": {
+            "missing_type": missing_type,
+            "blank_browser": blank_browser,
+            "templated": templated,
+            "template_show": template_show,
+            "template_list_verbose": template_list_verbose,
+            "blank_automation_type": blank_plan.get("automation_type"),
+            "templated_active_status": templated_plan.get("variables", {}).get("active_status"),
+            "show_template_id": show_payload.get("template", {}).get("id") if isinstance(show_payload, dict) else "",
+        },
+    }
 
 
 def _check_cplan_debug_prepare_uses_neutral_debug_core() -> dict[str, Any]:
@@ -614,6 +718,10 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
                 }
             ],
         }
+        rendered_invalid_plan_path.write_text(
+            json.dumps(rendered_invalid_plan, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         rendered_invalid_error = ""
         try:
             execute_plan(
@@ -661,6 +769,107 @@ def _check_cplan_trigger_parent_action() -> dict[str, Any]:
             "invalid_name_validation_ok": invalid_name_validation.ok,
             "invalid_name_errors": invalid_name_errors,
             "rendered_invalid_error": rendered_invalid_error,
+        },
+    }
+
+
+def _check_cplan_runtime_validation_and_execution_line_guard() -> dict[str, Any]:
+    from ai_automate_contro.engine.executor import execute_plan
+    from ai_automate_contro.plans.validator import validate_plan_file
+
+    with TemporaryDirectory(prefix="cplan-runtime-boundary-") as raw_temp_dir:
+        project_root = Path(raw_temp_dir).resolve()
+
+        directory_plan_dir = project_root / "plans" / "directory-plan"
+        directory_plan_dir.mkdir(parents=True, exist_ok=True)
+        directory_plan_path = directory_plan_dir / "plan.json"
+        directory_plan = {
+            "name": "directory plan",
+            "automation_type": "browser",
+            "steps": [{"action": "print", "message": "ok"}],
+        }
+        directory_plan_path.write_text(json.dumps(directory_plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        directory_validation = validate_plan_file(directory_plan_dir, project_root)
+
+        invalid_package_dir = project_root / "plans" / "invalid-cross-line"
+        invalid_package_dir.mkdir(parents=True, exist_ok=True)
+        invalid_plan_path = invalid_package_dir / "plan.json"
+        invalid_plan = {
+            "name": "invalid cross line",
+            "automation_type": "browser",
+            "steps": [{"action": "open_desktop", "name": "desk"}],
+        }
+        invalid_plan_path.write_text(json.dumps(invalid_plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        invalid_run_error = ""
+        try:
+            execute_plan(invalid_plan, project_root, plan_path=invalid_plan_path, log_echo=False)
+        except Exception as error:
+            invalid_run_error = str(error)
+
+        runtime_guard_plan = {
+            "name": "runtime guard",
+            "automation_type": "desktop",
+            "steps": [{"action": "open_browser", "name": "web"}],
+        }
+        runtime_guard_error = ""
+        try:
+            execute_plan(
+                runtime_guard_plan,
+                project_root,
+                output_dir=project_root / "output" / "runtime-guard",
+                log_echo=False,
+            )
+        except Exception as error:
+            runtime_guard_error = str(error)
+
+        sub_plan_dir = project_root / "sub-plans"
+        sub_plan_dir.mkdir(parents=True, exist_ok=True)
+        sub_plan_path = sub_plan_dir / "desktop-child-plan.json"
+        sub_plan_path.write_text(
+            json.dumps(
+                {
+                    "name": "desktop child",
+                    "automation_type": "desktop",
+                    "steps": [{"action": "print", "message": "child"}],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        sub_plan_error = ""
+        try:
+            execute_plan(
+                {
+                    "name": "sub plan guard",
+                    "automation_type": "browser",
+                    "steps": [{"action": "run_sub_plan", "path": "sub-plans/desktop-child-plan.json"}],
+                },
+                project_root,
+                output_dir=project_root / "output" / "sub-plan-guard",
+                log_echo=False,
+            )
+        except Exception as error:
+            sub_plan_error = str(error)
+
+    passed = (
+        directory_validation.ok
+        and directory_validation.plan_path == directory_plan_path
+        and "plan 校验失败" in invalid_run_error
+        and "automation_type=browser 不支持 action：open_desktop" in invalid_run_error
+        and "automation_type=desktop 不支持 action：open_browser" in runtime_guard_error
+        and "子计划 automation_type 必须与主 plan 一致" in sub_plan_error
+    )
+    return {
+        "name": "cplan_runtime_validation_and_execution_line_guard",
+        "passed": passed,
+        "detail": {
+            "directory_validation_ok": directory_validation.ok,
+            "directory_validation_path": str(directory_validation.plan_path),
+            "invalid_run_error": invalid_run_error,
+            "runtime_guard_error": runtime_guard_error,
+            "sub_plan_error": sub_plan_error,
         },
     }
 

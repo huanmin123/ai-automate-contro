@@ -91,7 +91,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "create_plan_package": ToolSpec(
         create_plan_package_tool,
         CreatePlanPackageArgs,
-        "创建新的 plan 包模板。",
+        "创建新的 plan 包；空白 plan 传 automation_type，官方场景模板可传 template_id，并可用 template_params 覆盖模板变量。",
         requires_project_root=True,
     ),
     "add_schedule": ToolSpec(
@@ -282,7 +282,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "run_schedule_now": ToolSpec(
         terminal_tools.run_schedule_now_tool,
         ScheduleIdArgs,
-        "立即运行一个 cplan schedule。",
+        "立即运行一个 cplan schedule；当前 AI 工具直调会拒绝，确定性运行请使用 cplan schedule run-now。",
         requires_project_root=True,
     ),
     "validate_debug_plan": ToolSpec(
@@ -347,6 +347,8 @@ def call_ai_terminal_tool(
         )
     if tool_name == "run_plan" and not allow_run_plan:
         raise ValueError("run_plan 只能通过 AI 终端质量门禁后的工具循环执行；无 AI 管理运行请使用 cplan run。")
+    if tool_name == "run_schedule_now" and not allow_run_plan:
+        raise ValueError("run_schedule_now 会运行 plan，只能使用 cplan schedule run-now 或后续纳入 AI 质量门禁后执行。")
     raw_arguments = dict(arguments or {})
     injected_arguments: dict[str, Any] = {}
     if tool_name in {"run_plan", "run_debug_plan"}:

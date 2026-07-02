@@ -423,6 +423,10 @@ def validate_action_specific_fields(
         if "result_path" in step:
             validate_output_path(step["result_path"], "redis", location, package_root, issues)
 
+    if action == "mongo":
+        if "result_path" in step:
+            validate_output_path(step["result_path"], "mongo", location, package_root, issues)
+
     if action == "command":
         for field in ("stdout_path", "stderr_path"):
             if field in step:

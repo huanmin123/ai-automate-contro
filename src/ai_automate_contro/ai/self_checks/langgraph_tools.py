@@ -14,7 +14,7 @@ from ai_automate_contro.ai.terminal_tool_registry import (
     AI_TERMINAL_TOOL_SPECS,
     check_ai_terminal_tool_registry,
 )
-from ai_automate_contro.plans.packages import create_plan_package
+from ai_automate_contro.ai.plan_tools import create_plan_package_tool
 
 
 def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
@@ -107,7 +107,12 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
 
     plan_root = _self_check_plan_root(root)
     with _self_check_temp_plan_package(plan_root) as package_dir:
-        create_plan_package(package_dir, project_root=root, automation_type="browser", name="AI Tools Self Check")
+        create_plan_package_tool(
+            root,
+            package_path=package_dir,
+            automation_type="browser",
+            name="AI Tools Self Check",
+        )
         plan_path = package_dir / "plan.json"
 
         validate_plan_tool = tool_by_name.get("validate_plan")
@@ -199,28 +204,25 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                         schedule_by_name["remove_schedule"].invoke({"schedule_id": "tool-demo"})
                     )
                     list_after_remove_result = json.loads(schedule_by_name["list_schedules"].invoke({}))
-                    output_text_path = schedule_package / "output" / "text" / "scheduled-tool.txt"
-                    output_text = output_text_path.read_text(encoding="utf-8") if output_text_path.exists() else ""
                     schedule_config_exists = (schedule_root / "schedules.json").exists()
                     schedule_state_exists = (schedule_root / ".keygen" / "schedules-state.json").exists()
+                    run_now_error = str(run_now_result.get("error") or run_now_result)
                     schedule_tools_ok = (
                         bool(add_schedule_result.get("ok"))
                         and len(list_result.get("schedules", [])) == 1
-                        and run_now_result.get("ok") is True
-                        and run_now_result.get("status") == "passed"
+                        and run_now_result.get("ok") is False
+                        and "run_schedule_now 会运行 plan" in run_now_error
                         and remove_result.get("removed") is True
                         and list_after_remove_result.get("schedules") == []
-                        and output_text == "ran"
                         and not schedule_config_exists
                         and not schedule_state_exists
                     )
                     schedule_tools_detail = {
                         "add_ok": add_schedule_result.get("ok"),
                         "list_count": len(list_result.get("schedules", [])),
-                        "run_now_status": run_now_result.get("status"),
+                        "run_now_error": run_now_error,
                         "removed": remove_result.get("removed"),
                         "list_after_remove_count": len(list_after_remove_result.get("schedules", [])),
-                        "output_text": output_text,
                         "schedule_config_exists": schedule_config_exists,
                         "schedule_state_exists": schedule_state_exists,
                         "schedule_calls": schedule_calls,
@@ -463,6 +465,41 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     secret_resource_written = bool(secret_resource_write_result.get("ok"))
                 except Exception as error:
                     secret_resource_error = str(error)
+                existing_write_rejected = False
+                existing_write_error = ""
+                try:
+                    with _self_check_temp_plan_package(plan_root) as manual_package_dir:
+                        manual_plan_path = manual_package_dir / "plan.json"
+                        manual_plan_path.write_text(
+                            json.dumps(
+                                {
+                                    "name": "manual existing plan",
+                                    "automation_type": "browser",
+                                    "steps": [{"action": "print", "message": "existing"}],
+                                },
+                                ensure_ascii=False,
+                                indent=2,
+                            )
+                            + "\n",
+                            encoding="utf-8",
+                        )
+                        existing_write_result = json.loads(
+                            write_plan_package_file_tool.invoke(
+                                {
+                                    "plan_path": str(manual_plan_path),
+                                    "relative_path": "docs/SHOULD_NOT_WRITE.md",
+                                    "content": "no",
+                                }
+                            )
+                        )
+                    existing_write_error = str(existing_write_result)
+                    existing_write_rejected = (
+                        not bool(existing_write_result.get("ok"))
+                        and "只能写入本 AI 工具新建的 plan 包" in existing_write_error
+                    )
+                except Exception as error:
+                    existing_write_error = str(error)
+                    existing_write_rejected = "只能写入本 AI 工具新建的 plan 包" in existing_write_error
                 write_plan_package_file_ok = (
                     bool(write_result.get("ok"))
                     and (package_dir / "docs" / "AI_TOOLS_SELF_CHECK.md").exists()
@@ -470,6 +507,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and secret_literal_written
                     and safe_secret_reference_ok
                     and secret_resource_written
+                    and existing_write_rejected
                 )
                 write_plan_package_file_detail = {
                     "relative_path": write_result.get("relative_path"),
@@ -477,6 +515,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "secret_literal_error": secret_literal_error,
                     "safe_secret_reference_error": safe_secret_reference_error,
                     "secret_resource_error": secret_resource_error,
+                    "existing_write_error": existing_write_error,
                 }
             except Exception as error:
                 write_plan_package_file_error = str(error)
@@ -1744,7 +1783,12 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     gate_root = Path(raw_gate_dir)
                     (gate_root / "plans").mkdir(parents=True, exist_ok=True)
                     gate_package = gate_root / "plans" / "gate"
-                    create_plan_package(gate_package, project_root=gate_root, automation_type="browser", name="gate")
+                    create_plan_package_tool(
+                        gate_root,
+                        package_path=gate_package,
+                        automation_type="browser",
+                        name="gate",
+                    )
                     gate_plan_path = gate_package / "plan.json"
                     gate_plan_path.write_text(
                         json.dumps(
@@ -1810,9 +1854,9 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     )
                     stale_review_result = json.loads(gated_by_name["run_plan"].invoke({"plan_path": str(gate_plan_path)}))
                     desktop_gate_package = gate_root / "plans" / "desktop-gate"
-                    create_plan_package(
-                        desktop_gate_package,
-                        project_root=gate_root,
+                    create_plan_package_tool(
+                        gate_root,
+                        package_path=desktop_gate_package,
                         automation_type="desktop",
                         name="desktop gate",
                     )

@@ -59,6 +59,7 @@ class RuntimeState:
     output_dir: Path
     logger: RunLogger
     state_writer: RunStateWriter
+    automation_type: str
     plan_path: Path | None = None
     package_dir: Path | None = None
     variables: dict[str, Any] = field(default_factory=dict)

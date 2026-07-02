@@ -283,7 +283,7 @@ AI 终端只能通过工具操作项目。
 
 当前工具清单以 `src/ai_automate_contro/ai/terminal_tool_registry.py` 里的 `AI_TERMINAL_TOOL_SPECS` 为准，也可以用 `python .\main.py tool list` 查看；文档不再维护容易过期的完整静态枚举。工具按职责分为几类：
 
-- plan 包发现、读取、创建、资源导入和受控写入：用于新建 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；用户提供本机输入文件时默认通过导入工具复制到当前 plan 包 `resources/`；拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
+- plan 包发现、读取、创建、资源导入和受控写入：用于新建 `plan.json`、`config.json`、`docs/**`、`resources/**` 和 `sub-plans/*-plan.json`；`write_plan_package_file` 只能写本 AI 工具创建并记录的新 plan 包；用户提供本机输入文件时默认通过导入工具复制到当前 plan 包 `resources/`；拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 路径。
 - 执行线取证和质量门禁：browser plan 面向真实网站时，`inspect_web_page` 必须在最终 plan 前优先使用；desktop plan 面向真实桌面 App 时，`inspect_desktop` 应优先用于获取平台、backend、`capability_matrix`、权限/依赖、窗口列表、可选控件树摘要和截图路径；`inspect_desktop` 返回结构与 plan 内 `desktop_capture type=observe` 的统一观察 payload 对齐。`review_plan_quality` 会结合最近探测上下文、用户需求和 plan 内容做门禁。desktop plan 不要求 `inspect_web_page`、`open_browser` 或 `navigate`，质量门禁使用 `inspect_desktop` 摘要、`open_desktop`、`capability_matrix`、`desktop_app`、`desktop_capture type=observe`、窗口列表、控件列表/dump/定位/文本/状态/表格/树、控件断言、截图、状态快照、权限诊断、桌面标注、桌面断言和运行产物做证据；App 启动、窗口生命周期控制和 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 本身不能替代窗口、控件、截图、等待或断言证据。
 - 运行、产物和失败分析：运行证据仍留在当前 plan 包 `output/`；用户明确要求 Downloads、桌面或绝对路径时，最终交付通过 `export_local_file` 写出，不要求用户手动复制。
 - debug workspace 和补丁：无 AI 人工调试走 `cplan debug-*`；AI 修复先写 `injected-plan/`、`notes.md` 或 `report.md`，生成补丁后再经审批应用。
@@ -291,6 +291,8 @@ AI 终端只能通过工具操作项目。
 
 新建 plan 包可以通过受控工具直接写入白名单文件。已有原始 plan 的修复必须形成可读补丁，并经过用户确认。
 所有修复候选必须先落到当前 debug workspace 的 `injected-plan/`，再由 `generate_debug_patch` 生成补丁。
+
+schedule 的创建、启用、禁用、删除和查询可以通过 AI 工具管理；立即运行 schedule 会启动 plan，AI 工具直接调用 `run_schedule_now` 会被拒绝。需要立即触发时使用无 AI 管理入口 `cplan schedule run-now <id>`。
 
 结构化工具也可以直接从 CLI 调用，便于脚本、CI 和回归验证：
 

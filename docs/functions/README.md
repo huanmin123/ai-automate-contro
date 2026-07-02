@@ -21,4 +21,5 @@
 15. [桌面复杂控件与视觉增强设计](./桌面复杂控件与视觉增强设计.md)
 16. [Excel 文件与表格处理 Action 设计](./Excel文件与表格处理Action设计.md)
 17. [Excel 表格处理 Cookbook](./Excel表格处理Cookbook.md)
-18. [功能设计示例](./功能设计示例.md)
+18. [场景模板 Cookbook](./场景模板Cookbook.md)
+19. [功能设计示例](./功能设计示例.md)

@@ -37,6 +37,7 @@ from ai_automate_contro.plans.validation_field_helpers import (
     _validate_bool,
     _validate_enum,
     _validate_int,
+    _validate_number,
     _validate_size,
     _validate_string,
 )
@@ -179,4 +180,3 @@ def validate_optional_field_values(
         _validate_int(step, "duration_ms", location, issues, minimum=0)
         _validate_bool(step, "touch", location, issues)
         _validate_bool(step, "fallback_to_mouse", location, issues)
-

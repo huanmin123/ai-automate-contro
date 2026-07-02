@@ -15,6 +15,7 @@ from ai_automate_contro.plans.packages import (
     plan_matches_filter,
     summarize_plan,
 )
+from ai_automate_contro.plans.templates import create_plan_package_from_template
 from ai_automate_contro.plans.validator import ValidationIssue, validate_plan_file
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
@@ -23,6 +24,7 @@ MAX_PACKAGE_DOCS = 20
 MAX_SUB_PLANS = 50
 MAX_PACKAGE_FILE_LIST = 200
 MAX_PLAN_STEP_OUTLINE = 80
+AI_CREATED_PLAN_PACKAGES_PATH = Path(".keygen") / "ai-created-plan-packages.json"
 ALLOWED_PLAN_PACKAGE_WRITE_ROOTS = {"docs", "resources"}
 FORBIDDEN_PLAN_PACKAGE_WRITE_PARTS = {
     ".git",
@@ -78,7 +80,9 @@ def create_plan_package_tool(
     project_root: str | Path,
     package_path: str | Path | None = None,
     *,
-    automation_type: str,
+    automation_type: str | None = None,
+    template_id: str | None = None,
+    template_params: dict[str, Any] | None = None,
     name: str | None = None,
     force: bool = False,
 ) -> dict[str, Any]:
@@ -94,17 +98,42 @@ def create_plan_package_tool(
     else:
         resolved_package_path = default_plan_package_dir(root, name=name or "").resolve()
     _validate_create_plan_package_path(resolved_package_path, root)
-    package_dir = create_plan_package(
-        resolved_package_path,
-        project_root=root,
-        automation_type=automation_type,
-        name=name,
-        force=force,
-    )
+    preexisting_items = list(resolved_package_path.iterdir()) if resolved_package_path.exists() else []
+    if preexisting_items and force:
+        raise ValueError(
+            "AI 工具不允许用 force 覆盖已有非空 plan 包。"
+            "修复已有 plan 请先创建 debug workspace，再通过 patch 审批应用。"
+        )
+    normalized_template_id = str(template_id or "").strip()
+    if normalized_template_id:
+        package_dir = create_plan_package_from_template(
+            resolved_package_path,
+            project_root=root,
+            template_id=normalized_template_id,
+            automation_type=automation_type,
+            template_params=template_params or {},
+            name=name,
+            force=force,
+        )
+    else:
+        if template_params:
+            raise ValueError("template_params 只能和 template_id 一起使用。")
+        if not automation_type:
+            raise ValueError("create_plan_package 创建空白 plan 包必须提供 automation_type；使用模板时可传 template_id。")
+        package_dir = create_plan_package(
+            resolved_package_path,
+            project_root=root,
+            automation_type=automation_type,
+            name=name,
+            force=force,
+        )
+    _record_ai_created_plan_package(package_dir, root)
     return {
         "ok": True,
         "package_dir": str(package_dir),
         "plan_path": str(package_dir / "plan.json"),
+        "template_id": normalized_template_id,
+        "template_params": dict(template_params or {}) if normalized_template_id else {},
         "summary": summarize_plan(package_dir / "plan.json", root),
     }
 
@@ -125,6 +154,12 @@ def write_plan_package_file_tool(
         raise ValueError("plan 包必须位于项目根目录内。")
     if not resolved_plan_path.exists():
         raise FileNotFoundError(f"plan 包入口不存在：{resolved_plan_path}")
+    if not _is_ai_created_plan_package(package_dir, root):
+        raise ValueError(
+            "write_plan_package_file 只能写入本 AI 工具新建的 plan 包。"
+            "修改已有原始 plan 请使用 create_debug_workspace/read_debug_workspace/"
+            "write_debug_workspace_file/generate_debug_patch/apply_debug_patch_after_approval。"
+        )
 
     raw_relative_path = path_from_text(relative_path)
     if is_absolute_path_text(relative_path):
@@ -375,6 +410,39 @@ def _validate_create_plan_package_path(package_dir: Path, project_root: Path) ->
         raise ValueError("拒绝在 output、profiles、缓存、checkpoint、git 或 pycache 路径创建 plan 包。")
     if package_dir.name.endswith((".pyc", ".pyo")) or ".egg-info" in relative_parts:
         raise ValueError("拒绝在 pyc、pyo 或 egg-info 路径创建 plan 包。")
+
+
+def _record_ai_created_plan_package(package_dir: Path, project_root: Path) -> None:
+    registry_path = _ai_created_plan_packages_path(project_root)
+    registry = _load_ai_created_plan_packages(project_root)
+    registry.add(str(package_dir.resolve()))
+    registry_path.parent.mkdir(parents=True, exist_ok=True)
+    with registry_path.open("w", encoding="utf-8") as file:
+        json.dump({"packages": sorted(registry)}, file, ensure_ascii=False, indent=2)
+        file.write("\n")
+
+
+def _is_ai_created_plan_package(package_dir: Path, project_root: Path) -> bool:
+    return str(package_dir.resolve()) in _load_ai_created_plan_packages(project_root)
+
+
+def _load_ai_created_plan_packages(project_root: Path) -> set[str]:
+    registry_path = _ai_created_plan_packages_path(project_root)
+    if not registry_path.exists():
+        return set()
+    try:
+        with registry_path.open("r", encoding="utf-8") as file:
+            payload = json.load(file)
+    except Exception:
+        return set()
+    packages = payload.get("packages") if isinstance(payload, dict) else None
+    if not isinstance(packages, list):
+        return set()
+    return {str(path_from_text(item).resolve()) for item in packages if isinstance(item, str) and item}
+
+
+def _ai_created_plan_packages_path(project_root: Path) -> Path:
+    return project_root.resolve() / AI_CREATED_PLAN_PACKAGES_PATH
 
 
 def issue_to_dict(issue: ValidationIssue) -> dict[str, str]:

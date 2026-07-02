@@ -72,7 +72,7 @@
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护。
 - 新增或修改 AI 终端工具后运行 `python .\main.py tool check` 和 `python .\main.py self-check ai-tools`。
-- AI 新建 plan 包可使用 `create_plan_package`、`write_plan_package_file` 和资源导入工具写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。工具只拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 等非 plan 包结构路径，不得因明文账号、密码、token、api_key、Cookie 或验证码拒绝写入。
+- AI 新建 plan 包可使用 `create_plan_package`、`write_plan_package_file` 和资源导入工具写入 `plan.json`、`config.json`、`docs/**`、`resources/**`、`sub-plans/*-plan.json`。`write_plan_package_file` 只能写本 AI 工具创建并记录的新 plan 包；已有原始 plan 的修复必须走 debug workspace、patch 和用户确认。工具只拒绝 `output/`、`profiles/`、`.keygen/`、缓存、pyc 和 egg-info 等非 plan 包结构路径，不得因明文账号、密码、token、api_key、Cookie 或验证码拒绝写入。
 - AI 根据自然语言创建 plan 时，先判断用户要的是浏览器网页自动化还是本机桌面控制。除非用户明确说网页、URL、浏览器、DOM，或明确说桌面应用、窗口、系统键鼠、macOS/Windows 应用，否则必须先追问确认执行线。
 - AI 终端线程状态包含当前 plan、当前 debug workspace 和最近输出目录等摘要状态，由选择、运行、调试 plan 和工具返回自动维护，不暴露旧式手动设置命令。
 
