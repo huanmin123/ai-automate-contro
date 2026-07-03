@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import platform
 import re
 import shutil
@@ -49,6 +50,7 @@ from ai_automate_contro.engine.desktop.backends.capabilities import (
     tesseract_binary_details,
     tesseract_language_available,
 )
+from ai_automate_contro.engine.desktop.backends.native import NativeDesktopBackend
 from ai_automate_contro.engine.desktop.coordinates import (
     CoordinateMapper,
     build_coordinate_profile,
@@ -76,6 +78,14 @@ def desktop_temporary_form_skip_reason(system: str | None = None) -> str:
         return "PowerShell is unavailable; temporary WinForms regression cannot run."
     if resolved_system == "Darwin" and not _module_available("tkinter"):
         return "tkinter is unavailable; temporary macOS form regression cannot run."
+    if resolved_system == "Darwin":
+        with tempfile.TemporaryDirectory(prefix="desktop-form-window-probe-") as raw_temp_dir:
+            package_dir = Path(raw_temp_dir)
+            (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+            window_skip_reason = _macos_textedit_window_access_skip_reason(package_dir)
+            if window_skip_reason:
+                return window_skip_reason
+            return _macos_tk_child_controls_unsupported_reason()
     return ""
 
 
@@ -1930,6 +1940,15 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="desktop-components-app-") as raw_temp_dir:
         package_dir = Path(raw_temp_dir)
         (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        if system == "Darwin":
+            skip_reason = _macos_textedit_window_access_skip_reason(package_dir)
+            if skip_reason:
+                return {
+                    "name": "desktop_real_app_regression",
+                    "ok": True,
+                    "skipped": True,
+                    "reason": skip_reason,
+                }
         plan_path = package_dir / "plan.json"
         if system == "Windows":
             plan, assertion_relative_file, cleanup_hint = _windows_controlled_editor_plan(package_dir)
@@ -2029,6 +2048,71 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             "restored_active_window_path": str(restored_active_window_path),
             "cleanup": cleanup_hint,
         }
+
+
+def _macos_textedit_window_access_skip_reason(package_dir: Path) -> str:
+    probe_file = package_dir / "resources" / f"desktop-textedit-window-probe-{os.getpid()}.txt"
+    probe_file.write_text("desktop textedit window access probe\n", encoding="utf-8")
+    try:
+        subprocess.run(
+            ["open", "-a", "TextEdit", str(probe_file)],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        backend = NativeDesktopBackend()
+        deadline = time.time() + 5
+        last_windows: list[dict[str, Any]] = []
+        while time.time() < deadline:
+            last_windows = backend.list_windows()
+            if any(
+                str(window.get("app") or "") == "TextEdit"
+                and probe_file.name in str(window.get("title") or "")
+                for window in last_windows
+            ):
+                return ""
+            time.sleep(0.5)
+        textedit_windows = [
+            str(window.get("title") or "")
+            for window in last_windows
+            if str(window.get("app") or "") == "TextEdit"
+        ]
+        return (
+            "macOS System Events cannot see the TextEdit probe window after launch; "
+            "grant Accessibility/Automation permission to the current terminal/Python process, "
+            f"then rerun the desktop self-check. visible_textedit_windows={textedit_windows[:3]!r}"
+        )
+    except Exception as error:
+        return f"macOS TextEdit window access probe failed: {error}"
+    finally:
+        _close_macos_textedit_document(probe_file.name)
+
+
+def _macos_tk_child_controls_unsupported_reason() -> str:
+    return (
+        "macOS System Events can see Tk windows but does not reliably expose Tk child controls; "
+        "skipping the temporary macOS form element regression."
+    )
+
+
+def _close_macos_textedit_document(document_name: str) -> None:
+    script = f"""
+    tell application "TextEdit"
+      repeat with docRef in documents
+        try
+          if (name of docRef as text) is {_applescript_text(document_name)} then
+            close docRef saving no
+          end if
+        end try
+      end repeat
+    end tell
+    """
+    subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=5)
+
+
+def _applescript_text(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
@@ -2417,6 +2501,21 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="desktop-components-element-action-") as raw_temp_dir:
         package_dir = Path(raw_temp_dir)
         (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        if system == "Darwin":
+            skip_reason = _macos_textedit_window_access_skip_reason(package_dir)
+            if skip_reason:
+                return {
+                    "name": "desktop_element_set_text_invoke_regression",
+                    "ok": True,
+                    "skipped": True,
+                    "reason": skip_reason,
+                }
+            return {
+                "name": "desktop_element_set_text_invoke_regression",
+                "ok": True,
+                "skipped": True,
+                "reason": _macos_tk_child_controls_unsupported_reason(),
+            }
         plan_path = package_dir / "plan.json"
         plan, assertion_relative_file, cleanup_hint = _temporary_form_plan(package_dir, system)
         assertion_file = package_dir / assertion_relative_file

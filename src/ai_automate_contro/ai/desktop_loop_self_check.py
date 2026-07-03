@@ -534,6 +534,8 @@ def _stable_ai_loop_plan(plan: dict[str, Any]) -> dict[str, Any]:
     skipped_outputs = {
         "agree_checkbox",
         "agree_checkbox_click",
+        "entry_candidate_click",
+        "entry_latest_candidate_click",
         "mouse_panel_focus_click",
         "mouse_panel_double_click",
         "mouse_panel_right_click",
@@ -543,6 +545,10 @@ def _stable_ai_loop_plan(plan: dict[str, Any]) -> dict[str, Any]:
         "mode_combo_select",
         "options_list",
         "options_list_select",
+    }
+    skipped_write_paths = {
+        "form-entry-candidate-click.json",
+        "form-entry-latest-candidate-click.json",
     }
     steps = stable_plan.get("steps")
     if not isinstance(steps, list):
@@ -555,6 +561,8 @@ def _stable_ai_loop_plan(plan: dict[str, Any]) -> dict[str, Any]:
         output_as = output.get("as") if isinstance(output, dict) else ""
         published_name = str(output_as or "")
         if published_name in skipped_outputs:
+            continue
+        if step.get("action") == "write" and str(step.get("path") or "") in skipped_write_paths:
             continue
         if step.get("action") == "command" and published_name == "content_assertion":
             argv = step.get("argv")

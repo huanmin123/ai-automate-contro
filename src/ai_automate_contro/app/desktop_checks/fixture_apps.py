@@ -785,7 +785,7 @@ def _temporary_wpf_form_plan(package_dir: Path) -> tuple[dict[str, Any], Path, s
     plan = {
         "name": "desktop WPF complex control regression",
         "automation_type": "desktop",
-        "variables": {"expected_text": expected_text},
+        "variables": {"expected_text": expected_text, "window_title": title},
         "steps": [
             {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
             {
@@ -2625,7 +2625,7 @@ def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
     plan = {
         "name": "desktop textedit regression",
         "automation_type": "desktop",
-        "variables": {"expected_text": expected_text},
+        "variables": {"expected_text": expected_text, "window_title": file_name},
         "steps": [
             {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
             {
@@ -2671,6 +2671,44 @@ def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
                 "title_contains": file_name,
                 "timeout_ms": 2000,
                 "output": {"as": "app_focused_assertion"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "active",
+                "path": "real-app-active-window.json",
+                "output": {"as": "active_window"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "find",
+                "title_contains": file_name,
+                "path": "real-app-window-find.json",
+                "output": {"as": "found_window"},
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": file_name,
+                "path": "real-app-maximized-window.png",
+                "output": {"as": "app_maximized_screenshot"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": file_name,
+                "output": {"as": "app_refocus_after_restore"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "active",
+                "path": "real-app-restored-active-window.json",
+                "output": {"as": "restored_active_window"},
             },
             {
                 "action": "desktop_element",

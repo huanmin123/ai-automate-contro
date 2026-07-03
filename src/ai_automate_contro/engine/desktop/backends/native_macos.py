@@ -19,14 +19,14 @@ def _list_elements_macos(window: dict[str, Any], *, max_depth: int, max_elements
         else "set targetWindow to window 1"
     )
     script = f"""
-    set rows to {{}}
+    set outputLines to {{}}
     tell application "System Events"
       tell process {_applescript_text(app)}
         set frontmost to true
         {target_line}
         set winPosition to position of targetWindow
         set winSize to size of targetWindow
-        set end of rows to "0" & tab & "macos:window" & tab & (name of targetWindow as text) & tab & "window" & tab & "" & tab & "" & tab & "true" & tab & (item 1 of winPosition) & tab & (item 2 of winPosition) & tab & (item 1 of winSize) & tab & (item 2 of winSize) & tab & ""
+        set end of outputLines to "0" & tab & "macos:window" & tab & (name of targetWindow as text) & tab & "window" & tab & "" & tab & "" & tab & "true" & tab & (item 1 of winPosition) & tab & (item 2 of winPosition) & tab & (item 1 of winSize) & tab & (item 2 of winSize) & tab & ""
         if {int(max_depth)} > 0 then
           set childIndex to 0
           repeat with childElement in UI elements of targetWindow
@@ -54,13 +54,13 @@ def _list_elements_macos(window: dict[str, Any], *, max_depth: int, max_elements
               set childPosition to position of childElement
               set childSize to size of childElement
             end try
-            set end of rows to "1" & tab & ("macos:" & childIndex) & tab & childName & tab & childRole & tab & "" & tab & childValue & tab & childEnabled & tab & (item 1 of childPosition) & tab & (item 2 of childPosition) & tab & (item 1 of childSize) & tab & (item 2 of childSize) & tab & "macos:window"
+            set end of outputLines to "1" & tab & ("macos:" & childIndex) & tab & childName & tab & childRole & tab & "" & tab & childValue & tab & childEnabled & tab & (item 1 of childPosition) & tab & (item 2 of childPosition) & tab & (item 1 of childSize) & tab & (item 2 of childSize) & tab & "macos:window"
           end repeat
         end if
       end tell
     end tell
     set AppleScript's text item delimiters to linefeed
-    return rows as text
+    return outputLines as text
     """
     completed = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=15)
     if completed.returncode != 0:
@@ -252,10 +252,20 @@ def _control_window_macos(window: dict[str, Any], operation: str) -> None:
     if operation == "close":
         operation_script = """
         if exists (first button of targetWindow whose subrole is "AXCloseButton") then
-          click (first button of targetWindow whose subrole is "AXCloseButton")
+          try
+            perform action "AXPress" of (first button of targetWindow whose subrole is "AXCloseButton")
+          on error
+            click (first button of targetWindow whose subrole is "AXCloseButton")
+          end try
         else
           click button 1 of targetWindow
         end if
+        delay 0.2
+        try
+          if exists targetWindow then
+            keystroke "w" using command down
+          end if
+        end try
         """
     elif operation == "minimize":
         operation_script = 'set value of attribute "AXMinimized" of targetWindow to true'

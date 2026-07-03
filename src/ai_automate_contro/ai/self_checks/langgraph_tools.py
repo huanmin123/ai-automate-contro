@@ -300,6 +300,8 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and "steps" not in plan
                     and all(isinstance(sub_plan, dict) and "document" not in sub_plan for sub_plan in sub_plans)
                 )
+                prefixed_artifact_relative_path = str(prefixed_artifact_result.get("relative_path", ""))
+                normalized_prefixed_artifact_path = prefixed_artifact_relative_path.replace("\\", "/")
                 progressive_tools_ok = (
                     bool(package_result.get("ok"))
                     and package_is_metadata
@@ -310,7 +312,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and artifact_result.get("content_complete") is True
                     and small_artifact_result.get("max_bytes") == 5
                     and small_artifact_result.get("truncated") is True
-                    and prefixed_artifact_result.get("relative_path") == "text\\accounts.txt"
+                    and normalized_prefixed_artifact_path == "text/accounts.txt"
                     and prefixed_artifact_result.get("path_resolution", {}).get("mode") == "stripped_run_output_prefix"
                 )
                 progressive_tools_detail = {
@@ -321,7 +323,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     "artifact_non_empty_lines": artifact_result.get("non_empty_line_count", 0),
                     "small_artifact_max_bytes": small_artifact_result.get("max_bytes"),
                     "small_artifact_truncated": small_artifact_result.get("truncated"),
-                    "prefixed_artifact_relative_path": prefixed_artifact_result.get("relative_path"),
+                    "prefixed_artifact_relative_path": prefixed_artifact_relative_path,
                     "prefixed_artifact_resolution": prefixed_artifact_result.get("path_resolution", {}),
                 }
             except Exception as error:

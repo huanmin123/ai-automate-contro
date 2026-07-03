@@ -1229,7 +1229,10 @@ class NativeDesktopBackend:
             raise DesktopBackendError("desktop_capture.screenshot 需要 Pillow ImageGrab。") from error
 
         bbox = _region_to_bbox(region)
-        image = ImageGrab.grab(bbox=bbox)
+        if bbox and self.platform_name == "macos":
+            image = ImageGrab.grab().crop(bbox)
+        else:
+            image = ImageGrab.grab(bbox=bbox)
         path.parent.mkdir(parents=True, exist_ok=True)
         image.save(path)
         return {
@@ -1434,27 +1437,34 @@ class NativeDesktopBackend:
 
     def _list_windows_macos(self) -> list[dict[str, Any]]:
         script = """
-        set rows to {}
+        set outputLines to {}
         tell application "System Events"
-          repeat with proc in application processes
-            if background only of proc is false then
-              set procName to name of proc
-              set procFrontmost to frontmost of proc
-              repeat with win in windows of proc
-                set winName to name of win
-                set winPosition to position of win
-                set winSize to size of win
-                set winX to item 1 of winPosition
-                set winY to item 2 of winPosition
-                set winWidth to item 1 of winSize
-                set winHeight to item 2 of winSize
-                set end of rows to procName & tab & winName & tab & procFrontmost & tab & winX & tab & winY & tab & winWidth & tab & winHeight
-              end repeat
-            end if
+          set processNames to name of application processes whose background only is false
+          repeat with procNameRef in processNames
+            set procName to procNameRef as text
+            try
+              tell process procName
+                set procFrontmost to frontmost
+                set winCount to count of windows
+                repeat with winIndex from 1 to winCount
+                  try
+                    set winRef to window winIndex
+                    set winName to name of winRef
+                    set winPosition to position of winRef
+                    set winSize to size of winRef
+                    set winX to item 1 of winPosition
+                    set winY to item 2 of winPosition
+                    set winWidth to item 1 of winSize
+                    set winHeight to item 2 of winSize
+                    set end of outputLines to procName & tab & winName & tab & procFrontmost & tab & winX & tab & winY & tab & winWidth & tab & winHeight
+                  end try
+                end repeat
+              end tell
+            end try
           end repeat
         end tell
         set AppleScript's text item delimiters to linefeed
-        return rows as text
+        return outputLines as text
         """
         completed = subprocess.run(
             ["osascript", "-e", script],
@@ -1544,8 +1554,6 @@ def _trim_process_text(value: str | None, *, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "...<truncated>"
-
-
 
 
 
