@@ -1992,8 +1992,8 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
         expected_text_found = expected_text in content
-        content_required = system != "Darwin"
-        content_ok = expected_text_found or not content_required
+        content_required = True
+        content_ok = expected_text_found
         expected_window_title = str(plan.get("variables", {}).get("window_title") or assertion_file.name)
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "real-app-screen.png"
         elements_path = package_dir / "output" / "desktop-elements" / "real-app-elements.json"

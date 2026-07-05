@@ -376,7 +376,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     desktop_components_parser = self_check_subparsers.add_parser(
         "desktop-components",
-        help="运行桌面控制组件 schema、执行线隔离和轻量运行自检。",
+        help="运行桌面控制组件 schema、执行线隔离、视觉/OCR、输入和真实 App 矩阵自检。",
     )
     desktop_components_parser.add_argument(
         "--require-input",
