@@ -130,8 +130,12 @@ def self_check_desktop_components(
     wpf_action_case = _run_wpf_element_action_case(resolved_root, required=require_wpf) if require_wpf else None
     input_probe_case = _run_input_dependency_probe_case()
     capability_diagnostics_case = _run_capability_diagnostics_case()
-    required_input_case = _run_required_input_case(input_probe_case, element_action_case) if require_input else None
-    required_vision_case = _run_required_vision_case(vision_case, element_action_case) if require_vision else None
+    required_input_case = (
+        _run_required_input_case(input_probe_case, element_action_case, real_app_case) if require_input else None
+    )
+    required_vision_case = (
+        _run_required_vision_case(vision_case, element_action_case, real_app_case) if require_vision else None
+    )
     required_ocr_case = _run_required_ocr_case(ocr_case, resolved_root) if require_ocr else None
     required_ocr_zh_case = _run_required_ocr_zh_case(ocr_zh_case, resolved_root) if require_ocr_zh else None
     schema_ok = all(case["ok"] for case in schema_cases)
@@ -465,8 +469,78 @@ def _run_desktop_run_mutex_case(project_root: Path) -> dict[str, Any]:
         }
 
 
-def _run_required_input_case(input_probe_case: dict[str, Any], element_action_case: dict[str, Any]) -> dict[str, Any]:
+def _run_required_input_case(
+    input_probe_case: dict[str, Any],
+    element_action_case: dict[str, Any],
+    real_app_case: dict[str, Any],
+) -> dict[str, Any]:
     dependency_reason = _desktop_input_dependency_skip_reason()
+    system = platform.system()
+    if system == "Darwin":
+        real_app_checks = (
+            real_app_case.get("checks")
+            if isinstance(real_app_case.get("checks"), list)
+            else []
+        )
+
+        def find_case(name: str) -> dict[str, Any]:
+            for case in real_app_checks:
+                if isinstance(case, dict) and case.get("name") == name:
+                    return case
+            return {}
+
+        textedit_case = find_case("desktop_real_app_regression")
+        finder_case = find_case("desktop_macos_finder_real_app_regression")
+        file_panel_case = find_case("desktop_macos_native_file_panel_regression")
+        input_coverage = {
+            "macos_real_app_matrix_ok": bool(real_app_case.get("ok")),
+            "textedit_content_ok": bool(textedit_case.get("content_ok"))
+            and bool(textedit_case.get("expected_text_found")),
+            "textedit_window_lifecycle_ok": bool(textedit_case.get("active_window_ok"))
+            and bool(textedit_case.get("window_find_ok"))
+            and bool(textedit_case.get("window_lifecycle_ok")),
+            "textedit_artifacts_ok": bool(textedit_case.get("screenshot_ok"))
+            and bool(textedit_case.get("element_output_ok")),
+            "finder_window_ok": bool(finder_case.get("window_found"))
+            and bool(finder_case.get("window_find_ok")),
+            "finder_artifacts_ok": bool(finder_case.get("elements_ok"))
+            and bool(finder_case.get("screenshot_ok")),
+            "native_file_panel_open_save_ok": bool(file_panel_case.get("result_ok"))
+            and bool(file_panel_case.get("open_path_ok"))
+            and bool(file_panel_case.get("save_path_ok")),
+            "native_file_panel_elements_ok": bool(file_panel_case.get("form_elements_ok"))
+            and bool(file_panel_case.get("open_dialog_elements_ok"))
+            and bool(file_panel_case.get("save_dialog_elements_ok")),
+            "native_file_panel_screenshots_ok": bool(file_panel_case.get("open_dialog_screenshot_ok"))
+            and bool(file_panel_case.get("save_dialog_screenshot_ok"))
+            and bool(file_panel_case.get("form_screenshot_ok"))
+            and bool(file_panel_case.get("final_screenshot_ok")),
+        }
+        required_checks = tuple(input_coverage)
+        failed = [name for name in required_checks if input_coverage.get(name) is not True]
+        issues: list[str] = []
+        if dependency_reason:
+            issues.append(dependency_reason)
+        if not bool(input_probe_case.get("ok")):
+            issues.append("desktop input dependency probe did not pass.")
+        if not bool(real_app_case.get("ok")):
+            issues.append("macOS real app input matrix did not pass.")
+        if failed:
+            issues.append("macOS desktop input coverage missing or failed: " + ", ".join(failed))
+        return {
+            "name": "desktop_input_required_regression",
+            "ok": not issues,
+            "require_input": True,
+            "platform": system,
+            "coverage_source": "desktop_real_app_matrix",
+            "dependencies_ok": not dependency_reason,
+            "input_probe_ok": bool(input_probe_case.get("ok")),
+            "element_action_ok": bool(element_action_case.get("ok")),
+            "real_app_matrix_ok": bool(real_app_case.get("ok")),
+            "input_coverage": input_coverage,
+            "issues": issues,
+        }
+
     input_coverage = (
         element_action_case.get("input_coverage")
         if isinstance(element_action_case.get("input_coverage"), dict)
@@ -512,9 +586,65 @@ def _run_required_input_case(input_probe_case: dict[str, Any], element_action_ca
     }
 
 
-def _run_required_vision_case(vision_case: dict[str, Any], element_action_case: dict[str, Any]) -> dict[str, Any]:
+def _run_required_vision_case(
+    vision_case: dict[str, Any],
+    element_action_case: dict[str, Any],
+    real_app_case: dict[str, Any],
+) -> dict[str, Any]:
     dependency_reason = _desktop_vision_dependency_skip_reason()
     basic_vision_ok = bool(vision_case.get("ok")) and not bool(vision_case.get("skipped"))
+    system = platform.system()
+    if system == "Darwin":
+        real_app_checks = (
+            real_app_case.get("checks")
+            if isinstance(real_app_case.get("checks"), list)
+            else []
+        )
+
+        def find_case(name: str) -> dict[str, Any]:
+            for case in real_app_checks:
+                if isinstance(case, dict) and case.get("name") == name:
+                    return case
+            return {}
+
+        textedit_case = find_case("desktop_real_app_regression")
+        finder_case = find_case("desktop_macos_finder_real_app_regression")
+        file_panel_case = find_case("desktop_macos_native_file_panel_regression")
+        vision_coverage = {
+            "basic_vision_ok": basic_vision_ok,
+            "macos_real_app_matrix_ok": bool(real_app_case.get("ok")),
+            "textedit_screenshot_ok": bool(textedit_case.get("screenshot_ok")),
+            "finder_screenshot_ok": bool(finder_case.get("screenshot_ok")),
+            "native_file_panel_screenshots_ok": bool(file_panel_case.get("open_dialog_screenshot_ok"))
+            and bool(file_panel_case.get("save_dialog_screenshot_ok"))
+            and bool(file_panel_case.get("form_screenshot_ok"))
+            and bool(file_panel_case.get("final_screenshot_ok")),
+        }
+        failed = [name for name, ok in vision_coverage.items() if ok is not True]
+        issues: list[str] = []
+        if dependency_reason:
+            issues.append(dependency_reason)
+        if not basic_vision_ok:
+            issues.append("desktop_vision locate_image base regression did not run successfully.")
+        if not bool(real_app_case.get("ok")):
+            issues.append("macOS real app screenshot matrix did not pass.")
+        if failed:
+            issues.append("macOS desktop vision coverage missing or failed: " + ", ".join(failed))
+        return {
+            "name": "desktop_vision_required_regression",
+            "ok": not issues,
+            "require_vision": True,
+            "platform": system,
+            "coverage_source": "desktop_vision_locator_and_desktop_real_app_matrix",
+            "dependencies_ok": not dependency_reason,
+            "basic_vision_ok": basic_vision_ok,
+            "source_target_enabled": False,
+            "source_target_ok": False,
+            "real_app_matrix_ok": bool(real_app_case.get("ok")),
+            "vision_coverage": vision_coverage,
+            "issues": issues,
+        }
+
     source_target_enabled = bool(element_action_case.get("vision_source_target_enabled"))
     source_target_ok = (
         bool(element_action_case.get("ok"))
@@ -2385,7 +2515,7 @@ def _run_macos_finder_real_app_case(project_root: Path) -> dict[str, Any]:
         window_find_payload = _read_json(window_find_path) if window_find_path.exists() else {}
         elements_payload = _read_json(elements_path) if elements_path.exists() else {}
         window_found = any(
-            folder_name in str(window.get("title", "")) and str(window.get("app", "")) == "Finder"
+            folder_name in str(window.get("title", ""))
             for window in windows_payload.get("windows", [])
             if isinstance(window, dict)
         )

@@ -70,7 +70,7 @@ BUILTIN_DESKTOP_APP_PROFILES: dict[str, dict[str, Any]] = {
         "platforms": {
             "macos": {
                 "launch": {"app": "Finder"},
-                "window_query": {"app": "Finder"},
+                "window_query": {},
                 "defaults": {"wait_for_window": True, "focus": True, "window_timeout_ms": 10_000},
             }
         },
