@@ -418,11 +418,11 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     self_check_subparsers.add_parser(
         "desktop-scenario-apps",
-        help="运行受控真实窗口场景回归，用轻量窗口夹具覆盖聊天发送和游戏日常流程。",
+        help="运行受控真实窗口场景回归，覆盖聊天、游戏、恢复、干扰和受控 AppKit/WinForms 文件对话框式流程。",
     )
     self_check_subparsers.add_parser(
         "desktop-real-app",
-        help="运行真实桌面 App 回归；Windows 覆盖 Notepad、Explorer、可见 PowerShell 终端和 Open/Save 文件对话框，macOS 使用 TextEdit 或系统可用轻量 App。",
+        help="运行真实桌面 App 回归；Windows 覆盖受控 WinForms/Explorer/PowerShell/Open-Save 文件对话框，macOS 覆盖 TextEdit/Finder 和 Swift AppKit NSOpenPanel/NSSavePanel。",
     )
 
 

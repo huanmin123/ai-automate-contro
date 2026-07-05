@@ -3,11 +3,16 @@ from __future__ import annotations
 import copy
 import json
 import platform
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.ai import debug_desktop_fix
+from ai_automate_contro.app.desktop_checks.macos_scenario_apps import (
+    build_macos_chat_scenario,
+    macos_scenario_app_skip_reason,
+)
 from ai_automate_contro.ai.terminal_tool_registry import call_ai_terminal_tool
 from ai_automate_contro.app.desktop_component_check import (
     build_temporary_desktop_form_plan,
@@ -19,7 +24,7 @@ from ai_automate_contro.app.desktop_component_check import (
 def self_check_ai_desktop_loop(project_root: str | Path) -> dict[str, Any]:
     resolved_project_root = Path(project_root).resolve()
     system = platform.system()
-    skip_reason = desktop_temporary_form_skip_reason(system)
+    skip_reason = macos_scenario_app_skip_reason() if system == "Darwin" else desktop_temporary_form_skip_reason(system)
     if skip_reason:
         return {
             "ok": True,
@@ -177,7 +182,7 @@ def _run_success_loop(project_root: Path, system: str) -> dict[str, Any]:
         )
     finally:
         if package_dir is not None:
-            cleanup_temporary_desktop_form_case(package_dir, system)
+            _cleanup_ai_desktop_loop_fixture(package_dir, system)
 
 
 def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
@@ -255,7 +260,7 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
         )
         workspace = _workspace_root(prepare)
         adjusted_repair_operation = _adjust_operation_for_debug_injection(repair_operation, prepare)
-        cleanup_temporary_desktop_form_case(package_dir, system)
+        _cleanup_ai_desktop_loop_fixture(package_dir, system)
         read_workspace = _call_tool(project_root, tool_calls, "read_debug_workspace", {"workspace": workspace})
         propose_preview = _call_tool(
             project_root,
@@ -263,7 +268,7 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             "propose_debug_fix",
             {
                 "workspace": workspace,
-                "user_hint": "DesktopElementTextBox Edit automation id",
+                "user_hint": _repair_user_hint(repair_operation),
             },
         )
         propose_apply = _call_tool(
@@ -272,7 +277,7 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             "propose_debug_fix",
             {
                 "workspace": workspace,
-                "user_hint": "DesktopElementTextBox Edit automation id",
+                "user_hint": _repair_user_hint(repair_operation),
                 "apply": True,
                 "run_after_apply": True,
                 "run_name": "ai-desktop-loop-debug-fixed",
@@ -363,6 +368,7 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             else [proposed_selected.get("operation")]
         )
         propose_applied = bool(propose_apply.get("applied"))
+        auto_apply_expected = repair_operation.get("path") == ["steps", repair_operation["path"][1], "automation_id"]
         sequence = [call["tool"] for call in tool_calls]
         passed = (
             validation.get("ok") is True
@@ -381,14 +387,12 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             and prepare.get("ok") is True
             and propose_preview.get("ok") is True
             and proposed_selected.get("type") == "desktop_element_locator_replace"
-            and any(
-                isinstance(operation, dict)
-                and operation.get("path") == ["steps", repair_operation["path"][1], "automation_id"]
-                and operation.get("value") == repair_operation["value"]
-                for operation in proposed_operations
+            and _proposal_contains_expected_repair(
+                proposed_operations,
+                repair_operation=repair_operation,
+                adjusted_repair_operation=adjusted_repair_operation,
             )
-            and propose_apply.get("ok") is True
-            and propose_applied
+            and ((propose_apply.get("ok") is True and propose_applied) if auto_apply_expected else patch_json.get("ok") is True)
             and patch_json.get("ok") is True
             and validate_debug.get("ok") is True
             and run_debug.get("ok") is True
@@ -449,9 +453,9 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
         )
     finally:
         if package_dir is not None:
-            cleanup_temporary_desktop_form_case(package_dir, system)
+            _cleanup_ai_desktop_loop_fixture(package_dir, system)
         if debug_package_dir is not None:
-            cleanup_temporary_desktop_form_case(debug_package_dir, system)
+            _cleanup_ai_desktop_loop_fixture(debug_package_dir, system)
 
 
 def _run_desktop_debug_auto_apply_gate_case() -> dict[str, Any]:
@@ -516,10 +520,18 @@ def _create_fixture_plan_package(
     plan_path = Path(str(create.get("plan_path"))).resolve()
     package_dir = plan_path.parent
     (package_dir / "resources").mkdir(parents=True, exist_ok=True)
-    plan, assertion_relative_file, cleanup_hint = build_temporary_desktop_form_plan(package_dir, system)
+    if system == "Darwin":
+        scenario = build_macos_chat_scenario(package_dir)
+        plan = copy.deepcopy(scenario["plan"])
+        plan.setdefault("variables", {})["expected_text"] = "message=scheduled greeting"
+        _use_role_locator_for_macos_text_fields(plan)
+        assertion_file = Path(scenario["result_file"])
+        cleanup_hint = "temporary Swift/Cocoa macOS chat fixture"
+    else:
+        plan, assertion_relative_file, cleanup_hint = build_temporary_desktop_form_plan(package_dir, system)
+        assertion_file = package_dir / assertion_relative_file
     plan["name"] = name
     plan = _stable_ai_loop_plan(plan)
-    assertion_file = package_dir / assertion_relative_file
     return {
         "plan_path": plan_path,
         "package_dir": package_dir,
@@ -569,6 +581,8 @@ def _stable_ai_loop_plan(plan: dict[str, Any]) -> dict[str, Any]:
             if isinstance(argv, list) and len(argv) > 5:
                 step = {**step, "argv": argv[:5]}
         stable_steps.append(step)
+        if step.get("action") == "open_desktop" and published_name == "desktop_probe":
+            stable_steps.append({"action": "write", "type": "json", "path": "desktop-probe.json", "value": "{{desktop_probe}}"})
     stable_plan["steps"] = stable_steps
     return stable_plan
 
@@ -595,6 +609,37 @@ def _make_failing_plan(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
                 "value": original_step["automation_id"],
             }
             return failing_plan, operation, index
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if step.get("action") != "desktop_element" or "name" not in step:
+            continue
+        original_step = original_steps[index]
+        if not isinstance(original_step, dict):
+            continue
+        step["name"] = "__ai_desktop_loop_missing_name__"
+        operation = {
+            "op": "replace",
+            "path": ["steps", index, "name"],
+            "value": original_step["name"],
+        }
+        return failing_plan, operation, index
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        if step.get("action") != "desktop_element" or step.get("type") != "set_text":
+            continue
+        original_step = original_steps[index]
+        if not isinstance(original_step, dict):
+            continue
+        if "control_type" in step:
+            step["control_type"] = "__ai_desktop_loop_missing_control_type__"
+            operation = {
+                "op": "replace",
+                "path": ["steps", index, "control_type"],
+                "value": original_step["control_type"],
+            }
+            return failing_plan, operation, index
         if "role" in step:
             step["role"] = "__ai_desktop_loop_missing_role__"
             operation = {
@@ -603,7 +648,72 @@ def _make_failing_plan(plan: dict[str, Any]) -> tuple[dict[str, Any], dict[str, 
                 "value": original_step["role"],
             }
             return failing_plan, operation, index
-    raise ValueError("fixture plan does not contain a patchable desktop_element.set_text step")
+    raise ValueError("fixture plan does not contain a patchable desktop_element step")
+
+
+def _use_role_locator_for_macos_text_fields(plan: dict[str, Any]) -> None:
+    steps = plan.get("steps")
+    if not isinstance(steps, list):
+        return
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if step.get("action") != "desktop_element":
+            continue
+        if step.get("control_type") != "AXTextField":
+            if str(step.get("name") or "").startswith("MockMac") and str(step.get("name") or "").endswith("Button"):
+                step["control_type"] = "AXButton"
+            continue
+        step.pop("control_type", None)
+        step["role"] = "AXTextField"
+
+
+def _repair_user_hint(repair_operation: dict[str, Any]) -> str:
+    path = repair_operation.get("path")
+    field = str(path[-1]) if isinstance(path, list) and path else ""
+    value = str(repair_operation.get("value") or "")
+    if field == "automation_id":
+        return f"{value} automation id"
+    if field:
+        return f"{value} {field}"
+    return value
+
+
+def _proposal_contains_expected_repair(
+    operations: list[Any],
+    *,
+    repair_operation: dict[str, Any],
+    adjusted_repair_operation: dict[str, Any],
+) -> bool:
+    expected_paths = [repair_operation.get("path"), adjusted_repair_operation.get("path")]
+    expected_value = repair_operation.get("value")
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        if operation.get("path") in expected_paths and operation.get("value") == expected_value:
+            return True
+    return False
+
+
+def _cleanup_ai_desktop_loop_fixture(package_dir: Path, system: str) -> None:
+    if system != "Darwin":
+        cleanup_temporary_desktop_form_case(package_dir, system)
+        return
+    pid_paths = [
+        package_dir / "resources" / "mac-mock-chat-pid.txt",
+        package_dir / "resources" / "desktop-element-action-pid.txt",
+    ]
+    for pid_path in pid_paths:
+        if not pid_path.exists():
+            continue
+        try:
+            pid = int(pid_path.read_text(encoding="utf-8").strip())
+        except Exception:
+            continue
+        try:
+            subprocess.run(["kill", "-TERM", str(pid)], capture_output=True, check=False, timeout=5)
+        except Exception:
+            continue
 
 
 def _adjust_operation_for_debug_injection(operation: dict[str, Any], prepare_result: dict[str, Any]) -> dict[str, Any]:

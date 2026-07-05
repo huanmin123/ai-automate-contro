@@ -9,6 +9,14 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.app.desktop_checks.macos_scenario_apps import (
+    build_macos_chat_scenario,
+    build_macos_file_dialog_scenario,
+    build_macos_game_scenario,
+    build_macos_interference_scenario,
+    build_macos_recovery_scenario,
+    macos_scenario_app_skip_reason,
+)
 from ai_automate_contro.engine.executor import execute_plan
 from ai_automate_contro.plans.validator import validate_plan_file
 
@@ -28,12 +36,23 @@ def self_check_desktop_scenario_apps(project_root: str | Path) -> dict[str, Any]
             "scenarios": [],
             "commands": {"run": "python .\\cplan.py self-check desktop-scenario-apps"},
         }
-    scenarios = [
-        _run_windows_chat_scenario(root),
-        _run_windows_game_scenario(root),
-        _run_windows_recovery_scenario(root),
-        _run_windows_interference_scenario(root),
-    ]
+    if system == "Windows":
+        scenarios = [
+            _run_windows_chat_scenario(root),
+            _run_windows_game_scenario(root),
+            _run_windows_recovery_scenario(root),
+            _run_windows_interference_scenario(root),
+        ]
+    elif system == "Darwin":
+        scenarios = [
+            _run_macos_chat_scenario(root),
+            _run_macos_game_scenario(root),
+            _run_macos_recovery_scenario(root),
+            _run_macos_interference_scenario(root),
+            _run_macos_file_dialog_scenario(root),
+        ]
+    else:
+        scenarios = []
     return {
         "ok": all(bool(item.get("ok")) for item in scenarios),
         "check": "desktop_scenario_apps",
@@ -57,10 +76,12 @@ def self_check_desktop_scenario_apps(project_root: str | Path) -> dict[str, Any]
 
 
 def _scenario_app_skip_reason(system: str) -> str:
-    if system != "Windows":
-        return f"controlled scenario app regression currently uses Windows WinForms, current={system}"
-    if not _powershell_executable():
+    if system == "Windows" and not _powershell_executable():
         return "PowerShell is unavailable; controlled WinForms scenario regression cannot run."
+    if system == "Darwin":
+        return macos_scenario_app_skip_reason()
+    if system not in {"Windows", "Darwin"}:
+        return f"controlled scenario app regression currently supports Windows/macOS, current={system}"
     return ""
 
 
@@ -255,6 +276,124 @@ def _run_windows_interference_scenario(project_root: Path) -> dict[str, Any]:
         summary["input_ownership_checked"] = input_ownership_evidence.get("ownership_checked", False)
         result["summary"] = summary
         return result
+
+
+def _run_macos_chat_scenario(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-scenario-mac-chat-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        try:
+            scenario = build_macos_chat_scenario(package_dir)
+        except Exception as error:
+            return _macos_scenario_setup_failure("desktop-scenario-mac-chat", error)
+        return _run_macos_scenario_definition(project_root, package_dir, "desktop-scenario-mac-chat", scenario)
+
+
+def _run_macos_game_scenario(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-scenario-mac-game-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        try:
+            scenario = build_macos_game_scenario(package_dir)
+        except Exception as error:
+            return _macos_scenario_setup_failure("desktop-scenario-mac-game", error)
+        return _run_macos_scenario_definition(project_root, package_dir, "desktop-scenario-mac-game", scenario)
+
+
+def _run_macos_recovery_scenario(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-scenario-mac-recovery-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        try:
+            scenario = build_macos_recovery_scenario(package_dir)
+        except Exception as error:
+            return _macos_scenario_setup_failure("desktop-scenario-mac-recovery", error)
+        return _run_macos_scenario_definition(project_root, package_dir, "desktop-scenario-mac-recovery", scenario)
+
+
+def _run_macos_interference_scenario(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-scenario-mac-interference-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        try:
+            scenario = build_macos_interference_scenario(package_dir)
+        except Exception as error:
+            return _macos_scenario_setup_failure("desktop-scenario-mac-interference", error)
+        result = _run_macos_scenario_definition(project_root, package_dir, "desktop-scenario-mac-interference", scenario)
+        window_evidence = _window_list_count_evidence(
+            scenario["window_list_path"],
+            title_contains=str(scenario.get("title_prefix") or ""),
+            min_count=2,
+        )
+        result["extra_evidence"] = [window_evidence]
+        result["multi_window_ok"] = bool(window_evidence.get("ok"))
+        result["ok"] = bool(result.get("ok")) and bool(window_evidence.get("ok"))
+        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+        summary["extra_evidence_count"] = 1
+        summary["multi_window_count"] = window_evidence.get("matched_count", 0)
+        result["summary"] = summary
+        return result
+
+
+def _run_macos_file_dialog_scenario(project_root: Path) -> dict[str, Any]:
+    with tempfile.TemporaryDirectory(prefix="desktop-scenario-mac-file-dialog-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        (package_dir / "resources").mkdir(parents=True, exist_ok=True)
+        try:
+            scenario = build_macos_file_dialog_scenario(package_dir)
+        except Exception as error:
+            return _macos_scenario_setup_failure("desktop-scenario-mac-file-dialog", error)
+        result = _run_macos_scenario_definition(project_root, package_dir, "desktop-scenario-mac-file-dialog", scenario)
+        save_file = scenario.get("save_file") if isinstance(scenario.get("save_file"), Path) else Path("")
+        expected_save_text = str(scenario.get("expected_save_text") or "")
+        save_content = save_file.read_text(encoding="utf-8", errors="replace") if save_file.exists() else ""
+        save_evidence = {
+            "name": "file_dialog_save_content",
+            "path": str(save_file),
+            "ok": bool(expected_save_text) and expected_save_text in save_content,
+            "expected": expected_save_text,
+            "content_preview": save_content[:200],
+        }
+        result["extra_evidence"] = [save_evidence]
+        result["save_content_ok"] = bool(save_evidence.get("ok"))
+        result["ok"] = bool(result.get("ok")) and bool(save_evidence.get("ok"))
+        summary = result.get("summary") if isinstance(result.get("summary"), dict) else {}
+        summary["extra_evidence_count"] = 1
+        summary["save_content_ok"] = bool(save_evidence.get("ok"))
+        result["summary"] = summary
+        return result
+
+
+def _run_macos_scenario_definition(
+    project_root: Path,
+    package_dir: Path,
+    run_name: str,
+    scenario: dict[str, Any],
+) -> dict[str, Any]:
+    return _run_scenario_plan(
+        project_root,
+        package_dir,
+        scenario["plan"],
+        run_name=run_name,
+        result_file=scenario["result_file"],
+        pid_file=scenario["pid_file"],
+        title=str(scenario["title"]),
+        expected_fragments=list(scenario["expected_fragments"]),
+        evidence_paths=list(scenario["evidence_paths"]),
+        required_plan_steps=list(scenario["required_plan_steps"]),
+    )
+
+
+def _macos_scenario_setup_failure(name: str, error: Exception) -> dict[str, Any]:
+    return {
+        "name": name,
+        "ok": False,
+        "validation_ok": False,
+        "run_ok": False,
+        "setup_ok": False,
+        "error_type": type(error).__name__,
+        "error": str(error),
+    }
 
 
 def _run_scenario_plan(
@@ -1220,6 +1359,11 @@ def _cleanup_process(pid_file: Path) -> None:
     raw_pid = pid_file.read_text(encoding="utf-8", errors="replace").strip()
     if not raw_pid.isdigit():
         return
+    if platform.system() == "Darwin":
+        subprocess.run(["kill", "-TERM", raw_pid], capture_output=True, text=True, timeout=5)
+        time.sleep(0.2)
+        subprocess.run(["kill", "-KILL", raw_pid], capture_output=True, text=True, timeout=5)
+        return
     powershell = _powershell_executable()
     if not powershell:
         return
@@ -1389,12 +1533,24 @@ def _interaction_guard_evidence(evidence_paths: list[Path]) -> list[dict[str, An
         except Exception as error:
             evidence.append({"path": str(path), "ok": False, "reason": "json_read_failed", "error": str(error)})
             continue
-        has_guard = isinstance(data, dict) and (
-            "interaction_guard" in data
-            or (
-                isinstance(data.get("diagnostics"), dict)
-                and "interaction_guard" in data.get("diagnostics", {})
-            )
+        guard_payload: Any = {}
+        if isinstance(data, dict) and isinstance(data.get("interaction_guard"), dict):
+            guard_payload = data.get("interaction_guard")
+        elif (
+            isinstance(data, dict)
+            and isinstance(data.get("diagnostics"), dict)
+            and isinstance(data.get("diagnostics", {}).get("interaction_guard"), dict)
+        ):
+            guard_payload = data.get("diagnostics", {}).get("interaction_guard")
+        has_guard = isinstance(guard_payload, dict) and bool(guard_payload)
+        guard_ok = has_guard and bool(guard_payload.get("ok"))
+        evidence.append(
+            {
+                "path": str(path),
+                "ok": guard_ok,
+                "has_interaction_guard": has_guard,
+                "interaction_guard_ok": guard_ok,
+                "interaction_guard_reason": str(guard_payload.get("reason", "")) if has_guard else "",
+            }
         )
-        evidence.append({"path": str(path), "ok": has_guard, "has_interaction_guard": has_guard})
     return evidence

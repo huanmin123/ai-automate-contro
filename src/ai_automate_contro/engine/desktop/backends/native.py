@@ -7,6 +7,7 @@ import platform
 import re
 import subprocess
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -93,9 +94,17 @@ class NativeDesktopBackend:
         }
         window_error = ""
         try:
-            self.list_windows()
+            windows = self.list_windows()
             if self.platform_name == "macos":
-                permissions["accessibility"] = "available_or_not_required"
+                quartz_fallback_only = bool(windows) and all(
+                    str(window.get("source") or "") == "quartz_fallback"
+                    for window in windows
+                    if isinstance(window, dict)
+                )
+                if quartz_fallback_only or "quartz fallback" in self.last_window_list_error.lower():
+                    permissions["accessibility"] = "not_granted_or_unavailable"
+                else:
+                    permissions["accessibility"] = "available_or_not_required"
         except Exception as error:
             window_error = str(error)
             if self.platform_name == "macos":
@@ -256,7 +265,7 @@ class NativeDesktopBackend:
         elements = list(element_payload.get("elements", [])) if isinstance(element_payload.get("elements"), list) else []
         normalized_locator = dict(locator or {})
         filtered = _matching_elements(elements, normalized_locator) if normalized_locator else elements
-        return {
+        payload = {
             "ok": True,
             "platform": self.platform_name,
             "backend": self.backend_name,
@@ -269,6 +278,11 @@ class NativeDesktopBackend:
             "max_depth": normalized_max_depth,
             "max_elements": normalized_max_elements,
         }
+        if "fallback_used" in element_payload:
+            payload["fallback_used"] = bool(element_payload.get("fallback_used"))
+        if isinstance(element_payload.get("diagnostics"), dict):
+            payload["diagnostics"] = element_payload.get("diagnostics")
+        return payload
 
     def dump_elements(
         self,
@@ -352,7 +366,7 @@ class NativeDesktopBackend:
                     for element in diagnostic_elements
                     if isinstance(element.get("selector_hints"), list)
                 ),
-                "enumeration_depth_supported": normalized_max_depth if self.platform_name == "windows" else 1,
+                "enumeration_depth_supported": normalized_max_depth if self.platform_name in {"windows", "macos"} else 1,
                 "backend_limitations": _element_dump_limitations(self.platform_name),
                 "recommendations": _element_dump_recommendations(
                     locator=normalized_locator,
@@ -1386,6 +1400,9 @@ class NativeDesktopBackend:
         return [executable, *args]
 
     def _select_window(self, query: dict[str, Any]) -> dict[str, Any]:
+        fast_window = self._select_window_macos_quartz_fast(query)
+        if fast_window:
+            return fast_window
         windows = self.list_windows()
         matches = _matching_windows(windows, query)
         if not matches:
@@ -1397,6 +1414,23 @@ class NativeDesktopBackend:
                 f"diagnostics={_window_diagnostics(windows, query, matches)}"
             )
         return dict(matches[match_index])
+
+    def _select_window_macos_quartz_fast(self, query: dict[str, Any]) -> dict[str, Any]:
+        if self.platform_name != "macos":
+            return {}
+        raw_window_id = str(query.get("window_id") or "")
+        if not raw_window_id.startswith("macos:"):
+            return {}
+        try:
+            native_window_id = int(raw_window_id.split(":", 1)[1])
+        except ValueError:
+            return {}
+        if native_window_id <= 0:
+            return {}
+        for window in _macos_quartz_backend_windows(_macos_quartz_windows()):
+            if int(window.get("native_window_id", 0) or 0) == native_window_id:
+                return dict(window)
+        return {}
 
     def _element_failure_diagnostics(
         self,
@@ -1444,6 +1478,10 @@ class NativeDesktopBackend:
             set procName to procNameRef as text
             try
               tell process procName
+                set procPid to 0
+                try
+                  set procPid to unix id
+                end try
                 set procFrontmost to frontmost
                 set winCount to count of windows
                 repeat with winIndex from 1 to winCount
@@ -1456,7 +1494,7 @@ class NativeDesktopBackend:
                     set winY to item 2 of winPosition
                     set winWidth to item 1 of winSize
                     set winHeight to item 2 of winSize
-                    set end of outputLines to procName & tab & winName & tab & procFrontmost & tab & winX & tab & winY & tab & winWidth & tab & winHeight
+                    set end of outputLines to procName & tab & procPid & tab & winIndex & tab & winName & tab & procFrontmost & tab & winX & tab & winY & tab & winWidth & tab & winHeight
                   end try
                 end repeat
               end tell
@@ -1466,46 +1504,75 @@ class NativeDesktopBackend:
         set AppleScript's text item delimiters to linefeed
         return outputLines as text
         """
-        completed = subprocess.run(
-            ["osascript", "-e", script],
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=10,
-        )
+        try:
+            completed = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=3,
+            )
+        except subprocess.TimeoutExpired as error:
+            self.last_window_list_error = f"macOS System Events window list timed out; using Quartz fallback: {error}"
+            return _macos_quartz_backend_windows(_macos_quartz_windows())
         if completed.returncode != 0:
             self.last_window_list_error = completed.stderr.strip() or completed.stdout.strip()
+            fallback_windows = _macos_quartz_backend_windows(_macos_quartz_windows())
+            if fallback_windows:
+                self.last_window_list_error = f"{self.last_window_list_error}; using Quartz fallback"
+                return fallback_windows
             return []
         windows: list[dict[str, Any]] = []
+        quartz_windows = _macos_quartz_windows()
+        used_quartz_numbers: set[int] = set()
         for index, line in enumerate(completed.stdout.splitlines()):
             parts = line.split("\t")
-            if len(parts) < 2:
+            if len(parts) < 4:
                 continue
             app = parts[0].strip()
-            title = parts[1].strip()
-            focused = len(parts) >= 3 and parts[2].strip().lower() == "true"
+            process_id = _safe_int(parts[1], default=0)
+            window_index = _safe_int(parts[2], default=index + 1)
+            title = parts[3].strip()
+            process_frontmost = len(parts) >= 5 and parts[4].strip().lower() == "true"
+            focused = process_frontmost and window_index == 1
             bounds: dict[str, int] = {}
-            if len(parts) >= 7:
+            if len(parts) >= 9:
                 try:
                     bounds = {
-                        "x": int(float(parts[3].strip())),
-                        "y": int(float(parts[4].strip())),
-                        "width": int(float(parts[5].strip())),
-                        "height": int(float(parts[6].strip())),
+                        "x": int(float(parts[5].strip())),
+                        "y": int(float(parts[6].strip())),
+                        "width": int(float(parts[7].strip())),
+                        "height": int(float(parts[8].strip())),
                     }
                 except ValueError:
                     bounds = {}
+            quartz_match = _match_macos_quartz_window(
+                quartz_windows,
+                used_quartz_numbers=used_quartz_numbers,
+                app=app,
+                process_id=process_id,
+                title=title,
+                bounds=bounds,
+            )
+            native_window_id = int(quartz_match.get("native_window_id", 0) or 0)
+            if native_window_id:
+                used_quartz_numbers.add(native_window_id)
+            window_id = f"macos:{native_window_id}" if native_window_id else f"{app}:{window_index}:{index}"
             windows.append(
                 {
-                    "id": f"{app}:{index}",
+                    "id": window_id,
                     "title": title,
                     "app": app,
                     "process_name": app,
                     "class_name": "",
-                    "pid": None,
+                    "pid": process_id or None,
+                    "process_id": process_id or None,
+                    "window_index": window_index,
+                    "native_window_id": native_window_id or None,
                     "bounds": bounds,
                     "visible": True,
                     "focused": focused,
+                    "source": "system_events",
                 }
             )
         self.last_window_list_error = ""
@@ -1540,6 +1607,128 @@ class NativeDesktopBackend:
             return {"error": str(error)}
 
 
+def _macos_quartz_windows() -> list[dict[str, Any]]:
+    try:
+        import Quartz  # type: ignore[import-not-found]
+    except Exception:
+        return []
+    try:
+        window_infos = Quartz.CGWindowListCopyWindowInfo(
+            Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+            Quartz.kCGNullWindowID,
+        )
+    except Exception:
+        return []
+    windows: list[dict[str, Any]] = []
+    for info in window_infos or []:
+        if not isinstance(info, Mapping):
+            continue
+        raw_bounds = info.get("kCGWindowBounds")
+        bounds = _macos_quartz_bounds(raw_bounds if isinstance(raw_bounds, Mapping) else {})
+        native_window_id = _safe_int(info.get("kCGWindowNumber"), default=0)
+        if native_window_id <= 0:
+            continue
+        windows.append(
+            {
+                "native_window_id": native_window_id,
+                "app": str(info.get("kCGWindowOwnerName") or ""),
+                "process_id": _safe_int(info.get("kCGWindowOwnerPID"), default=0),
+                "title": str(info.get("kCGWindowName") or ""),
+                "layer": _safe_int(info.get("kCGWindowLayer"), default=0),
+                "bounds": bounds,
+            }
+        )
+    return windows
+
+
+def _macos_quartz_backend_windows(quartz_windows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    windows: list[dict[str, Any]] = []
+    focused_assigned = False
+    for index, window in enumerate(quartz_windows):
+        native_window_id = int(window.get("native_window_id", 0) or 0)
+        if native_window_id <= 0:
+            continue
+        bounds = window.get("bounds") if isinstance(window.get("bounds"), dict) else {}
+        app = str(window.get("app") or "")
+        title = str(window.get("title") or "")
+        process_id = _safe_int(window.get("process_id"), default=0)
+        layer = _safe_int(window.get("layer"), default=0)
+        focused = False
+        if not focused_assigned and layer == 0 and app:
+            focused = True
+            focused_assigned = True
+        windows.append(
+            {
+                "id": f"macos:{native_window_id}",
+                "title": title,
+                "app": app,
+                "process_name": app,
+                "class_name": "",
+                "pid": process_id or None,
+                "process_id": process_id or None,
+                "window_index": 0,
+                "native_window_id": native_window_id,
+                "layer": layer,
+                "bounds": bounds,
+                "visible": True,
+                "focused": focused,
+                "source": "quartz_fallback",
+            }
+        )
+    return windows
+
+
+def _macos_quartz_bounds(raw_bounds: dict[str, Any]) -> dict[str, int]:
+    return {
+        "x": _safe_int(raw_bounds.get("X"), default=0),
+        "y": _safe_int(raw_bounds.get("Y"), default=0),
+        "width": _safe_int(raw_bounds.get("Width"), default=0),
+        "height": _safe_int(raw_bounds.get("Height"), default=0),
+    }
+
+
+def _match_macos_quartz_window(
+    quartz_windows: list[dict[str, Any]],
+    *,
+    used_quartz_numbers: set[int],
+    app: str,
+    process_id: int,
+    title: str,
+    bounds: dict[str, int],
+) -> dict[str, Any]:
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for window in quartz_windows:
+        native_window_id = int(window.get("native_window_id", 0) or 0)
+        if native_window_id in used_quartz_numbers:
+            continue
+        score = 0
+        if process_id and int(window.get("process_id", 0) or 0) == process_id:
+            score += 100
+        if str(window.get("app") or "") == app:
+            score += 30
+        if title and str(window.get("title") or "") == title:
+            score += 25
+        elif title and not str(window.get("title") or ""):
+            score += 5
+        distance = _macos_bounds_distance(bounds, window.get("bounds") if isinstance(window.get("bounds"), dict) else {})
+        score -= min(distance, 200)
+        if score >= 30:
+            candidates.append((score, window))
+    if not candidates:
+        return {}
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return dict(candidates[0][1])
+
+
+def _macos_bounds_distance(left: dict[str, Any], right: dict[str, Any]) -> int:
+    if not left or not right:
+        return 200
+    return sum(
+        abs(_safe_int(left.get(key), default=0) - _safe_int(right.get(key), default=0))
+        for key in ("x", "y", "width", "height")
+    )
+
+
 def _current_platform_name() -> str:
     system = platform.system()
     if system == "Windows":
@@ -1554,18 +1743,6 @@ def _trim_process_text(value: str | None, *, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "...<truncated>"
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 

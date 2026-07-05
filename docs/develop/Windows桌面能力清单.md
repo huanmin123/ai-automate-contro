@@ -76,6 +76,6 @@ python .\cplan.py self-check release-matrix --only desktop_components --require-
 
 ## 边界
 
-- 当前 Windows 能力不代表 macOS 已完成真机验收。
-- macOS 的 Accessibility、Screen Recording、Automation 授权、Retina/DPI、多显示器、Finder/TextEdit、AX 表格/树/菜单和系统文件对话框仍需 Mac 真机回归。
+- 当前 Windows 能力不代表 macOS 全量桌面能力已完成真机验收。
+- macOS 已补 TextEdit、Finder、Swift/Cocoa 受控场景、受控 AppKit Open/Save 弹窗和真实 `NSOpenPanel`/`NSSavePanel` 默认打开/保存流；Retina/DPI、多显示器、AX 表格/树/菜单、特定第三方 App sheet 形态和任意路径输入仍需继续补齐。
 - 真实 AI 回归只验证模型按 AI 终端规则调用工具和判断执行线，不承担 WinForms/Explorer/终端/OCR 的重型桌面矩阵；这些由确定性自检负责。

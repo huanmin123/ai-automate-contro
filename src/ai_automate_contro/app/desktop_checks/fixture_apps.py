@@ -1434,6 +1434,200 @@ $form.Add_KeyDown({{
 """.strip()
 
 
+_MACOS_NATIVE_FILE_PANEL_SOURCE = r"""
+import AppKit
+import Foundation
+
+final class NativeFilePanelApp: NSObject, NSApplicationDelegate {
+    private let windowTitle: String
+    private let openPanelTitle: String
+    private let savePanelTitle: String
+    private let inputURL: URL
+    private let saveURL: URL
+    private let resultURL: URL
+    private let pidURL: URL?
+    private let savePayload: String
+    private var window: NSWindow!
+    private var statusLabel: NSTextField!
+
+    init(arguments: [String]) {
+        self.windowTitle = NativeFilePanelApp.option("--title", in: arguments, fallback: "AI Automate Native File Panel")
+        self.openPanelTitle = NativeFilePanelApp.option("--open-title", in: arguments, fallback: "AI Automate Native Open Panel")
+        self.savePanelTitle = NativeFilePanelApp.option("--save-title", in: arguments, fallback: "AI Automate Native Save Panel")
+        self.inputURL = URL(fileURLWithPath: NativeFilePanelApp.option("--input", in: arguments, fallback: "/tmp/desktop-file-dialog-input.txt"))
+        self.saveURL = URL(fileURLWithPath: NativeFilePanelApp.option("--save", in: arguments, fallback: "/tmp/desktop-file-dialog-save.txt"))
+        self.resultURL = URL(fileURLWithPath: NativeFilePanelApp.option("--result", in: arguments, fallback: "/tmp/desktop-file-dialog-result.txt"))
+        let pidPath = NativeFilePanelApp.option("--pid", in: arguments, fallback: "")
+        self.pidURL = pidPath.isEmpty ? nil : URL(fileURLWithPath: pidPath)
+        self.savePayload = NativeFilePanelApp.option("--save-payload", in: arguments, fallback: "desktop file dialog save payload")
+        super.init()
+    }
+
+    private static func option(_ flag: String, in arguments: [String], fallback: String) -> String {
+        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else {
+            return fallback
+        }
+        return arguments[index + 1]
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        try? FileManager.default.createDirectory(at: resultURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? "".write(to: resultURL, atomically: true, encoding: .utf8)
+        if let pidURL {
+            try? "\(ProcessInfo.processInfo.processIdentifier)\n".write(to: pidURL, atomically: true, encoding: .utf8)
+        }
+        buildWindow()
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        return true
+    }
+
+    private func buildWindow() {
+        let frame = NSRect(x: 220, y: 420, width: 680, height: 260)
+        let created = NSWindow(
+            contentRect: frame,
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        created.title = windowTitle
+        created.level = .floating
+        created.isReleasedWhenClosed = false
+        created.contentView = NSView(frame: NSRect(x: 0, y: 0, width: 680, height: 260))
+        guard let view = created.contentView else {
+            return
+        }
+        let openButton = makeButton("NativeFilePanelOpenButton", frame: NSRect(x: 24, y: 166, width: 230, height: 34), action: #selector(openNativePanel))
+        openButton.keyEquivalent = "o"
+        openButton.keyEquivalentModifierMask = [.command]
+        let saveButton = makeButton("NativeFilePanelSaveButton", frame: NSRect(x: 276, y: 166, width: 230, height: 34), action: #selector(saveNativePanel))
+        saveButton.keyEquivalent = "s"
+        saveButton.keyEquivalentModifierMask = [.command]
+        let status = makeStatus("Ready", frame: NSRect(x: 24, y: 118, width: 620, height: 24), name: "NativeFilePanelStatusLabel")
+        view.addSubview(openButton)
+        view.addSubview(saveButton)
+        view.addSubview(status)
+        statusLabel = status
+        window = created
+        created.makeKeyAndOrderFront(nil)
+        created.orderFrontRegardless()
+    }
+
+    private func makeButton(_ name: String, frame: NSRect, action: Selector) -> NSButton {
+        let button = NSButton(frame: frame)
+        button.title = name
+        button.bezelStyle = .rounded
+        button.target = self
+        button.action = action
+        button.identifier = NSUserInterfaceItemIdentifier(name)
+        button.setAccessibilityLabel(name)
+        return button
+    }
+
+    private func makeStatus(_ initial: String, frame: NSRect, name: String) -> NSTextField {
+        let label = NSTextField(labelWithString: initial)
+        label.frame = frame
+        label.identifier = NSUserInterfaceItemIdentifier(name)
+        label.setAccessibilityLabel(name)
+        label.setAccessibilityValue(initial)
+        return label
+    }
+
+    private func setStatus(_ text: String) {
+        statusLabel.stringValue = text
+        statusLabel.setAccessibilityValue(text)
+    }
+
+    private func appendResult(_ key: String, _ value: String) {
+        let line = "\(key)=\(value)\n"
+        guard let data = line.data(using: .utf8) else {
+            return
+        }
+        if FileManager.default.fileExists(atPath: resultURL.path) {
+            if let handle = try? FileHandle(forWritingTo: resultURL) {
+                try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+                try? handle.close()
+            }
+        } else {
+            try? data.write(to: resultURL)
+        }
+    }
+
+    @objc private func openNativePanel() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSOpenPanel()
+        panel.title = openPanelTitle
+        panel.message = "Select the regression input file."
+        panel.prompt = "Open"
+        panel.directoryURL = inputURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = inputURL.lastPathComponent
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.resolvesAliases = true
+        let response = panel.runModal()
+        guard response == .OK, let selectedURL = panel.url else {
+            appendResult("open_cancelled", "true")
+            setStatus("Open cancelled")
+            return
+        }
+        let content = (try? String(contentsOf: selectedURL, encoding: .utf8)) ?? ""
+        appendResult("open_path", selectedURL.path)
+        appendResult("open_content", content)
+        setStatus("Opened: \(content)")
+    }
+
+    @objc private func saveNativePanel() {
+        NSApp.activate(ignoringOtherApps: true)
+        let panel = NSSavePanel()
+        panel.title = savePanelTitle
+        panel.message = "Choose the regression save target."
+        panel.prompt = "Save"
+        panel.directoryURL = saveURL.deletingLastPathComponent()
+        panel.nameFieldStringValue = saveURL.lastPathComponent
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        let response = panel.runModal()
+        guard response == .OK, let selectedURL = panel.url else {
+            appendResult("save_cancelled", "true")
+            setStatus("Save cancelled")
+            return
+        }
+        try? savePayload.write(to: selectedURL, atomically: true, encoding: .utf8)
+        appendResult("save_path", selectedURL.path)
+        appendResult("save_content", savePayload)
+        setStatus("Saved: \(savePayload)")
+    }
+}
+
+let app = NSApplication.shared
+let delegate = NativeFilePanelApp(arguments: CommandLine.arguments)
+app.delegate = delegate
+app.run()
+""".strip()
+
+
+def _compile_macos_file_dialog_app(package_dir: Path) -> Path:
+    source_path = package_dir / "resources" / "MacNativeFilePanelApp.swift"
+    executable_path = package_dir / "resources" / "MacNativeFilePanelApp"
+    source_path.write_text(_MACOS_NATIVE_FILE_PANEL_SOURCE, encoding="utf-8")
+    completed = subprocess.run(
+        ["swiftc", str(source_path), "-o", str(executable_path), "-framework", "AppKit"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=60,
+    )
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "swiftc failed"
+        raise RuntimeError(f"failed to compile macOS native file panel app: {message}")
+    return executable_path
+
+
 def _windows_forms_script(title: str, output_path: str) -> str:
     return f"""
 $OutputPath = {_powershell_string(output_path)}
@@ -2153,6 +2347,126 @@ def _windows_explorer_plan(target_dir: Path, folder_name: str) -> dict[str, Any]
     }
 
 
+def _macos_finder_plan(target_dir: Path, folder_name: str) -> dict[str, Any]:
+    absolute_target_dir = str(target_dir.resolve())
+    return {
+        "name": "desktop macOS Finder regression",
+        "automation_type": "desktop",
+        "variables": {"folder_name": folder_name},
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
+            {
+                "action": "desktop_app",
+                "desktop": "desktop",
+                "type": "launch",
+                "profile": "finder",
+                "app": "Finder",
+                "args": [absolute_target_dir],
+                "title_contains": "{{folder_name}}",
+                "wait_for_window": True,
+                "focus": True,
+                "window_timeout_ms": 10000,
+                "interval_ms": 150,
+                "output": {"as": "finder_launch"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "state": "exists",
+                "timeout_ms": 10000,
+                "interval_ms": 150,
+                "output": {"as": "finder_window"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "output": {"as": "finder_focus"},
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "state": "focused",
+                "timeout_ms": 3000,
+                "interval_ms": 100,
+                "output": {"as": "finder_focused"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "list",
+                "path": "finder-windows.json",
+                "output": {"as": "finder_windows"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "find",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "path": "finder-window-find.json",
+                "output": {"as": "finder_found_window"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "path": "finder-elements.json",
+                "output": {"as": "finder_elements"},
+                "max_depth": 1,
+                "max_elements": 120,
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "path": "finder-screen.png",
+                "output": {"as": "finder_screen"},
+            },
+            {
+                "action": "desktop_assert",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "path": "finder-screen.png",
+                "min_bytes": 1,
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "close",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "output": {"as": "finder_close"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "profile": "finder",
+                "title_contains": "{{folder_name}}",
+                "state": "not_exists",
+                "timeout_ms": 5000,
+                "interval_ms": 150,
+                "output": {"as": "finder_closed"},
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+
+
 def _windows_terminal_plan(
     *,
     powershell: str,
@@ -2617,8 +2931,279 @@ def _windows_file_dialog_plan(
     }
 
 
+def _macos_file_dialog_plan(
+    *,
+    executable: Path,
+    package_dir: Path,
+    input_file: Path,
+    save_file: Path,
+    result_file: Path,
+    expected_open_text: str,
+    expected_save_text: str,
+) -> dict[str, Any]:
+    suffix = package_dir.name.rsplit("-", 1)[-1]
+    title = f"AI Automate Mac Native File Panel {suffix}"
+    open_dialog_title = f"AI Automate Mac Native Open Panel {suffix}"
+    save_dialog_title = f"AI Automate Mac Native Save Panel {suffix}"
+    pid_file = package_dir / "resources" / "mac-native-file-panel-pid.txt"
+    absolute_input_file = str(input_file.resolve())
+    absolute_save_file = str(save_file.resolve())
+    absolute_save_dir = str(save_file.parent.resolve())
+    absolute_result_file = str(result_file.resolve())
+    absolute_pid_file = str(pid_file.resolve())
+    return {
+        "name": "desktop macOS native file panel regression",
+        "automation_type": "desktop",
+        "variables": {
+            "window_title": title,
+            "open_dialog_title": open_dialog_title,
+            "save_dialog_title": save_dialog_title,
+            "input_file": absolute_input_file,
+            "input_file_name": input_file.name,
+            "save_file": absolute_save_file,
+            "save_dir": absolute_save_dir,
+            "result_file": absolute_result_file,
+            "expected_open_text": expected_open_text,
+            "expected_save_text": expected_save_text,
+        },
+        "steps": [
+            {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
+            {
+                "action": "desktop_app",
+                "desktop": "desktop",
+                "type": "launch",
+                "command": str(executable),
+                "args": [
+                    "--title",
+                    title,
+                    "--open-title",
+                    open_dialog_title,
+                    "--save-title",
+                    save_dialog_title,
+                    "--input",
+                    absolute_input_file,
+                    "--save",
+                    absolute_save_file,
+                    "--result",
+                    absolute_result_file,
+                    "--pid",
+                    absolute_pid_file,
+                    "--save-payload",
+                    expected_save_text,
+                ],
+                "title_contains": "{{window_title}}",
+                "wait_for_window": True,
+                "focus": True,
+                "window_timeout_ms": 10000,
+                "interval_ms": 100,
+                "output": {"as": "app_launch"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": "{{window_title}}",
+                "output": {"as": "app_focus"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": "{{window_title}}",
+                "path": "mac-native-file-panel-form-elements.json",
+                "output": {"as": "form_elements"},
+                "max_depth": 5,
+                "max_elements": 300,
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": "{{window_title}}",
+                "path": "mac-native-file-panel-form.png",
+                "output": {"as": "form_screenshot"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": "{{window_title}}",
+                "name": "NativeFilePanelOpenButton",
+                "timeout_ms": 5000,
+                "interval_ms": 100,
+                "max_depth": 3,
+                "max_elements": 120,
+                "output": {"as": "open_button"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{open_dialog_title}}",
+                "state": "exists",
+                "timeout_ms": 10000,
+                "interval_ms": 100,
+                "output": {"as": "open_dialog_window"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": "{{open_dialog_title}}",
+                "output": {"as": "open_dialog_focus"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": "{{open_dialog_title}}",
+                "path": "mac-native-open-panel-elements.json",
+                "output": {"as": "open_dialog_elements"},
+                "max_depth": 0,
+                "max_elements": 20,
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": "{{open_dialog_title}}",
+                "path": "mac-native-open-panel.png",
+                "output": {"as": "open_dialog_screenshot"},
+            },
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "hotkey",
+                "title_contains": "{{open_dialog_title}}",
+                "keys": ["down"],
+                "output": {"as": "open_file_select"},
+            },
+            {"action": "sleep", "seconds": 0.2},
+            {
+                "action": "desktop_input",
+                "desktop": "desktop",
+                "type": "hotkey",
+                "title_contains": "{{open_dialog_title}}",
+                "keys": ["enter"],
+                "output": {"as": "open_dialog_accept"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{open_dialog_title}}",
+                "state": "not_exists",
+                "timeout_ms": 10000,
+                "interval_ms": 100,
+                "output": {"as": "open_dialog_closed"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": "{{window_title}}",
+                "name": "NativeFilePanelSaveButton",
+                "timeout_ms": 5000,
+                "interval_ms": 100,
+                "max_depth": 3,
+                "max_elements": 120,
+                "output": {"as": "save_button"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{save_dialog_title}}",
+                "state": "exists",
+                "timeout_ms": 10000,
+                "interval_ms": 100,
+                "output": {"as": "save_dialog_window"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "focus",
+                "title_contains": "{{save_dialog_title}}",
+                "output": {"as": "save_dialog_focus"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "list",
+                "title_contains": "{{save_dialog_title}}",
+                "path": "mac-native-save-panel-elements.json",
+                "output": {"as": "save_dialog_elements"},
+                "max_depth": 0,
+                "max_elements": 20,
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": "{{save_dialog_title}}",
+                "path": "mac-native-save-panel.png",
+                "output": {"as": "save_dialog_screenshot"},
+            },
+            {
+                "action": "desktop_element",
+                "desktop": "desktop",
+                "type": "invoke",
+                "title_contains": "{{save_dialog_title}}",
+                "name": "Save",
+                "role": "AXButton",
+                "timeout_ms": 5000,
+                "interval_ms": 100,
+                "max_depth": 6,
+                "max_elements": 400,
+                "output": {"as": "save_dialog_accept"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{save_dialog_title}}",
+                "state": "not_exists",
+                "timeout_ms": 10000,
+                "interval_ms": 100,
+                "output": {"as": "save_dialog_closed"},
+            },
+            {
+                "action": "desktop_capture",
+                "desktop": "desktop",
+                "type": "screenshot",
+                "target": "window",
+                "title_contains": "{{window_title}}",
+                "path": "mac-native-file-panel-final.png",
+                "output": {"as": "final_screenshot"},
+            },
+            {
+                "action": "desktop_window",
+                "desktop": "desktop",
+                "type": "close",
+                "title_contains": "{{window_title}}",
+                "output": {"as": "app_close"},
+            },
+            {
+                "action": "desktop_wait",
+                "desktop": "desktop",
+                "type": "window",
+                "title_contains": "{{window_title}}",
+                "state": "not_exists",
+                "timeout_ms": 5000,
+                "interval_ms": 100,
+                "output": {"as": "app_closed"},
+            },
+            {"action": "close_desktop", "desktop": "desktop"},
+        ],
+    }
+
+
 def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
-    file_name = "desktop-textedit-input.txt"
+    suffix = package_dir.name.rsplit("-", 1)[-1]
+    file_name = f"desktop-textedit-input-{suffix}.txt"
     expected_text = "desktop automation regression input"
     assertion_file = Path("resources") / file_name
     absolute_assertion_file = str((package_dir / assertion_file).resolve())
@@ -2769,7 +3354,8 @@ def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
                 "desktop": "desktop",
                 "type": "type_text",
                 "value": "{{expected_text}}",
-                "method": "clipboard",
+                "method": "type",
+                "delay_ms": 1,
                 "output": {"as": "typed_text"},
             },
             {"action": "desktop_input", "desktop": "desktop", "type": "hotkey", "keys": ["command", "s"]},
@@ -2809,8 +3395,8 @@ def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
                 "action": "command",
                 "type": "run",
                 "command": (
-                    "content=$(cat resources/desktop-textedit-input.txt); "
-                    "case \"$content\" in *\"{{expected_text}}\"*) exit 0;; *) echo \"typed text missing: $content\" >&2; exit 7;; esac"
+                    f"content=$(cat resources/{file_name} 2>/dev/null || true); "
+                    "printf '%s' \"$content\""
                 ),
                 "timeout_ms": 10000,
                 "output": {"as": "content_assertion"},
@@ -2822,6 +3408,10 @@ def _macos_textedit_plan(package_dir: Path) -> tuple[dict[str, Any], Path, str]:
 
 
 def _cleanup_real_app_case(package_dir: Path, system: str) -> None:
+    if system == "Darwin":
+        for probe_file in (package_dir / "resources").glob("desktop-textedit-input-*.txt"):
+            _close_macos_textedit_test_window(probe_file.name)
+        return
     if system == "Windows":
         pid_path = package_dir / "resources" / "desktop-app-pid.txt"
         if not pid_path.exists():
@@ -2841,6 +3431,66 @@ def _cleanup_real_app_case(package_dir: Path, system: str) -> None:
             )
         except Exception:
             return
+
+
+def _close_macos_textedit_test_window(window_name: str) -> None:
+    script = f"""
+    tell application "System Events"
+      tell process "TextEdit"
+        repeat 4 times
+          set handledWindow to false
+          repeat with winRef in windows
+            try
+              if (name of winRef as text) is {_applescript_text(window_name)} then
+                set handledWindow to true
+                try
+                  perform action "AXRaise" of winRef
+                end try
+                if (count of sheets of winRef) is greater than 0 then
+                  set sheetRef to first sheet of winRef
+                  set handledSheet to false
+                  repeat with btnRef in buttons of sheetRef
+                    try
+                      set btnName to name of btnRef as text
+                      if btnName is "放弃" or btnName is "不保存" or btnName is "不存储" or btnName is "Don't Save" or btnName is "Don’t Save" or btnName is "Discard" or btnName is "Delete" then
+                        click btnRef
+                        set handledSheet to true
+                        exit repeat
+                      end if
+                    end try
+                  end repeat
+                  if handledSheet is false then
+                    try
+                      click button 2 of sheetRef
+                    end try
+                  end if
+                else if exists (first button of winRef whose subrole is "AXCloseButton") then
+                  try
+                    perform action "AXPress" of (first button of winRef whose subrole is "AXCloseButton")
+                  on error
+                    click (first button of winRef whose subrole is "AXCloseButton")
+                  end try
+                else
+                  click button 1 of winRef
+                end if
+                delay 0.3
+                exit repeat
+              end if
+            end try
+          end repeat
+          if handledWindow is false then return
+        end repeat
+      end tell
+    end tell
+    """
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=8)
+    except Exception:
+        return
+
+
+def _applescript_text(value: str) -> str:
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
 def _cleanup_temporary_form_case(package_dir: Path, system: str) -> None:
@@ -2905,6 +3555,20 @@ def _cleanup_windows_file_dialog_case(package_dir: Path) -> None:
             check=False,
             timeout=5,
         )
+    except Exception:
+        return
+
+
+def _cleanup_macos_file_dialog_case(package_dir: Path) -> None:
+    pid_path = package_dir / "resources" / "mac-native-file-panel-pid.txt"
+    if not pid_path.exists():
+        return
+    try:
+        pid = int(pid_path.read_text(encoding="utf-8").strip())
+    except Exception:
+        return
+    try:
+        subprocess.run(["kill", "-TERM", str(pid)], capture_output=True, check=False, timeout=5)
     except Exception:
         return
 

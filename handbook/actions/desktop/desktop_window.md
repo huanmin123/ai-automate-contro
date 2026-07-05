@@ -26,12 +26,12 @@
 - `process`: 进程名包含文本。
 - `process_name`: 进程名包含文本。
 - `class_name`: Windows 窗口类名包含文本；macOS 通常为空。
-- `window_id`: 后端返回的窗口 id。
+- `window_id`: 后端返回的窗口 id。macOS 在 Quartz 可用时通常是 `macos:<CGWindowNumber>`；缺少 Quartz 映射时会退回 App + AX 窗口序号生成的临时 id。
 - `profile`: App/窗口预设，见 [app_profile](./app_profile.md)。profile 可提供 `window_query`。
 - `app_profile`: `profile` 的别名。
 - `match_index`: 多个候选时的索引，默认 `0`。它不能单独作为定位字段。
 
-优先使用 `profile` 或 `title_contains` + `app/process_name` 缩小范围；只用 `window_id` 时要注意窗口重建后 id 可能变化。
+优先使用 `profile` 或 `title_contains` + `app/process_name` 缩小范围；只用 `window_id` 时要注意窗口重建后 id 可能变化。macOS 同一 App 多窗口操作会同时保留 `window_id` 和 AX `window_index`，用于 System Events 精确定位目标窗口。
 
 ## type=list
 
@@ -189,7 +189,7 @@ payload 主要字段：
 
 - 选中匹配窗口并请求系统聚焦。
 - 成功后更新当前 session 的 `current_window`，供 `desktop_input` 鼠标类动作的 `target=current_window_center` 使用。
-- Windows 使用 Win32 前台窗口 API；macOS 使用 `osascript` 激活目标 App。
+- Windows 使用 Win32 前台窗口 API；macOS 使用 `osascript`/System Events 将目标进程置前，并尽量按 AX `window_index` 对目标窗口执行 `AXRaise`。
 
 ## type=close/minimize/maximize/restore
 

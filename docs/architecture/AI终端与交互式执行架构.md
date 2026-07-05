@@ -314,7 +314,7 @@ AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必
 
 `self-check ai-tools` 不调用真实模型，但会真实构建 LangChain `StructuredTool`、验证共享 Pydantic schema 绑定、通过工具 invoke 执行 `validate_plan`，并确认受保护工具在没有 HITL approve resume 时被拒绝。
 
-`self-check ai-desktop-loop` 不调用真实模型，但会通过 AI 终端工具注册表完整走桌面工具链：`inspect_desktop`、创建 desktop plan、写入、校验、`review_plan_quality`、`run_plan`，并在临时 WinForms/Tkinter 窗口中验证 `desktop-annotations` JSON；失败分支会读取 `desktop_diagnostics` 和 `desktop_repair_suggestions`，创建 debug workspace，用 `propose_debug_fix` 基于 `selector_hints` 修正 Element Locator，运行 `run_debug_plan`，生成只包含 `plan.json` 的 debug patch，并验证未审批的 `apply_debug_patch_after_approval` 仍被拒绝。
+`self-check ai-desktop-loop` 不调用真实模型，但会通过 AI 终端工具注册表完整走桌面工具链：`inspect_desktop`、创建 desktop plan、写入、校验、`review_plan_quality`、`run_plan`，并在 Windows WinForms 或 macOS Swift/Cocoa 受控窗口中验证 `desktop-annotations` JSON；失败分支会读取 `desktop_diagnostics` 和 `desktop_repair_suggestions`，创建 debug workspace，用 `propose_debug_fix` 基于 `selector_hints` 修正 Element Locator，运行 `run_debug_plan`，生成只包含 `plan.json` 的 debug patch，并验证未审批的 `apply_debug_patch_after_approval` 仍被拒绝。
 
 `self-check ai-real-desktop-loop` 调用真实模型，适合在有临时中转账户时跑端到端验收。它把密钥文件中的 URL 和 `sk-*` key 解析到当前进程环境变量，在临时项目根里让模型调用 `inspect_desktop`、创建 desktop smoke plan、校验、质量复查、运行并读取产物；连接、超时或中转服务瞬态错误默认最多尝试 5 次，每次外层重试按 `--retry-delay-seconds` 线性退避等待，可用 `--max-attempts` 和 `--retry-delay-seconds` 调整；缺密钥或非 Windows/macOS 时跳过。
 

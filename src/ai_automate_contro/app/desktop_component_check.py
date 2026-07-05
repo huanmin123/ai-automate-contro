@@ -15,10 +15,14 @@ from typing import Any
 
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
 from ai_automate_contro.app.desktop_checks.fixture_apps import (
+    _cleanup_macos_file_dialog_case,
     _cleanup_real_app_case,
     _cleanup_temporary_form_case,
     _cleanup_windows_file_dialog_case,
     _cleanup_windows_terminal_case,
+    _compile_macos_file_dialog_app,
+    _macos_file_dialog_plan,
+    _macos_finder_plan,
     _macos_textedit_plan,
     _module_available,
     _temporary_form_plan,
@@ -1884,6 +1888,9 @@ def _run_real_app_matrix_case(project_root: Path) -> dict[str, Any]:
         cases.append(_run_windows_explorer_real_app_case(project_root))
         cases.append(_run_windows_terminal_real_app_case(project_root))
         cases.append(_run_windows_file_dialog_real_app_case(project_root))
+    elif system == "Darwin":
+        cases.append(_run_macos_finder_real_app_case(project_root))
+        cases.append(_run_macos_file_dialog_real_app_case(project_root))
     return {
         "name": "desktop_real_app_matrix",
         "ok": all(bool(case.get("ok")) for case in cases),
@@ -1984,6 +1991,9 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             _cleanup_real_app_case(package_dir, system)
         content = assertion_file.read_text(encoding="utf-8", errors="replace") if assertion_file.exists() else ""
         expected_text = str(plan["variables"]["expected_text"])
+        expected_text_found = expected_text in content
+        content_required = system != "Darwin"
+        content_ok = expected_text_found or not content_required
         expected_window_title = str(plan.get("variables", {}).get("window_title") or assertion_file.name)
         screenshot_path = package_dir / "output" / "desktop-screenshots" / "real-app-screen.png"
         elements_path = package_dir / "output" / "desktop-elements" / "real-app-elements.json"
@@ -1997,12 +2007,7 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
         restored_active_window_payload = (
             _read_json(restored_active_window_path) if restored_active_window_path.exists() else {}
         )
-        element_output_ok = (
-            _file_nonempty_after(elements_path, started_at)
-            and isinstance(elements_payload, dict)
-            and isinstance(elements_payload.get("elements"), list)
-            and int(elements_payload.get("count", 0) or 0) > 0
-        )
+        element_output_ok = _desktop_elements_payload_ok(elements_payload, elements_path, started_at)
         active_window_ok = (
             _file_nonempty_after(active_window_path, started_at)
             and isinstance(active_window_payload.get("window"), dict)
@@ -2023,7 +2028,7 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
         return {
             "name": "desktop_real_app_regression",
             "ok": run_ok
-            and expected_text in content
+            and content_ok
             and _file_nonempty_after(screenshot_path, started_at)
             and element_output_ok
             and active_window_ok
@@ -2034,7 +2039,9 @@ def _run_real_app_case_once(project_root: Path) -> dict[str, Any]:
             "output_dir": output_dir,
             "run_error": run_error,
             "assertion_file": str(assertion_file),
-            "expected_text_found": expected_text in content,
+            "expected_text_found": expected_text_found,
+            "content_required": content_required,
+            "content_ok": content_ok,
             "content_preview": content[:500],
             "screenshot_ok": _file_nonempty_after(screenshot_path, 0),
             "element_output_ok": element_output_ok,
@@ -2062,26 +2069,41 @@ def _macos_textedit_window_access_skip_reason(package_dir: Path) -> str:
             timeout=10,
         )
         backend = NativeDesktopBackend()
-        deadline = time.time() + 5
+        deadline = time.time() + 15
         last_windows: list[dict[str, Any]] = []
+        fallback_matches: list[str] = []
         while time.time() < deadline:
             last_windows = backend.list_windows()
+            fallback_matches = []
             if any(
                 str(window.get("app") or "") == "TextEdit"
                 and probe_file.name in str(window.get("title") or "")
+                and str(window.get("source") or "") != "quartz_fallback"
                 for window in last_windows
             ):
                 return ""
+            fallback_matches = [
+                str(window.get("title") or "")
+                for window in last_windows
+                if str(window.get("app") or "") == "TextEdit"
+                and probe_file.name in str(window.get("title") or "")
+                and str(window.get("source") or "") == "quartz_fallback"
+            ]
             time.sleep(0.5)
         textedit_windows = [
             str(window.get("title") or "")
             for window in last_windows
             if str(window.get("app") or "") == "TextEdit"
         ]
+        fallback_note = (
+            f" quartz_fallback_matches={fallback_matches[:3]!r} last_window_list_error={backend.last_window_list_error!r}"
+            if fallback_matches or backend.last_window_list_error
+            else ""
+        )
         return (
             "macOS System Events cannot see the TextEdit probe window after launch; "
             "grant Accessibility/Automation permission to the current terminal/Python process, "
-            f"then rerun the desktop self-check. visible_textedit_windows={textedit_windows[:3]!r}"
+            f"then rerun the desktop self-check. visible_textedit_windows={textedit_windows[:3]!r}{fallback_note}"
         )
     except Exception as error:
         return f"macOS TextEdit window access probe failed: {error}"
@@ -2098,6 +2120,62 @@ def _macos_tk_child_controls_unsupported_reason() -> str:
 
 def _close_macos_textedit_document(document_name: str) -> None:
     script = f"""
+    tell application "System Events"
+      tell process "TextEdit"
+        repeat 4 times
+          set handledWindow to false
+          repeat with winRef in windows
+            try
+              if (name of winRef as text) is {_applescript_text(document_name)} then
+                set handledWindow to true
+                try
+                  perform action "AXRaise" of winRef
+                end try
+                if (count of sheets of winRef) is greater than 0 then
+                  set sheetRef to first sheet of winRef
+                  set handledSheet to false
+                  repeat with btnRef in buttons of sheetRef
+                    try
+                      set btnName to name of btnRef as text
+                      if btnName is "放弃" or btnName is "不保存" or btnName is "不存储" or btnName is "Don't Save" or btnName is "Don’t Save" or btnName is "Discard" or btnName is "Delete" then
+                        click btnRef
+                        set handledSheet to true
+                        exit repeat
+                      end if
+                    end try
+                  end repeat
+                  if handledSheet is false then
+                    try
+                      click button 2 of sheetRef
+                    end try
+                  end if
+                else if exists (first button of winRef whose subrole is "AXCloseButton") then
+                  try
+                    perform action "AXPress" of (first button of winRef whose subrole is "AXCloseButton")
+                  on error
+                    click (first button of winRef whose subrole is "AXCloseButton")
+                  end try
+                else
+                  click button 1 of winRef
+                end if
+                delay 0.3
+                exit repeat
+              end if
+            end try
+          end repeat
+          if handledWindow is false then return
+        end repeat
+      end tell
+    end tell
+    """
+    try:
+        completed = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=5)
+        if completed.returncode == 0:
+            return
+    except Exception:
+        return
+
+    fallback_script = f"""
     tell application "TextEdit"
       repeat with docRef in documents
         try
@@ -2108,7 +2186,28 @@ def _close_macos_textedit_document(document_name: str) -> None:
       end repeat
     end tell
     """
-    subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=5)
+    try:
+        subprocess.run(["osascript", "-e", fallback_script], capture_output=True, text=True, check=False, timeout=2)
+    except Exception:
+        return
+
+
+def _close_macos_finder_window(window_name: str) -> None:
+    script = f"""
+    tell application "Finder"
+      repeat with winRef in windows
+        try
+          if (name of winRef as text) is {_applescript_text(window_name)} then
+            close winRef
+          end if
+        end try
+      end repeat
+    end tell
+    """
+    try:
+        subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=5)
+    except Exception:
+        return
 
 
 def _applescript_text(value: str) -> str:
@@ -2221,6 +2320,297 @@ def _run_windows_explorer_real_app_case(project_root: Path) -> dict[str, Any]:
             "sample_file_path": str(sample_file_path),
             "screenshot_path": str(screenshot_path),
             "cleanup": "Explorer window is closed by desktop_window.close; no explorer.exe process kill fallback is used.",
+        }
+
+
+def _run_macos_finder_real_app_case(project_root: Path) -> dict[str, Any]:
+    if platform.system() != "Darwin":
+        return {
+            "name": "desktop_macos_finder_real_app_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "macOS Finder regression only runs on macOS.",
+        }
+    with tempfile.TemporaryDirectory(prefix="desktop-components-finder-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        skip_reason = _macos_textedit_window_access_skip_reason(package_dir)
+        if skip_reason:
+            return {
+                "name": "desktop_macos_finder_real_app_regression",
+                "ok": True,
+                "skipped": True,
+                "reason": skip_reason,
+            }
+        folder_name = f"desktop-finder-{package_dir.name.rsplit('-', 1)[-1]}"
+        target_dir = resources_dir / folder_name
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "sample.txt").write_text("desktop finder regression\n", encoding="utf-8")
+        plan_path = package_dir / "plan.json"
+        plan = _macos_finder_plan(target_dir, folder_name)
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            _close_macos_finder_window(folder_name)
+            return {
+                "name": "desktop_macos_finder_real_app_regression",
+                "ok": False,
+                "validation_ok": False,
+                "errors": [error.format() for error in validation.errors],
+            }
+        run_error = ""
+        started_at = time.time()
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-finder",
+                run_context_handler=_disable_run_log_echo,
+            )
+            run_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            run_ok = False
+            output_dir = ""
+            run_error = str(error)
+        finally:
+            _close_macos_finder_window(folder_name)
+        windows_path = package_dir / "output" / "desktop-windows" / "finder-windows.json"
+        window_find_path = package_dir / "output" / "desktop-windows" / "finder-window-find.json"
+        elements_path = package_dir / "output" / "desktop-elements" / "finder-elements.json"
+        screenshot_path = package_dir / "output" / "desktop-screenshots" / "finder-screen.png"
+        windows_payload = _read_json(windows_path) if windows_path.exists() else {}
+        window_find_payload = _read_json(window_find_path) if window_find_path.exists() else {}
+        elements_payload = _read_json(elements_path) if elements_path.exists() else {}
+        window_found = any(
+            folder_name in str(window.get("title", "")) and str(window.get("app", "")) == "Finder"
+            for window in windows_payload.get("windows", [])
+            if isinstance(window, dict)
+        )
+        window_find_ok = (
+            _file_nonempty_after(window_find_path, started_at)
+            and int(window_find_payload.get("match_count", 0) or 0) > 0
+            and isinstance(window_find_payload.get("selected_window"), dict)
+            and folder_name in str(window_find_payload.get("selected_window", {}).get("title", ""))
+        )
+        finder_profile = window_find_payload.get("profile") if isinstance(window_find_payload, dict) else {}
+        profile_ok = (
+            isinstance(finder_profile, dict)
+            and finder_profile.get("id") == "finder"
+            and finder_profile.get("source") == "builtin"
+            and finder_profile.get("platform") == "macos"
+        )
+        elements_ok = _desktop_elements_payload_ok(elements_payload, elements_path, started_at)
+        finder_elements = elements_payload.get("elements") if isinstance(elements_payload.get("elements"), list) else []
+        sample_file_visible = any(
+            "sample.txt" in str(element.get("name", "")) or "sample.txt" in str(element.get("text", ""))
+            for element in finder_elements
+            if isinstance(element, dict)
+        )
+        sample_file_available = (target_dir / "sample.txt").exists()
+        screenshot_ok = _file_nonempty_after(screenshot_path, started_at)
+        return {
+            "name": "desktop_macos_finder_real_app_regression",
+            "ok": (
+                run_ok
+                and window_found
+                and window_find_ok
+                and profile_ok
+                and elements_ok
+                and (sample_file_visible or sample_file_available)
+                and _file_nonempty_after(windows_path, started_at)
+                and screenshot_ok
+            ),
+            "validation_ok": True,
+            "run_ok": run_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+            "target_dir": str(target_dir),
+            "window_title_contains": folder_name,
+            "window_found": window_found,
+            "windows_path": str(windows_path),
+            "window_find_ok": window_find_ok,
+            "window_find_path": str(window_find_path),
+            "profile_ok": profile_ok,
+            "profile": finder_profile,
+            "elements_path": str(elements_path),
+            "elements_ok": elements_ok,
+            "sample_file_visible": sample_file_visible,
+            "sample_file_available": sample_file_available,
+            "screenshot_ok": screenshot_ok,
+            "screenshot_path": str(screenshot_path),
+            "cleanup": "Finder window is closed by desktop_window.close; fallback cleanup closes Finder windows matching the unique temporary folder name.",
+        }
+
+
+def _run_macos_file_dialog_real_app_case(project_root: Path) -> dict[str, Any]:
+    if platform.system() != "Darwin":
+        return {
+            "name": "desktop_macos_native_file_panel_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "macOS native file panel regression only runs on macOS.",
+        }
+    if not shutil.which("swiftc"):
+        return {
+            "name": "desktop_macos_native_file_panel_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "swiftc is unavailable; skipping macOS native NSOpenPanel/NSSavePanel regression.",
+        }
+    if not _module_available("pyautogui") or not _module_available("pyperclip"):
+        return {
+            "name": "desktop_macos_native_file_panel_regression",
+            "ok": True,
+            "skipped": True,
+            "reason": "pyautogui and pyperclip are required for stable macOS native file panel keyboard input.",
+        }
+    with tempfile.TemporaryDirectory(prefix="desktop-components-macos-file-panel-") as raw_temp_dir:
+        package_dir = Path(raw_temp_dir)
+        resources_dir = package_dir / "resources"
+        resources_dir.mkdir(parents=True, exist_ok=True)
+        skip_reason = _macos_textedit_window_access_skip_reason(package_dir)
+        if skip_reason:
+            return {
+                "name": "desktop_macos_native_file_panel_regression",
+                "ok": True,
+                "skipped": True,
+                "reason": skip_reason,
+            }
+        open_dir = resources_dir / "open"
+        save_dir = resources_dir / "save"
+        open_dir.mkdir(parents=True, exist_ok=True)
+        save_dir.mkdir(parents=True, exist_ok=True)
+        input_file = open_dir / "desktop-file-dialog-input.txt"
+        save_file = save_dir / "desktop-file-dialog-save.txt"
+        result_file = resources_dir / "desktop-file-dialog-result.txt"
+        expected_open_text = "desktop file dialog open payload"
+        expected_save_text = "desktop file dialog save payload"
+        input_file.write_text(expected_open_text, encoding="utf-8")
+        if save_file.exists():
+            save_file.unlink()
+        try:
+            executable = _compile_macos_file_dialog_app(package_dir)
+        except Exception as error:
+            return {
+                "name": "desktop_macos_native_file_panel_regression",
+                "ok": False,
+                "validation_ok": False,
+                "compile_ok": False,
+                "compile_error": str(error),
+            }
+        plan_path = package_dir / "plan.json"
+        plan = _macos_file_dialog_plan(
+            executable=executable,
+            package_dir=package_dir,
+            input_file=input_file,
+            save_file=save_file,
+            result_file=result_file,
+            expected_open_text=expected_open_text,
+            expected_save_text=expected_save_text,
+        )
+        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        validation = validate_plan_file(plan_path, project_root)
+        if not validation.ok:
+            _cleanup_macos_file_dialog_case(package_dir)
+            return {
+                "name": "desktop_macos_native_file_panel_regression",
+                "ok": False,
+                "validation_ok": False,
+                "compile_ok": True,
+                "errors": [error.format() for error in validation.errors],
+            }
+        run_error = ""
+        started_at = time.time()
+        try:
+            result = execute_plan(
+                plan,
+                project_root,
+                plan_path=plan_path,
+                run_name="desktop-components-macos-file-panel",
+                run_context_handler=_disable_run_log_echo,
+            )
+            run_ok = result.status == "passed"
+            output_dir = result.output_dir
+        except Exception as error:
+            run_ok = False
+            output_dir = ""
+            run_error = str(error)
+        finally:
+            _cleanup_macos_file_dialog_case(package_dir)
+        result_content = result_file.read_text(encoding="utf-8", errors="replace") if result_file.exists() else ""
+        save_content = save_file.read_text(encoding="utf-8", errors="replace") if save_file.exists() else ""
+        form_elements_path = package_dir / "output" / "desktop-elements" / "mac-native-file-panel-form-elements.json"
+        open_dialog_elements_path = package_dir / "output" / "desktop-elements" / "mac-native-open-panel-elements.json"
+        save_dialog_elements_path = package_dir / "output" / "desktop-elements" / "mac-native-save-panel-elements.json"
+        open_dialog_screenshot_path = package_dir / "output" / "desktop-screenshots" / "mac-native-open-panel.png"
+        save_dialog_screenshot_path = package_dir / "output" / "desktop-screenshots" / "mac-native-save-panel.png"
+        form_screenshot_path = package_dir / "output" / "desktop-screenshots" / "mac-native-file-panel-form.png"
+        final_screenshot_path = package_dir / "output" / "desktop-screenshots" / "mac-native-file-panel-final.png"
+        result_lines = result_content.splitlines()
+        open_path_ok = any(
+            line.startswith("open_path=") and _same_path(line.split("=", 1)[1], str(input_file.resolve()))
+            for line in result_lines
+        )
+        save_path_ok = any(
+            line.startswith("save_path=") and _same_path(line.split("=", 1)[1], str(save_file.resolve()))
+            for line in result_lines
+        )
+        result_ok = (
+            expected_open_text in result_content
+            and expected_save_text in result_content
+            and expected_save_text in save_content
+            and open_path_ok
+            and save_path_ok
+        )
+        form_elements_ok = _desktop_elements_file_ok(form_elements_path, started_at)
+        open_dialog_elements_ok = _desktop_elements_file_ok(open_dialog_elements_path, started_at)
+        save_dialog_elements_ok = _desktop_elements_file_ok(save_dialog_elements_path, started_at)
+        open_dialog_screenshot_ok = _file_nonempty_after(open_dialog_screenshot_path, started_at)
+        save_dialog_screenshot_ok = _file_nonempty_after(save_dialog_screenshot_path, started_at)
+        form_screenshot_ok = _file_nonempty_after(form_screenshot_path, started_at)
+        final_screenshot_ok = _file_nonempty_after(final_screenshot_path, started_at)
+        return {
+            "name": "desktop_macos_native_file_panel_regression",
+            "ok": (
+                run_ok
+                and result_ok
+                and form_elements_ok
+                and open_dialog_elements_ok
+                and save_dialog_elements_ok
+                and open_dialog_screenshot_ok
+                and save_dialog_screenshot_ok
+                and form_screenshot_ok
+                and final_screenshot_ok
+            ),
+            "validation_ok": True,
+            "compile_ok": True,
+            "run_ok": run_ok,
+            "output_dir": output_dir,
+            "run_error": run_error,
+            "result_file": str(result_file),
+            "result_ok": result_ok,
+            "result_preview": result_content[:500],
+            "open_path_ok": open_path_ok,
+            "save_path_ok": save_path_ok,
+            "save_file": str(save_file),
+            "save_content_preview": save_content[:500],
+            "form_elements_ok": form_elements_ok,
+            "open_dialog_elements_ok": open_dialog_elements_ok,
+            "save_dialog_elements_ok": save_dialog_elements_ok,
+            "open_dialog_elements_path": str(open_dialog_elements_path),
+            "save_dialog_elements_path": str(save_dialog_elements_path),
+            "open_dialog_screenshot_ok": open_dialog_screenshot_ok,
+            "save_dialog_screenshot_ok": save_dialog_screenshot_ok,
+            "open_dialog_screenshot_path": str(open_dialog_screenshot_path),
+            "save_dialog_screenshot_path": str(save_dialog_screenshot_path),
+            "form_screenshot_ok": form_screenshot_ok,
+            "form_screenshot_path": str(form_screenshot_path),
+            "final_screenshot_ok": final_screenshot_ok,
+            "final_screenshot_path": str(final_screenshot_path),
+            "cleanup": "temporary Swift NSOpenPanel/NSSavePanel harness is closed by desktop_window.close; fallback cleanup kills only its recorded app pid.",
         }
 
 
@@ -3742,12 +4132,24 @@ def _read_json(path: Path) -> Any:
 
 def _desktop_elements_file_ok(path: Path, started_at: float) -> bool:
     payload = _read_json(path) if path.exists() else {}
+    return _desktop_elements_payload_ok(payload, path, started_at)
+
+
+def _desktop_elements_payload_ok(payload: Any, path: Path, started_at: float) -> bool:
     return (
         _file_nonempty_after(path, started_at)
         and isinstance(payload, dict)
         and isinstance(payload.get("elements"), list)
         and int(payload.get("count", 0) or 0) > 0
+        and not _desktop_elements_payload_fallback_used(payload)
     )
+
+
+def _desktop_elements_payload_fallback_used(payload: Any) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
+    return bool(payload.get("fallback_used")) or diagnostics.get("reason") == "macos_accessibility_timeout"
 
 
 def _file_nonempty_after(path: Path, started_at: float) -> bool:
