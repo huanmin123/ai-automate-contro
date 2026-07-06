@@ -280,7 +280,7 @@ def _check_terminal_prompt_strategy() -> dict[str, Any]:
         "Open/Save 文件对话框按真实桌面窗口处理",
         "desktop_input type_text method=clipboard",
         "capability_matrix.capabilities.semantic",
-        "desktop_window 的 close/minimize/maximize/restore 只是窗口控制",
+        "desktop_window 的 normalize/close/minimize/maximize/restore 只是窗口控制",
         "不要求 open_browser、navigate 或 inspect_web_page",
         "强制运行门禁",
         "run_plan 会拒绝没有通过最新质量复查或复查后被修改过的 plan",
@@ -2251,6 +2251,20 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         "run_plan",
         {
             "level": "INFO",
+            "message": "desktop window normalized",
+            "fields": {
+                "desktop": "desk",
+                "title": "Untitled - Notepad",
+                "window_id": 1234,
+                "target_bounds": {"x": 0, "y": 0, "width": 900, "height": 700},
+            },
+        },
+    )
+    AITerminal._handle_plan_run_event(
+        terminal,
+        "run_plan",
+        {
+            "level": "INFO",
             "message": "desktop elements listed",
             "fields": {"desktop": "desk", "type": "list", "count": 7, "path": "desktop-elements/elements.json"},
         },
@@ -2401,8 +2415,8 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
     activity_events = [event for event in events if event.kind == "activity"]
     texts = "\n".join(event.text for event in plan_events)
     passed = (
-        len(plan_events) == 25
-        and len(activity_events) == 25
+        len(plan_events) == 26
+        and len(activity_events) == 26
         and all(event.data.get("source_kind") == "plan_progress" for event in activity_events)
         and activity_events[-1].data.get("phase") == "failed"
         and "plan 开始" in texts
@@ -2418,6 +2432,8 @@ def _check_terminal_plan_run_progress_output() -> dict[str, Any]:
         and "桌面窗口已列出" in texts
         and "桌面窗口已控制" in texts
         and "minimize" in texts
+        and "桌面窗口已归一化" in texts
+        and "w=900" in texts
         and "桌面控件已列出" in texts
         and "桌面控件树已导出" in texts
         and "elements-dump.json" in texts

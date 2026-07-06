@@ -104,7 +104,7 @@ ACTION_TYPES: dict[str, set[str]] = {
     },
     "command": {"run"},
     "desktop_app": {"launch"},
-    "desktop_window": {"list", "find", "active", "focus", "close", "minimize", "maximize", "restore"},
+    "desktop_window": {"list", "find", "active", "focus", "close", "minimize", "maximize", "restore", "normalize"},
     "desktop_element": {
         "list",
         "dump",
@@ -282,6 +282,7 @@ OUTPUT_ACTION_CATEGORIES: dict[tuple[str, str], str] = {
     ("desktop_window", "list"): "desktop-windows",
     ("desktop_window", "find"): "desktop-windows",
     ("desktop_window", "active"): "desktop-windows",
+    ("desktop_window", "normalize"): "desktop-windows",
     ("desktop_element", "list"): "desktop-elements",
     ("desktop_element", "dump"): "desktop-elements",
     ("desktop_element", "find"): "desktop-elements",

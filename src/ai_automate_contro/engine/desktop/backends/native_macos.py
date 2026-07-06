@@ -442,6 +442,33 @@ def _control_window_macos(window: dict[str, Any], operation: str) -> None:
         raise DesktopBackendError(message)
 
 
+def _normalize_window_macos(window: dict[str, Any], *, x: int, y: int, width: int, height: int) -> None:
+    app = str(window.get("app") or "")
+    if not app:
+        raise DesktopBackendError("macOS 窗口归一化需要 app 字段。")
+    target_window_script = _target_window_script_macos(window)
+    script = f"""
+    tell application "System Events"
+      tell process {_applescript_text(app)}
+        set frontmost to true
+        {target_window_script}
+        try
+          set value of attribute "AXMinimized" of targetWindow to false
+        end try
+        set position of targetWindow to {{{int(x)}, {int(y)}}}
+        set size of targetWindow to {{{int(width)}, {int(height)}}}
+        try
+          perform action "AXRaise" of targetWindow
+        end try
+      end tell
+    end tell
+    """
+    completed = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=10)
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "macOS window normalize failed"
+        raise DesktopBackendError(message)
+
+
 def _target_window_script_macos(window: dict[str, Any]) -> str:
     title = str(window.get("title") or "")
     window_index = _safe_int(window.get("window_index"), default=0)

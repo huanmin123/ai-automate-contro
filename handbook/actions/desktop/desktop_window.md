@@ -8,12 +8,13 @@
 - `find`: 查询匹配窗口，不聚焦、不控制。
 - `active`: 读取当前系统活动窗口，并更新当前桌面 session 的 `current_window`。
 - `focus`: 聚焦匹配窗口。
+- `normalize`: 将匹配窗口还原、移动到固定位置、调整为固定尺寸，并可聚焦。
 - `close`: 请求关闭匹配窗口。
 - `minimize`: 最小化匹配窗口。
 - `maximize`: 最大化匹配窗口。
 - `restore`: 还原匹配窗口。
 
-`find/focus/close/minimize/maximize/restore` 必须提供至少一种 Window Query 字段。`list` 和 `active` 不要求窗口定位字段。
+`find/focus/normalize/close/minimize/maximize/restore` 必须提供至少一种 Window Query 字段。`list` 和 `active` 不要求窗口定位字段。
 
 ## Window Query
 
@@ -191,6 +192,67 @@ payload 主要字段：
 - 成功后更新当前 session 的 `current_window`，供 `desktop_input` 鼠标类动作的 `target=current_window_center` 使用。
 - Windows 使用 Win32 前台窗口 API；macOS 使用 `osascript`/System Events 将目标进程置前，并尽量按 AX `window_index` 对目标窗口执行 `AXRaise`。
 
+## type=normalize
+
+```json
+{
+  "action": "desktop_window",
+  "desktop": "desk",
+  "type": "normalize",
+  "title_contains": "微信",
+  "process_name": "WeChat",
+  "x": 0,
+  "y": 33,
+  "width": 1728,
+  "height": 1084,
+  "focus": true,
+  "tolerance_px": 2,
+  "path": "wechat-normalized.json",
+  "output": {"as": "wechat_window"}
+}
+```
+
+行为：
+
+- 选中匹配窗口。
+- 尽量从最小化或特殊状态还原窗口。
+- 将窗口移动到 `x/y`，并调整到 `width/height`。
+- `focus=true` 时聚焦目标窗口。
+- 操作后重新读取窗口 bounds；实际 bounds 和目标 bounds 的差异超过 `tolerance_px` 时失败。
+- 成功后更新 `session.current_window`，后续 `desktop_input target=current_window_offset` 可基于归一化窗口写相对坐标。
+
+字段：
+
+- `desktop`: 必填，`open_desktop.name`。
+- `type`: 必填，固定为 `normalize`。
+- Window Query: 必填；除 `match_index` 外至少提供一种定位字段。
+- `x`、`y`: 必填，目标窗口左上角屏幕坐标。多显示器场景可以为负。
+- `width`、`height`: 必填，目标窗口尺寸，必须大于 `0`。
+- `focus`: 可选，是否归一化后聚焦窗口，默认 `true`。
+- `tolerance_px`: 可选，实际 bounds 和目标 bounds 的允许误差，默认 `2`。
+- `path`: 可选，相对于 `output/desktop-windows/` 写出 JSON。
+- `output.as`: 可选，保存 payload。
+
+payload 主要字段：
+
+```json
+{
+  "ok": true,
+  "desktop": "desk",
+  "type": "normalize",
+  "operation": "normalize",
+  "target_bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084},
+  "tolerance_px": 2,
+  "focus": true,
+  "before": {"bounds": {"x": 20, "y": 60, "width": 1200, "height": 800}},
+  "after": {"bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084}},
+  "window": {"bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084}},
+  "bounds_delta": {"x": 0, "y": 0, "width": 0, "height": 0}
+}
+```
+
+`normalize` 是桌面布局归一化步骤，适合在微信、QQ、系统客户端或游戏窗口这类坐标兜底流程前执行。它仍然不是业务状态识别证据；需要证明当前页面、聊天对象、弹窗状态或操作结果时，继续使用 `desktop_window list/find/active`、`desktop_capture`、`desktop_wait`、`desktop_assert` 或可用的 `desktop_element` 读取类动作。
+
 ## type=close/minimize/maximize/restore
 
 ```json
@@ -259,12 +321,12 @@ payload 主要字段：
 
 ## 平台行为
 
-- Windows: `focus` 使用 Win32 前台窗口 API；`close` 使用 `WM_CLOSE`；`minimize/maximize/restore` 使用 `ShowWindow`。
-- macOS: 使用 System Events/AppleScript 控制目标进程窗口；`minimize/restore` 依赖 Accessibility 的 `AXMinimized`；`maximize` 通过 zoom button 或 `AXZoomWindow` best-effort 实现。
+- Windows: `focus` 使用 Win32 前台窗口 API；`normalize` 使用 `ShowWindow(SW_RESTORE)` + `SetWindowPos`；`close` 使用 `WM_CLOSE`；`minimize/maximize/restore` 使用 `ShowWindow`。
+- macOS: 使用 System Events/AppleScript 控制目标进程窗口；`normalize` 设置窗口 `position` 和 `size`；`minimize/restore` 依赖 Accessibility 的 `AXMinimized`；`maximize` 通过 zoom button 或 `AXZoomWindow` best-effort 实现。
 
 ## 权限和边界
 
 - Windows 控制高完整性级别窗口、UAC 安全桌面或管理员窗口可能失败。
 - macOS 首次控制窗口通常需要 Accessibility/Automation 权限；runtime 可以触发系统提示或打开设置，但授权必须由用户点击。
 - `close` 不会绕过未保存确认框；遇到确认框时应使用 `desktop_wait`、截图和 `manual_confirm` 明确交接。
-- `desktop_window close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据。需要确认桌面状态时，仍应使用 `desktop_window list`、`desktop_element list/dump/find/get_text/get_state/get_table/get_tree`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。
+- `desktop_window normalize/close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据。需要确认桌面状态时，仍应使用 `desktop_window list/find/active`、`desktop_element list/dump/find/get_text/get_state/get_table/get_tree`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。

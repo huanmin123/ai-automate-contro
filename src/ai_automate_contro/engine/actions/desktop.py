@@ -65,7 +65,7 @@ from ai_automate_contro.engine.output_contract import publish_step_output
 
 
 WINDOW_CONTROL_TYPES = {"close", "minimize", "maximize", "restore"}
-WINDOW_QUERY_REQUIRED_TYPES = {"find", "focus", "close", "minimize", "maximize", "restore"}
+WINDOW_QUERY_REQUIRED_TYPES = {"find", "focus", "normalize", "close", "minimize", "maximize", "restore"}
 DESKTOP_ELEMENT_MESSAGES = {
     "list": "desktop elements listed",
     "dump": "desktop element tree dumped",
@@ -342,6 +342,43 @@ def desktop_window(executor: Any, step: dict[str, Any]) -> None:
             desktop=session.name,
             title=window.get("title", ""),
             window_id=window.get("id", ""),
+        )
+        return
+    if window_type == "normalize":
+        query = _window_query(step)
+        payload = session.backend.normalize_window(
+            query,
+            x=int(step["x"]),
+            y=int(step["y"]),
+            width=int(step["width"]),
+            height=int(step["height"]),
+            focus=bool(step.get("focus", True)),
+            tolerance_px=int(step.get("tolerance_px", 2)),
+        )
+        payload = {
+            **payload,
+            "desktop": session.name,
+            "type": window_type,
+            "query": query,
+            "elapsed_ms": _elapsed_ms(started),
+        }
+        _with_profile_payload(payload, profile_payload)
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
+        if isinstance(window, dict):
+            session.current_window = dict(window)
+        if "path" in step:
+            output_path = executor._resolve_output_path(step["path"], category="desktop-windows")
+            payload["path"] = str(output_path)
+            _write_json(output_path, payload)
+        publish_step_output(executor, step, payload, action=str(step["action"]))
+        executor.state.logger.log(
+            "info",
+            "desktop window normalized",
+            desktop=session.name,
+            title=window.get("title", "") if isinstance(window, dict) else "",
+            window_id=window.get("id", "") if isinstance(window, dict) else "",
+            target_bounds=payload.get("target_bounds", {}),
+            output=step.get("output", {}),
         )
         return
     if window_type in WINDOW_CONTROL_TYPES:

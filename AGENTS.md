@@ -11,6 +11,7 @@
 ## 工作原则
 
 - 默认按当前最优方案开发：当前 JSON schema、当前 action 契约、当前 CLI/UI 流程和当前文档规范。除非用户明确要求兼容，否则不保留旧字段、旧命令、旧入口或运行时兼容分支。
+- 创建、修改或修复 plan 时遵守 [handbook/README.md](./handbook/README.md) 的“能力优先级”：优先使用本项目已有 action 和 runtime；脚本、`command` 或其他语言只作为最后兜底。维护项目源码时如果发现通用能力缺口，优先沉淀到 action/schema/runtime/handbook，而不是在单个 plan 里固化脚本。
 - 架构边界、执行模型、action 契约、AI 终端能力或 plan 结构变化时，代码、手册、功能文档和验证说明要同步更新。
 - 本项目按本地调试原文优先处理。运行日志、报告、失败现场、截图、HTML、DOM、Cookie、storage state、token、api_key 等本机数据不得自动脱敏、遮罩、摘要化或拒写；是否提交由用户决定。
 - 保持 JSON plan、action 命名、参数风格和目录结构一致，不为单个需求引入平行体系。
@@ -27,7 +28,7 @@
 AI 和维护者应先按任务选择文档，不要一次性读取全部文档：
 
 - [docs/README.md](./docs/README.md): 全局文档地图、任务入口和维护规则。
-- [handbook/README.md](./handbook/README.md): plan 与 action 的唯一教程入口；新增或变更 action 时必须同步更新。
+- [handbook/README.md](./handbook/README.md): plan 与 action 的唯一教程入口；包含能力优先级规则，新增或变更 action 时必须同步更新。
 - [docs/architecture/执行线隔离与Plan类型设计.md](./docs/architecture/执行线隔离与Plan类型设计.md): 浏览器/桌面双执行线、`automation_type`、handbook 隔离和 AI 终端确认规则。
 - [docs/architecture/架构总览.md](./docs/architecture/架构总览.md): 稳定架构、模块边界和关键流程。
 - [docs/develop/AI协作开发规范.md](./docs/develop/AI协作开发规范.md): 详细开发规则、AI 协作规则、资源路径策略和验证矩阵。

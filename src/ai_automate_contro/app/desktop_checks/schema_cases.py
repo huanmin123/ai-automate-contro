@@ -112,6 +112,69 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-window-normalize-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid desktop window normalize",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_window",
+                        "desktop": "desktop",
+                        "type": "normalize",
+                        "title_contains": "Notepad",
+                        "x": 0,
+                        "y": 0,
+                        "width": 900,
+                        "height": 700,
+                        "focus": True,
+                        "tolerance_px": 4,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-normalize-requires-query",
+            "expected_message": "desktop_window.normalize 需要至少一种窗口定位字段",
+            "plan": {
+                "name": "missing window normalize query",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_window",
+                        "desktop": "desktop",
+                        "type": "normalize",
+                        "x": 0,
+                        "y": 0,
+                        "width": 900,
+                        "height": 700,
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-normalize-requires-bounds",
+            "expected_message": "desktop_window.normalize 缺少必填字段：width",
+            "plan": {
+                "name": "missing window normalize bounds",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_window",
+                        "desktop": "desktop",
+                        "type": "normalize",
+                        "title_contains": "Notepad",
+                        "x": 0,
+                        "y": 0,
+                        "height": 700,
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-profile-config-rejects-bad-launch",
             "expected_message": "launch 必须是 JSON 对象",
             "files": {

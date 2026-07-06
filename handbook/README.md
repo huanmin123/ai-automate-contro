@@ -21,6 +21,14 @@
 - `browser` plan 只能用 `actions/browser` 和 `actions/common`。
 - `desktop` plan 只能用 `actions/desktop` 和 `actions/common`。
 
+## 能力优先级
+
+- 创建、修改或修复 plan 时，优先使用本项目已有 JSON action、runtime 能力、变量、输出、断言、控制流、浏览器 action、桌面 action 和通用 action。
+- 不要为了单个需求绕过现有能力，把浏览器操作、桌面键鼠、窗口定位、文件读写、数据处理、等待、断言或取证逻辑写进 `command`、Python、PowerShell、AppleScript、JavaScript 或其他临时脚本。
+- 如果现有 action 不能直接表达流程，先尝试用已有 action 组合、变量、条件、循环、等待、断言、配置、profile、`manual_confirm` 或更明确的定位信息解决。
+- `command` 和外部脚本只作为最后兜底：适合调用已有 CLI、执行确定性本地命令，或处理当前安装包尚未提供专用 action 的特殊步骤。兜底脚本必须边界清楚、输出可追踪，并且不能替代已有 action 的职责。
+- 临时验证写在 `.keygen/` 或 debug workspace 可以接受；最终可复用 plan 和示例应回到 action 编排，避免把一次性脚本固化成项目能力。
+
 ## 取证规则
 
 - 真实网页流程不能凭描述猜 selector。最终 browser plan 前先获取页面证据。

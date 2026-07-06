@@ -208,8 +208,12 @@ def validate_type_specific_required_fields(
         issues.append(ValidationIssue(location, "desktop_app.launch 需要 app、path、command 或 profile 之一"))
     elif action == "desktop_app" and step_type == "launch" and step.get("wait_for_window") is True:
         _validate_window_query(step, action, "launch wait_for_window", location, issues)
-    elif action == "desktop_window" and step_type in {"find", "focus", "close", "minimize", "maximize", "restore"}:
+    elif action == "desktop_window" and step_type in {"find", "focus", "close", "minimize", "maximize", "restore", "normalize"}:
         _validate_window_query(step, action, step_type, location, issues)
+        if step_type == "normalize":
+            for field in ("x", "y", "width", "height"):
+                if field not in step:
+                    issues.append(ValidationIssue(location, f"desktop_window.normalize 缺少必填字段：{field}"))
     elif action == "desktop_element":
         _validate_window_query(step, action, step_type, location, issues)
         if step_type in {
@@ -316,4 +320,3 @@ def validate_type_specific_required_fields(
         _validate_locator_fields(step, action, step_type, location, issues)
     elif action in {"element", "wait", "extract", "assert"}:
         _validate_frame_fields(step, location, issues)
-

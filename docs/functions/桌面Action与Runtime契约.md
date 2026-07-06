@@ -18,7 +18,7 @@ Phase 0 目标是先把执行线和桌面基础 runtime 打稳，不追求完整
 - `DesktopSession`、backend adapter 基类和最小 Windows/macOS 探测。
 - `open_desktop`、`close_desktop`。
 - `desktop_app type=launch`，支持可选启动后等待窗口和聚焦。
-- `desktop_window type=list/find/active/focus/close/minimize/maximize/restore`。
+- `desktop_window type=list/find/active/focus/normalize/close/minimize/maximize/restore`。
 - `desktop_element type=list/dump/find/wait/get_text/get_state/click/set_text/select/invoke`，其中 `dump` 为控件树和 selector 诊断导出，`click` 为控件 bounds 中心点击，`set_text` 优先原生 UIA/AX 写值，`select` 优先 UIA SelectionItemPattern/AX 可选项，`invoke` 优先 UIA InvokePattern/AXPress。
 - `desktop_input type=type_text/hotkey/click/double_click/right_click/scroll/drag`，其中鼠标类输入为系统级坐标动作，并支持 candidate、当前窗口中心/偏移、控件中心、给定 bounds 中心和绝对坐标。
 - `desktop_capture type=screenshot/snapshot/observe`，其中 `observe` 输出 AI 可读的统一桌面观察 payload。
@@ -138,7 +138,7 @@ AI 终端为真实 desktop 任务写最终 plan 前，必须先有 plan 外探�
 
 - plan 外探测证据来自 `inspect_desktop` 或等价上下文，至少能说明平台、backend、`capability_matrix`、`coordinate_profile`、窗口列表、权限/依赖、控件树摘要、截图路径或人工确认之一。`inspect_desktop` 返回结构与 `desktop_capture type=observe` 的统一观察 payload 对齐。
 - plan 内运行证据必须由桌面 action 产出，例如 `desktop_capture type=observe`、`desktop_window type=list/find/active/focus`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture screenshot/snapshot`、`desktop_vision locate_image`、`desktop_wait` 或 `desktop_assert`。
-- `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_input click/type_text/hotkey/drag/scroll` 和 `desktop_window close/minimize/maximize/restore` 只算操作推进，不单独算识别证据。
+- `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_input click/type_text/hotkey/drag/scroll` 和 `desktop_window normalize/close/minimize/maximize/restore` 只算操作推进，不单独算识别证据。
 - `review_plan_quality` 缺少桌面探测证据时返回 `missing_desktop_inspection_evidence` fail；缺少 plan 内桌面运行证据时返回 `missing_desktop_evidence_step` fail。
 - `run_plan` 仍要求最新质量复查通过，复查后 plan 被修改必须重新 review。
 
@@ -188,6 +188,7 @@ class DesktopBackend:
     def get_active_window(self) -> dict[str, Any]: ...
     def focus_window(self, query: dict[str, Any]) -> dict[str, Any]: ...
     def control_window(self, query: dict[str, Any], operation: str) -> dict[str, Any]: ...
+    def normalize_window(self, query: dict[str, Any], *, x: int, y: int, width: int, height: int, focus: bool = True, tolerance_px: int = 2) -> dict[str, Any]: ...
     def list_elements(self, window_query: dict[str, Any], *, locator: dict[str, Any] | None = None, max_depth: int = 6, max_elements: int = 200) -> dict[str, Any]: ...
     def dump_elements(self, window_query: dict[str, Any], *, locator: dict[str, Any] | None = None, max_depth: int = 6, max_elements: int = 200, include_tree: bool = True, include_selector_hints: bool = True, text_limit: int = 160) -> dict[str, Any]: ...
     def find_element(self, window_query: dict[str, Any], locator: dict[str, Any], *, state: str = "exists", timeout_ms: int = 1000, interval_ms: int = 100, max_depth: int = 6, max_elements: int = 200) -> dict[str, Any]: ...
@@ -598,7 +599,7 @@ Window Query 字段：
 - `window_id`
 - `match_index`
 
-`find/focus/close/minimize/maximize/restore` 需要至少一种定位字段。`list` 和 `active` 不要求定位字段。`match_index` 只用于多个候选时选择第几个，不能单独作为定位字段。
+`find/focus/normalize/close/minimize/maximize/restore` 需要至少一种定位字段。`list` 和 `active` 不要求定位字段。`match_index` 只用于多个候选时选择第几个，不能单独作为定位字段。
 
 #### type=list
 
@@ -717,6 +718,64 @@ Window Query 字段：
 - 更新 `session.current_window`。
 - 返回命中窗口摘要。
 
+#### type=normalize
+
+```json
+{
+  "action": "desktop_window",
+  "type": "normalize",
+  "desktop": "desk",
+  "title_contains": "WeChat",
+  "process_name": "WeChat",
+  "x": 0,
+  "y": 33,
+  "width": 1728,
+  "height": 1084,
+  "focus": true,
+  "tolerance_px": 2,
+  "path": "wechat-normalized.json",
+  "output": {"as": "normalized_window"}
+}
+```
+
+字段：
+
+- `desktop`: 必填。
+- Window Query 字段至少一个。
+- `x`、`y`: 必填，目标窗口左上角屏幕坐标；多显示器场景允许负数。
+- `width`、`height`: 必填，目标窗口尺寸，必须大于 `0`。
+- `focus`: 可选，归一化后是否聚焦窗口，默认 `true`。
+- `tolerance_px`: 可选，实际 bounds 与目标 bounds 的允许误差，默认 `2`。
+- `path`: 可选，写入 `output/desktop-windows/`。
+- `output.as`: 可选。
+
+行为：
+
+- 查找窗口。
+- 尽量还原窗口，再移动到指定位置并设置指定尺寸。
+- `focus=true` 时聚焦窗口。
+- 操作后重新读取窗口 bounds，超过 `tolerance_px` 时失败并报告 target、actual 和 delta。
+- 成功后更新 `session.current_window`，供后续 `desktop_input target=current_window_offset` 等相对坐标动作使用。
+- Windows backend 使用 `ShowWindow(SW_RESTORE)` + `SetWindowPos`；macOS backend 使用 System Events 设置窗口 `position` 和 `size`。
+
+输出 payload：
+
+```json
+{
+  "ok": true,
+  "desktop": "desk",
+  "type": "normalize",
+  "operation": "normalize",
+  "target_bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084},
+  "tolerance_px": 2,
+  "focus": true,
+  "window": {"bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084}},
+  "before": {"bounds": {"x": 20, "y": 60, "width": 1200, "height": 800}},
+  "after": {"bounds": {"x": 0, "y": 33, "width": 1728, "height": 1084}},
+  "bounds_delta": {"x": 0, "y": 0, "width": 0, "height": 0}
+}
+```
+
 #### type=close/minimize/maximize/restore
 
 ```json
@@ -758,7 +817,7 @@ Window Query 字段：
 }
 ```
 
-`desktop_window close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据；需要质量门禁通过时仍应使用 `desktop_window list/find/active`、`desktop_element list/dump/find/get_text/get_state/get_table/get_tree`、`desktop_assert type=element`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。
+`desktop_window normalize/close/minimize/maximize/restore` 是窗口控制步骤，不算桌面状态采集证据；需要质量门禁通过时仍应使用 `desktop_window list/find/active`、`desktop_element list/dump/find/get_text/get_state/get_table/get_tree`、`desktop_assert type=element`、`desktop_capture`、`desktop_wait` 或 `desktop_assert`。
 
 ### desktop_element
 
@@ -1012,7 +1071,7 @@ payload 必须包含：
 
 - Windows native backend 使用系统 UIAutomationClient 枚举控件树，运行时不强制安装 `pywinauto`。
 - macOS native backend 使用 System Events/Accessibility 做 AX 控件枚举；当前按 `max_depth/max_elements` 有界递归目标窗口的 AX 子元素，`runtime_id` 是当前枚举会话内的临时路径定位，不承诺跨运行稳定。窗口枚举会在可用时用 Quartz `CGWindowNumber` 生成 `macos:<id>` 稳定窗口 id，并保留 AX `window_index` 供 System Events 精确定位同 App 多窗口。
-- `click`、`double_click`、`right_click`、`scroll`、`drag` 通过 `pyautogui` 发送鼠标输入；`set_text`/`select`/`invoke`/复杂控件操作的 fallback 也可能使用鼠标、键盘和剪贴板。
+- `desktop_input` 是键盘/鼠标输入的统一 plan 能力，普通键盘/鼠标动作不应退回 `command` 或 Python 脚本。`click`、`double_click`、`right_click`、`scroll`、`drag` 通过系统级坐标输入发送鼠标事件；macOS `hotkey` 和 `type_text method=clipboard` 使用 System Events 发送按键；`set_text`/`select`/`invoke`/复杂控件操作的 fallback 也可能使用鼠标、键盘和剪贴板。
 
 ### 运行时自复查与 plan 简洁边界
 
@@ -1090,6 +1149,7 @@ plan 只在这些情况承担额外细节：
 - Windows 常用 `ctrl`、`alt`、`shift`、`win`、`enter`、`esc`、`tab`。
 - macOS 常用 `cmd`、`option`、`ctrl`、`shift`、`enter`、`esc`、`tab`。
 - `auto` backend 不负责把业务含义翻译成平台快捷键；plan 应按平台写明确 keys，或后续用平台分支字段扩展。
+- macOS native backend 对可映射按键使用 System Events key code，避免组合键退化成普通字符输入；无法映射的组合键才退回通用输入 fallback。
 
 #### type=click
 
@@ -1546,7 +1606,7 @@ plan 只在这些情况承担额外细节：
 
 - `desktop-screenshots`: `desktop_capture type=screenshot`。
 - `desktop-state`: `open_desktop` probe、`desktop_capture type=snapshot/observe`。
-- `desktop-windows`: `desktop_window type=list/find/active`。
+- `desktop-windows`: `desktop_window type=list/find/active/normalize`。
 - `desktop-elements`: `desktop_element type=list/dump/find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_assert type=element` 的控件树、selector 建议、候选控件、匹配结果和操作/断言 payload。
 - `desktop-annotations`: 位于 `output/<run>/desktop-annotations/`，保存鼠标类 `desktop_input` 和操作类 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 的 PNG 标注图和同名 JSON 结构化标注。
 - `desktop-vision`: `desktop_vision type=locate_image` JSON、原图、裁剪图和标注图。
@@ -1692,7 +1752,7 @@ output/<run>/failure-desktop-state/
 - `desktop_input type=drag` 同时使用 `target` 和 `start/end` 坐标失败。
 - `desktop_input type=drag` 的 `delta_x` 和 `delta_y` 同时为 `0` 失败。
 - `desktop_input type=drag` 的 `button` 非 `left/right/middle` 失败。
-- `desktop_window type=find/focus/close/minimize/maximize/restore` 或 `desktop_wait type=window` 缺少 Window Query 失败。
+- `desktop_window type=find/focus/normalize/close/minimize/maximize/restore` 或 `desktop_wait type=window` 缺少 Window Query 失败。
 - `desktop_element type=list/dump` 缺少 Window Query 失败。
 - `desktop_element type=find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/scroll_element` 缺少 Window Query 或 Element Locator 失败。
 - `desktop_element type=invoke_menu` 缺少 Window Query 或 `menu_path` 失败。

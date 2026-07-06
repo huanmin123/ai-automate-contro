@@ -1,10 +1,83 @@
 from __future__ import annotations
 
 import platform
+import subprocess
 import time
 from typing import Any
 
 from ai_automate_contro.engine.desktop.backends.base import DesktopBackendError
+
+
+MACOS_KEY_CODES = {
+    "a": 0,
+    "s": 1,
+    "d": 2,
+    "f": 3,
+    "h": 4,
+    "g": 5,
+    "z": 6,
+    "x": 7,
+    "c": 8,
+    "v": 9,
+    "b": 11,
+    "q": 12,
+    "w": 13,
+    "e": 14,
+    "r": 15,
+    "y": 16,
+    "t": 17,
+    "1": 18,
+    "2": 19,
+    "3": 20,
+    "4": 21,
+    "6": 22,
+    "5": 23,
+    "=": 24,
+    "9": 25,
+    "7": 26,
+    "-": 27,
+    "8": 28,
+    "0": 29,
+    "]": 30,
+    "o": 31,
+    "u": 32,
+    "[": 33,
+    "i": 34,
+    "p": 35,
+    "return": 36,
+    "enter": 36,
+    "l": 37,
+    "j": 38,
+    "'": 39,
+    "k": 40,
+    ";": 41,
+    "\\": 42,
+    ",": 43,
+    "/": 44,
+    "n": 45,
+    "m": 46,
+    ".": 47,
+    "tab": 48,
+    "space": 49,
+    "`": 50,
+    "delete": 51,
+    "backspace": 51,
+    "esc": 53,
+    "escape": 53,
+    "left": 123,
+    "right": 124,
+    "down": 125,
+    "up": 126,
+}
+MACOS_MODIFIER_KEYS = {
+    "command": "command down",
+    "cmd": "command down",
+    "ctrl": "control down",
+    "control": "control down",
+    "option": "option down",
+    "alt": "option down",
+    "shift": "shift down",
+}
 
 
 def require_pyautogui() -> Any:
@@ -19,7 +92,6 @@ def require_pyautogui() -> Any:
 
 
 def paste_text_with_clipboard(text: str, *, preserve_clipboard: bool) -> None:
-    pyautogui = require_pyautogui()
     try:
         import pyperclip
     except Exception as error:
@@ -32,15 +104,71 @@ def paste_text_with_clipboard(text: str, *, preserve_clipboard: bool) -> None:
             old_text = ""
     try:
         pyperclip.copy(text)
-        paste_key = "command" if platform.system() == "Darwin" else "ctrl"
-        pyautogui.hotkey(paste_key, "v")
-        time.sleep(0.1)
+        if platform.system() == "Darwin":
+            send_hotkey(["command", "v"])
+        else:
+            pyautogui = require_pyautogui()
+            pyautogui.hotkey("ctrl", "v")
+        time.sleep(0.2)
     finally:
         if preserve_clipboard:
             try:
                 pyperclip.copy(old_text)
             except Exception:
                 pass
+
+
+def send_hotkey(keys: list[str]) -> dict[str, Any]:
+    normalized_keys = _normalize_hotkey_keys(keys)
+    if platform.system() == "Darwin":
+        if _send_hotkey_macos(normalized_keys):
+            return {"ok": True, "keys": normalized_keys, "method": "macos_system_events"}
+    pyautogui = require_pyautogui()
+    pyautogui.hotkey(*normalized_keys)
+    return {"ok": True, "keys": normalized_keys, "method": "pyautogui"}
+
+
+def _normalize_hotkey_keys(keys: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for key in keys:
+        raw = str(key or "").strip().lower()
+        if not raw:
+            continue
+        parts = [part.strip() for part in raw.replace("+", " ").split() if part.strip()]
+        normalized.extend(parts or [raw])
+    if not normalized:
+        raise DesktopBackendError("desktop_input.hotkey keys 不能为空。")
+    return normalized
+
+
+def _send_hotkey_macos(keys: list[str]) -> bool:
+    modifiers: list[str] = []
+    key_code: int | None = None
+    for key in keys:
+        if key in MACOS_MODIFIER_KEYS:
+            modifiers.append(MACOS_MODIFIER_KEYS[key])
+            continue
+        if key not in MACOS_KEY_CODES:
+            return False
+        if key_code is not None:
+            return False
+        key_code = MACOS_KEY_CODES[key]
+    if key_code is None:
+        return False
+    using_clause = ""
+    if modifiers:
+        unique_modifiers = list(dict.fromkeys(modifiers))
+        if len(unique_modifiers) == 1:
+            using_clause = f" using {unique_modifiers[0]}"
+        else:
+            using_clause = " using {" + ", ".join(unique_modifiers) + "}"
+    script = f'tell application "System Events" to key code {key_code}{using_clause}'
+    completed = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, check=False, timeout=10)
+    if completed.returncode != 0:
+        message = completed.stderr.strip() or completed.stdout.strip() or "macOS hotkey failed"
+        raise DesktopBackendError(message)
+    time.sleep(0.08)
+    return True
 
 
 def click_element_center(element: dict[str, Any], *, locator: dict[str, Any], button: str = "left") -> tuple[int, int]:
@@ -66,10 +194,9 @@ def set_element_text_keyboard_fallback(
     preserve_clipboard: bool,
 ) -> dict[str, Any]:
     x, y = click_element_center(element, locator=locator)
-    pyautogui = require_pyautogui()
     select_key = "command" if platform.system() == "Darwin" else "ctrl"
     time.sleep(0.05)
-    pyautogui.hotkey(select_key, "a")
+    send_hotkey([select_key, "a"])
     paste_text_with_clipboard(text, preserve_clipboard=preserve_clipboard)
     return {
         "method": "keyboard_clipboard_fallback",

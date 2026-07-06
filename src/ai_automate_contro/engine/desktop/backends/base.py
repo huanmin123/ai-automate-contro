@@ -36,6 +36,19 @@ class DesktopBackend(Protocol):
     def control_window(self, query: dict[str, Any], operation: str) -> dict[str, Any]:
         ...
 
+    def normalize_window(
+        self,
+        query: dict[str, Any],
+        *,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        focus: bool = True,
+        tolerance_px: int = 2,
+    ) -> dict[str, Any]:
+        ...
+
     def list_elements(
         self,
         window_query: dict[str, Any],

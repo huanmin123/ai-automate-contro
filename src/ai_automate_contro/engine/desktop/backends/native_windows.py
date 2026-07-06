@@ -418,3 +418,23 @@ def _control_window_windows(hwnd: int, operation: str) -> None:
     if command is None:
         raise DesktopBackendError(f"不支持的 Windows 窗口控制操作：{operation}")
     user32.ShowWindow(hwnd, command)
+
+
+def _normalize_window_windows(hwnd: int, *, x: int, y: int, width: int, height: int) -> None:
+    user32 = ctypes.windll.user32
+    if not user32.IsWindow(hwnd):
+        raise DesktopBackendError(f"窗口不存在：window_id={hwnd}")
+    SW_RESTORE = 9
+    SWP_NOZORDER = 0x0004
+    SWP_SHOWWINDOW = 0x0040
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    if not user32.SetWindowPos(
+        hwnd,
+        0,
+        int(x),
+        int(y),
+        int(width),
+        int(height),
+        SWP_NOZORDER | SWP_SHOWWINDOW,
+    ):
+        raise DesktopBackendError(f"SetWindowPos 失败：window_id={hwnd}")

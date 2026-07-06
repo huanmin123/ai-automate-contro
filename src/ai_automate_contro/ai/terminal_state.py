@@ -1007,6 +1007,18 @@ def _format_plan_run_event(event: dict[str, Any]) -> str:
         title = _compact_tool_value(fields.get("title"), limit=72)
         window_id = _compact_tool_value(fields.get("window_id"), limit=36)
         return _join_progress_parts("桌面窗口已聚焦", desktop, title, window_id)
+    if message == "desktop window normalized":
+        desktop = _compact_tool_value(fields.get("desktop"), limit=48)
+        title = _compact_tool_value(fields.get("title"), limit=72)
+        window_id = _compact_tool_value(fields.get("window_id"), limit=36)
+        target_bounds = fields.get("target_bounds") if isinstance(fields.get("target_bounds"), dict) else {}
+        bounds_text = ""
+        if target_bounds:
+            bounds_text = (
+                f"x={target_bounds.get('x')}, y={target_bounds.get('y')}, "
+                f"w={target_bounds.get('width')}, h={target_bounds.get('height')}"
+            )
+        return _join_progress_parts("桌面窗口已归一化", desktop, title, window_id, bounds_text)
     if message == "desktop window controlled":
         desktop = _compact_tool_value(fields.get("desktop"), limit=48)
         operation = _compact_tool_value(fields.get("type"), limit=32)

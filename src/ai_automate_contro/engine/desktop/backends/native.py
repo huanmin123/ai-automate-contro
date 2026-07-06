@@ -22,6 +22,7 @@ from ai_automate_contro.engine.desktop.backends.input_driver import (
     paste_text_with_clipboard as _paste_text_with_clipboard,
     require_pyautogui as _require_pyautogui,
     select_element_keyboard_fallback as _select_element_keyboard_fallback,
+    send_hotkey as _send_hotkey,
     set_element_text_keyboard_fallback as _set_element_text_keyboard_fallback,
 )
 from ai_automate_contro.engine.desktop.coordinates import build_coordinate_profile
@@ -55,6 +56,7 @@ from ai_automate_contro.engine.desktop.backends.native_macos import (
     _control_window_macos,
     _focus_window_macos,
     _list_elements_macos,
+    _normalize_window_macos,
 )
 from ai_automate_contro.engine.desktop.backends.native_window_matching import (
     _compact_window_candidate,
@@ -70,6 +72,7 @@ from ai_automate_contro.engine.desktop.backends.native_windows import (
     _list_elements_windows,
     _list_windows_windows,
     _menu_element_windows,
+    _normalize_window_windows,
     _raise_window_z_order_windows,
     _scroll_element_windows,
     _table_element_windows,
@@ -235,6 +238,77 @@ class NativeDesktopBackend:
             "operation": operation,
             "window": window,
             "before": before,
+        }
+
+    def normalize_window(
+        self,
+        query: dict[str, Any],
+        *,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        focus: bool = True,
+        tolerance_px: int = 2,
+    ) -> dict[str, Any]:
+        target = {
+            "x": int(x),
+            "y": int(y),
+            "width": int(width),
+            "height": int(height),
+        }
+        if target["width"] <= 0 or target["height"] <= 0:
+            raise DesktopBackendError("窗口归一化 width/height 必须大于 0。")
+        normalized_tolerance = max(0, int(tolerance_px))
+        window = self._select_window(query)
+        before = dict(window)
+        if self.platform_name == "windows":
+            _normalize_window_windows(
+                int(window["id"]),
+                x=target["x"],
+                y=target["y"],
+                width=target["width"],
+                height=target["height"],
+            )
+            if focus:
+                _focus_window_windows(int(window["id"]))
+        elif self.platform_name == "macos":
+            _normalize_window_macos(
+                window,
+                x=target["x"],
+                y=target["y"],
+                width=target["width"],
+                height=target["height"],
+            )
+            if focus:
+                _focus_window_macos(window)
+        else:
+            raise DesktopBackendError(f"当前平台暂不支持窗口归一化：{self.platform_name}")
+
+        time.sleep(0.2)
+        after = self._select_window(_stable_window_query_for_refresh(window, query))
+        bounds = after.get("bounds") if isinstance(after.get("bounds"), dict) else {}
+        deltas = _window_bounds_deltas(bounds, target)
+        within_tolerance = all(value <= normalized_tolerance for value in deltas.values())
+        after["normalized"] = within_tolerance
+        after["focused"] = bool(focus) or bool(after.get("focused", False))
+        if not within_tolerance:
+            raise DesktopBackendError(
+                "desktop_window.normalize 后窗口 bounds 未达到目标："
+                f"target={target}, actual={bounds}, deltas={deltas}, tolerance_px={normalized_tolerance}"
+            )
+        return {
+            "ok": True,
+            "platform": self.platform_name,
+            "backend": self.backend_name,
+            "operation": "normalize",
+            "target_bounds": target,
+            "tolerance_px": normalized_tolerance,
+            "focus": bool(focus),
+            "window": after,
+            "before": before,
+            "after": after,
+            "bounds_delta": deltas,
         }
 
     def list_elements(
@@ -1133,10 +1207,10 @@ class NativeDesktopBackend:
         delay_ms: int = 0,
         preserve_clipboard: bool = True,
     ) -> dict[str, Any]:
-        pyautogui = _require_pyautogui()
         text = str(value)
         selected_method = method
         if method in {"auto", "type"}:
+            pyautogui = _require_pyautogui()
             pyautogui.write(text, interval=max(0, delay_ms) / 1000)
             selected_method = "type"
         elif method == "clipboard":
@@ -1146,10 +1220,7 @@ class NativeDesktopBackend:
         return {"ok": True, "method": selected_method, "length": len(text)}
 
     def hotkey(self, keys: list[str]) -> dict[str, Any]:
-        pyautogui = _require_pyautogui()
-        normalized_keys = [str(key).lower() for key in keys]
-        pyautogui.hotkey(*normalized_keys)
-        return {"ok": True, "keys": normalized_keys}
+        return _send_hotkey([str(key) for key in keys])
 
     def click(
         self,
@@ -1729,6 +1800,22 @@ def _macos_bounds_distance(left: dict[str, Any], right: dict[str, Any]) -> int:
     )
 
 
+def _stable_window_query_for_refresh(window: dict[str, Any], original_query: dict[str, Any]) -> dict[str, Any]:
+    window_id = window.get("id")
+    if window_id not in (None, ""):
+        return {"window_id": window_id}
+    return dict(original_query)
+
+
+def _window_bounds_deltas(bounds: dict[str, Any], target: dict[str, int]) -> dict[str, int]:
+    return {
+        "x": abs(_safe_int(bounds.get("x"), default=0) - int(target["x"])),
+        "y": abs(_safe_int(bounds.get("y"), default=0) - int(target["y"])),
+        "width": abs(_safe_int(bounds.get("width"), default=0) - int(target["width"])),
+        "height": abs(_safe_int(bounds.get("height"), default=0) - int(target["height"])),
+    }
+
+
 def _current_platform_name() -> str:
     system = platform.system()
     if system == "Windows":
@@ -1743,8 +1830,3 @@ def _trim_process_text(value: str | None, *, limit: int = 4000) -> str:
     if len(text) <= limit:
         return text
     return text[:limit] + "...<truncated>"
-
-
-
-
-

@@ -96,6 +96,13 @@ def _validate_desktop_window_fields(
     _validate_int(step, "max_windows", location, issues, minimum=1)
     if step_type in {"list", "find"}:
         _validate_bool(step, "include_invisible", location, issues)
+    if step_type == "normalize":
+        _validate_int(step, "x", location, issues)
+        _validate_int(step, "y", location, issues)
+        _validate_int(step, "width", location, issues, minimum=1)
+        _validate_int(step, "height", location, issues, minimum=1)
+        _validate_int(step, "tolerance_px", location, issues, minimum=0)
+        _validate_bool(step, "focus", location, issues)
 
 
 def _validate_desktop_element_fields(

@@ -339,7 +339,7 @@ Open/Save 文件对话框优先按系统窗口处理，不要默认依赖文件�
 - `safety_check` 使用当前坐标 profile 的 mapper 做屏幕边界检查；`scale_applied=false` 表示未把未校准 DPI/缩放直接应用到点击坐标。
 - 坐标级鼠标输入仍受窗口位置、缩放、多显示器、远程桌面缩放和遮挡影响；使用 `bounds_center` 或绝对坐标前先确认来源 payload 的 `coordinate_profile.source.screen_clickable=true`。
 - 需要稳定操作控件时，优先使用 [desktop_element](./desktop_element.md)；控件树不可用时再考虑坐标、图像模板或人工确认兜底。
-- Windows/macOS 输入由 `pyautogui` 执行；macOS 需要 Accessibility 权限。
+- plan 不应为普通键盘/鼠标动作手写 `command` 或 Python 脚本；使用 `desktop_input type=hotkey/type_text/click/...`。macOS `hotkey` 和 `type_text method=clipboard` 由 System Events 发送按键，鼠标坐标动作仍使用系统级输入兜底；macOS 需要 Accessibility 权限。
 
 ## 标注输出
 
