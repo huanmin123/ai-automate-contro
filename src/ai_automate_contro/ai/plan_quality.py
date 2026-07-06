@@ -2219,7 +2219,7 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
 
 def _output_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text 或 write，把运行证据写入当前 plan output/。"
+        return "补充 desktop_window list、desktop_element list/dump/find/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image 或 write，把运行证据写入当前 plan output/。"
     return "补充 extract/script/read/table/ai 等数据获取或处理步骤后，用 write.type=text/json/csv/excel 写入当前 plan output/。"
 
 
@@ -2279,7 +2279,7 @@ def _data_extraction_issue_message(automation_type: str) -> str:
 
 def _data_extraction_fix_hint(automation_type: str) -> str:
     if automation_type == "desktop":
-        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image/locate_text、desktop_wait，或用 read.type=excel/csv/json + table 处理文件数据，再按需写出文件。"
+        return "先用 desktop_window list、desktop_element list/dump/get_text/get_state/get_table/get_tree、desktop_assert element、desktop_capture observe/screenshot/snapshot、desktop_vision locate_image、desktop_wait，或用 read.type=excel/csv/json + table 处理文件数据，再按需写出文件。"
     return "网页数据先用 extract.table、extract.all_texts、extract.text 或 script.evaluate；Excel/CSV/JSON 文件先用 read.type=excel/csv/json，再用 table 过滤、排序、聚合、连接或派生列，最后写出文件。"
 
 

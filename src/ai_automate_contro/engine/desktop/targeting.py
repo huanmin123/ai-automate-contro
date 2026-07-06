@@ -424,7 +424,7 @@ def _screenshot_evidence_candidate(
         "strategy": "visual_evidence",
         "confidence": "low",
         "score": 20,
-        "reason": "Screenshot is available for visual inspection, OCR, template matching, or manual confirmation.",
+        "reason": "Screenshot is available for visual inspection, template matching, or manual confirmation.",
         "window_query": resolved_query,
         "window": _compact_window(selected_window),
         "screenshot_path": path,
@@ -454,13 +454,11 @@ def _vision_candidate(
     numeric_score = _numeric_match_score(match)
     score = int(numeric_score * 100) + (10 if selected else 0)
     confidence = "high" if numeric_score >= 0.85 else ("medium" if numeric_score >= 0.6 else "low")
-    if vision_type == "locate_text" and _int(match.get("confidence"), 0) >= 80:
-        confidence = "high"
     screen_clickable = _screen_clickable(coordinate_profile)
     reason = (
-        "Visual/OCR match produced screen-global bounds. Use as a coordinate fallback when semantic locators are unavailable."
+        "Visual match produced screen-global bounds. Use as a coordinate fallback when semantic locators are unavailable."
         if screen_clickable
-        else "Visual/OCR match came from an offline/source image. Use it as evidence only; it is not a direct screen click target."
+        else "Visual match came from an offline/source image. Use it as evidence only; it is not a direct screen click target."
     )
     candidate_id = f"vision-match-{source_index}"
     return {

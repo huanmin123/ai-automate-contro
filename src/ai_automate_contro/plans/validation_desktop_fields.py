@@ -22,6 +22,20 @@ from ai_automate_contro.plans.validation_field_helpers import (
 from ai_automate_contro.plans.validation_models import ValidationIssue
 
 
+REMOVED_DESKTOP_VISION_OCR_FIELDS = {
+    "case_sensitive",
+    "language",
+    "min_confidence",
+    "ocr",
+    "ocr_blocks",
+    "provider",
+    "raw_text",
+    "tessdata_dir",
+    "tesseract_path",
+}
+DESKTOP_VISION_TEXT_LOCATOR_FIELDS = {"text", "text_contains", "text_regex"}
+
+
 def _validate_open_desktop_fields(
     step: dict[str, Any],
     location: str,
@@ -336,16 +350,25 @@ def _validate_desktop_vision_fields(
     location: str,
     issues: list[ValidationIssue],
 ) -> None:
+    removed_ocr_fields = sorted(field for field in REMOVED_DESKTOP_VISION_OCR_FIELDS if field in step)
+    if removed_ocr_fields:
+        issues.append(
+            ValidationIssue(
+                location,
+                "desktop_vision 不支持已移除的 OCR 字段：" + ", ".join(removed_ocr_fields),
+            )
+        )
+    text_locator_fields = sorted(field for field in DESKTOP_VISION_TEXT_LOCATOR_FIELDS if field in step)
+    if text_locator_fields and step.get("source_target") != "element":
+        issues.append(
+            ValidationIssue(
+                location,
+                "desktop_vision 的 text/text_contains/text_regex 只能用于 source_target=element 的控件定位；"
+                "不支持 OCR 文本定位",
+            )
+        )
     if step_type == "locate_image":
         _validate_string(step, "template_path", location, issues)
-    if step_type == "locate_text":
-        for field in ("text", "text_contains", "text_regex", "language"):
-            _validate_string(step, field, location, issues)
-        _validate_enum(step, "provider", {"auto", "tesseract"}, location, issues)
-        _validate_number(step, "min_confidence", location, issues)
-        _validate_bool(step, "case_sensitive", location, issues)
-        if "template_path" in step:
-            issues.append(ValidationIssue(location, "desktop_vision.locate_text 不使用 template_path"))
     _validate_string(step, "source_path", location, issues)
     _validate_string(step, "path", location, issues)
     _validate_region(step, "region", location, issues)
@@ -360,7 +383,7 @@ def _validate_desktop_vision_fields(
     _validate_int(step, "interval_ms", location, issues, minimum=1)
     _validate_int(step, "max_depth", location, issues, minimum=0)
     _validate_int(step, "max_elements", location, issues, minimum=1)
-    if step_type in {"locate_image", "locate_text"}:
+    if step_type == "locate_image":
         if step.get("source_target") in {"window", "element"}:
             _validate_desktop_vision_window_query_fields(step, location, issues)
         if step.get("source_target") == "element":
@@ -376,15 +399,6 @@ def _validate_desktop_vision_fields(
             and not 0 <= float(threshold) <= 1
         ):
             issues.append(ValidationIssue(location, "desktop_vision.locate_image threshold 必须在 0 到 1 之间"))
-    if step_type == "locate_text":
-        min_confidence = step.get("min_confidence")
-        if (
-            min_confidence is not None
-            and not _is_template(min_confidence)
-            and isinstance(min_confidence, (int, float))
-            and not 0 <= float(min_confidence) <= 1
-        ):
-            issues.append(ValidationIssue(location, "desktop_vision.locate_text min_confidence 必须在 0 到 1 之间"))
 
 
 def _validate_desktop_wait_fields(

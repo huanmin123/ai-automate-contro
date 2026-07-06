@@ -2,7 +2,7 @@
 
 本入口只给 `automation_type: "browser"` plan 使用。浏览器线控制 Playwright 浏览器、页面、DOM、网络、弹窗、下载、截图和浏览器上下文状态。
 
-桌面窗口、本机 App、系统键鼠、屏幕 OCR、图像定位和系统权限进入 [桌面控制手册入口](../desktop/README.md)。
+桌面窗口、本机 App、系统键鼠、图像定位和系统权限进入 [桌面控制手册入口](../desktop/README.md)。
 
 ## 适用 plan
 

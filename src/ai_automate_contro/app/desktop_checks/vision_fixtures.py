@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any
 
@@ -27,71 +26,6 @@ def _write_vision_fixture_images(source_path: Path, template_path: Path) -> dict
     template.save(template_path)
     source.save(source_path)
     return bounds
-
-
-def _write_ocr_fixture_image(source_path: Path, *, text: str, language: str = "latin") -> None:
-    from PIL import Image, ImageDraw, ImageFont
-
-    source_path.parent.mkdir(parents=True, exist_ok=True)
-    image = Image.new("RGB", (640, 180), (255, 255, 255))
-    draw = ImageDraw.Draw(image)
-    font = _ocr_fixture_font(ImageFont, language=language)
-    draw.rectangle((18, 18, 622, 162), outline=(35, 35, 35), width=2)
-    draw.text((54, 58), text, fill=(0, 0, 0), font=font)
-    image.save(source_path)
-
-
-def _ocr_fixture_font(image_font_module: Any, *, language: str = "latin") -> Any:
-    for candidate in _ocr_fixture_font_candidates(language):
-        if candidate.exists():
-            try:
-                return image_font_module.truetype(str(candidate), 44)
-            except Exception:
-                continue
-    return image_font_module.load_default()
-
-
-def _ocr_fixture_font_available(language: str = "latin") -> bool:
-    try:
-        from PIL import ImageFont
-    except Exception:
-        return False
-    for candidate in _ocr_fixture_font_candidates(language):
-        if not candidate.exists():
-            continue
-        try:
-            ImageFont.truetype(str(candidate), 44)
-            return True
-        except Exception:
-            continue
-    return language != "zh"
-
-
-def _ocr_fixture_font_candidates(language: str = "latin") -> list[Path]:
-    if language == "zh":
-        return [
-            Path("C:/Windows/Fonts/msyh.ttc"),
-            Path("C:/Windows/Fonts/msyh.ttf"),
-            Path("C:/Windows/Fonts/simhei.ttf"),
-            Path("C:/Windows/Fonts/simsun.ttc"),
-            Path("/System/Library/Fonts/PingFang.ttc"),
-            Path("/System/Library/Fonts/STHeiti Light.ttc"),
-            Path("/System/Library/Fonts/Supplemental/Songti.ttc"),
-            Path("/Library/Fonts/NotoSansCJK-Regular.ttc"),
-        ]
-    return [
-        Path("C:/Windows/Fonts/arial.ttf"),
-        Path("C:/Windows/Fonts/segoeui.ttf"),
-        Path("/System/Library/Fonts/Supplemental/Arial.ttf"),
-        Path("/Library/Fonts/Arial.ttf"),
-    ]
-
-
-def _ocr_raw_text_contains(normalized_raw_text: str, expected: str) -> bool:
-    normalized_expected = re.sub(r"\s+", "", expected)
-    if normalized_expected.upper().isascii():
-        return normalized_expected.upper() in normalized_raw_text.upper()
-    return normalized_expected in normalized_raw_text
 
 
 def _write_vision_missing_template(template_path: Path) -> None:

@@ -1,12 +1,8 @@
 from __future__ import annotations
 
-import csv
-import io
 import json
 import platform
 import re
-import subprocess
-import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -20,11 +16,6 @@ from ai_automate_contro.engine.desktop.action_annotations import (
     _input_annotation_target,
 )
 from ai_automate_contro.engine.desktop.backends import DesktopBackendError, NativeDesktopBackend
-from ai_automate_contro.engine.desktop.backends.capabilities import (
-    resolve_tesseract_binary,
-    tesseract_binary_details,
-    tesseract_common_options,
-)
 from ai_automate_contro.engine.desktop.coordinates import (
     CoordinateMapper,
     build_coordinate_diagnostics,
@@ -67,9 +58,7 @@ from ai_automate_contro.engine.desktop.targeting import confidence_meets, find_t
 from ai_automate_contro.engine.desktop.vision import (
     _coordinate_diagnostics,
     _desktop_vision_artifact_paths,
-    _desktop_vision_text_query,
     _locate_image_in_source,
-    _locate_text_in_source,
     _source_coordinate_profile,
 )
 from ai_automate_contro.engine.output_contract import publish_step_output
@@ -1092,20 +1081,15 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_desktop_session(str(step["desktop"]))
     step, profile_payload = _apply_desktop_profile(executor, session, step)
     vision_type = str(step["type"])
-    if vision_type not in {"locate_image", "locate_text"}:
+    if vision_type != "locate_image":
         raise ValueError(f"不支持的 desktop_vision.type：{vision_type}")
     started = time.monotonic()
     output_path = executor._resolve_output_path(step["path"], category="desktop-vision")
-    template_path = executor._resolve_path(str(step["template_path"])) if vision_type == "locate_image" else None
+    template_path = executor._resolve_path(str(step["template_path"]))
     source_input_path = executor._resolve_path(str(step["source_path"])) if step.get("source_path") else None
     if source_input_path is not None and step.get("source_target"):
         raise ValueError(f"desktop_vision.{vision_type} 不能同时使用 source_path 和 source_target。")
     threshold = float(step.get("threshold", 0.85))
-    match_query = _desktop_vision_text_query(step) if vision_type == "locate_text" else {}
-    language = str(step.get("language", "eng"))
-    provider = str(step.get("provider", "auto"))
-    min_confidence = float(step.get("min_confidence", 0.60))
-    case_sensitive = bool(step.get("case_sensitive", False))
     match_index = int(step.get("match_index", 0))
     max_matches = int(step.get("max_matches", 10))
     timeout_ms = int(step.get("timeout_ms", 3_000))
@@ -1122,44 +1106,21 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
             source_artifact_path=artifacts["source"],
             include_cursor=bool(step.get("include_cursor", False)),
         )
-        if vision_type == "locate_image":
-            if template_path is None:
-                raise ValueError("desktop_vision.locate_image 需要 template_path。")
-            payload = _locate_image_in_source(
-                template_path=template_path,
-                source_path=source_path,
-                output_path=output_path,
-                artifacts=artifacts,
-                region=step.get("region") if isinstance(step.get("region"), dict) else None,
-                threshold=threshold,
-                match_index=match_index,
-                max_matches=max_matches,
-                coordinate_origin=coordinate_origin,
-                started=started,
-                source_payload=source_payload,
-                source_bounds=source_bounds,
-                desktop=session.name,
-            )
-        else:
-            payload = _locate_text_in_source(
-                source_path=source_path,
-                output_path=output_path,
-                artifacts=artifacts,
-                region=step.get("region") if isinstance(step.get("region"), dict) else None,
-                match_query=match_query,
-                language=language,
-                provider=provider,
-                min_confidence=min_confidence,
-                case_sensitive=case_sensitive,
-                match_index=match_index,
-                max_matches=max_matches,
-                coordinate_origin=coordinate_origin,
-                started=started,
-                source_payload=source_payload,
-                source_bounds=source_bounds,
-                desktop=session.name,
-                desktop_config=_desktop_runtime_config(executor),
-            )
+        payload = _locate_image_in_source(
+            template_path=template_path,
+            source_path=source_path,
+            output_path=output_path,
+            artifacts=artifacts,
+            region=step.get("region") if isinstance(step.get("region"), dict) else None,
+            threshold=threshold,
+            match_index=match_index,
+            max_matches=max_matches,
+            coordinate_origin=coordinate_origin,
+            started=started,
+            source_payload=source_payload,
+            source_bounds=source_bounds,
+            desktop=session.name,
+        )
         last_payload = payload
         if payload.get("ok"):
             break
@@ -1170,7 +1131,7 @@ def desktop_vision(executor: Any, step: dict[str, Any]) -> None:
             _write_json(output_path, payload)
             raise TimeoutError(
                 f"desktop_vision.{vision_type} 未找到匹配目标："
-                f"query={match_query or template_path} match_index={match_index}"
+                f"query={template_path} match_index={match_index}"
             )
         time.sleep(max(0.001, interval_ms / 1000))
 

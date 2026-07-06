@@ -127,7 +127,7 @@ ACTION_TYPES: dict[str, set[str]] = {
     },
     "desktop_input": {"type_text", "hotkey", "click", "double_click", "right_click", "scroll", "drag"},
     "desktop_capture": {"screenshot", "snapshot", "observe"},
-    "desktop_vision": {"locate_image", "locate_text"},
+    "desktop_vision": {"locate_image"},
     "desktop_wait": {"window"},
     "desktop_assert": {"window", "screenshot", "element"},
     "table": {
@@ -304,7 +304,6 @@ OUTPUT_ACTION_CATEGORIES: dict[tuple[str, str], str] = {
     ("desktop_capture", "snapshot"): "desktop-state",
     ("desktop_capture", "observe"): "desktop-state",
     ("desktop_vision", "locate_image"): "desktop-vision",
-    ("desktop_vision", "locate_text"): "desktop-vision",
     ("desktop_assert", "screenshot"): "desktop-screenshots",
     ("desktop_assert", "element"): "desktop-elements",
     ("ai", "connectivity"): "ai",

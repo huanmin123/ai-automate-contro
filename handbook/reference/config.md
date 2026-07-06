@@ -60,27 +60,9 @@
 
 ## desktop.ocr
 
-配置桌面 OCR 运行时。只影响 `automation_type: "desktop"` 且使用 `desktop_vision type=locate_text` 的 plan。
+`desktop.ocr` 已移除。`config.json` 中出现该字段会校验失败，错误为“desktop.ocr 已移除；桌面自动化不再支持 OCR 配置”。
 
-```json
-{
-  "desktop": {
-    "ocr": {
-      "tesseract_path": "C:/path/to/tesseract.exe",
-      "tessdata_dir": "C:/path/to/tessdata",
-      "default_language": "eng"
-    }
-  }
-}
-```
-
-字段：
-
-- `tesseract_path`: 字符串。可选，Tesseract 可执行文件路径或安装目录。
-- `tessdata_dir`: 字符串。可选，`.traineddata` 语言包目录。
-- `default_language`: 字符串。可选，默认 OCR 语言标记；plan action 上的 `language` 仍可显式覆盖。
-
-解析顺序：plan 包 `config.json` 覆盖集合级 `<plan-root>/config.json`；没有配置时运行时再尝试环境变量和系统路径。AI 写需要 OCR 的 desktop plan 前，先确认 `capability_matrix.dependencies.tesseract` 和所需 `tessdata.*` 为 `true`。
+桌面线不支持 `desktop_vision type=locate_text`，也不读取 Tesseract、pytesseract 或语言包配置。需要文字读取时使用控件树、应用接口、文件读取或人工确认。
 
 ## desktop.run_mutex
 

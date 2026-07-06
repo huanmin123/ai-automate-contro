@@ -16,7 +16,7 @@
 - 主 `plan.json` 必须写 `automation_type`，只能是 `browser` 或 `desktop`。
 - 子计划默认继承主 plan 执行线；显式声明时必须和主 plan 一致。
 - 浏览器网页、DOM、Playwright selector、页面网络、下载、弹窗和浏览器 storage 使用 `browser`。
-- 本机 App、窗口、菜单、系统键鼠、控件树、截图、OCR、图像定位和系统权限使用 `desktop`。
+- 本机 App、窗口、菜单、系统键鼠、控件树、截图、图像定位和系统权限使用 `desktop`。
 - 用户意图不明确时，先确认执行线；不要靠 action 名称猜。
 - `browser` plan 只能用 `actions/browser` 和 `actions/common`。
 - `desktop` plan 只能用 `actions/desktop` 和 `actions/common`。
@@ -24,7 +24,7 @@
 ## 取证规则
 
 - 真实网页流程不能凭描述猜 selector。最终 browser plan 前先获取页面证据。
-- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、OCR/图像结果或人工确认。
+- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、图像结果或人工确认。
 - 需要登录、验证码、二次验证、安全弹窗或权限确认时，用 `manual_confirm` 交给用户。
 - macOS Accessibility、Screen Recording、Automation 权限只能触发提示、打开设置并等待用户确认，不能静默授权。
 

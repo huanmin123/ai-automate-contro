@@ -4,7 +4,6 @@ import base64
 import json
 import os
 import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -13,7 +12,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
 from ai_automate_contro.app.desktop_checks.fixture_apps import (
     _cleanup_macos_file_dialog_case,
     _cleanup_real_app_case,
@@ -38,9 +36,6 @@ from ai_automate_contro.app.desktop_checks.schema_cases import _schema_case_defi
 from ai_automate_contro.app.desktop_checks.vision_fixtures import (
     _image_size,
     _image_size_matches_bounds,
-    _ocr_fixture_font_available,
-    _ocr_raw_text_contains,
-    _write_ocr_fixture_image,
     _write_vision_fixture_images,
     _write_vision_missing_template,
 )
@@ -48,11 +43,6 @@ from ai_automate_contro.debug.run_failure_analysis import (
     analyze_latest_run_failure_tool,
     build_desktop_repair_suggestions,
     collect_desktop_diagnostics,
-)
-from ai_automate_contro.engine.desktop.backends.capabilities import (
-    resolve_tesseract_binary,
-    tesseract_binary_details,
-    tesseract_language_available,
 )
 from ai_automate_contro.engine.desktop.backends.native import NativeDesktopBackend
 from ai_automate_contro.engine.desktop.coordinates import (
@@ -66,7 +56,6 @@ from ai_automate_contro.engine.desktop.coordinates import (
 from ai_automate_contro.engine.desktop.profiles import apply_desktop_app_profile
 from ai_automate_contro.engine.desktop.run_protection import desktop_run_mutex_context
 from ai_automate_contro.engine.executor import execute_plan
-from ai_automate_contro.plans.config import load_plan_config
 from ai_automate_contro.plans.loader import load_plan
 from ai_automate_contro.plans.validator import validate_plan_file
 
@@ -107,8 +96,6 @@ def self_check_desktop_components(
     require_input: bool = False,
     require_wpf: bool = False,
     require_vision: bool = False,
-    require_ocr: bool = False,
-    require_ocr_zh: bool = False,
 ) -> dict[str, Any]:
     resolved_root = Path(project_root).resolve()
     schema_cases = _run_schema_cases(resolved_root)
@@ -121,10 +108,6 @@ def self_check_desktop_components(
     launch_only_case = _run_launch_only_case(resolved_root)
     profile_case = _run_desktop_profile_case(resolved_root)
     vision_case = _run_vision_locator_case(resolved_root)
-    ocr_case = _run_ocr_locator_case(resolved_root)
-    ocr_zh_case = _run_ocr_zh_locator_case(resolved_root)
-    ocr_config_case = _run_ocr_config_path_case(resolved_root)
-    ocr_bad_config_case = _run_ocr_bad_config_path_case(resolved_root)
     real_app_case = _run_real_app_matrix_case(resolved_root)
     element_action_case = _run_element_action_case(resolved_root)
     wpf_action_case = _run_wpf_element_action_case(resolved_root, required=require_wpf) if require_wpf else None
@@ -136,8 +119,6 @@ def self_check_desktop_components(
     required_vision_case = (
         _run_required_vision_case(vision_case, element_action_case, real_app_case) if require_vision else None
     )
-    required_ocr_case = _run_required_ocr_case(ocr_case, resolved_root) if require_ocr else None
-    required_ocr_zh_case = _run_required_ocr_zh_case(ocr_zh_case, resolved_root) if require_ocr_zh else None
     schema_ok = all(case["ok"] for case in schema_cases)
     coordinate_ok = bool(coordinate_case["ok"])
     profile_merge_ok = bool(profile_merge_case["ok"])
@@ -148,10 +129,6 @@ def self_check_desktop_components(
     launch_only_ok = bool(launch_only_case["ok"])
     profile_ok = bool(profile_case["ok"])
     vision_ok = bool(vision_case["ok"])
-    ocr_ok = bool(ocr_case["ok"])
-    ocr_zh_ok = bool(ocr_zh_case["ok"])
-    ocr_config_ok = bool(ocr_config_case["ok"])
-    ocr_bad_config_ok = bool(ocr_bad_config_case["ok"])
     real_app_ok = bool(real_app_case["ok"])
     element_action_ok = bool(element_action_case["ok"])
     wpf_action_ok = wpf_action_case is None or bool(wpf_action_case["ok"])
@@ -159,8 +136,6 @@ def self_check_desktop_components(
     capability_diagnostics_ok = bool(capability_diagnostics_case["ok"])
     required_input_ok = required_input_case is None or bool(required_input_case["ok"])
     required_vision_ok = required_vision_case is None or bool(required_vision_case["ok"])
-    required_ocr_ok = required_ocr_case is None or bool(required_ocr_case["ok"])
-    required_ocr_zh_ok = required_ocr_zh_case is None or bool(required_ocr_zh_case["ok"])
     checks = [
         {
             "name": "desktop_schema_and_execution_line_validation",
@@ -176,10 +151,6 @@ def self_check_desktop_components(
         launch_only_case,
         profile_case,
         vision_case,
-        ocr_case,
-        ocr_zh_case,
-        ocr_config_case,
-        ocr_bad_config_case,
         real_app_case,
         element_action_case,
         input_probe_case,
@@ -191,10 +162,6 @@ def self_check_desktop_components(
         checks.append(required_input_case)
     if required_vision_case is not None:
         checks.append(required_vision_case)
-    if required_ocr_case is not None:
-        checks.append(required_ocr_case)
-    if required_ocr_zh_case is not None:
-        checks.append(required_ocr_zh_case)
     return {
         "ok": schema_ok
         and coordinate_ok
@@ -206,32 +173,22 @@ def self_check_desktop_components(
         and launch_only_ok
         and profile_ok
         and vision_ok
-        and ocr_ok
-        and ocr_zh_ok
-        and ocr_config_ok
-        and ocr_bad_config_ok
         and real_app_ok
         and element_action_ok
         and wpf_action_ok
         and input_probe_ok
         and capability_diagnostics_ok
         and required_input_ok
-        and required_vision_ok
-        and required_ocr_ok
-        and required_ocr_zh_ok,
+        and required_vision_ok,
         "require_input": require_input,
         "require_wpf": require_wpf,
         "require_vision": require_vision,
-        "require_ocr": require_ocr,
-        "require_ocr_zh": require_ocr_zh,
         "checks": checks,
         "commands": {
             "run": f"python {_cplan_script_path()} self-check desktop-components",
             "run_require_input": f"python {_cplan_script_path()} self-check desktop-components --require-input",
             "run_require_wpf": f"python {_cplan_script_path()} self-check desktop-components --require-wpf",
             "run_require_vision": f"python {_cplan_script_path()} self-check desktop-components --require-vision",
-            "run_require_ocr": f"python {_cplan_script_path()} self-check desktop-components --require-ocr",
-            "run_require_ocr_zh": f"python {_cplan_script_path()} self-check desktop-components --require-ocr-zh",
             "create_desktop_plan": f"python {_cplan_script_path()} create --path plans/desktop-demo --automation-type desktop",
         },
     }
@@ -673,42 +630,6 @@ def _run_required_vision_case(
     }
 
 
-def _run_required_ocr_case(ocr_case: dict[str, Any], project_root: Path) -> dict[str, Any]:
-    dependency_reason = _desktop_ocr_dependency_skip_reason("eng", project_root)
-    ocr_ok = bool(ocr_case.get("ok")) and not bool(ocr_case.get("skipped"))
-    issues: list[str] = []
-    if dependency_reason:
-        issues.append(dependency_reason)
-    if not ocr_ok:
-        issues.append("desktop_vision locate_text OCR regression did not run successfully.")
-    return {
-        "name": "desktop_ocr_required_regression",
-        "ok": not issues,
-        "require_ocr": True,
-        "dependencies_ok": not dependency_reason,
-        "ocr_ok": ocr_ok,
-        "issues": issues,
-    }
-
-
-def _run_required_ocr_zh_case(ocr_zh_case: dict[str, Any], project_root: Path) -> dict[str, Any]:
-    dependency_reason = _desktop_ocr_dependency_skip_reason("chi_sim", project_root)
-    ocr_ok = bool(ocr_zh_case.get("ok")) and not bool(ocr_zh_case.get("skipped"))
-    issues: list[str] = []
-    if dependency_reason:
-        issues.append(dependency_reason)
-    if not ocr_ok:
-        issues.append("desktop_vision locate_text Chinese OCR regression did not run successfully.")
-    return {
-        "name": "desktop_ocr_zh_required_regression",
-        "ok": not issues,
-        "require_ocr_zh": True,
-        "dependencies_ok": not dependency_reason,
-        "ocr_ok": ocr_ok,
-        "issues": issues,
-    }
-
-
 def _desktop_vision_dependency_skip_reason() -> str:
     if not _module_available("cv2"):
         return "opencv-python is not installed; desktop_vision locate_image is unavailable."
@@ -722,35 +643,6 @@ def _desktop_input_dependency_skip_reason() -> str:
     if missing:
         return "desktop input strict regression requires installed modules: " + ", ".join(missing)
     return ""
-
-
-def _desktop_ocr_dependency_skip_reason(language: str = "eng", project_root: Path | None = None) -> str:
-    if not _module_available("PIL"):
-        return "Pillow is not installed; desktop_vision locate_text fixture images cannot be generated."
-    if "chi_sim" in str(language) and not _ocr_fixture_font_available("zh"):
-        return "Chinese OCR fixture font is unavailable; install Microsoft YaHei/SimHei/PingFang/Noto CJK."
-    desktop_config = _desktop_ocr_config(project_root)
-    tesseract = tesseract_binary_details(desktop_config)
-    if not resolve_tesseract_binary(desktop_config):
-        return (
-            "tesseract is not installed, not on PATH, and not configured via "
-            "config.json desktop.ocr.tesseract_path; desktop_vision locate_text is unavailable. "
-            f"source={tesseract.get('source') or 'unresolved'}"
-        )
-    if not tesseract_language_available(language, desktop_config):
-        return f"tesseract language data is missing: {language}"
-    return ""
-
-
-def _desktop_ocr_config(project_root: Path | None = None) -> dict[str, Any]:
-    if project_root is None:
-        return {}
-    try:
-        config_dir = default_ai_config_dir_for_project(project_root)
-        config = load_plan_config(project_root, config_dir)
-    except Exception:
-        return {}
-    return config if isinstance(config, dict) else {}
 
 
 def _run_schema_cases(project_root: Path) -> list[dict[str, Any]]:
@@ -1645,370 +1537,6 @@ def _run_vision_locator_miss_case(project_root: Path, package_dir: Path) -> dict
         "diagnostics_ok": diagnostics_ok,
         "diagnostics": diagnostics,
     }
-
-
-def _run_ocr_locator_case(project_root: Path) -> dict[str, Any]:
-    return _run_ocr_locator_language_case(
-        project_root,
-        case_name="desktop_vision_locate_text_regression",
-        temp_prefix="desktop-components-ocr-",
-        plan_name="desktop vision locate text regression",
-        run_name="desktop-components-ocr",
-        source_filename="ocr-source.png",
-        output_filename="ocr-match.json",
-        fixture_text="AI DESKTOP OCR READY",
-        fixture_language="latin",
-        text_query={"text_contains": "OCR READY"},
-        language="eng",
-        min_confidence=0.30,
-        raw_text_checks=("OCR", "READY"),
-    )
-
-
-def _run_ocr_zh_locator_case(project_root: Path) -> dict[str, Any]:
-    return _run_ocr_locator_language_case(
-        project_root,
-        case_name="desktop_vision_locate_text_zh_regression",
-        temp_prefix="desktop-components-ocr-zh-",
-        plan_name="desktop vision locate Chinese text regression",
-        run_name="desktop-components-ocr-zh",
-        source_filename="ocr-zh-source.png",
-        output_filename="ocr-zh-match.json",
-        fixture_text="中文 OCR 测试",
-        fixture_language="zh",
-        text_query={"text_contains": "测试"},
-        language="chi_sim",
-        min_confidence=0.10,
-        raw_text_checks=("测试", "OCR"),
-    )
-
-
-def _run_ocr_config_path_case(project_root: Path) -> dict[str, Any]:
-    system = platform.system()
-    if system not in {"Windows", "Darwin"}:
-        return {
-            "name": "desktop_vision_locate_text_config_path_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": f"desktop OCR config path regression only runs on Windows/macOS, current={system}",
-        }
-    dependency_reason = _desktop_ocr_dependency_skip_reason("eng", project_root)
-    if dependency_reason:
-        return {
-            "name": "desktop_vision_locate_text_config_path_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": dependency_reason,
-        }
-    tesseract = tesseract_binary_details(_desktop_ocr_config(project_root))
-    tesseract_path = str(tesseract.get("path") or "")
-    if not tesseract_path:
-        return {
-            "name": "desktop_vision_locate_text_config_path_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": "tesseract path could not be resolved for config-path regression.",
-        }
-    tessdata_dir = Path(tesseract_path).resolve().parent / "tessdata"
-    ocr_config: dict[str, Any] = {"tesseract_path": tesseract_path}
-    if tessdata_dir.exists():
-        ocr_config["tessdata_dir"] = str(tessdata_dir)
-    return _run_ocr_locator_language_case(
-        project_root,
-        case_name="desktop_vision_locate_text_config_path_regression",
-        temp_prefix="desktop-components-ocr-config-",
-        plan_name="desktop vision locate text config path regression",
-        run_name="desktop-components-ocr-config",
-        source_filename="ocr-config-source.png",
-        output_filename="ocr-config-match.json",
-        fixture_text="AI DESKTOP OCR READY",
-        fixture_language="latin",
-        text_query={"text_contains": "OCR READY"},
-        language="eng",
-        min_confidence=0.30,
-        raw_text_checks=("OCR", "READY"),
-        local_config={"desktop": {"ocr": ocr_config}},
-        expected_tesseract_source="config.desktop.ocr.tesseract_path",
-        expected_tesseract_path=tesseract_path,
-        expected_tessdata_dir=str(tessdata_dir) if tessdata_dir.exists() else "",
-    )
-
-
-def _run_ocr_bad_config_path_case(project_root: Path) -> dict[str, Any]:
-    system = platform.system()
-    if system not in {"Windows", "Darwin"}:
-        return {
-            "name": "desktop_vision_locate_text_bad_config_path_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": f"desktop OCR bad config path regression only runs on Windows/macOS, current={system}",
-        }
-    if not _module_available("PIL"):
-        return {
-            "name": "desktop_vision_locate_text_bad_config_path_regression",
-            "ok": True,
-            "skipped": True,
-            "reason": "Pillow is not installed; desktop_vision locate_text fixture images cannot be generated.",
-        }
-    with tempfile.TemporaryDirectory(prefix="desktop-components-ocr-bad-config-") as raw_temp_dir:
-        package_dir = Path(raw_temp_dir)
-        resources_dir = package_dir / "resources"
-        resources_dir.mkdir(parents=True, exist_ok=True)
-        source_filename = "ocr-bad-config-source.png"
-        output_filename = "ocr-bad-config-match.json"
-        source_path = resources_dir / source_filename
-        _write_ocr_fixture_image(source_path, text="AI DESKTOP OCR READY", language="latin")
-        missing_binary = resources_dir / "missing-tesseract" / ("tesseract.exe" if system == "Windows" else "tesseract")
-        missing_tessdata = resources_dir / "missing-tessdata"
-        local_config = {
-            "desktop": {
-                "ocr": {
-                    "tesseract_path": str(missing_binary),
-                    "tessdata_dir": str(missing_tessdata),
-                }
-            }
-        }
-        (package_dir / "config.json").write_text(
-            json.dumps(local_config, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
-        plan_path = package_dir / "plan.json"
-        plan = {
-            "name": "desktop vision locate text bad config path regression",
-            "automation_type": "desktop",
-            "variables": {},
-            "steps": [
-                {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
-                {
-                    "action": "desktop_vision",
-                    "desktop": "desktop",
-                    "type": "locate_text",
-                    "source_path": f"resources/{source_filename}",
-                    "text_contains": "OCR READY",
-                    "language": "eng",
-                    "provider": "tesseract",
-                    "min_confidence": 0.30,
-                    "match_index": 0,
-                    "max_matches": 5,
-                    "path": output_filename,
-                    "output": {"as": "ocr_match"},
-                },
-                {"action": "close_desktop", "desktop": "desktop"},
-            ],
-        }
-        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        validation = validate_plan_file(plan_path, project_root)
-        if not validation.ok:
-            return {
-                "name": "desktop_vision_locate_text_bad_config_path_regression",
-                "ok": False,
-                "validation_ok": False,
-                "errors": [error.format() for error in validation.errors],
-            }
-        output_dir = ""
-        run_error = ""
-        failed_as_expected = False
-        try:
-            result = execute_plan(
-                plan,
-                project_root,
-                plan_path=plan_path,
-                run_name="desktop-components-ocr-bad-config",
-                run_context_handler=_disable_run_log_echo,
-            )
-            output_dir = result.output_dir
-            run_error = str(result.error or "")
-            failed_as_expected = result.status == "failed"
-        except Exception as error:
-            run_error = str(error)
-            failed_as_expected = True
-        message_ok = "desktop.ocr.tesseract_path" in run_error and str(missing_binary) in run_error
-        return {
-            "name": "desktop_vision_locate_text_bad_config_path_regression",
-            "ok": failed_as_expected and message_ok,
-            "validation_ok": True,
-            "failed_as_expected": failed_as_expected,
-            "message_ok": message_ok,
-            "run_error": run_error,
-            "output_dir": output_dir,
-            "configured_tesseract_path": str(missing_binary),
-        }
-
-
-def _run_ocr_locator_language_case(
-    project_root: Path,
-    *,
-    case_name: str,
-    temp_prefix: str,
-    plan_name: str,
-    run_name: str,
-    source_filename: str,
-    output_filename: str,
-    fixture_text: str,
-    fixture_language: str,
-    text_query: dict[str, str],
-    language: str,
-    min_confidence: float,
-    raw_text_checks: tuple[str, ...],
-    local_config: dict[str, Any] | None = None,
-    expected_tesseract_source: str = "",
-    expected_tesseract_path: str = "",
-    expected_tessdata_dir: str = "",
-) -> dict[str, Any]:
-    system = platform.system()
-    if system not in {"Windows", "Darwin"}:
-        return {
-            "name": case_name,
-            "ok": True,
-            "skipped": True,
-            "reason": f"desktop OCR regression only runs on Windows/macOS, current={system}",
-        }
-    dependency_reason = _desktop_ocr_dependency_skip_reason(language, project_root)
-    if dependency_reason:
-        return {
-            "name": case_name,
-            "ok": True,
-            "skipped": True,
-            "reason": dependency_reason,
-        }
-    with tempfile.TemporaryDirectory(prefix=temp_prefix) as raw_temp_dir:
-        package_dir = Path(raw_temp_dir)
-        resources_dir = package_dir / "resources"
-        resources_dir.mkdir(parents=True, exist_ok=True)
-        source_path = resources_dir / source_filename
-        _write_ocr_fixture_image(source_path, text=fixture_text, language=fixture_language)
-        if local_config is not None:
-            (package_dir / "config.json").write_text(
-                json.dumps(local_config, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
-        plan_path = package_dir / "plan.json"
-        plan = {
-            "name": plan_name,
-            "automation_type": "desktop",
-            "variables": {},
-            "steps": [
-                {"action": "open_desktop", "name": "desktop", "backend": "auto", "output": {"as": "desktop_probe"}},
-                {
-                    "action": "desktop_vision",
-                    "desktop": "desktop",
-                    "type": "locate_text",
-                    "source_path": f"resources/{source_filename}",
-                    **text_query,
-                    "language": language,
-                    "provider": "tesseract",
-                    "min_confidence": min_confidence,
-                    "match_index": 0,
-                    "max_matches": 5,
-                    "path": output_filename,
-                    "output": {"as": "ocr_match"},
-                },
-                {"action": "close_desktop", "desktop": "desktop"},
-            ],
-        }
-        plan_path.write_text(json.dumps(plan, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-        validation = validate_plan_file(plan_path, project_root)
-        if not validation.ok:
-            return {
-                "name": case_name,
-                "ok": False,
-                "validation_ok": False,
-                "errors": [error.format() for error in validation.errors],
-            }
-        run_error = ""
-        started_at = time.time()
-        try:
-            result = execute_plan(
-                plan,
-                project_root,
-                plan_path=plan_path,
-                run_name=run_name,
-                run_context_handler=_disable_run_log_echo,
-            )
-            run_ok = result.status == "passed"
-            output_dir = result.output_dir
-        except Exception as error:
-            run_ok = False
-            output_dir = ""
-            run_error = str(error)
-        ocr_path = package_dir / "output" / "desktop-vision" / output_filename
-        stem = Path(output_filename).stem
-        source_artifact_path = package_dir / "output" / "desktop-vision" / f"{stem}-source.png"
-        crop_path = package_dir / "output" / "desktop-vision" / f"{stem}-crop.png"
-        annotation_path = package_dir / "output" / "desktop-vision" / f"{stem}-annotated.png"
-        payload = _read_json(ocr_path) if ocr_path.exists() else {}
-        match = payload.get("match") if isinstance(payload.get("match"), dict) else {}
-        bounds = match.get("bounds") if isinstance(match.get("bounds"), dict) else {}
-        local_bounds = match.get("local_bounds") if isinstance(match.get("local_bounds"), dict) else {}
-        source_bounds = payload.get("source_bounds") if isinstance(payload.get("source_bounds"), dict) else {}
-        diagnostics = payload.get("diagnostics") if isinstance(payload.get("diagnostics"), dict) else {}
-        coordinate_diagnostics = (
-            payload.get("coordinate_diagnostics") if isinstance(payload.get("coordinate_diagnostics"), dict) else {}
-        )
-        coordinate_profile_ok = _coordinate_profile_ok(payload.get("coordinate_profile"), screen_clickable=False)
-        raw_text = str(payload.get("raw_text", ""))
-        normalized_raw_text = re.sub(r"\s+", "", raw_text)
-        artifacts_ok = all(
-            _file_nonempty_after(path, started_at)
-            for path in (ocr_path, source_artifact_path, crop_path, annotation_path)
-        )
-        coordinate_ok = (
-            isinstance(bounds, dict)
-            and isinstance(local_bounds, dict)
-            and int(bounds.get("x", -1)) == int(local_bounds.get("x", -2)) + int(source_bounds.get("x", 0) or 0)
-            and int(bounds.get("y", -1)) == int(local_bounds.get("y", -2)) + int(source_bounds.get("y", 0) or 0)
-            and isinstance(coordinate_diagnostics.get("local_to_global_offset"), dict)
-        )
-        raw_text_ok = all(_ocr_raw_text_contains(normalized_raw_text, item) for item in raw_text_checks)
-        tesseract_source_ok = (
-            not expected_tesseract_source
-            or str(diagnostics.get("tesseract_source") or "") == expected_tesseract_source
-        )
-        tesseract_path_ok = (
-            not expected_tesseract_path
-            or _same_path(str(diagnostics.get("tesseract_path") or ""), expected_tesseract_path)
-        )
-        tessdata_dir_ok = (
-            not expected_tessdata_dir
-            or _same_path(str(diagnostics.get("tessdata_dir") or ""), expected_tessdata_dir)
-        )
-        return {
-            "name": case_name,
-            "ok": (
-                run_ok
-                and artifacts_ok
-                and bool(payload.get("ok"))
-                and raw_text_ok
-                and bool(match.get("text"))
-                and float(match.get("confidence", 0.0) or 0.0) >= min_confidence
-                and isinstance(payload.get("ocr_blocks"), list)
-                and bool(payload.get("ocr_blocks"))
-                and coordinate_ok
-                and coordinate_profile_ok
-                and diagnostics.get("provider") == "tesseract"
-                and tesseract_source_ok
-                and tesseract_path_ok
-                and tessdata_dir_ok
-            ),
-            "validation_ok": True,
-            "run_ok": run_ok,
-            "output_dir": output_dir,
-            "run_error": run_error,
-            "ocr_path": str(ocr_path),
-            "source_artifact_path": str(source_artifact_path),
-            "crop_path": str(crop_path),
-            "annotation_path": str(annotation_path),
-            "artifacts_ok": artifacts_ok,
-            "coordinate_ok": coordinate_ok,
-            "coordinate_profile_ok": coordinate_profile_ok,
-            "raw_text_ok": raw_text_ok,
-            "tesseract_source_ok": tesseract_source_ok,
-            "tesseract_path_ok": tesseract_path_ok,
-            "tessdata_dir_ok": tessdata_dir_ok,
-            "raw_text": raw_text,
-            "match": match,
-            "diagnostics": diagnostics,
-        }
 
 
 def _run_real_app_matrix_case(project_root: Path) -> dict[str, Any]:
@@ -4076,7 +3604,7 @@ def _run_capability_diagnostics_case() -> dict[str, Any]:
             "semantic": {"window_list": False, "elements": False},
             "input": {"keyboard": False, "mouse": False, "clipboard": False},
             "screenshot": {"full_screen": False, "region": False, "annotation": False},
-            "vision": {"image_locator": False, "template_matching": False, "ocr": False},
+            "vision": {"image_locator": False, "template_matching": False},
         },
         "permissions": {
             "accessibility": "not_granted_or_unavailable",
@@ -4088,16 +3616,12 @@ def _run_capability_diagnostics_case() -> dict[str, Any]:
             "pyperclip": False,
             "Pillow.ImageGrab": False,
             "opencv-python": False,
-            "tesseract": False,
-            "tessdata.eng": False,
-            "tessdata.chi_sim": False,
         },
         "limitations": [
             "window_list_unavailable",
             "pyautogui_missing",
             "pillow_imagegrab_missing",
             "opencv_missing_for_image_locator",
-            "tesseract_or_eng_tessdata_missing_for_ocr",
             "macos_tcc_permissions_may_require_user_approval",
         ],
     }

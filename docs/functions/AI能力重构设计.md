@@ -150,7 +150,6 @@ AI 服务注册进入当前 plan 集合配置或 plan 局部配置：
 
 ```text
 output/ai/
-  ocr/
   connectivity/
   extract-data/
   transform-data/

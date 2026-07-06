@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project, load_runtime_config
-from ai_automate_contro.engine.desktop.backends.capabilities import desktop_dependencies, tesseract_binary_details
+from ai_automate_contro.engine.desktop.backends.capabilities import desktop_dependencies
 from ai_automate_contro.plans.config import load_plan_config
 from ai_automate_contro.support.playwright_browsers import (
     format_playwright_browser_missing_message,
@@ -41,7 +41,6 @@ def self_check_environment(project_root: Path) -> dict[str, Any]:
             "ripgrep": _ripgrep_install_hint(),
             "playwright_chromium": _playwright_install_hint(),
             "desktop_extra": r'python -m pip install -e ".[desktop]"',
-            "tesseract": _tesseract_install_hint(),
             "verify": _self_check_env_command(),
         },
     }
@@ -306,23 +305,19 @@ def _check_desktop_dependencies(project_root: Path) -> dict[str, Any]:
     except Exception:
         config = {}
     dependencies = desktop_dependencies(config)
-    tesseract = tesseract_binary_details(config)
     ready = (
         bool(dependencies.get("pyautogui"))
         and bool(dependencies.get("pyperclip"))
         and bool(dependencies.get("Pillow.ImageGrab"))
         and bool(dependencies.get("opencv-python"))
-        and bool(dependencies.get("tesseract"))
-        and bool(dependencies.get("tessdata.eng"))
     )
     return _check_result(
         "desktop_optional_dependencies",
         True,
         ready=ready,
         dependencies=dependencies,
-        tesseract=tesseract,
-        detail="桌面控制依赖为可选能力诊断；需要强制桌面 OCR 时运行 cplan.py self-check desktop-components --require-ocr。",
-        fix=f'python -m pip install -e ".[desktop]"；{_tesseract_install_hint()}',
+        detail="桌面控制依赖为可选能力诊断；视觉定位只保留 OpenCV 模板匹配。",
+        fix='python -m pip install -e ".[desktop]"',
     )
 
 
@@ -351,12 +346,3 @@ def _playwright_install_hint() -> str:
         executable = ".\\aic.exe" if platform.system() == "Windows" else "./aic"
         return f"{executable} install-browser --browser chromium"
     return "python -m playwright install chromium"
-
-
-def _tesseract_install_hint() -> str:
-    system = platform.system()
-    if system == "Darwin":
-        return "brew install tesseract tesseract-lang"
-    if system == "Linux":
-        return "使用系统包管理器安装 tesseract 和语言包，例如 sudo apt install tesseract-ocr tesseract-ocr-eng。"
-    return "安装 UB Mannheim Tesseract；PATH 不可用时在 config.json desktop.ocr.tesseract_path 指定 tesseract.exe。"

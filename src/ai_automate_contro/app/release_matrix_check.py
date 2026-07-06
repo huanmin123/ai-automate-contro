@@ -20,8 +20,6 @@ def self_check_release_matrix(
     strict_desktop: bool = False,
     require_desktop_input: bool = False,
     require_desktop_vision: bool = False,
-    require_desktop_ocr: bool = False,
-    require_desktop_ocr_zh: bool = False,
     require_desktop_wpf: bool = False,
     only: list[str] | None = None,
     list_steps: bool = False,
@@ -32,14 +30,10 @@ def self_check_release_matrix(
     repeat_count = int(repeat or 1)
     require_desktop_input = bool(strict_desktop or require_desktop_input)
     require_desktop_vision = bool(strict_desktop or require_desktop_vision)
-    require_desktop_ocr = bool(strict_desktop or require_desktop_ocr)
-    require_desktop_ocr_zh = bool(strict_desktop or require_desktop_ocr_zh)
     commands = _deterministic_commands(
         root,
         require_desktop_input=require_desktop_input,
         require_desktop_vision=require_desktop_vision,
-        require_desktop_ocr=require_desktop_ocr,
-        require_desktop_ocr_zh=require_desktop_ocr_zh,
         require_desktop_wpf=require_desktop_wpf,
     )
     if include_real_ai:
@@ -64,8 +58,6 @@ def self_check_release_matrix(
             "strict_desktop": strict_desktop,
             "require_desktop_input": require_desktop_input,
             "require_desktop_vision": require_desktop_vision,
-            "require_desktop_ocr": require_desktop_ocr,
-            "require_desktop_ocr_zh": require_desktop_ocr_zh,
             "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
@@ -82,8 +74,6 @@ def self_check_release_matrix(
             "strict_desktop": strict_desktop,
             "require_desktop_input": require_desktop_input,
             "require_desktop_vision": require_desktop_vision,
-            "require_desktop_ocr": require_desktop_ocr,
-            "require_desktop_ocr_zh": require_desktop_ocr_zh,
             "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
@@ -99,8 +89,6 @@ def self_check_release_matrix(
             "strict_desktop": strict_desktop,
             "require_desktop_input": require_desktop_input,
             "require_desktop_vision": require_desktop_vision,
-            "require_desktop_ocr": require_desktop_ocr,
-            "require_desktop_ocr_zh": require_desktop_ocr_zh,
             "require_desktop_wpf": require_desktop_wpf,
             "repeat": repeat_count,
             "available_steps": available_steps,
@@ -132,8 +120,6 @@ def self_check_release_matrix(
         "strict_desktop": strict_desktop,
         "require_desktop_input": require_desktop_input,
         "require_desktop_vision": require_desktop_vision,
-        "require_desktop_ocr": require_desktop_ocr,
-        "require_desktop_ocr_zh": require_desktop_ocr_zh,
         "require_desktop_wpf": require_desktop_wpf,
         "fail_fast": fail_fast,
         "repeat": repeat_count,
@@ -148,8 +134,6 @@ def _deterministic_commands(
     *,
     require_desktop_input: bool = False,
     require_desktop_vision: bool = False,
-    require_desktop_ocr: bool = False,
-    require_desktop_ocr_zh: bool = False,
     require_desktop_wpf: bool = False,
 ) -> list[dict[str, Any]]:
     desktop_env_command = [_python(), "cplan.py", "self-check", "desktop-env"]
@@ -157,19 +141,11 @@ def _deterministic_commands(
         desktop_env_command.append("--require-input")
     if require_desktop_vision:
         desktop_env_command.append("--require-vision")
-    if require_desktop_ocr:
-        desktop_env_command.append("--require-ocr")
-    if require_desktop_ocr_zh:
-        desktop_env_command.append("--require-ocr-zh")
     desktop_components_command = [_python(), "cplan.py", "self-check", "desktop-components"]
     if require_desktop_input:
         desktop_components_command.append("--require-input")
     if require_desktop_vision:
         desktop_components_command.append("--require-vision")
-    if require_desktop_ocr:
-        desktop_components_command.append("--require-ocr")
-    if require_desktop_ocr_zh:
-        desktop_components_command.append("--require-ocr-zh")
     if require_desktop_wpf:
         desktop_components_command.append("--require-wpf")
     desktop_examples_command = [_python(), "cplan.py", "self-check", "desktop-examples"]

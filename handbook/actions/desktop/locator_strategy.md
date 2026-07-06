@@ -20,7 +20,7 @@
 | 2 | Element Locator | 标准按钮、输入框、列表、表格、树、菜单项、滚动容器、可访问控件 | `desktop_element`、`desktop_assert type=element` |
 | 3 | `desktop_input target=candidate` | 已有同一次 observe/vision 的候选，且需要真实鼠标事件 | 执行器校验 candidate 后点击 |
 | 4 | `desktop_input target=element_center` | 需要系统级鼠标事件，但控件可被定位 | `desktop_input click/double_click/right_click/scroll/drag` |
-| 5 | `desktop_vision type=locate_image/locate_text` | 自绘 UI、图标按钮、画布、控件树不可见、已有截图或可见短文本定位 | 先输出 candidate/bounds，再用 `desktop_input` |
+| 5 | `desktop_vision type=locate_image` | 自绘 UI、图标按钮、画布、控件树不可见或已有截图中的稳定图形定位 | 先输出 candidate/bounds，再用 `desktop_input` |
 | 6 | `desktop_input target=bounds_center` | 已有可信 bounds，例如控件结果或 `desktop_vision.match.bounds` | `desktop_input` 鼠标类动作 |
 | 7 | 绝对 `x/y` | 临时兜底、人工确认后的固定坐标 | 必须配 `coordinate_profile`、截图或人工确认 |
 
@@ -143,6 +143,6 @@
 - 最终 plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、定位结果或人工确认。
 - 能用 `automation_id/control_type/name` 时，不用绝对坐标。
 - 鼠标操作后保留截图或标注证据。
-- `desktop_vision type=locate_image` 适合稳定图标、图片按钮和模板图；`desktop_vision type=locate_text` 适合可见短文本稳定、控件树不可读且没有模板图的界面。
-- 使用 `locate_text` 前必须确认 `capability_matrix.capabilities.vision.ocr=true`。
+- `desktop_vision type=locate_image` 适合稳定图标、图片按钮和模板图。
+- 桌面线不支持 OCR 或 `desktop_vision type=locate_text`；需要读文字时优先使用控件树、应用数据接口、文件读取或 `manual_confirm`。
 - 定位不稳定时使用 `manual_confirm`，不要扩大点击区域赌运气。

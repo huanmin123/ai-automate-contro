@@ -1,6 +1,6 @@
 # 桌面控制手册入口
 
-本入口只给 `automation_type: "desktop"` plan 使用。桌面线控制 Windows/macOS 真实桌面里的本机 App、窗口、控件、系统级键鼠、截图、图像/OCR 证据和系统权限。
+本入口只给 `automation_type: "desktop"` plan 使用。桌面线控制 Windows/macOS 真实桌面里的本机 App、窗口、控件、系统级键鼠、截图、图像模板证据和系统权限。
 
 浏览器 DOM、Playwright selector、浏览器网络事件、浏览器 storage state 和页面内 `mouse`/`keyboard` 进入 [浏览器自动化手册入口](../browser/README.md)。
 
@@ -76,7 +76,7 @@ handbook/actions/desktop/
 
 ## 取证规则
 
-真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、图像/OCR 定位结果或人工确认。
+真实桌面应用流程不能凭用户文字猜坐标。AI 创建最终 desktop plan 前必须先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、图像定位结果或人工确认。
 
 最终 plan 前先探测 `capability_matrix`、窗口列表、控件摘要、截图路径、权限/依赖或人工确认。plan 内还应使用 `desktop_capture type=observe`、`desktop_window`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture screenshot/snapshot`、`desktop_vision`、`desktop_wait` 或 `desktop_assert` 保存运行证据。`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_input` 只算操作推进，不单独算识别证据。
 
@@ -99,7 +99,7 @@ desktop plan 默认串行占用当前项目的桌面控制资源；同一项目�
 - macOS 未授权 Accessibility、Screen Recording 或 Automation。
 - 验证码、人机验证、短信/邮箱二次验证、真实支付、真实删除或生产数据变更。
 - DRM/受保护内容、银行安全控件、反作弊游戏、刻意阻止自动化的软件。
-- 控件树不可见且截图/OCR/图像特征不稳定的界面。
+- 控件树不可见且截图/图像特征不稳定的界面。
 
 ## 最小示例
 

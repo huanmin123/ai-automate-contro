@@ -23,7 +23,6 @@ Phase 0 目标是先把执行线和桌面基础 runtime 打稳，不追求完整
 - `desktop_input type=type_text/hotkey/click/double_click/right_click/scroll/drag`，其中鼠标类输入为系统级坐标动作，并支持 candidate、当前窗口中心/偏移、控件中心、给定 bounds 中心和绝对坐标。
 - `desktop_capture type=screenshot/snapshot/observe`，其中 `observe` 输出 AI 可读的统一桌面观察 payload。
 - `desktop_vision type=locate_image`，使用 OpenCV 模板匹配输出 bounds、point、候选分数和 `output/desktop-vision/` 证据。
-- `desktop_vision type=locate_text`，使用 Tesseract OCR 输出 raw text、OCR blocks、文本命中 bounds、point、置信度和 `output/desktop-vision/` 证据。
 - `desktop_wait type=window`。
 - `desktop_assert type=window/screenshot/element`。
 - 桌面失败截图、窗口列表、backend 诊断和权限状态采集。
@@ -46,7 +45,7 @@ Phase 0 基线明确不做：
 
 这些能力仍沿用 `desktop_element`、`output/desktop-elements/`、`desktop-annotations`、Element Locator、Window Query 和 AI 质量门禁，不新增平行桌面 DSL。
 
-视觉定位契约见 [桌面视觉定位设计](./桌面视觉定位设计.md)。AI 只有在能力矩阵声明可用时才能生成 `desktop_vision type=locate_image` 或 `type=locate_text`。
+视觉定位契约见 [桌面视觉定位设计](./桌面视觉定位设计.md)。AI 只有在能力矩阵声明可用时才能生成 `desktop_vision type=locate_image`。桌面线不支持 OCR 或 `desktop_vision type=locate_text`。
 
 ## 顶层 Plan 契约
 
@@ -138,7 +137,7 @@ Phase 0 基线明确不做：
 AI 终端为真实 desktop 任务写最终 plan 前，必须先有 plan 外探测证据，再有 plan 内运行证据。
 
 - plan 外探测证据来自 `inspect_desktop` 或等价上下文，至少能说明平台、backend、`capability_matrix`、`coordinate_profile`、窗口列表、权限/依赖、控件树摘要、截图路径或人工确认之一。`inspect_desktop` 返回结构与 `desktop_capture type=observe` 的统一观察 payload 对齐。
-- plan 内运行证据必须由桌面 action 产出，例如 `desktop_capture type=observe`、`desktop_window type=list/find/active/focus`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture screenshot/snapshot`、`desktop_vision locate_image/locate_text`、`desktop_wait` 或 `desktop_assert`。
+- plan 内运行证据必须由桌面 action 产出，例如 `desktop_capture type=observe`、`desktop_window type=list/find/active/focus`、`desktop_element list/dump/find/get_text/get_state/wait/get_table/get_tree`、`desktop_capture screenshot/snapshot`、`desktop_vision locate_image`、`desktop_wait` 或 `desktop_assert`。
 - `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_input click/type_text/hotkey/drag/scroll` 和 `desktop_window close/minimize/maximize/restore` 只算操作推进，不单独算识别证据。
 - `review_plan_quality` 缺少桌面探测证据时返回 `missing_desktop_inspection_evidence` fail；缺少 plan 内桌面运行证据时返回 `missing_desktop_evidence_step` fail。
 - `run_plan` 仍要求最新质量复查通过，复查后 plan 被修改必须重新 review。
@@ -340,15 +339,12 @@ desktop action 的 `output.as` 变量应尽量返回可诊断字段。不同 act
     },
     "input": {"keyboard": true, "mouse": true, "clipboard": true, "hotkey": true, "drag": true, "scroll": true},
     "screenshot": {"full_screen": true, "region": true, "window": true, "element": true, "annotation": true},
-    "vision": {"image_locator": true, "template_matching": true, "ocr": true}
+    "vision": {"image_locator": true, "template_matching": true}
   },
   "permissions": {"accessibility": "unknown", "screen_recording": "unknown", "input_control": "available_or_not_required"},
   "dependencies": {
     "Pillow.ImageGrab": true,
     "opencv-python": true,
-    "tesseract": true,
-    "tessdata.eng": true,
-    "tessdata.chi_sim": false,
     "pyautogui": true,
     "pyperclip": true
   },
@@ -364,7 +360,7 @@ desktop action 的 `output.as` 变量应尽量返回可诊断字段。不同 act
 - `failure-desktop-state/*.json` 顶层和 `diagnostics.capability_matrix`。
 - `inspect_desktop` 工具顶层、`probe.capability_matrix` 和统一观察 payload。
 
-AI 生成桌面 plan 前必须先读能力矩阵；缺 `pyautogui` 时不要写键鼠动作，缺 `Pillow.ImageGrab` 时不要依赖截图、标注、OCR 或图像定位，缺 `opencv-python` 时不要写 `desktop_vision type=locate_image`，缺 `tesseract` 或所需 `tessdata.*` 时不要写 `desktop_vision type=locate_text`，`limitations` 非空时先修复依赖/权限或改用人工确认。`tesseract` 和 `tessdata.*` 的探测会读取合并后的 `config.json` 中 `desktop.ocr.tesseract_path` / `desktop.ocr.tessdata_dir`，因此 plan 包局部配置可以覆盖集合级配置。
+AI 生成桌面 plan 前必须先读能力矩阵；缺 `pyautogui` 时不要写键鼠动作，缺 `Pillow.ImageGrab` 时不要依赖截图、标注或图像定位，缺 `opencv-python` 时不要写 `desktop_vision type=locate_image`，`limitations` 非空时先修复依赖/权限或改用人工确认。桌面线不探测 Tesseract、pytesseract 或 `tessdata.*`。
 
 `capabilities.semantic` 的键集合应保持跨平台一致，值按当前平台和 backend 真实能力返回。计划-0007 第一批复杂控件在 Windows native backend 上可用；macOS AX 复杂控件映射未真机落地前，对应值应为 `false`，AI 必须改用截图、图像定位或人工确认兜底。
 
@@ -1415,42 +1411,9 @@ plan 只在这些情况承担额外细节：
 
 #### type=locate_text
 
-```json
-{
-  "action": "desktop_vision",
-  "type": "locate_text",
-  "desktop": "desk",
-  "source_path": "output/desktop-screenshots/screen.png",
-  "text_contains": "Order Total",
-  "language": "eng",
-  "provider": "tesseract",
-  "min_confidence": 0.6,
-  "match_index": 0,
-  "max_matches": 10,
-  "path": "order-total-ocr.json",
-  "output": {"as": "order_total"}
-}
-```
+已移除。`desktop_vision.type` 只允许 `locate_image`。旧 plan 使用 `locate_text` 时必须在 schema 校验阶段失败，不允许 runtime fallback 到 OCR 或猜坐标。
 
-字段：
-
-- `desktop`: 必填。
-- `text`、`text_contains`、`text_regex`: 至少提供一个，建议只提供一个。
-- `language`: 可选，默认 `eng`；支持 Tesseract 语言组合，例如 `eng+chi_sim`。
-- `provider`: 可选，`auto` 或 `tesseract`。
-- `min_confidence`: 可选，默认 `0.6`，取值 `0..1`。
-- `case_sensitive`: 可选，默认 `false`。
-- `source_path`、`source_target`、Window Query、`window_match_index`、Element Locator、`region`、`state`、`match_index`、`max_matches`、`timeout_ms`、`interval_ms`、`max_depth`、`max_elements`、`path`、`output.as` 与 `locate_image` 一致。
-
-输出：
-
-- `output/desktop-vision/<path>` JSON。
-- `<stem>-source.png`: OCR source。
-- `<stem>-crop.png`: 命中文本裁剪图。
-- `<stem>-annotated.png`: OCR 命中标注图。
-- payload 包含 `raw_text`、`ocr_blocks`、`matches[]`、`match.text`、`match.confidence`、`match.bounds`、`match.local_bounds`、`match.point`、`match.local_point`、`coordinate_space`、`coordinate_profile`、`coordinate_diagnostics`、`artifacts`、`diagnostics` 和 `source`。
-- payload 包含 `target_candidates`，用于把 OCR 命中的文本 bounds 转成可审查的坐标候选。
-- `diagnostics` 必须包含 OCR provider、语言、engine version、word/line/candidate 计数和 source 尺寸。
+读取文字时改用 `desktop_element get_text/get_state/get_table/get_tree`、应用 API/CLI、文件读取或 `manual_confirm`。
 
 ### desktop_wait
 
@@ -1586,7 +1549,7 @@ plan 只在这些情况承担额外细节：
 - `desktop-windows`: `desktop_window type=list/find/active`。
 - `desktop-elements`: `desktop_element type=list/dump/find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_assert type=element` 的控件树、selector 建议、候选控件、匹配结果和操作/断言 payload。
 - `desktop-annotations`: 位于 `output/<run>/desktop-annotations/`，保存鼠标类 `desktop_input` 和操作类 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 的 PNG 标注图和同名 JSON 结构化标注。
-- `desktop-vision`: `desktop_vision type=locate_image/locate_text` JSON、原图、裁剪图、标注图和 OCR 原文。
+- `desktop-vision`: `desktop_vision type=locate_image` JSON、原图、裁剪图和标注图。
 - `failure-desktop-screenshots`: 失败桌面截图。
 - `failure-desktop-state`: 失败时 backend、权限、窗口列表、当前窗口、活动窗口、鼠标位置、step 摘要和 `diagnostics.window/diagnostics.element` 分组诊断。
 
@@ -1628,14 +1591,14 @@ plan 只在这些情况承担额外细节：
 
 ### Desktop Vision
 
-`desktop_vision type=locate_image` 和 `type=locate_text` 已实现。实现和扩展时保持下列边界：
+`desktop_vision type=locate_image` 已实现。实现和扩展时保持下列边界：
 
 - `desktop_vision` 只做定位和取证，不直接执行点击、输入、拖拽。
-- 图像/OCR 命中后输出 `match.bounds`、`match.point`、`match.local_bounds`、`match.local_point`、`matches`、`coordinate_space`、`coordinate_diagnostics` 和 `artifacts`。
+- 图像命中后输出 `match.bounds`、`match.point`、`match.local_bounds`、`match.local_point`、`matches`、`coordinate_space`、`coordinate_diagnostics` 和 `artifacts`。
 - 后续操作优先使用 `desktop_input target=candidate` 消费 `{{vision_result.target_candidates}}` 和候选 `candidate_id`；展开坐标时再使用 `desktop_input target=bounds_center` 消费 `{{vision_result.match.bounds}}`。
-- 输出 JSON、原图、裁剪图、标注图和 OCR 原文写入 `output/desktop-vision/`。
-- `capability_matrix.capabilities.vision` 必须暴露图像定位、模板匹配和 OCR 能力状态；`capability_matrix.dependencies` 必须暴露 `Pillow.ImageGrab`、`opencv-python`、`tesseract`、`tessdata.eng`、`tessdata.chi_sim`、`pyautogui` 和 `pyperclip`。
-- validator 必须校验 `type=locate_image/locate_text`、模板路径或文本匹配条件、source path/source target 互斥、region、threshold/min_confidence、timeout/interval、path 和输出路径。
+- 输出 JSON、原图、裁剪图和标注图写入 `output/desktop-vision/`。
+- `capability_matrix.capabilities.vision` 必须暴露图像定位和模板匹配能力状态；`capability_matrix.dependencies` 必须暴露 `Pillow.ImageGrab`、`opencv-python`、`pyautogui` 和 `pyperclip`。
+- validator 必须校验 `type=locate_image`、模板路径、source path/source target 互斥、region、threshold、timeout/interval、path 和输出路径；`type=locate_text` 必须作为不支持类型失败。
 - AI 质量门禁必须把 `desktop_vision` 视为取证 action，而不是操作 action；视觉证据不替代最终断言。
 
 最小 action schema、payload 和 AI 使用规则见 [桌面视觉定位设计](./桌面视觉定位设计.md)。
@@ -1762,13 +1725,7 @@ output/<run>/failure-desktop-state/
 - `desktop_vision type=locate_image` 的 `threshold` 不在 `0..1` 失败。
 - `desktop_vision type=locate_image` 的 `source_target`、`region`、`match_index`、`window_match_index`、`max_matches`、`timeout_ms`、`interval_ms`、`max_depth`、`max_elements` 类型或范围非法失败。
 - `desktop_vision type=locate_image` 的 `path` 必须写入 `output/desktop-vision/` 分类。
-- `desktop_vision type=locate_text` 缺少 `text/text_contains/text_regex` 失败。
-- `desktop_vision type=locate_text` 同时使用 `source_path` 和 `source_target` 失败。
-- `desktop_vision type=locate_text source_target=window` 缺少 Window Query 失败。
-- `desktop_vision type=locate_text source_target=element` 缺少 Window Query 或 Element Locator 失败。
-- `desktop_vision type=locate_text` 的 `provider` 非 `auto/tesseract` 失败。
-- `desktop_vision type=locate_text` 的 `min_confidence` 不在 `0..1` 失败。
-- `desktop_vision type=locate_text` 的 `source_target`、`region`、`match_index`、`window_match_index`、`max_matches`、`timeout_ms`、`interval_ms`、`max_depth`、`max_elements` 类型或范围非法失败。
+- `desktop_vision type=locate_text` 作为已移除类型失败；错误消息应包含可选值只有 `locate_image`。
 
 错误消息必须包含 step index、plan 类型和违规 action。
 
@@ -1787,7 +1744,7 @@ python .\main.py self-check ai-real-execution-line --api-key-file D:\模型密�
 
 `desktop-env` 默认只做诊断；任意 `--require-*` 严格参数启用后，必须同时确认当前平台 native backend probe 可用，Windows 上还必须确认 PowerShell 7 可用。
 
-发布前可用 `python .\cplan.py self-check release-matrix --strict-desktop --fail-fast --step-timeout-seconds 1200` 聚合强制桌面输入、视觉、英文 OCR 和简体中文 OCR 回归。WPF 复杂控件用 `--require-desktop-wpf` 单独加严，不随 `--strict-desktop` 自动启用。
+发布前可用 `python .\cplan.py self-check release-matrix --strict-desktop --fail-fast --step-timeout-seconds 1200` 聚合强制桌面输入和视觉回归。WPF 复杂控件用 `--require-desktop-wpf` 单独加严，不随 `--strict-desktop` 自动启用。
 
 分层执行：
 
@@ -1797,10 +1754,9 @@ python .\main.py self-check ai-real-execution-line --api-key-file D:\模型密�
 4. `failure`: 使用不存在窗口和不存在控件触发失败，验证 `failure-desktop-screenshots/`、`failure-desktop-state/`、原始错误、目标定位摘要、`diagnostics.window`、`diagnostics.element`、`active_window`、`pointer_position`、`target_candidates`、`capability_matrix`、`coordinate_profile`、窗口候选诊断、近似匹配摘要，以及 `analyze_latest_run_failure` 返回的 `desktop_diagnostics` 和 `desktop_repair_suggestions`。
 5. `launch/profile`: 不依赖 `pyautogui`，用 `desktop_app type=launch` 启动短生命周期命令并 `wait=true`，验证 `pid`、`exit_code`、`stdout`、`open_desktop.capability_matrix`、变量写出和自定义 `desktop_profiles` profile 应用。
 6. `vision`: 使用自生成 source/template 图片运行 `desktop_vision type=locate_image`，验证 OpenCV 模板匹配、`match.bounds`、`match.point`、`matches`、`output/desktop-vision/` JSON、原图、裁剪图和标注图；缺少 `opencv-python` 或截图依赖时返回 `skipped` 和原因；发布前可用 `--require-vision` 强制通过。
-7. `ocr`: 使用自生成英文图片运行 `desktop_vision type=locate_text`，验证 Tesseract OCR、`raw_text`、`ocr_blocks`、`match.text/confidence`、全局/局部 bounds、`coordinate_profile.source.screen_clickable=false`、`coordinate_diagnostics`、JSON、原图、裁剪图和标注图；缺少 Tesseract 或 `tessdata.eng` 时默认返回 `skipped` 和原因；发布前可用 `--require-ocr` 强制通过。
-8. `real app`: Windows 用 `desktop_app type=launch wait_for_window/focus` 启动受控 WinForms 编辑器覆盖活动窗口读取、窗口查询、控件写入、保存、截图和关闭，启动 Explorer 打开临时目录覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、目标文件语义定位、截图、正常关闭和关闭后 `not_exists`，启动可见 PowerShell 终端覆盖窗口等待、查询、活动窗口读取、截图、剪贴板输入命令、回车执行、结果文件断言和退出清理，并用临时 WinForms 窗口触发系统 Open/Save common dialog，覆盖文件选择、保存、对话框截图、对话框控件列表和结果文件校验；macOS 用 `desktop_app type=launch` 启动 TextEdit、Finder 和 Swift/AppKit harness，覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、截图、profile、真实 `NSOpenPanel`/`NSSavePanel` 默认打开/保存流、结果文件和关闭链路。该层可通过 `python .\cplan.py self-check desktop-real-app` 单独运行，便于隔离真实系统 App 问题；受控编辑器链路失败时用新的临时包最多重试 1 次并返回 `attempts` 摘要；无 GUI、锁屏、权限不足或依赖缺失时返回 `skipped` 和原因。
-9. `element action`: 用自建临时表单验证 `desktop_element dump`、`desktop_element find/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_capture type=observe`、`desktop_capture target=window/element`、`desktop_vision source_target=window/element`、`desktop_assert type=element`、`desktop_input click/double_click/right_click/scroll/drag`、`target=candidate`、`candidate_source=latest`、`element_center`、`bounds_center`、`output/desktop-state/`、`output/desktop-elements/`、`output/desktop-screenshots/`、`output/desktop-vision/` 和 `output/desktop-annotations/` 产物；按当前运行环境选择夹具，Windows 使用 WinForms 覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGridView、TreeView、MenuStrip、ContextMenuStrip、滚动 Panel、鼠标事件面板、上下文菜单面板和状态文本，并校验统一观察 payload、`target_candidates` 最佳语义候选、candidate click 的 `input_resolution/safety_check/window_safety_check/candidate_id`、控件属性/数量断言、窗口/控件截图尺寸接近 `source_bounds`、窗口/控件 source 视觉定位的 `bounds`、`local_bounds`、`coordinate_profile.source.screen_clickable=true` 和视觉候选；`--require-input` 会强制 pyautogui/pyperclip、candidate/bounds 点击、上下文菜单、滚动、拖拽、双击、右键和剪贴板恢复全部真实通过；macOS 的 Tkinter 子控件暴露不稳定时跳过，AX 元素动作由 Swift/Cocoa 受控场景和 `ai-desktop-loop` 覆盖。该层是控件级和输入级回归的主路径，避免依赖用户机器上已有业务 App。
-10. `wpf action`: Windows 独立严格项，用 `python .\cplan.py self-check desktop-components --require-wpf` 或 release matrix `--require-desktop-wpf` 启用。临时 WPF 表单覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGrid、TreeView、Menu、ContextMenu、ScrollViewer、窗口/控件截图和输出 JSON。缺 WPF runtime、STA 或 pattern 差异时严格模式失败；该项不随 `--strict-desktop` 自动启用。
+7. `real app`: Windows 用 `desktop_app type=launch wait_for_window/focus` 启动受控 WinForms 编辑器覆盖活动窗口读取、窗口查询、控件写入、保存、截图和关闭，启动 Explorer 打开临时目录覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、目标文件语义定位、截图、正常关闭和关闭后 `not_exists`，启动可见 PowerShell 终端覆盖窗口等待、查询、活动窗口读取、截图、剪贴板输入命令、回车执行、结果文件断言和退出清理，并用临时 WinForms 窗口触发系统 Open/Save common dialog，覆盖文件选择、保存、对话框截图、对话框控件列表和结果文件校验；macOS 用 `desktop_app type=launch` 启动 TextEdit、Finder 和 Swift/AppKit harness，覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、截图、profile、真实 `NSOpenPanel`/`NSSavePanel` 默认打开/保存流、结果文件和关闭链路。该层可通过 `python .\cplan.py self-check desktop-real-app` 单独运行，便于隔离真实系统 App 问题；受控编辑器链路失败时用新的临时包最多重试 1 次并返回 `attempts` 摘要；无 GUI、锁屏、权限不足或依赖缺失时返回 `skipped` 和原因。
+8. `element action`: 用自建临时表单验证 `desktop_element dump`、`desktop_element find/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_capture type=observe`、`desktop_capture target=window/element`、`desktop_vision source_target=window/element`、`desktop_assert type=element`、`desktop_input click/double_click/right_click/scroll/drag`、`target=candidate`、`candidate_source=latest`、`element_center`、`bounds_center`、`output/desktop-state/`、`output/desktop-elements/`、`output/desktop-screenshots/`、`output/desktop-vision/` 和 `output/desktop-annotations/` 产物；按当前运行环境选择夹具，Windows 使用 WinForms 覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGridView、TreeView、MenuStrip、ContextMenuStrip、滚动 Panel、鼠标事件面板、上下文菜单面板和状态文本，并校验统一观察 payload、`target_candidates` 最佳语义候选、candidate click 的 `input_resolution/safety_check/window_safety_check/candidate_id`、控件属性/数量断言、窗口/控件截图尺寸接近 `source_bounds`、窗口/控件 source 视觉定位的 `bounds`、`local_bounds`、`coordinate_profile.source.screen_clickable=true` 和视觉候选；`--require-input` 会强制 pyautogui/pyperclip、candidate/bounds 点击、上下文菜单、滚动、拖拽、双击、右键和剪贴板恢复全部真实通过；macOS 的 Tkinter 子控件暴露不稳定时跳过，AX 元素动作由 Swift/Cocoa 受控场景和 `ai-desktop-loop` 覆盖。该层是控件级和输入级回归的主路径，避免依赖用户机器上已有业务 App。
+9. `wpf action`: Windows 独立严格项，用 `python .\cplan.py self-check desktop-components --require-wpf` 或 release matrix `--require-desktop-wpf` 启用。临时 WPF 表单覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGrid、TreeView、Menu、ContextMenu、ScrollViewer、窗口/控件截图和输出 JSON。缺 WPF runtime、STA 或 pattern 差异时严格模式失败；该项不随 `--strict-desktop` 自动启用。
 
 `ai-desktop-loop` 是确定性 AI 工具链闭环，不新增 action 契约。它通过 AI 终端工具注册表先调用 `inspect_desktop`，再创建临时 desktop plan、调用 `review_plan_quality` 和 `run_plan`，读取 `desktop-annotations` JSON；失败分支验证 `analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`validate_debug_plan`、`run_debug_plan` 和 `generate_debug_patch` 能串起桌面控件定位修复。`analyze_latest_run_failure` 会返回压缩后的 `desktop_diagnostics[].target_candidates`；`propose_debug_fix` 会从 `desktop_diagnostics.element.near_matches[].element.selector_hints` 生成 Element Locator 候选，优先使用唯一且高稳定度的 `automation_id/control_type`；Window Query 候选来自 `diagnostics.window.near_matches`，默认更保守，通常需要明确 `user_hint` 或人工 review。
 

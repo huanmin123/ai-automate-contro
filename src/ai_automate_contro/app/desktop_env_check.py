@@ -9,10 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
-from ai_automate_contro.engine.desktop.backends.capabilities import (
-    desktop_dependencies,
-    tesseract_binary_details,
-)
+from ai_automate_contro.engine.desktop.backends.capabilities import desktop_dependencies
 from ai_automate_contro.engine.desktop.backends.native import NativeDesktopBackend
 from ai_automate_contro.plans.config import load_plan_config
 
@@ -22,8 +19,6 @@ def self_check_desktop_env(
     *,
     require_input: bool = False,
     require_vision: bool = False,
-    require_ocr: bool = False,
-    require_ocr_zh: bool = False,
     request_permissions: bool = False,
 ) -> dict[str, Any]:
     root = Path(project_root).resolve()
@@ -32,7 +27,6 @@ def self_check_desktop_env(
     dependencies = desktop_dependencies(desktop_config)
     module_check = _python_module_check()
     shell_check = _shell_check()
-    tesseract_check = _tesseract_check(desktop_config, dependencies)
     probe_check = _backend_probe_check(
         platform_name,
         desktop_config=desktop_config,
@@ -51,14 +45,11 @@ def self_check_desktop_env(
         probe_check=probe_check,
         require_input=bool(require_input),
         require_vision=bool(require_vision),
-        require_ocr=bool(require_ocr),
-        require_ocr_zh=bool(require_ocr_zh),
     )
     checks = [
         _platform_check(platform_name),
         shell_check,
         module_check,
-        tesseract_check,
         probe_check,
         {
             "name": "desktop_capability_matrix",
@@ -81,13 +72,9 @@ def self_check_desktop_env(
         "request_permissions": bool(request_permissions),
         "require_input": bool(require_input),
         "require_vision": bool(require_vision),
-        "require_ocr": bool(require_ocr),
-        "require_ocr_zh": bool(require_ocr_zh),
         "ready": {
             "input": _input_ready(dependencies),
             "vision": _vision_ready(dependencies),
-            "ocr": _ocr_ready(dependencies),
-            "ocr_zh": _ocr_zh_ready(dependencies),
         },
         "dependencies": dependencies,
         "checks": checks,
@@ -95,8 +82,6 @@ def self_check_desktop_env(
             "run": _cplan_command("desktop-env"),
             "run_require_input": _cplan_command("desktop-env", "--require-input"),
             "run_require_vision": _cplan_command("desktop-env", "--require-vision"),
-            "run_require_ocr": _cplan_command("desktop-env", "--require-ocr"),
-            "run_require_ocr_zh": _cplan_command("desktop-env", "--require-ocr-zh"),
             "install_desktop_extra": 'python -m pip install -e ".[desktop]"',
         },
     }
@@ -194,20 +179,6 @@ def _python_module_check() -> dict[str, Any]:
     }
 
 
-def _tesseract_check(desktop_config: dict[str, Any], dependencies: dict[str, bool]) -> dict[str, Any]:
-    return {
-        "name": "desktop_tesseract",
-        "ok": True,
-        "ready": bool(dependencies.get("tesseract")) and bool(dependencies.get("tessdata.eng")),
-        "zh_ready": bool(dependencies.get("tesseract")) and bool(dependencies.get("tessdata.chi_sim")),
-        "details": tesseract_binary_details(desktop_config),
-        "languages": {
-            "eng": bool(dependencies.get("tessdata.eng")),
-            "chi_sim": bool(dependencies.get("tessdata.chi_sim")),
-        },
-    }
-
-
 def _backend_probe_check(
     platform_name: str,
     *,
@@ -249,12 +220,10 @@ def _required_checks(
     probe_check: dict[str, Any],
     require_input: bool,
     require_vision: bool,
-    require_ocr: bool,
-    require_ocr_zh: bool,
 ) -> dict[str, Any]:
     issues: list[str] = []
-    strict = any((require_input, require_vision, require_ocr, require_ocr_zh))
-    if platform_name not in {"windows", "macos"} and any((require_input, require_vision, require_ocr, require_ocr_zh)):
+    strict = any((require_input, require_vision))
+    if platform_name not in {"windows", "macos"} and strict:
         issues.append(f"unsupported desktop platform: {platform_name}")
     if strict and platform_name == "windows" and not bool(shell_check.get("ready")):
         issues.append("Windows desktop regressions require PowerShell 7 (`pwsh`) to be available.")
@@ -266,10 +235,6 @@ def _required_checks(
         issues.append("desktop input requires pyautogui and pyperclip.")
     if require_vision and not _vision_ready(dependencies):
         issues.append("desktop vision requires Pillow.ImageGrab and opencv-python.")
-    if require_ocr and not _ocr_ready(dependencies):
-        issues.append("desktop OCR requires Pillow.ImageGrab, tesseract, and tessdata.eng.")
-    if require_ocr_zh and not _ocr_zh_ready(dependencies):
-        issues.append("desktop Chinese OCR requires Pillow.ImageGrab, tesseract, and tessdata.chi_sim.")
     return {
         "name": "desktop_required_capabilities",
         "ok": not issues,
@@ -279,8 +244,6 @@ def _required_checks(
             "windows_pwsh": strict and platform_name == "windows",
             "input": require_input,
             "vision": require_vision,
-            "ocr": require_ocr,
-            "ocr_zh": require_ocr_zh,
         },
     }
 
@@ -291,14 +254,6 @@ def _input_ready(dependencies: dict[str, bool]) -> bool:
 
 def _vision_ready(dependencies: dict[str, bool]) -> bool:
     return bool(dependencies.get("Pillow.ImageGrab")) and bool(dependencies.get("opencv-python"))
-
-
-def _ocr_ready(dependencies: dict[str, bool]) -> bool:
-    return bool(dependencies.get("Pillow.ImageGrab")) and bool(dependencies.get("tesseract")) and bool(dependencies.get("tessdata.eng"))
-
-
-def _ocr_zh_ready(dependencies: dict[str, bool]) -> bool:
-    return bool(dependencies.get("Pillow.ImageGrab")) and bool(dependencies.get("tesseract")) and bool(dependencies.get("tessdata.chi_sim"))
 
 
 def _module_available(module_name: str) -> bool:

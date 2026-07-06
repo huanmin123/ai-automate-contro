@@ -273,11 +273,8 @@ def validate_type_specific_required_fields(
             _validate_desktop_element_locator(step, action, step_type, location, issues)
         elif capture_target == "region" and "region" not in step:
             issues.append(ValidationIssue(location, "desktop_capture.screenshot target=region 缺少必填字段：region"))
-    elif action == "desktop_vision" and step_type in {"locate_image", "locate_text"}:
-        if step_type == "locate_image":
-            required = ("template_path",)
-        if step_type == "locate_text" and not any(step.get(field) for field in ("text", "text_contains", "text_regex")):
-            issues.append(ValidationIssue(location, "desktop_vision.locate_text 需要 text、text_contains 或 text_regex 之一"))
+    elif action == "desktop_vision" and step_type == "locate_image":
+        required = ("template_path",)
         source_target = step.get("source_target")
         if source_target == "window":
             _validate_window_query(step, action, step_type, location, issues)
@@ -319,5 +316,4 @@ def validate_type_specific_required_fields(
         _validate_locator_fields(step, action, step_type, location, issues)
     elif action in {"element", "wait", "extract", "assert"}:
         _validate_frame_fields(step, location, issues)
-
 

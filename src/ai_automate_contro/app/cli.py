@@ -324,8 +324,6 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 strict_desktop=strict_desktop,
                 require_desktop_input=strict_desktop or bool(args.require_desktop_input),
                 require_desktop_vision=strict_desktop or bool(args.require_desktop_vision),
-                require_desktop_ocr=strict_desktop or bool(args.require_desktop_ocr),
-                require_desktop_ocr_zh=strict_desktop or bool(args.require_desktop_ocr_zh),
                 require_desktop_wpf=bool(args.require_desktop_wpf),
                 only=list(args.only or []),
                 list_steps=bool(args.list),
@@ -365,8 +363,6 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 project_root,
                 require_input=bool(args.require_input),
                 require_vision=bool(args.require_vision),
-                require_ocr=bool(args.require_ocr),
-                require_ocr_zh=bool(args.require_ocr_zh),
                 request_permissions=bool(args.request_permissions),
             )
             print_json(result)
@@ -379,8 +375,6 @@ def _run_cplan_cli(project_root: Path, argv: list[str] | None = None) -> int:
                 require_input=bool(args.require_input),
                 require_wpf=bool(args.require_wpf),
                 require_vision=bool(args.require_vision),
-                require_ocr=bool(args.require_ocr),
-                require_ocr_zh=bool(args.require_ocr_zh),
             )
             print_json(result)
             return 0 if result.get("ok") else 1

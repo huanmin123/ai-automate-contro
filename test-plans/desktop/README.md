@@ -9,7 +9,7 @@
 静态示例自检入口：
 
 ```powershell
-python .\cplan.py self-check desktop-env --require-input --require-vision --require-ocr --require-ocr-zh
+python .\cplan.py self-check desktop-env --require-input --require-vision
 python .\cplan.py self-check desktop-examples --require-vision
 ```
 

@@ -68,14 +68,7 @@ def validate_desktop_config(value: Any, plan_dir: Path, issues: list[ValidationI
         return
     ocr = value.get("ocr")
     if ocr is not None:
-        ocr_location = location + ".ocr"
-        if not isinstance(ocr, dict):
-            issues.append(ValidationIssue(ocr_location, "desktop.ocr 必须是 JSON 对象"))
-        else:
-            for field in ("tesseract_path", "tessdata_dir", "default_language"):
-                field_value = ocr.get(field)
-                if field_value is not None and not isinstance(field_value, str):
-                    issues.append(ValidationIssue(f"{ocr_location}.{field}", f"desktop.ocr.{field} 必须是字符串"))
+        issues.append(ValidationIssue(location + ".ocr", "desktop.ocr 已移除；桌面自动化不再支持 OCR 配置"))
     validate_desktop_run_mutex_config(value.get("run_mutex"), location, issues)
     validate_desktop_foreground_protection_config(value.get("foreground_protection"), location, issues)
 

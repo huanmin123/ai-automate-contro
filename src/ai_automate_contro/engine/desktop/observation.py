@@ -425,7 +425,6 @@ def _observation_summary(
         "screenshot_available": bool(
             isinstance(capabilities.get("screenshot"), dict) and capabilities["screenshot"].get("full_screen")
         ),
-        "ocr_available": bool(isinstance(capabilities.get("vision"), dict) and capabilities["vision"].get("ocr")),
     }
 
 

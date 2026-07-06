@@ -15,7 +15,7 @@
 - 截图和标注：全屏、区域、窗口、控件截图，桌面输入/控件操作 PNG+JSON 标注。
 - 坐标诊断：`CoordinateMapper` v1 封装 local/screen offset 转换和输入安全边界检查；当前只记录 scale，不把未校准 DPI/缩放直接乘进点击坐标。
 - 视觉定位：OpenCV 模板匹配，支持全图、区域、窗口 source、控件 source、离线 source_path，输出全局/局部坐标。
-- OCR：Tesseract 英文和简体中文 OCR，支持 `desktop_vision type=locate_text`、TSV blocks、全局/局部坐标和标注证据。
+- OCR：已移除，不支持 `desktop_vision type=locate_text`，不依赖 Tesseract、pytesseract 或语言包。
 - 失败诊断：失败桌面截图、桌面状态 JSON、活动窗口、鼠标位置、Window Query/Element Locator near matches、`target_candidates` 和修复建议。
 - AI 终端闭环：`inspect_desktop -> create/write/validate/review/run_plan`、桌面失败 debug workspace、`propose_debug_fix`、debug plan、patch 生成、HITL apply 守卫。
 - 真实模型回归：真实 gpt-5.5 已验证桌面 smoke plan 工具链、JSON 产物读取、执行线确认、PowerShell 终端和 Explorer 意图分类。
@@ -26,10 +26,9 @@
 - WPF runtime 可用，PowerShell STA 可加载 `PresentationFramework`、`PresentationCore`、`WindowsBase`。
 - `pyautogui`、`pyperclip` 可用。
 - `Pillow.ImageGrab` 和 `opencv-python` 可用。
-- Tesseract 安装在 `E:\Tesseract`，`eng`、`chi_sim`、`osd` 语言包可用。
 - `mss=false`、`pywinauto=false` 当前不阻断能力；它们属于后续增强依赖。
 
-详细安装来源、PATH、Tesseract installer 和语言包下载记录见 [桌面依赖安装说明](./桌面依赖安装说明.md)。
+详细依赖和安装说明见 [桌面依赖安装说明](./桌面依赖安装说明.md)。
 
 ## 已通过验收
 
@@ -42,11 +41,11 @@ python .\main.py self-check ai-real-desktop-loop --api-key-file D:\模型密钥.
 python .\main.py self-check ai-real-execution-line --api-key-file D:\模型密钥.txt --model gpt-5.5 --timeout-seconds 240 --max-attempts 5 --retry-delay-seconds 3
 ```
 
-其中完整 strict release matrix 覆盖 `compileall`、`tool_check`、`handbook`、`workspace_clean`、`ai_tools`、`ai_terminal`、`ai_plan_generation`、`desktop_env --require-input --require-vision --require-ocr --require-ocr-zh`、`desktop_examples --require-vision`、`desktop_components --require-input --require-vision --require-ocr --require-ocr-zh`、`desktop_real_app` 和 `ai_desktop_loop`；WPF 用 `--require-desktop-wpf` 单独加严。
+其中完整 strict release matrix 覆盖 `compileall`、`tool_check`、`handbook`、`workspace_clean`、`ai_tools`、`ai_terminal`、`ai_plan_generation`、`desktop_env --require-input --require-vision`、`desktop_examples --require-vision`、`desktop_components --require-input --require-vision`、`desktop_real_app` 和 `ai_desktop_loop`；WPF 用 `--require-desktop-wpf` 单独加严。
 
 稳定性复跑两轮覆盖：
 
-- `desktop_components --require-input --require-vision --require-ocr --require-ocr-zh`
+- `desktop_components --require-input --require-vision`
 - `desktop_real_app`
 - `ai_desktop_loop`
 
@@ -56,7 +55,7 @@ python .\main.py self-check ai-real-execution-line --api-key-file D:\模型密�
 python .\cplan.py self-check desktop-examples --require-vision
 python .\cplan.py self-check desktop-components --require-input
 python .\cplan.py self-check desktop-components --require-wpf
-python .\cplan.py self-check desktop-components --require-vision --require-ocr --require-ocr-zh
+python .\cplan.py self-check desktop-components --require-vision
 python .\cplan.py self-check release-matrix --only desktop_components --require-desktop-input --require-desktop-wpf --fail-fast --step-timeout-seconds 1200
 ```
 
@@ -64,11 +63,11 @@ python .\cplan.py self-check release-matrix --only desktop_components --require-
 
 ## 常用定位入口
 
-- 环境依赖：`python .\cplan.py self-check desktop-env --require-input --require-vision --require-ocr --require-ocr-zh`
+- 环境依赖：`python .\cplan.py self-check desktop-env --require-input --require-vision`
 - 静态示例：`python .\cplan.py self-check desktop-examples --require-vision`
 - 组件输入：`python .\cplan.py self-check desktop-components --require-input`
 - WPF 复杂控件：`python .\cplan.py self-check desktop-components --require-wpf`
-- 组件视觉和 OCR：`python .\cplan.py self-check desktop-components --require-vision --require-ocr --require-ocr-zh`
+- 组件视觉：`python .\cplan.py self-check desktop-components --require-vision`
 - 真实 App、终端、文件对话框：`python .\cplan.py self-check desktop-real-app`
 - AI 工具链：`python .\main.py self-check ai-desktop-loop`
 - 真实模型桌面闭环：`python .\main.py self-check ai-real-desktop-loop --api-key-file D:\模型密钥.txt --model gpt-5.5`
@@ -78,4 +77,4 @@ python .\cplan.py self-check release-matrix --only desktop_components --require-
 
 - 当前 Windows 能力不代表 macOS 全量桌面能力已完成真机验收。
 - macOS 已补 TextEdit、Finder、Swift/Cocoa 受控场景、受控 AppKit Open/Save 弹窗和真实 `NSOpenPanel`/`NSSavePanel` 默认打开/保存流；Retina/DPI、多显示器、AX 表格/树/菜单、特定第三方 App sheet 形态和任意路径输入仍需继续补齐。
-- 真实 AI 回归只验证模型按 AI 终端规则调用工具和判断执行线，不承担 WinForms/Explorer/终端/OCR 的重型桌面矩阵；这些由确定性自检负责。
+- 真实 AI 回归只验证模型按 AI 终端规则调用工具和判断执行线，不承担 WinForms/Explorer/终端的重型桌面矩阵；这些由确定性自检负责。

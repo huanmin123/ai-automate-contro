@@ -699,10 +699,10 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "desktop-vision-locate-text-requires-text-query",
-            "expected_message": "desktop_vision.locate_text 需要 text、text_contains 或 text_regex 之一",
+            "name": "desktop-vision-rejects-removed-locate-text",
+            "expected_message": "不支持的 desktop_vision.type：locate_text；可选值：locate_image",
             "plan": {
-                "name": "missing desktop vision OCR text query",
+                "name": "removed desktop vision OCR type",
                 "automation_type": "desktop",
                 "steps": [
                     {"action": "open_desktop", "name": "desktop"},
@@ -716,79 +716,39 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
-            "name": "desktop-vision-locate-text-rejects-invalid-min-confidence",
-            "expected_message": "desktop_vision.locate_text min_confidence 必须在 0 到 1 之间",
+            "name": "desktop-vision-locate-image-rejects-removed-ocr-field",
+            "expected_message": "desktop_vision 不支持已移除的 OCR 字段：ocr",
             "plan": {
-                "name": "bad desktop vision OCR confidence",
+                "name": "removed desktop vision OCR field",
                 "automation_type": "desktop",
                 "steps": [
                     {"action": "open_desktop", "name": "desktop"},
                     {
                         "action": "desktop_vision",
                         "desktop": "desktop",
-                        "type": "locate_text",
-                        "text_contains": "Ready",
-                        "min_confidence": 1.5,
-                        "path": "ocr.json",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "ocr": {"language": "eng"},
+                        "path": "vision.json",
                     },
                 ],
             },
         },
         {
-            "name": "desktop-vision-locate-text-rejects-invalid-provider",
-            "expected_message": "provider 不支持的取值",
+            "name": "desktop-vision-locate-image-rejects-ocr-text-query",
+            "expected_message": "desktop_vision 的 text/text_contains/text_regex 只能用于 source_target=element 的控件定位；不支持 OCR 文本定位",
             "plan": {
-                "name": "bad desktop vision OCR provider",
+                "name": "removed desktop vision OCR text query",
                 "automation_type": "desktop",
                 "steps": [
                     {"action": "open_desktop", "name": "desktop"},
                     {
                         "action": "desktop_vision",
                         "desktop": "desktop",
-                        "type": "locate_text",
-                        "text_contains": "Ready",
-                        "provider": "cloud",
-                        "path": "ocr.json",
-                    },
-                ],
-            },
-        },
-        {
-            "name": "desktop-vision-locate-text-source-target-window-requires-query",
-            "expected_message": "desktop_vision.locate_text 需要至少一种窗口定位字段",
-            "plan": {
-                "name": "missing desktop vision OCR source window query",
-                "automation_type": "desktop",
-                "steps": [
-                    {"action": "open_desktop", "name": "desktop"},
-                    {
-                        "action": "desktop_vision",
-                        "desktop": "desktop",
-                        "type": "locate_text",
-                        "text_contains": "Ready",
-                        "source_target": "window",
-                        "path": "ocr.json",
-                    },
-                ],
-            },
-        },
-        {
-            "name": "desktop-vision-locate-text-rejects-source-path-and-source-target",
-            "expected_message": "desktop_vision.locate_text 不能同时使用 source_path 和 source_target",
-            "plan": {
-                "name": "bad desktop vision OCR source mix",
-                "automation_type": "desktop",
-                "steps": [
-                    {"action": "open_desktop", "name": "desktop"},
-                    {
-                        "action": "desktop_vision",
-                        "desktop": "desktop",
-                        "type": "locate_text",
-                        "text_contains": "Ready",
-                        "source_path": "resources/source.png",
-                        "source_target": "window",
-                        "title_contains": "Demo",
-                        "path": "ocr.json",
+                        "type": "locate_image",
+                        "template_path": "resources/template.png",
+                        "text_contains": "保存",
+                        "path": "vision.json",
                     },
                 ],
             },

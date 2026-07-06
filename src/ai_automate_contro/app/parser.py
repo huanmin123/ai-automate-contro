@@ -299,7 +299,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     release_matrix_parser.add_argument(
         "--strict-desktop",
         action="store_true",
-        help="按当前机器发布标准强制桌面输入、视觉、英文 OCR 和简体中文 OCR 门禁。",
+        help="按当前机器发布标准强制桌面输入、视觉和桌面组件门禁。",
     )
     release_matrix_parser.add_argument(
         "--require-desktop-input",
@@ -310,16 +310,6 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--require-desktop-vision",
         action="store_true",
         help="运行 desktop-env/desktop-examples/desktop-components 时要求 native backend、Windows PowerShell 7、桌面视觉依赖和回归真实通过。",
-    )
-    release_matrix_parser.add_argument(
-        "--require-desktop-ocr",
-        action="store_true",
-        help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7、Tesseract OCR 和英文 locate_text 回归真实通过。",
-    )
-    release_matrix_parser.add_argument(
-        "--require-desktop-ocr-zh",
-        action="store_true",
-        help="运行 desktop-env/desktop-components 时要求 native backend、Windows PowerShell 7 和 Tesseract 简体中文 OCR 回归真实通过。",
     )
     release_matrix_parser.add_argument(
         "--require-desktop-wpf",
@@ -363,12 +353,10 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     desktop_env_parser = self_check_subparsers.add_parser(
         "desktop-env",
-        help="检查桌面控制依赖、OCR、视觉、输入和 native 后端能力。",
+        help="检查桌面控制依赖、视觉、输入和 native 后端能力。",
     )
     desktop_env_parser.add_argument("--require-input", action="store_true", help="要求 pyautogui/pyperclip 可用。")
     desktop_env_parser.add_argument("--require-vision", action="store_true", help="要求 Pillow.ImageGrab 和 OpenCV 可用。")
-    desktop_env_parser.add_argument("--require-ocr", action="store_true", help="要求 Tesseract 英文 OCR 可用。")
-    desktop_env_parser.add_argument("--require-ocr-zh", action="store_true", help="要求 Tesseract 简体中文 OCR 可用。")
     desktop_env_parser.add_argument(
         "--request-permissions",
         action="store_true",
@@ -376,7 +364,7 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
     )
     desktop_components_parser = self_check_subparsers.add_parser(
         "desktop-components",
-        help="运行桌面控制组件 schema、执行线隔离、视觉/OCR、输入和真实 App 矩阵自检。",
+        help="运行桌面控制组件 schema、执行线隔离、视觉、输入和真实 App 矩阵自检。",
     )
     desktop_components_parser.add_argument(
         "--require-input",
@@ -392,16 +380,6 @@ def _add_cplan_subcommands(subparsers: argparse._SubParsersAction) -> None:
         "--require-vision",
         action="store_true",
         help="要求 OpenCV/Pillow 和窗口/控件 source 视觉回归真实通过；缺依赖或跳过时失败。",
-    )
-    desktop_components_parser.add_argument(
-        "--require-ocr",
-        action="store_true",
-        help="要求 Tesseract OCR 和英文 locate_text 回归真实通过；缺依赖或跳过时失败。",
-    )
-    desktop_components_parser.add_argument(
-        "--require-ocr-zh",
-        action="store_true",
-        help="要求 Tesseract 简体中文 OCR 回归真实通过；缺 chi_sim 或跳过时失败。",
     )
     desktop_examples_parser = self_check_subparsers.add_parser(
         "desktop-examples",
