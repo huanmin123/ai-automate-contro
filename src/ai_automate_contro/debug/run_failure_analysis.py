@@ -567,7 +567,7 @@ def build_failure_hints(
     if "desktop" in text and ("element" in text or "控件" in text):
         hints.append("Desktop element locator may be wrong; compare failed Element Locator with diagnostics.element.near_matches and selector_hints.")
     if "timeout" in text or "selector" in text:
-        hints.append("Likely selector or wait timing issue; inspect failed selector, page state, screenshot, and failure HTML DOM.")
+        hints.append("Likely selector or wait timing issue; inspect failed selector, page state, failure HTML DOM, and configured screenshot if available.")
     if "manual confirmation" in text:
         hints.append("Manual confirmation stopped or was not accepted; confirm whether user intervention should continue or abort.")
     if "schema validation" in text or "json" in text and "ai" in text:

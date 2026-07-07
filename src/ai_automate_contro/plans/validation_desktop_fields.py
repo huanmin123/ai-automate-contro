@@ -160,6 +160,7 @@ def _validate_desktop_input_fields(
     _validate_enum(step, "method", {"auto", "type", "clipboard"}, location, issues)
     _validate_int(step, "delay_ms", location, issues, minimum=0)
     _validate_bool(step, "preserve_clipboard", location, issues)
+    _validate_bool(step, "replace_existing", location, issues)
     if step_type == "type_text":
         _validate_string(step, "value", location, issues)
     if step_type == "hotkey":

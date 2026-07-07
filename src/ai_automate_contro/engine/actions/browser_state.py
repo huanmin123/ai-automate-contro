@@ -136,7 +136,7 @@ def trace(executor: Any, step: dict[str, Any]) -> None:
     session = executor.state.require_session(step["browser"])
     if trace_type == "start":
         session.context.tracing.start(
-            screenshots=bool(step.get("screenshots", True)),
+            screenshots=bool(step.get("screenshots", False)),
             snapshots=bool(step.get("snapshots", True)),
             sources=bool(step.get("sources", True)),
         )

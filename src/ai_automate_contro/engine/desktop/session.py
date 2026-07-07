@@ -18,6 +18,7 @@ class DesktopSession:
     target_candidates: dict[str, Any] = field(default_factory=dict)
     runtime_config: dict[str, Any] = field(default_factory=dict)
     current_window: dict[str, Any] | None = None
+    foreground_guard_cache: dict[str, Any] = field(default_factory=dict)
 
     def close(self) -> None:
         self.backend.close()

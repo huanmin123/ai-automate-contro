@@ -18,38 +18,41 @@ def capture_failure_state(
     step: dict[str, Any] | None = None,
     error: BaseException | None = None,
 ) -> None:
-    screenshot_dir = state.output_dir / "failure-screenshots"
     html_dir = state.output_dir / "failure-html"
     page_state_dir = state.output_dir / "failure-page-state"
-    screenshot_dir.mkdir(parents=True, exist_ok=True)
     html_dir.mkdir(parents=True, exist_ok=True)
     page_state_dir.mkdir(parents=True, exist_ok=True)
+    browser_screenshot_enabled = _failure_screenshot_enabled(state, "browser_screenshot")
+    screenshot_dir = state.output_dir / "failure-screenshots"
+    if browser_screenshot_enabled:
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
     for browser_name, session in state.sessions.items():
         for page_name, page in session.pages.items():
             file_stem = f"step-{step_number:03d}-{browser_name}-{page_name}-{action}"
-            screenshot_path = screenshot_dir / f"{file_stem}.png"
-            try:
-                page.screenshot(path=str(screenshot_path), full_page=True)
-                state.failure_screenshots.append(str(screenshot_path))
-                state.logger.log(
-                    "warning",
-                    "failure screenshot captured",
-                    step=step_number,
-                    step_name=step_name,
-                    browser=browser_name,
-                    page=page_name,
-                    path=str(screenshot_path),
-                )
-            except Exception as screenshot_error:
-                state.logger.log(
-                    "warning",
-                    "failure screenshot capture failed",
-                    step=step_number,
-                    step_name=step_name,
-                    browser=browser_name,
-                    page=page_name,
-                    error=str(screenshot_error),
-                )
+            screenshot_path = screenshot_dir / f"{file_stem}.png" if browser_screenshot_enabled else None
+            if screenshot_path is not None:
+                try:
+                    page.screenshot(path=str(screenshot_path), full_page=True)
+                    state.failure_screenshots.append(str(screenshot_path))
+                    state.logger.log(
+                        "warning",
+                        "failure screenshot captured",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        path=str(screenshot_path),
+                    )
+                except Exception as screenshot_error:
+                    state.logger.log(
+                        "warning",
+                        "failure screenshot capture failed",
+                        step=step_number,
+                        step_name=step_name,
+                        browser=browser_name,
+                        page=page_name,
+                        error=str(screenshot_error),
+                    )
             html_path = html_dir / f"{file_stem}.html"
             try:
                 html_path.write_text(page.content(), encoding="utf-8")
@@ -82,7 +85,7 @@ def capture_failure_state(
                     browser_name=browser_name,
                     page_name=page_name,
                     page=page,
-                    screenshot=str(screenshot_path) if screenshot_path.exists() else "",
+                    screenshot=str(screenshot_path) if screenshot_path is not None and screenshot_path.exists() else "",
                     html=str(html_path) if html_path.exists() else "",
                 )
                 with page_state_path.open("w", encoding="utf-8") as file:
@@ -130,33 +133,36 @@ def capture_desktop_failure_state(
 ) -> None:
     if not state.desktop_sessions:
         return
-    screenshot_dir = state.output_dir / "failure-desktop-screenshots"
     desktop_state_dir = state.output_dir / "failure-desktop-state"
-    screenshot_dir.mkdir(parents=True, exist_ok=True)
     desktop_state_dir.mkdir(parents=True, exist_ok=True)
+    desktop_screenshot_enabled = _failure_screenshot_enabled(state, "desktop_screenshot")
+    screenshot_dir = state.output_dir / "failure-desktop-screenshots"
+    if desktop_screenshot_enabled:
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
     for desktop_name, session in state.desktop_sessions.items():
         file_stem = f"step-{step_number:03d}-{desktop_name}-{action}"
-        screenshot_path = screenshot_dir / f"{file_stem}.png"
-        try:
-            session.backend.screenshot(screenshot_path)
-            state.failure_desktop_screenshots.append(str(screenshot_path))
-            state.logger.log(
-                "warning",
-                "failure desktop screenshot captured",
-                step=step_number,
-                step_name=step_name,
-                desktop=desktop_name,
-                path=str(screenshot_path),
-            )
-        except Exception as screenshot_error:
-            state.logger.log(
-                "warning",
-                "failure desktop screenshot capture failed",
-                step=step_number,
-                step_name=step_name,
-                desktop=desktop_name,
-                error=str(screenshot_error),
-            )
+        screenshot_path = screenshot_dir / f"{file_stem}.png" if desktop_screenshot_enabled else None
+        if screenshot_path is not None:
+            try:
+                session.backend.screenshot(screenshot_path)
+                state.failure_desktop_screenshots.append(str(screenshot_path))
+                state.logger.log(
+                    "warning",
+                    "failure desktop screenshot captured",
+                    step=step_number,
+                    step_name=step_name,
+                    desktop=desktop_name,
+                    path=str(screenshot_path),
+                )
+            except Exception as screenshot_error:
+                state.logger.log(
+                    "warning",
+                    "failure desktop screenshot capture failed",
+                    step=step_number,
+                    step_name=step_name,
+                    desktop=desktop_name,
+                    error=str(screenshot_error),
+                )
         desktop_state_path = desktop_state_dir / f"{file_stem}.json"
         try:
             window_diagnostics = _desktop_window_diagnostics(session, step or {})
@@ -192,7 +198,7 @@ def capture_desktop_failure_state(
                     },
                 )
             target_payload = _desktop_target_payload(step or {})
-            screenshot = str(screenshot_path) if screenshot_path.exists() else ""
+            screenshot = str(screenshot_path) if screenshot_path is not None and screenshot_path.exists() else ""
             target_candidates = build_failure_targeting(
                 desktop=desktop_name,
                 target=target_payload,
@@ -258,7 +264,17 @@ def capture_desktop_failure_state(
                 step_name=step_name,
                 desktop=desktop_name,
                 error=str(desktop_state_error),
-            )
+                )
+
+
+def _failure_screenshot_enabled(state: RuntimeState, field: str) -> bool:
+    config = state.variables.get("config") if isinstance(state.variables, dict) else {}
+    if not isinstance(config, dict):
+        return False
+    failure_capture = config.get("failure_capture")
+    if not isinstance(failure_capture, dict):
+        return False
+    return failure_capture.get(field) is True
 
 
 def _page_state_payload(

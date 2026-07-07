@@ -41,7 +41,7 @@
 - `schema_version`: 当前为 `1`。
 - `capabilities.semantic`: 窗口/控件树/文本/状态/写值/选择/触发/表格/树/菜单/滚动容器是否可用。
 - `capabilities.input`: 鼠标、键盘、快捷键、拖拽、滚轮、剪贴板是否可用。
-- `capabilities.screenshot`: 全屏截图、区域截图、标注截图是否可用。
+- `capabilities.screenshot`: 全屏截图、区域截图是否可用。
 - `capabilities.vision.image_locator`: 是否可使用 `desktop_vision type=locate_image`。
 - `permissions`: `accessibility`、`screen_recording`、`input_control`。
 - `dependencies`: `Pillow.ImageGrab`、`opencv-python`、`pyautogui`、`pyperclip`。

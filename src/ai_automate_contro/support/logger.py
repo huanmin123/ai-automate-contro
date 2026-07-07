@@ -22,7 +22,7 @@ class RunLogger:
         self._lock = Lock()
 
     def log(self, level: str, message: str, **fields: Any) -> None:
-        timestamp = datetime.now().isoformat(timespec="seconds")
+        timestamp = datetime.now().isoformat(timespec="milliseconds")
         event = {
             "timestamp": timestamp,
             "level": level.upper(),

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 import os
 from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project, plan_roots_for_project
+from ai_automate_contro.support.jsonc import load_jsonc
 
 
 def load_plan_config(project_root: Path, plan_dir: Path) -> dict[str, Any]:
@@ -26,8 +26,7 @@ def _collection_config_path(project_root: Path, plan_dir: Path) -> Path:
 def _load_json_object(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {}
-    with path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+    data = load_jsonc(path)
     if not isinstance(data, dict):
         raise ValueError(f"plan config 必须是 JSON 对象：{path}")
     return data

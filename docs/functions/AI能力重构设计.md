@@ -203,7 +203,7 @@ output/ai/
 ```text
 读取 result.json
 读取关键 artifacts
-读取失败截图、失败 HTML、DOM 摘要、失败页面状态或输出文件
+读取已配置生成的失败截图、失败 HTML、DOM 摘要、失败页面状态或输出文件
 生成 Markdown 报告到 output/reports/
 ```
 

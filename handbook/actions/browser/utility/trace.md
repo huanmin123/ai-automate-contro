@@ -18,7 +18,7 @@
 
 `type: start` 支持：
 
-- `screenshots`: 是否记录截图，默认 `true`
+- `screenshots`: 是否记录截图，默认 `false`；需要 trace 内包含截图时必须显式写 `true`
 - `snapshots`: 是否记录 DOM 快照，默认 `true`
 - `sources`: 是否记录源码，默认 `true`
 
@@ -28,7 +28,8 @@
 {
   "action": "trace",
   "type": "start",
-  "browser": "main"
+  "browser": "main",
+  "screenshots": true
 }
 ```
 

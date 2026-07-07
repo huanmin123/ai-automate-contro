@@ -1,18 +1,17 @@
 from __future__ import annotations
 
-import json
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.plans.config import load_plan_config
 from ai_automate_contro.plans.validation_models import ValidationIssue
+from ai_automate_contro.support.jsonc import load_jsonc
 
 
 def load_json_document(path: Path, issues: list[ValidationIssue]) -> dict[str, Any] | None:
     try:
-        with path.open("r", encoding="utf-8") as file:
-            document = json.load(file)
+        document = load_jsonc(path)
     except JSONDecodeError as error:
         issues.append(ValidationIssue(str(path), f"JSON 无效：{error.msg}"))
         return None
@@ -39,6 +38,7 @@ def validate_config(project_root: Path, plan_dir: Path, issues: list[ValidationI
             )
         )
     validate_post_run_inspection_config(config.get("post_run_inspection"), plan_dir, issues)
+    validate_failure_capture_config(config.get("failure_capture"), plan_dir, issues)
     validate_desktop_config(config.get("desktop"), plan_dir, issues)
     validate_desktop_profiles_config(config.get("desktop_profiles"), plan_dir, issues, field_name="desktop_profiles")
     validate_desktop_profiles_config(config.get("desktop_app_profiles"), plan_dir, issues, field_name="desktop_app_profiles")
@@ -57,6 +57,19 @@ def validate_post_run_inspection_config(value: Any, plan_dir: Path, issues: list
     prompt = value.get("prompt")
     if prompt is not None and not isinstance(prompt, str):
         issues.append(ValidationIssue(location, "prompt 必须是字符串"))
+
+
+def validate_failure_capture_config(value: Any, plan_dir: Path, issues: list[ValidationIssue]) -> None:
+    if value is None:
+        return
+    location = str(plan_dir / "config.json") + ":failure_capture"
+    if not isinstance(value, dict):
+        issues.append(ValidationIssue(location, "failure_capture 必须是 JSON 对象"))
+        return
+    for field in ("browser_screenshot", "desktop_screenshot"):
+        field_value = value.get(field)
+        if field_value is not None and not isinstance(field_value, bool):
+            issues.append(ValidationIssue(f"{location}.{field}", f"failure_capture.{field} 必须是布尔值"))
 
 
 def validate_desktop_config(value: Any, plan_dir: Path, issues: list[ValidationIssue]) -> None:
@@ -106,6 +119,7 @@ def validate_desktop_foreground_protection_config(value: Any, location: str, iss
             issues.append(ValidationIssue(f"{protection_location}.{field}", f"desktop.foreground_protection.{field} 必须是布尔值"))
     _validate_positive_int(value, "activation_attempts", protection_location, issues)
     _validate_non_negative_int(value, "retry_delay_ms", protection_location, issues)
+    _validate_non_negative_int(value, "cache_ttl_ms", protection_location, issues)
 
 
 def _validate_non_negative_int(

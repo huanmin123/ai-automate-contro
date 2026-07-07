@@ -101,7 +101,7 @@ selector 自动修复有额外门禁：如果用户没有提供明确目标提�
 - `desktop_observe`
 - `desktop_windows`
 
-`debug prepare` / `prepare_failure_debug_workspace` 会读取最近失败运行，自动创建 debug workspace，并根据失败页面状态选择浏览器会话，把 `print`、`variables`、`screenshot`、`html` 插到失败步骤前；需要用户协助时可额外启用 `manual_confirm`。桌面失败时会额外注入 `desktop_screenshot`、`desktop_snapshot`、`desktop_observe` 和 `desktop_windows`，并在 notes 写入 `failure_desktop_states`、`failure_desktop_screenshots`、`desktop_diagnostics`、`desktop_repair_suggestions`、Window Query、Element Locator、near matches、selector hints 和 `capability_matrix.limitations` 摘要，便于 AI 进入 debug workspace 后直接按证据修正 plan。
+`debug prepare` / `prepare_failure_debug_workspace` 会读取最近失败运行，自动创建 debug workspace，并根据失败页面状态选择浏览器会话，把 `print`、`variables`、`html` 插到失败步骤前；需要用户协助时可额外启用 `manual_confirm`。桌面失败时会额外注入 `desktop_snapshot`、`desktop_observe` 和 `desktop_windows`，其中 `desktop_observe` 默认 `include_screenshot=false`；需要截图时显式使用 `debug-inject --preset screenshot` 或 `--preset desktop_screenshot`。notes 会写入 `failure_desktop_states`、配置开启时的 `failure_desktop_screenshots`、`desktop_diagnostics`、`desktop_repair_suggestions`、Window Query、Element Locator、near matches、selector hints 和 `capability_matrix.limitations` 摘要，便于 AI 进入 debug workspace 后直接按证据修正 plan。
 
 `screenshot` 和 `html` 需要指定浏览器会话名。`desktop_*` 预设使用 `desktop` 参数指定桌面会话名，未指定时默认 `desktop`。
 
@@ -115,17 +115,17 @@ AI 终端应用补丁还必须经过 LangChain `HumanInTheLoopMiddleware`。模�
 
 普通浏览器执行失败时，框架必须尽量保留当时页面现场，而不是只依赖日志：
 
-- `failure-screenshots/`: 失败时的页面截图，用于判断视觉状态。
+- `failure-screenshots/`: 失败时的页面截图，用于判断视觉状态；默认关闭，只有 `config.failure_capture.browser_screenshot=true` 时生成。
 - `failure-html/`: 失败时的页面 HTML DOM，用于判断 selector、文本、表单和元素结构。
 - `failure-page-state/`: 失败时的 URL、title、browser、page、step 以及截图/HTML 路径。
 
-截图只能说明“用户看到什么”，HTML DOM 才能说明“自动化应该如何定位”。AI 终端分析失败时应优先调用 `analyze_latest_run_failure` 读取状态、日志、事件、失败截图、失败 HTML、页面状态和桌面失败状态。
+截图只能说明“用户看到什么”，HTML DOM 才能说明“自动化应该如何定位”。AI 终端分析失败时应优先调用 `analyze_latest_run_failure` 读取状态、日志、事件、失败 HTML、页面状态和桌面失败状态；只有配置开启时才读取失败截图。
 
 `analyze_latest_run_failure` 还会对失败 HTML 做轻量 DOM 摘要，提取常见交互元素、关键属性和 selector 提示，例如 `id`、`name`、`placeholder`、`autocomplete`、`aria-label`。这样 AI 或人工排查不需要先打开完整 HTML，也能快速看到页面上真正存在的输入框、按钮、链接和表单。
 
-桌面失败时，`analyze_latest_run_failure` 会读取 `failure-desktop-state/`，返回 `desktop_diagnostics` 和 `desktop_repair_suggestions`。AI 应先按建议检查 `desktop_diagnostics.capability_matrix.limitations`，再检查 `diagnostics.window.near_matches` 修正 Window Query，并按 `diagnostics.element.near_matches` 和 `selector_hints` 修正 Element Locator。AI 终端上下文会保留最近桌面失败的状态、诊断数量、修复建议和失败 state/screenshot 路径摘要。
+桌面失败时，`analyze_latest_run_failure` 会读取 `failure-desktop-state/`，返回 `desktop_diagnostics` 和 `desktop_repair_suggestions`。AI 应先按建议检查 `desktop_diagnostics.capability_matrix.limitations`，再检查 `diagnostics.window.near_matches` 修正 Window Query，并按 `diagnostics.element.near_matches` 和 `selector_hints` 修正 Element Locator。AI 终端上下文会保留最近桌面失败的状态、诊断数量、修复建议和失败 state 路径摘要；只有配置开启时才会出现失败截图路径。
 
-如果这些证据仍不足以定位问题，AI 才进入真实调试流程：创建 debug workspace，在 `injected-plan/` 中注入截图、HTML、桌面截图、桌面快照、窗口列表、变量落盘、`manual_confirm` 或更细的断言，然后运行调试副本真实复现。桌面修复优先使用 `propose_debug_fix` 生成 Window Query 或 Element Locator 候选；控件候选只有来自唯一、高稳定度 `selector_hints` 时才允许自动应用，窗口候选默认要求人工 review 或明确 `user_hint`。候选应用后仍必须运行 `validate_debug_plan` 和 `run_debug_plan`，最后用 `generate_debug_patch` 生成干净补丁。这个过程仍然不能直接修改原始 plan。
+如果这些证据仍不足以定位问题，AI 才进入真实调试流程：创建 debug workspace，在 `injected-plan/` 中注入 HTML、桌面快照、窗口列表、变量落盘、`manual_confirm` 或更细的断言，然后运行调试副本真实复现；截图类诊断必须显式选择 screenshot preset。桌面修复优先使用 `propose_debug_fix` 生成 Window Query 或 Element Locator 候选；控件候选只有来自唯一、高稳定度 `selector_hints` 时才允许自动应用，窗口候选默认要求人工 review 或明确 `user_hint`。候选应用后仍必须运行 `validate_debug_plan` 和 `run_debug_plan`，最后用 `generate_debug_patch` 生成干净补丁。这个过程仍然不能直接修改原始 plan。
 
 ## 修复流程
 

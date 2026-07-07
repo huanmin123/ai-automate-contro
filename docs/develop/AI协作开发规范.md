@@ -38,6 +38,8 @@
 - `test-plans/` 下面直接按类别放 plan 包，不要再增加 `plans/`、`suites/`、`workspaces/` 中间层。
 - 集合级 plan 配置固定放在 `plans/config.json` 或 `test-plans/config.json`；局部配置固定放在当前 plan 包根目录的 `config.json`，且局部配置优先。
 - `config.json` 只保存运行配置，不保存 plan 变量；plan 变量写在 `plan.json.variables`。
+- `plan.json`、`sub-plans/*-plan.json` 和 `config.json` 支持字符串外的 `//` 行注释；注释只用于人工阅读，不能替代字段本身。不要使用 `/* ... */` 块注释。
+- 每个可执行 step，包括 `steps`、`then`、`else`、`foreach.steps`、`retry.steps`、`trigger.steps` 和子计划中的步骤，都必须写 `description`，并用中文明确说明这一步做什么。`description` 是说明字段，不替代 action 的 `name`、`type`、`selector`、`output` 等执行参数。
 - 禁止让一个主 `plan.json` 引用另一个主 `plan.json`，不同需求包之间保持独立。
 
 资源路径策略：

@@ -79,7 +79,7 @@ def execute_plan(
     if automation_type not in {"browser", "desktop"}:
         raise ValueError("plan.automation_type 必须是 browser 或 desktop。")
 
-    started_at = datetime.now().isoformat(timespec="seconds")
+    started_at = datetime.now().isoformat(timespec="milliseconds")
     error_message: str | None = None
     status = "passed"
 
@@ -156,7 +156,7 @@ def execute_plan(
             finally:
                 state.close_all()
             state.logger.log("info", "plan finished", run_name=resolved_run_name)
-            finished_at = datetime.now().isoformat(timespec="seconds")
+            finished_at = datetime.now().isoformat(timespec="milliseconds")
             result = PlanResult(
                 run_name=resolved_run_name,
                 status=status,

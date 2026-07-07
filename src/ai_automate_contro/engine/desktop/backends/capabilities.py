@@ -66,7 +66,6 @@ def build_capability_matrix(
     screenshot = {
         "full_screen": screenshot_available,
         "region": screenshot_available,
-        "annotation": screenshot_available,
     }
     return {
         "schema_version": 1,

@@ -804,6 +804,10 @@ def _run_failure_capture_case(project_root: Path) -> dict[str, Any]:
     with tempfile.TemporaryDirectory(prefix="desktop-components-failure-") as raw_temp_dir:
         package_dir = Path(raw_temp_dir)
         plan_path = package_dir / "plan.json"
+        (package_dir / "config.json").write_text(
+            json.dumps({"failure_capture": {"desktop_screenshot": True}}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         plan = {
             "name": "desktop failure capture",
             "automation_type": "desktop",
@@ -2635,8 +2639,6 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
         bounds_center_click_payload_path = package_dir / "output" / "json" / "form-entry-bounds-center-click.json"
         window_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-window-vision.json"
         element_vision_path = package_dir / "output" / "desktop-vision" / "form-vision-element-vision.json"
-        run_output_dir = Path(output_dir) if output_dir else package_dir / "output"
-        annotation_dir = run_output_dir / "desktop-annotations"
         set_text_payload = plan.get("variables", {}).get("expected_text", "")
         dump_payload = _read_json(dump_path) if dump_path.exists() else {}
         dump_ok = (
@@ -3153,62 +3155,6 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             if system == "Windows"
             else True
         )
-        annotation_pngs = sorted(annotation_dir.glob("*.png")) if annotation_dir.exists() else []
-        annotation_jsons = sorted(annotation_dir.glob("*.json")) if annotation_dir.exists() else []
-        annotation_payloads = [_read_json(path) for path in annotation_jsons]
-        select_cell_annotation_ok = (
-            system != "Windows"
-            or any(
-                isinstance(payload, dict)
-                and str(payload.get("action", "")).endswith("desktop_element.select_cell")
-                for payload in annotation_payloads
-            )
-        )
-        complex_control_annotation_ok = (
-            system != "Windows"
-            or {
-                "desktop_element.expand_tree",
-                "desktop_element.select_tree",
-                "desktop_element.collapse_tree",
-                "desktop_element.invoke_menu",
-                "desktop_element.scroll_element",
-            }.issubset(
-                {
-                    str(payload.get("action", ""))
-                    for payload in annotation_payloads
-                    if isinstance(payload, dict)
-                }
-            )
-        )
-        candidate_click_annotation_ok = (
-            system != "Windows"
-            or any(
-                isinstance(payload, dict)
-                and str(payload.get("action", "")).endswith("desktop_input.click")
-                and isinstance(payload.get("target"), dict)
-                and isinstance(payload["target"].get("input_resolution"), dict)
-                and isinstance(payload["target"]["input_resolution"].get("candidate"), dict)
-                and payload["target"]["input_resolution"]["candidate"].get("candidate_id") == observe_best_candidate_id
-                for payload in annotation_payloads
-            )
-        )
-        annotation_ok = (
-            annotation_dir.exists()
-            and bool(annotation_pngs)
-            and bool(annotation_jsons)
-            and all(_file_nonempty_after(path, started_at) for path in annotation_pngs)
-            and all(
-                isinstance(payload, dict)
-                and payload.get("schema_version") == 1
-                and isinstance(payload.get("overlays"), list)
-                and isinstance(payload.get("coordinate_space"), dict)
-                and _coordinate_profile_ok(payload.get("coordinate_profile"), screen_clickable=True)
-                for payload in annotation_payloads
-            )
-            and select_cell_annotation_ok
-            and complex_control_annotation_ok
-            and candidate_click_annotation_ok
-        )
         return {
             "name": "desktop_element_set_text_invoke_regression",
             "ok": (
@@ -3250,7 +3196,6 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
                 and (not clipboard_restore_enabled or _file_nonempty_after(clipboard_assert_path, started_at))
                 and clipboard_restore_ok
                 and status_assertion_ok
-                and annotation_ok
             ),
             "validation_ok": True,
             "run_ok": run_ok,
@@ -3347,11 +3292,7 @@ def _run_element_action_case(project_root: Path) -> dict[str, Any]:
             "status_count_assertion": status_count_assertion,
             "status_property_assertion": status_property_assertion,
             "set_text_expected": set_text_payload,
-            "annotation_ok": annotation_ok,
-            "candidate_click_annotation_ok": candidate_click_annotation_ok,
-            "annotation_png_count": len(annotation_pngs),
-            "annotation_json_count": len(annotation_jsons),
-            "annotation_dir": str(annotation_dir),
+            "implicit_action_screenshots": False,
             "cleanup": cleanup_hint,
         }
 
@@ -3603,7 +3544,7 @@ def _run_capability_diagnostics_case() -> dict[str, Any]:
         "capabilities": {
             "semantic": {"window_list": False, "elements": False},
             "input": {"keyboard": False, "mouse": False, "clipboard": False},
-            "screenshot": {"full_screen": False, "region": False, "annotation": False},
+            "screenshot": {"full_screen": False, "region": False},
             "vision": {"image_locator": False, "template_matching": False},
         },
         "permissions": {

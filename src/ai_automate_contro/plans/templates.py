@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+from ai_automate_contro.support.jsonc import load_jsonc
 from ai_automate_contro.support.paths import path_from_text
 
 
@@ -317,8 +318,7 @@ def _normalize_template_param_value(template: PlanTemplate, parameter: dict[str,
 
 def _apply_template_params(package_dir: Path, template: PlanTemplate, params: dict[str, Any]) -> None:
     plan_path = package_dir / "plan.json"
-    with plan_path.open("r", encoding="utf-8") as file:
-        plan = json.load(file)
+    plan = load_jsonc(plan_path)
     if not isinstance(plan, dict):
         raise ValueError(f"模板 {template.id} 生成的 plan.json 不是 JSON 对象。")
     variables = plan.get("variables")

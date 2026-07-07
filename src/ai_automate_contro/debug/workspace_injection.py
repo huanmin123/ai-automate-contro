@@ -8,6 +8,7 @@ from typing import Any
 
 from ai_automate_contro.debug.models import DebugInjectionResult
 from ai_automate_contro.debug.workspace_paths import load_workspace_manifest
+from ai_automate_contro.support.jsonc import load_jsonc
 from ai_automate_contro.support.paths import path_from_text
 from ai_automate_contro.support.utils import ensure_directory, make_timestamp
 
@@ -65,8 +66,7 @@ def inject_debug_steps(
 
 
 def _load_plan_document(plan_path: Path) -> dict[str, Any]:
-    with plan_path.open("r", encoding="utf-8") as file:
-        document = json.load(file)
+    document = load_jsonc(plan_path)
     if not isinstance(document, dict):
         raise ValueError(f"plan 文档必须是 JSON 对象：{plan_path}")
     return document
@@ -175,7 +175,7 @@ def _build_debug_step(
             "path": f"debug/desktop/state/observe-{make_timestamp()}.json",
             "include_windows": True,
             "include_elements": False,
-            "include_screenshot": True,
+            "include_screenshot": False,
         }
     if preset == "desktop_windows":
         resolved_desktop = _desktop_for_preset(preset, desktop)

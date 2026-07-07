@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ai_automate_contro.support.jsonc import load_jsonc
 from ai_automate_contro.support.paths import path_from_text
 
 
@@ -58,8 +58,7 @@ def has_runtime_config(project_root: str | Path) -> bool:
 def _read_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         return {}
-    with config_path.open("r", encoding="utf-8") as file:
-        data = json.load(file)
+    data = load_jsonc(config_path)
     if not isinstance(data, dict):
         raise ValueError(f"{CONFIG_FILE_NAME} 必须是 JSON 对象：{config_path}")
     return data

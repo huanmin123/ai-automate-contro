@@ -25,7 +25,7 @@ Phase 0 目标是先把执行线和桌面基础 runtime 打稳，不追求完整
 - `desktop_vision type=locate_image`，使用 OpenCV 模板匹配输出 bounds、point、候选分数和 `output/desktop-vision/` 证据。
 - `desktop_wait type=window`。
 - `desktop_assert type=window/screenshot/element`。
-- 桌面失败截图、窗口列表、backend 诊断和权限状态采集。
+- 配置开启时的桌面失败截图、窗口列表、backend 诊断和权限状态采集。
 - `python .\cplan.py self-check desktop-components` 三层自检。
 - `python .\cplan.py self-check desktop-real-app` 真实 App 回归入口。
 
@@ -43,7 +43,7 @@ Phase 0 基线明确不做：
 - `invoke_menu`: 菜单路径触发。
 - `scroll_element`: 滚动容器语义滚动。
 
-这些能力仍沿用 `desktop_element`、`output/desktop-elements/`、`desktop-annotations`、Element Locator、Window Query 和 AI 质量门禁，不新增平行桌面 DSL。
+这些能力仍沿用 `desktop_element`、`output/desktop-elements/`、Element Locator、Window Query 和 AI 质量门禁，不新增平行桌面 DSL。
 
 视觉定位契约见 [桌面视觉定位设计](./桌面视觉定位设计.md)。AI 只有在能力矩阵声明可用时才能生成 `desktop_vision type=locate_image`。桌面线不支持 OCR 或 `desktop_vision type=locate_text`。
 
@@ -250,7 +250,7 @@ desktop action 的 `output.as` 变量应尽量返回可诊断字段。不同 act
 - `platform`: 规范化平台名，当前使用 `windows`、`macos`、`linux` 或 `unknown`。
 - `backend`: 实际 backend 名，不是用户传入的 `auto`。
 - `capability_matrix`: `open_desktop`、`desktop_capture type=snapshot/observe` 和失败现场必须包含的桌面能力矩阵。
-- `coordinate_profile`: `open_desktop`、`desktop_capture`、`desktop_vision`、`desktop-annotations`、`inspect_desktop` 和失败现场可返回的坐标事实，包含坐标空间、显示器摘要、source bounds、`screen_clickable` 和 local/screen 转换偏移。
+- `coordinate_profile`: `open_desktop`、`desktop_capture`、`desktop_vision`、`inspect_desktop` 和失败现场可返回的坐标事实，包含坐标空间、显示器摘要、source bounds、`screen_clickable` 和 local/screen 转换偏移。
 - `coordinate_diagnostics.mapper`: 坐标映射摘要，包含 `source_bounds`、`display_virtual_bounds`、`screen_clickable` 和 `scale_applied=false`。当前 `CoordinateMapper` v1 只执行 offset 映射和安全边界检查，记录 scale 但不把未校准缩放直接应用到点击坐标。
 - `target_candidates`: `desktop_capture type=observe`、`inspect_desktop`、`desktop_vision` 和失败现场可返回的定位候选摘要，用于让 AI 选择语义 locator、窗口锚点、视觉 bounds 或人工确认。
 - `elapsed_ms`: action 耗时。
@@ -340,7 +340,7 @@ desktop action 的 `output.as` 变量应尽量返回可诊断字段。不同 act
       "scroll_element": true
     },
     "input": {"keyboard": true, "mouse": true, "clipboard": true, "hotkey": true, "drag": true, "scroll": true},
-    "screenshot": {"full_screen": true, "region": true, "window": true, "element": true, "annotation": true},
+    "screenshot": {"full_screen": true, "region": true, "window": true, "element": true},
     "vision": {"image_locator": true, "template_matching": true}
   },
   "permissions": {"accessibility": "unknown", "screen_recording": "unknown", "input_control": "available_or_not_required"},
@@ -1118,6 +1118,7 @@ plan 只在这些情况承担额外细节：
 - `method`: `auto`、`type`、`clipboard`。默认 `auto`。
 - `delay_ms`: 逐字符输入延迟，默认 `0`。
 - `preserve_clipboard`: 使用剪贴板时是否恢复原文本，默认 `true`。
+- `replace_existing`: 布尔值，默认 `false`。为 `true` 时先在当前焦点控件内发送平台主快捷键全选，再输入 `value`；适合搜索框或输入框覆盖旧内容，避免将全选、删除和粘贴拆成多个 plan 步骤。
 
 行为：
 
@@ -1609,9 +1610,8 @@ plan 只在这些情况承担额外细节：
 - `desktop-state`: `open_desktop` probe、`desktop_capture type=snapshot/observe`。
 - `desktop-windows`: `desktop_window type=list/find/active/normalize`。
 - `desktop-elements`: `desktop_element type=list/dump/find/wait/get_text/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 和 `desktop_assert type=element` 的控件树、selector 建议、候选控件、匹配结果和操作/断言 payload。
-- `desktop-annotations`: 位于 `output/<run>/desktop-annotations/`，保存鼠标类 `desktop_input` 和操作类 `desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 的 PNG 标注图和同名 JSON 结构化标注。
 - `desktop-vision`: `desktop_vision type=locate_image` JSON、原图、裁剪图和标注图。
-- `failure-desktop-screenshots`: 失败桌面截图。
+- `failure-desktop-screenshots`: 已显式开启 `config.failure_capture.desktop_screenshot=true` 时的失败桌面截图。
 - `failure-desktop-state`: 失败时 backend、权限、窗口列表、当前窗口、活动窗口、鼠标位置、step 摘要和 `diagnostics.window/diagnostics.element` 分组诊断。
 
 输出路径规则沿用现有 `resolve_output_path()`：
@@ -1620,35 +1620,9 @@ plan 只在这些情况承担额外细节：
 - 不允许以 `output/`、`resources/`、`docs/`、`sub-plans/` 开头。
 - 不允许绝对输出路径。
 
-### Desktop Annotation
+### Screenshot Boundary
 
-成功执行下列动作后，runtime 必须尽力写入 `output/<run>/desktop-annotations/`：
-
-- `desktop_input type=click/double_click/right_click/scroll/drag`
-- `desktop_element type=click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`
-
-每个标注由一张 PNG 和一个同名 JSON 组成。JSON 最小结构：
-
-```json
-{
-  "schema_version": 1,
-  "ok": true,
-  "step": 8,
-  "action": "desktop_input.click",
-  "desktop": "desk",
-  "type": "pointer",
-  "annotated_screenshot_path": "...png",
-  "json_path": "...json",
-  "coordinate_space": {"origin": "screen", "unit": "logical_px", "scale": null},
-  "target": {},
-  "points": [{"x": 640, "y": 360, "label": "click"}],
-  "bounds": [{"x": 100, "y": 100, "width": 200, "height": 80}],
-  "overlays": [],
-  "warnings": []
-}
-```
-
-标注失败不得覆盖原动作结果；action payload 中写入 `annotation.ok=false`、`error`、`error_type`，并记录 warning。
+普通 `desktop_input` 和 `desktop_element` 操作不会自动截图，也不会隐式写入标注 PNG。需要截图证据时，plan 必须显式调用 `desktop_capture type=screenshot/observe`；需要图像定位证据时，显式调用 `desktop_vision type=locate_image`。执行器不能因为鼠标点击、控件操作或输入动作成功而自动截屏。失败截图默认关闭，只有 `config.failure_capture.desktop_screenshot=true` 时才写入 `failure-desktop-screenshots/`。
 
 ### Desktop Vision
 
@@ -1669,9 +1643,10 @@ plan 只在这些情况承担额外细节：
 任何 desktop action 失败时，除现有 run 日志外，必须尽力写入：
 
 ```text
-output/<run>/failure-desktop-screenshots/
 output/<run>/failure-desktop-state/
 ```
+
+`output/<run>/failure-desktop-screenshots/` 默认不生成；只有 `config.failure_capture.desktop_screenshot=true` 时才写入。
 
 最小失败状态 JSON：
 
@@ -1812,14 +1787,14 @@ python .\main.py self-check ai-real-execution-line --api-key-file D:\模型密�
 1. `schema`: 不依赖 GUI，验证 `automation_type`、跨线 action、必填字段、输出路径和子计划继承。
 2. `probe`: 探测当前平台、可用 backend、GUI 会话、权限、显示器和窗口列表能力。
 3. `live`: 轻量运行层。执行 `open_desktop`、`desktop_window list`、`desktop_capture screenshot/snapshot/observe`、`desktop_assert screenshot`、`close_desktop`，验证不启动 Playwright 的桌面 runtime 链路，并检查 snapshot/observe 顶层 `capability_matrix` 和 `coordinate_profile`。该层不依赖当前桌面已有 focused 窗口。
-4. `failure`: 使用不存在窗口和不存在控件触发失败，验证 `failure-desktop-screenshots/`、`failure-desktop-state/`、原始错误、目标定位摘要、`diagnostics.window`、`diagnostics.element`、`active_window`、`pointer_position`、`target_candidates`、`capability_matrix`、`coordinate_profile`、窗口候选诊断、近似匹配摘要，以及 `analyze_latest_run_failure` 返回的 `desktop_diagnostics` 和 `desktop_repair_suggestions`。
+4. `failure`: 使用不存在窗口和不存在控件触发失败，默认验证 `failure-desktop-state/`、原始错误、目标定位摘要、`diagnostics.window`、`diagnostics.element`、`active_window`、`pointer_position`、`target_candidates`、`capability_matrix`、`coordinate_profile`、窗口候选诊断、近似匹配摘要，以及 `analyze_latest_run_failure` 返回的 `desktop_diagnostics` 和 `desktop_repair_suggestions`；需要验证失败截图时显式配置 `failure_capture.desktop_screenshot=true` 后再检查 `failure-desktop-screenshots/`。
 5. `launch/profile`: 不依赖 `pyautogui`，用 `desktop_app type=launch` 启动短生命周期命令并 `wait=true`，验证 `pid`、`exit_code`、`stdout`、`open_desktop.capability_matrix`、变量写出和自定义 `desktop_profiles` profile 应用。
 6. `vision`: 使用自生成 source/template 图片运行 `desktop_vision type=locate_image`，验证 OpenCV 模板匹配、`match.bounds`、`match.point`、`matches`、`output/desktop-vision/` JSON、原图、裁剪图和标注图；缺少 `opencv-python` 或截图依赖时返回 `skipped` 和原因；发布前可用 `--require-vision` 强制通过。
 7. `real app`: Windows 用 `desktop_app type=launch wait_for_window/focus` 启动受控 WinForms 编辑器覆盖活动窗口读取、窗口查询、控件写入、保存、截图和关闭，启动 Explorer 打开临时目录覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、目标文件语义定位、截图、正常关闭和关闭后 `not_exists`，启动可见 PowerShell 终端覆盖窗口等待、查询、活动窗口读取、截图、剪贴板输入命令、回车执行、结果文件断言和退出清理，并用临时 WinForms 窗口触发系统 Open/Save common dialog，覆盖文件选择、保存、对话框截图、对话框控件列表和结果文件校验；macOS 用 `desktop_app type=launch` 启动 TextEdit、Finder 和 Swift/AppKit harness，覆盖真实系统窗口等待、聚焦、窗口查询、控件列表、截图、profile、真实 `NSOpenPanel`/`NSSavePanel` 默认打开/保存流、结果文件和关闭链路。该层可通过 `python .\cplan.py self-check desktop-real-app` 单独运行，便于隔离真实系统 App 问题；受控编辑器链路失败时用新的临时包最多重试 1 次并返回 `attempts` 摘要；无 GUI、锁屏、权限不足或依赖缺失时返回 `skipped` 和原因。
-8. `element action`: 用自建临时表单验证 `desktop_element dump`、`desktop_element find/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_capture type=observe`、`desktop_capture target=window/element`、`desktop_vision source_target=window/element`、`desktop_assert type=element`、`desktop_input click/double_click/right_click/scroll/drag`、`target=candidate`、`candidate_source=latest`、`element_center`、`bounds_center`、`output/desktop-state/`、`output/desktop-elements/`、`output/desktop-screenshots/`、`output/desktop-vision/` 和 `output/desktop-annotations/` 产物；按当前运行环境选择夹具，Windows 使用 WinForms 覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGridView、TreeView、MenuStrip、ContextMenuStrip、滚动 Panel、鼠标事件面板、上下文菜单面板和状态文本，并校验统一观察 payload、`target_candidates` 最佳语义候选、candidate click 的 `input_resolution/safety_check/window_safety_check/candidate_id`、控件属性/数量断言、窗口/控件截图尺寸接近 `source_bounds`、窗口/控件 source 视觉定位的 `bounds`、`local_bounds`、`coordinate_profile.source.screen_clickable=true` 和视觉候选；`--require-input` 会强制 pyautogui/pyperclip、candidate/bounds 点击、上下文菜单、滚动、拖拽、双击、右键和剪贴板恢复全部真实通过；macOS 的 Tkinter 子控件暴露不稳定时跳过，AX 元素动作由 Swift/Cocoa 受控场景和 `ai-desktop-loop` 覆盖。该层是控件级和输入级回归的主路径，避免依赖用户机器上已有业务 App。
+8. `element action`: 用自建临时表单验证 `desktop_element dump`、`desktop_element find/get_state/click/set_text/select/invoke/get_table/select_cell/get_tree/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element`、`desktop_capture type=observe`、`desktop_capture target=window/element`、`desktop_vision source_target=window/element`、`desktop_assert type=element`、`desktop_input click/double_click/right_click/scroll/drag`、`target=candidate`、`candidate_source=latest`、`element_center`、`bounds_center`、`output/desktop-state/`、`output/desktop-elements/`、`output/desktop-screenshots/` 和 `output/desktop-vision/` 产物；按当前运行环境选择夹具，Windows 使用 WinForms 覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGridView、TreeView、MenuStrip、ContextMenuStrip、滚动 Panel、鼠标事件面板、上下文菜单面板和状态文本，并校验统一观察 payload、`target_candidates` 最佳语义候选、candidate click 的 `input_resolution/safety_check/window_safety_check/candidate_id`、控件属性/数量断言、窗口/控件截图尺寸接近 `source_bounds`、窗口/控件 source 视觉定位的 `bounds`、`local_bounds`、`coordinate_profile.source.screen_clickable=true` 和视觉候选；`--require-input` 会强制 pyautogui/pyperclip、candidate/bounds 点击、上下文菜单、滚动、拖拽、双击、右键和剪贴板恢复全部真实通过；macOS 的 Tkinter 子控件暴露不稳定时跳过，AX 元素动作由 Swift/Cocoa 受控场景和 `ai-desktop-loop` 覆盖。该层是控件级和输入级回归的主路径，避免依赖用户机器上已有业务 App。
 9. `wpf action`: Windows 独立严格项，用 `python .\cplan.py self-check desktop-components --require-wpf` 或 release matrix `--require-desktop-wpf` 启用。临时 WPF 表单覆盖 TextBox、Button、CheckBox、ComboBox、ListBox、DataGrid、TreeView、Menu、ContextMenu、ScrollViewer、窗口/控件截图和输出 JSON。缺 WPF runtime、STA 或 pattern 差异时严格模式失败；该项不随 `--strict-desktop` 自动启用。
 
-`ai-desktop-loop` 是确定性 AI 工具链闭环，不新增 action 契约。它通过 AI 终端工具注册表先调用 `inspect_desktop`，再创建临时 desktop plan、调用 `review_plan_quality` 和 `run_plan`，读取 `desktop-annotations` JSON；失败分支验证 `analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`validate_debug_plan`、`run_debug_plan` 和 `generate_debug_patch` 能串起桌面控件定位修复。`analyze_latest_run_failure` 会返回压缩后的 `desktop_diagnostics[].target_candidates`；`propose_debug_fix` 会从 `desktop_diagnostics.element.near_matches[].element.selector_hints` 生成 Element Locator 候选，优先使用唯一且高稳定度的 `automation_id/control_type`；Window Query 候选来自 `diagnostics.window.near_matches`，默认更保守，通常需要明确 `user_hint` 或人工 review。
+`ai-desktop-loop` 是确定性 AI 工具链闭环，不新增 action 契约。它通过 AI 终端工具注册表先调用 `inspect_desktop`，再创建临时 desktop plan、调用 `review_plan_quality` 和 `run_plan`，读取桌面 JSON 产物；失败分支验证 `analyze_latest_run_failure`、`prepare_failure_debug_workspace`、`propose_debug_fix`、`validate_debug_plan`、`run_debug_plan` 和 `generate_debug_patch` 能串起桌面控件定位修复。`analyze_latest_run_failure` 会返回压缩后的 `desktop_diagnostics[].target_candidates`；`propose_debug_fix` 会从 `desktop_diagnostics.element.near_matches[].element.selector_hints` 生成 Element Locator 候选，优先使用唯一且高稳定度的 `automation_id/control_type`；Window Query 候选来自 `diagnostics.window.near_matches`，默认更保守，通常需要明确 `user_hint` 或人工 review。
 
 `ai-real-desktop-loop` 是真实模型回归。它用 OpenAI-compatible 服务驱动 AI 终端，让模型调用 `inspect_desktop`、创建 desktop smoke plan、写入、校验、质量复查、运行并读取 JSON 产物。自检会断言 `inspect_desktop` 参数、`capability_matrix`/`coordinate_profile` 探测结果、桌面产物结构和 `result.json status=passed`。连接、超时或中转服务瞬态错误默认最多尝试 5 次，每次外层重试按 `--retry-delay-seconds` 线性退避等待，可用 `--max-attempts` 和 `--retry-delay-seconds` 调整；该命令需要真实模型账户，缺少密钥时跳过，不纳入默认确定性自检。
 

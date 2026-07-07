@@ -560,11 +560,9 @@
 
 `scroll_element` 是滚动容器的语义滚动步骤。需要系统级坐标滚轮时使用 [desktop_input](./desktop_input.md) 的 `type=scroll`。滚动后用 `get_state`、`desktop_assert type=element`、截图或业务状态验证目标是否可见。
 
-## 标注输出
+## 截图边界
 
-`click`、`set_text`、`select`、`select_cell`、`invoke`、`expand_tree`、`collapse_tree`、`select_tree`、`invoke_menu`、`scroll_element` 成功后会尽力写入控件位置标注。读取 action payload 的 `annotation` 字段可获得标注截图和 JSON 路径。
-
-标注 JSON 包含 `schema_version`、`coordinate_space`、`target.query`、`target.locator`、`points`、`bounds`、`overlays` 和截图路径。原生控件操作不一定需要坐标，但标注会使用控件 `bounds` 中心作为诊断点。标注失败不会让控件操作失败，payload 的 `annotation.ok=false` 会记录错误原因。
+`desktop_element` 不会自动截图，也不会隐式写入标注 PNG。需要控件或窗口截图时，显式调用 `desktop_capture target=element/window`；需要图像定位证据时，显式调用 `desktop_vision type=locate_image`。
 
 ## 平台行为
 

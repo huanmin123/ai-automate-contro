@@ -61,7 +61,7 @@ AI 终端优先用工具补足事实，而不是把所有不确定性都抛给�
 - 用 `read_plan_package` 看 plan 包结构。
 - 用 `grep_project_text` 和 `read_project_file_slice` 查 handbook、docs、plan、config 和资源。
 - browser 线用 `inspect_web_page` 检查真实 URL 或本地 HTML；涉及登录、验证码、二次验证、后台菜单或动态页面时，再创建并运行 `open_browser.headed=true` 的探索 plan。
-- desktop 线按当前运行环境判断平台、backend、权限和可用能力，不把某个操作系统写成产品优先级。先用 `inspect_desktop` 获取平台、backend、`capability_matrix`、权限/依赖、窗口列表、可选控件树摘要和截图路径；`inspect_desktop` 与 plan 内 `desktop_capture type=observe` 使用同一观察 payload 结构。需要进一步运行证据时，再用 `desktop_capture type=observe`、桌面窗口列表、截图、状态快照、权限诊断、控件/图像证据、桌面标注证据或轻量探索 plan 降低不确定性；`review_plan_quality` 缺少 `inspect_desktop`/`capability_matrix`/窗口/控件/截图探测证据或 plan 内桌面运行证据时必须失败；不要把桌面取证写成网页探测，也不要要求 `open_browser` 或 `navigate`。
+- desktop 线按当前运行环境判断平台、backend、权限和可用能力，不把某个操作系统写成产品优先级。先用 `inspect_desktop` 获取平台、backend、`capability_matrix`、权限/依赖、窗口列表、可选控件树摘要和截图路径；`inspect_desktop` 与 plan 内 `desktop_capture type=observe` 使用同一观察 payload 结构。需要进一步运行证据时，再用 `desktop_capture type=observe`、桌面窗口列表、截图、状态快照、权限诊断、控件/图像证据或轻量探索 plan 降低不确定性；`review_plan_quality` 缺少 `inspect_desktop`/`capability_matrix`/窗口/控件/截图探测证据或 plan 内桌面运行证据时必须失败；不要把桌面取证写成网页探测，也不要要求 `open_browser` 或 `navigate`。
 - 用 `read_latest_run_state`、`read_latest_run_report`、`read_run_log`、`read_run_events` 和 `analyze_latest_run_failure` 获取运行证据。
 - 用 `validate_plan` 在写入或修复后做结构校验。
 - 用户提供本机输入文件但没有明确要求长期依赖该路径时，用 `import_plan_resource_file` 复制到当前 plan 包 `resources/`，再写 `resources/...`。
@@ -149,7 +149,7 @@ AI 终端应按下面顺序决策：
 
 - 在系统提示词中加入“开工前判断”和“自主取证优先”规则。
 - 明确只有关键缺口才问用户，且应在开始执行前一次性问清楚。
-- 保留真实网页最终 plan 创建前必须 `inspect_web_page` 取入口证据、必要时运行 headed 探索 plan 的硬规则；同时新增 desktop plan 创建前优先 `inspect_desktop` 探测，以及 `capability_matrix`、窗口、控件、控件树 dump、控件断言、截图、权限、状态和标注证据规则，质量门禁按 `automation_type` 分流；缺少桌面探测证据或运行证据时 fail，`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 只算操作推进，不算识别证据，`desktop_element get_table/get_tree` 算控件读取证据。
+- 保留真实网页最终 plan 创建前必须 `inspect_web_page` 取入口证据、必要时运行 headed 探索 plan 的硬规则；同时新增 desktop plan 创建前优先 `inspect_desktop` 探测，以及 `capability_matrix`、窗口、控件、控件树 dump、控件断言、截图、权限和状态证据规则，质量门禁按 `automation_type` 分流；缺少桌面探测证据或运行证据时 fail，`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 只算操作推进，不算识别证据，`desktop_element get_table/get_tree` 算控件读取证据。
 - 新增执行线判定规则：创建 plan 前必须明确 `automation_type`，不明确时先问用户；browser 和 desktop 分别读取对应 handbook 入口。
 
 中期改造：

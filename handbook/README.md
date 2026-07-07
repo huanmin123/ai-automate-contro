@@ -28,12 +28,13 @@
 - 如果现有 action 不能直接表达流程，先尝试用已有 action 组合、变量、条件、循环、等待、断言、配置、profile、`manual_confirm` 或更明确的定位信息解决。
 - 跨平台差异优先收敛在同一个 action 里：应用启动和窗口查询用 app profile 的 `platforms`，单个 step 的参数差异用 `platform_overrides`，常见系统快捷键用 `primary` 等别名；不要为 Windows/macOS 拆出平行 action 名称。
 - `command` 和外部脚本只作为最后兜底：适合调用已有 CLI、执行确定性本地命令，或处理当前安装包尚未提供专用 action 的特殊步骤。兜底脚本必须边界清楚、输出可追踪，并且不能替代已有 action 的职责。
-- 临时验证写在 `.keygen/` 或 debug workspace 可以接受；最终可复用 plan 和示例应回到 action 编排，避免把一次性脚本固化成项目能力。
+- 临时验证写在本地调试工作区可以接受；最终可复用 plan 和示例应回到 action 编排，避免把一次性脚本固化成项目能力。
 
 ## 取证规则
 
 - 真实网页流程不能凭描述猜 selector。最终 browser plan 前先获取页面证据。
-- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、图像结果或人工确认。
+- 真实桌面流程不能凭描述猜窗口、控件或坐标。最终 desktop plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、显式截图、图像结果或人工确认。
+- 普通 action 不隐式截图。浏览器截图用 `capture type=screenshot`，桌面截图用 `desktop_capture`，失败截图必须通过 `config.failure_capture` 显式开启。
 - 需要登录、验证码、二次验证、安全弹窗或权限确认时，用 `manual_confirm` 交给用户。
 - macOS Accessibility、Screen Recording、Automation 权限只能触发提示、打开设置并等待用户确认，不能静默授权。
 
@@ -80,6 +81,7 @@
 ## 写 step 规则
 
 - 组件名就是 step 的 `action`。
+- 每个 step 必须写 `description`，用中文说明这一步具体做什么；`description` 是步骤说明字段，不替代 `action`、`type`、`name`、`selector`、`output` 等执行参数。
 - 参数结构和生命周期相近的能力用同一 action 的 `type` 或少量分组字段区分，例如 `navigate`、`element`、`input`、`wait`、`extract`、`assert`、`read`、`write`、`desktop_window`。
 - 同一能力跨平台仍使用同一 action；平台差异写到 `platform_overrides`、app profile 或底层别名，不新增 `mac_*`、`windows_*` 这类重复 action。
 - 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`http`、`sql`、`mongo`、`redis`、`command`。

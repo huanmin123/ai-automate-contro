@@ -116,13 +116,6 @@ def _run_success_loop(project_root: Path, system: str) -> dict[str, Any]:
             {"plan_path": str(plan_path), "run_name": "ai-desktop-loop-success"},
             allow_run_plan=True,
         )
-        artifacts = _call_tool(
-            project_root,
-            tool_calls,
-            "list_output_artifacts",
-            {"plan_path": str(plan_path), "filter_text": "desktop-annotations", "limit": 20},
-        )
-        annotation_read, annotation_payload = _read_first_annotation(project_root, tool_calls, plan_path, artifacts)
         probe_read, probe_payload = _read_json_artifact(project_root, tool_calls, plan_path, "json/desktop-probe.json")
 
         run_payload = run.get("result") if isinstance(run.get("result"), dict) else {}
@@ -148,16 +141,13 @@ def _run_success_loop(project_root: Path, system: str) -> dict[str, Any]:
             and run_payload.get("metadata", {}).get("automation_type") == "desktop"
             and expected_text in assertion_content
             and probe_matrix.get("schema_version") == 1
-            and isinstance(annotation_payload, dict)
-            and annotation_payload.get("schema_version") == 1
-            and bool(annotation_payload.get("annotated_screenshot_path"))
             and _ordered_subset(
                 sequence,
                 ["inspect_desktop", "create_plan_package", "write_plan_package_file", "validate_plan", "review_plan_quality", "run_plan"],
             )
         )
         return _self_check_result(
-            name="ai_desktop_success_plan_runs_with_annotations",
+            name="ai_desktop_success_plan_runs",
             passed=passed,
             detail={
                 "tool_sequence": sequence,
@@ -170,13 +160,12 @@ def _run_success_loop(project_root: Path, system: str) -> dict[str, Any]:
                 "run_ok": run.get("ok"),
                 "automation_type": run_payload.get("metadata", {}).get("automation_type"),
                 "expected_text_found": expected_text in assertion_content,
-                "annotation_relative_path": annotation_read.get("relative_path", ""),
-                "annotation_schema_version": annotation_payload.get("schema_version") if isinstance(annotation_payload, dict) else None,
+                "implicit_action_screenshots": False,
             },
         )
     except Exception as error:
         return _self_check_result(
-            name="ai_desktop_success_plan_runs_with_annotations",
+            name="ai_desktop_success_plan_runs",
             passed=False,
             detail={"error": str(error), "tool_calls": tool_calls},
         )
@@ -330,18 +319,6 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
 
         injected_plan_path = Path(workspace) / "injected-plan" / "plan.json"
         debug_package_dir = injected_plan_path.parent
-        debug_artifacts = _call_tool(
-            project_root,
-            tool_calls,
-            "list_output_artifacts",
-            {"plan_path": str(injected_plan_path), "filter_text": "desktop-annotations", "limit": 20},
-        )
-        debug_annotation_read, debug_annotation_payload = _read_first_annotation(
-            project_root,
-            tool_calls,
-            injected_plan_path,
-            debug_artifacts,
-        )
 
         diagnostics = analysis.get("desktop_diagnostics") if isinstance(analysis.get("desktop_diagnostics"), list) else []
         repair_suggestions = (
@@ -400,8 +377,6 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
             and generate_patch.get("ok") is True
             and changed_files == ["plan.json"]
             and apply_rejected.get("ok") is False
-            and isinstance(debug_annotation_payload, dict)
-            and debug_annotation_payload.get("schema_version") == 1
             and _ordered_subset(
                 sequence,
                 [
@@ -441,7 +416,7 @@ def _run_failure_repair_loop(project_root: Path, system: str) -> dict[str, Any]:
                 "patch_changed_files": changed_files,
                 "debug_run_ok": run_debug.get("ok"),
                 "debug_output_dir": run_debug_payload.get("output_dir", ""),
-                "debug_annotation_relative_path": debug_annotation_read.get("relative_path", ""),
+                "implicit_action_screenshots": False,
                 "apply_without_approval_error": apply_rejected.get("error", ""),
             },
         )
@@ -725,24 +700,6 @@ def _adjust_operation_for_debug_injection(operation: dict[str, Any], prepare_res
     injected_steps = injection.get("injected_steps") if isinstance(injection.get("injected_steps"), list) else []
     path[1] = path[1] + len(injected_steps)
     return adjusted
-
-
-def _read_first_annotation(
-    project_root: Path,
-    tool_calls: list[dict[str, Any]],
-    plan_path: Path,
-    artifacts: dict[str, Any],
-) -> tuple[dict[str, Any], dict[str, Any]]:
-    annotation_artifacts = [
-        artifact
-        for artifact in artifacts.get("artifacts", [])
-        if isinstance(artifact, dict)
-        and str(artifact.get("relative_path", "")).lower().endswith(".json")
-    ]
-    if not annotation_artifacts:
-        return {}, {}
-    relative_path = str(annotation_artifacts[0].get("relative_path", ""))
-    return _read_json_artifact(project_root, tool_calls, plan_path, relative_path)
 
 
 def _read_json_artifact(

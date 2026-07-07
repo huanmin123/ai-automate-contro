@@ -487,6 +487,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
             "keys",
             "delay_ms",
             "preserve_clipboard",
+            "replace_existing",
             "amount",
             "start_x",
             "start_y",
@@ -595,7 +596,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "sleep": ("seconds",),
         "ai": ("type", "output"),
     }
-    fields = safe_fields_by_action.get(action, ("type", "browser", "page", "path", "output"))
+    fields = ("description", *safe_fields_by_action.get(action, ("type", "browser", "page", "path", "output")))
     parts: list[str] = []
     for field in fields:
         if field not in step:
@@ -603,7 +604,7 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         value = step.get(field)
         if value is None or value == "":
             continue
-        if field == "prompt":
+        if field in {"description", "prompt"}:
             value = _compact_step_value(value, limit=96)
         else:
             value = _compact_step_value(value)

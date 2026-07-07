@@ -34,7 +34,7 @@
 
 - 复用 backend 的窗口查询和等待逻辑。
 - `state=focused` 成功时会更新当前 session 的 `current_window`。
-- 超时会抛出断言错误，并触发 `failure-desktop-screenshots/` 与 `failure-desktop-state/`。
+- 超时会抛出断言错误，并触发 `failure-desktop-state/`；只有 `config.failure_capture.desktop_screenshot=true` 时才额外写入 `failure-desktop-screenshots/`。
 
 ## type=screenshot
 
@@ -121,4 +121,4 @@
 
 `desktop_assert type=element` 是桌面识别和验证证据。
 
-- 不存在窗口触发失败后生成桌面失败截图和状态 JSON。
+- 不存在窗口触发失败后生成桌面失败状态 JSON；只有 `config.failure_capture.desktop_screenshot=true` 时才额外生成失败截图。

@@ -7,13 +7,6 @@ from pathlib import Path
 from typing import Any
 
 from ai_automate_contro.engine.desktop import DesktopSession
-from ai_automate_contro.engine.desktop.action_annotations import (
-    _annotation_point,
-    _capture_desktop_annotation,
-    _capture_element_annotation,
-    _input_annotation_bounds,
-    _input_annotation_target,
-)
 from ai_automate_contro.engine.desktop.backends import DesktopBackendError, NativeDesktopBackend
 from ai_automate_contro.engine.desktop.coordinates import (
     CoordinateMapper,
@@ -617,28 +610,6 @@ def desktop_element(executor: Any, step: dict[str, Any]) -> None:
     window = payload.get("window") if isinstance(payload.get("window"), dict) else {}
     if window:
         session.current_window = dict(window)
-    if element_type in {
-        "click",
-        "set_text",
-        "invoke",
-        "select",
-        "select_cell",
-        "expand_tree",
-        "collapse_tree",
-        "select_tree",
-        "invoke_menu",
-        "scroll_element",
-    }:
-        annotation = _capture_element_annotation(
-            executor,
-            session,
-            element_type=element_type,
-            payload=payload,
-            query=window_query,
-            locator=locator if isinstance(locator, dict) else {},
-        )
-        if annotation:
-            payload["annotation"] = annotation
     if "path" in step:
         output_path = executor._resolve_output_path(step["path"], category="desktop-elements")
         payload["path"] = str(output_path)
@@ -662,16 +633,16 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
     step, profile_payload = _apply_desktop_profile(executor, session, step)
     input_type = str(step["type"])
     started = time.monotonic()
-    annotation_points: list[dict[str, Any]] = []
-    annotation_bounds: list[dict[str, Any]] = []
-    annotation_target: dict[str, Any] = {}
-    annotation_connect = False
     if input_type == "type_text":
         interaction_guard = _ensure_interaction_window_active(
             session,
             action_label="desktop_input.type_text",
             step=step,
         )
+        replace_payload: dict[str, Any] = {}
+        if _bool_flag(step.get("replace_existing", False)):
+            replace_payload = session.backend.hotkey(["primary", "a"])
+            time.sleep(0.05)
         payload = session.backend.type_text(
             str(step["value"]),
             method=str(step.get("method", "auto")),
@@ -679,6 +650,12 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             preserve_clipboard=bool(step.get("preserve_clipboard", True)),
         )
         payload["interaction_guard"] = interaction_guard
+        if replace_payload:
+            payload["replace_existing"] = {
+                "ok": True,
+                "method": "select_all_before_type",
+                "hotkey": replace_payload,
+            }
     elif input_type == "hotkey":
         interaction_guard = _ensure_interaction_window_active(
             session,
@@ -715,9 +692,6 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             payload["target"] = target
         payload["input_resolution"] = resolution
         payload["safety_check"] = resolution.get("safety_check", {})
-        annotation_points = [_annotation_point(x, y, "click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
-        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "double_click":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="double_click")
         interaction_guard = _ensure_interaction_window_active(
@@ -744,9 +718,6 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             payload["target"] = target
         payload["input_resolution"] = resolution
         payload["safety_check"] = resolution.get("safety_check", {})
-        annotation_points = [_annotation_point(x, y, "double_click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
-        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "right_click":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="right_click")
         interaction_guard = _ensure_interaction_window_active(
@@ -769,9 +740,6 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             payload["target"] = target
         payload["input_resolution"] = resolution
         payload["safety_check"] = resolution.get("safety_check", {})
-        annotation_points = [_annotation_point(x, y, "right_click")]
-        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
-        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "scroll":
         x, y, target, resolution = _resolve_input_coordinates(session, step, action_label="scroll")
         interaction_guard = _ensure_interaction_window_active(
@@ -794,9 +762,6 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             payload["target"] = target
         payload["input_resolution"] = resolution
         payload["safety_check"] = resolution.get("safety_check", {})
-        annotation_points = [_annotation_point(x, y, "scroll")]
-        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
-        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
     elif input_type == "drag":
         start_x, start_y, end_x, end_y, target, resolution = _resolve_drag_coordinates(session, step)
         interaction_guard = _ensure_interaction_window_active(
@@ -827,10 +792,6 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
             payload["target"] = target
         payload["input_resolution"] = resolution
         payload["safety_check"] = resolution.get("safety_check", {})
-        annotation_points = [_annotation_point(start_x, start_y, "start"), _annotation_point(end_x, end_y, "end")]
-        annotation_bounds = _input_annotation_bounds(session, step, target, resolution)
-        annotation_target = _input_annotation_target(step, target=target, resolution=resolution)
-        annotation_connect = True
     else:
         raise ValueError(f"不支持的 desktop_input.type：{input_type}")
     payload = {
@@ -840,23 +801,16 @@ def desktop_input(executor: Any, step: dict[str, Any]) -> None:
         "elapsed_ms": _elapsed_ms(started),
     }
     _with_profile_payload(payload, profile_payload)
-    if annotation_points:
-        payload["annotation"] = _capture_desktop_annotation(
-            executor,
-            session,
-            action=f"desktop_input.{input_type}",
-            points=annotation_points,
-            bounds=annotation_bounds,
-            connect_points=annotation_connect,
-            label=f"desktop_input.{input_type}",
-            target=annotation_target,
-        )
     publish_step_output(executor, step, payload, action=str(step["action"]))
     executor.state.logger.log(
         "info",
         "desktop input sent",
         desktop=session.name,
         type=input_type,
+        elapsed_ms=payload.get("elapsed_ms", 0),
+        guard_mode=payload.get("interaction_guard", {}).get("mode", ""),
+        guard_attempt_count=payload.get("interaction_guard", {}).get("attempt_count", ""),
+        guard_cache_age_ms=payload.get("interaction_guard", {}).get("cache_age_ms", ""),
         output=step.get("output", {}),
     )
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from typing import Any
 
@@ -20,6 +21,7 @@ from ai_automate_contro.engine.desktop.targeting import confidence_meets, find_t
 
 DESKTOP_INTERACTION_GUARD_ATTEMPTS = 3
 DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS = 0.08
+DESKTOP_INTERACTION_GUARD_CACHE_TTL_SECONDS = 1.5
 
 
 def _window_query(step: dict[str, Any]) -> dict[str, Any]:
@@ -99,6 +101,9 @@ def _ensure_interaction_window_active(
             "attempt_count": 0,
             "max_attempts": 0,
         }
+    cache_hit = _cached_interaction_guard(session, query, protection)
+    if cache_hit:
+        return cache_hit
     attempts: list[dict[str, Any]] = []
     last_error: Exception | None = None
     max_attempts = int(protection["activation_attempts"])
@@ -142,7 +147,7 @@ def _ensure_interaction_window_active(
             current = active_window if isinstance(active_window, dict) and active_window else focused_window
             if isinstance(current, dict) and current:
                 session.current_window = dict(current)
-            return {
+            payload = {
                 "ok": True,
                 "mode": "restore_focus_verify",
                 "query": query,
@@ -153,6 +158,8 @@ def _ensure_interaction_window_active(
                 "active_window": _compact_guard_window(active_window),
                 "attempts": attempts,
             }
+            _store_interaction_guard_cache(session, query, payload)
+            return payload
         if attempt_index < max_attempts:
             time.sleep(retry_delay_seconds)
     payload = {
@@ -198,6 +205,10 @@ def _foreground_protection_config(session: DesktopSession) -> dict[str, Any]:
         "retry_delay_ms": _non_negative_int_config(
             raw.get("retry_delay_ms"),
             default=int(DESKTOP_INTERACTION_GUARD_RETRY_DELAY_SECONDS * 1000),
+        ),
+        "cache_ttl_ms": _non_negative_int_config(
+            raw.get("cache_ttl_ms"),
+            default=int(DESKTOP_INTERACTION_GUARD_CACHE_TTL_SECONDS * 1000),
         ),
     }
 
@@ -276,6 +287,82 @@ def _window_matches_expected_active(
     if focused_window.get("id") not in (None, "") and active_window.get("id") not in (None, ""):
         return str(active_window.get("id")) == str(focused_window.get("id"))
     return _window_matches_query(active_window, query)
+
+
+def _cached_interaction_guard(
+    session: DesktopSession,
+    query: dict[str, Any],
+    protection: dict[str, Any],
+) -> dict[str, Any]:
+    ttl_ms = int(protection.get("cache_ttl_ms", 0) or 0)
+    if ttl_ms <= 0:
+        return {}
+    cache = session.foreground_guard_cache if isinstance(session.foreground_guard_cache, dict) else {}
+    if not cache:
+        return {}
+    cached_at = float(cache.get("monotonic_time", 0.0) or 0.0)
+    age_ms = int((time.monotonic() - cached_at) * 1000)
+    if age_ms < 0 or age_ms > ttl_ms:
+        return {}
+    cached_query = cache.get("query") if isinstance(cache.get("query"), dict) else {}
+    if not _queries_match_for_cache(cached_query, query):
+        return {}
+    cached_guard = cache.get("guard") if isinstance(cache.get("guard"), dict) else {}
+    if not cached_guard.get("ok"):
+        return {}
+    window = cached_guard.get("active_window") if isinstance(cached_guard.get("active_window"), dict) else {}
+    if not window:
+        window = cached_guard.get("window") if isinstance(cached_guard.get("window"), dict) else {}
+    if not window:
+        return {}
+    session.current_window = dict(window)
+    return {
+        "ok": True,
+        "mode": "cached_restore_focus_verify",
+        "query": query,
+        "attempt_count": 0,
+        "max_attempts": int(protection["activation_attempts"]),
+        "retry_delay_ms": int(protection["retry_delay_ms"]),
+        "cache_ttl_ms": ttl_ms,
+        "cache_age_ms": age_ms,
+        "window": _compact_guard_window(cached_guard.get("window")),
+        "active_window": _compact_guard_window(window),
+        "cached_from": {
+            "mode": cached_guard.get("mode", ""),
+            "query": cached_query,
+        },
+    }
+
+
+def _store_interaction_guard_cache(
+    session: DesktopSession,
+    query: dict[str, Any],
+    guard: dict[str, Any],
+) -> None:
+    if not guard.get("ok"):
+        return
+    session.foreground_guard_cache = {
+        "monotonic_time": time.monotonic(),
+        "query": dict(query),
+        "guard": dict(guard),
+    }
+
+
+def _queries_match_for_cache(cached_query: dict[str, Any], query: dict[str, Any]) -> bool:
+    if not cached_query or not query:
+        return False
+    if "window_id" in cached_query or "window_id" in query:
+        return str(cached_query.get("window_id", "")) == str(query.get("window_id", ""))
+    matched = False
+    for field in ("app", "process", "process_name", "class_name", "title", "title_contains", "title_regex"):
+        cached_value = cached_query.get(field)
+        query_value = query.get(field)
+        if cached_value in (None, "") or query_value in (None, ""):
+            continue
+        if str(cached_value) != str(query_value):
+            return False
+        matched = True
+    return matched
 
 
 def _window_matches_query(window: dict[str, Any], query: dict[str, Any]) -> bool:

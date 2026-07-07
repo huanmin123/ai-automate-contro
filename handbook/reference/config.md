@@ -4,6 +4,8 @@
 
 `config.json` 只保存 plan 运行配置，不保存业务变量。业务变量请写在 `plan.json` 的 `variables` 字段。
 
+`config.json` 支持字符串外的 `//` 行注释；运行时会先移除注释再按 JSON 对象读取。不支持 `/* ... */` 块注释。
+
 ## 位置
 
 - `<plan-root>/config.json`: 当前 plan 集合级配置，`plan-root` 来自运行根的 `plan.config.plan_roots`。
@@ -58,6 +60,26 @@
 
 失败运行不会触发检查等待，会直接清理浏览器资源。
 
+## failure_capture
+
+控制失败现场是否自动保存截图。默认不保存失败截图；需要截图时必须显式开启配置。
+
+```json
+{
+  "failure_capture": {
+    "browser_screenshot": false,
+    "desktop_screenshot": false
+  }
+}
+```
+
+字段：
+
+- `browser_screenshot`: 布尔值。默认 `false`。为 `true` 时，浏览器步骤失败会写入 `output/<run>/failure-screenshots/`。
+- `desktop_screenshot`: 布尔值。默认 `false`。为 `true` 时，桌面步骤失败会写入 `output/<run>/failure-desktop-screenshots/`。
+
+无论是否开启截图，浏览器失败仍会保存 `failure-html/` 和 `failure-page-state/`；桌面失败仍会保存 `failure-desktop-state/`。
+
 ## desktop.ocr
 
 `desktop.ocr` 已移除。`config.json` 中出现该字段会校验失败，错误为“desktop.ocr 已移除；桌面自动化不再支持 OCR 配置”。
@@ -101,7 +123,8 @@
       "enabled": true,
       "strict": true,
       "activation_attempts": 3,
-      "retry_delay_ms": 80
+      "retry_delay_ms": 80,
+      "cache_ttl_ms": 1500
     }
   }
 }
@@ -113,6 +136,7 @@
 - `strict`: 布尔值。默认 `true`；目标窗口无法成为前台时真实输入失败。
 - `activation_attempts`: 正整数。默认 `3`。
 - `retry_delay_ms`: 非负整数。默认 `80`。
+- `cache_ttl_ms`: 非负整数。默认 `1500`。同一目标窗口连续真实输入时，在该时间窗内复用上一次前台校验结果，减少重复 `focus/active-window` 开销；设为 `0` 可关闭缓存。
 
 ## desktop_profiles
 

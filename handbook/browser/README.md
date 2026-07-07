@@ -37,4 +37,5 @@
 - 浏览器 `element` 使用 DOM/ARIA/文本 locator，不使用桌面控件树。
 - 下载、文件选择器、popup、新请求和新响应等待统一写 `event type=download/file_chooser/popup/request/response`。
 - 真实网站、URL、后台页面或网页流程不能凭描述猜 selector。最终 browser plan 前先获取页面证据。
+- 普通浏览器 action 不隐式截图；页面截图必须显式调用 `capture type=screenshot`，失败截图必须在 `config.failure_capture.browser_screenshot` 中显式开启。
 - 登录、验证码、二次验证或动态后台需要用户介入时，用 headed 浏览器和 `manual_confirm` 交接。

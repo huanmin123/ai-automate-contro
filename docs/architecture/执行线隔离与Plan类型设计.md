@@ -77,14 +77,14 @@ load plan
 
 - `BrowserSession`
 - Playwright lifecycle
-- 浏览器失败截图、HTML、page state
+- 配置开启时的浏览器失败截图、HTML、page state
 - 浏览器 action registry
 
 `desktop` plan 创建桌面运行时：
 
 - `DesktopSession`
 - Windows/macOS backend adapter
-- 桌面截图、窗口列表、控件树、`capability_matrix`、权限诊断和鼠标/控件操作标注证据
+- 桌面截图、窗口列表、控件树、`capability_matrix`、权限诊断和显式截图/视觉证据
 - 桌面 action registry
 
 桌面运行时不是终端命令包装，也不是某个单一 App 的专用控制器。它抽象的是当前用户可见桌面会话中人类可以通过键盘、鼠标、窗口、控件、菜单和屏幕视觉完成的操作；遇到系统安全边界、权限缺失或不可可靠识别的 UI 时，应失败、跳过或通过人工确认交接。

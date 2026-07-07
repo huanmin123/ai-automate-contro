@@ -197,7 +197,7 @@ Textual 客户端、人类用户和 AI 后端都只读事件流，不直接读�
 
 第一版同时写入 `state.json` 作为稳定状态快照。Textual 客户端、外部脚本和后续 AI 后端优先读取该文件判断当前 run 是否处于 `running`、`waiting`、`passed` 或 `failed`。
 
-每次运行还会生成 `report.md`，和 `result.json`、`run.log`、`events.jsonl` 放在同一个 run 目录。报告只汇总状态、路径、错误、失败截图、失败 HTML、失败页面状态、下载和标准运行文件，不展开变量内容，便于 AI 终端和人工排查快速读取。
+每次运行还会生成 `report.md`，和 `result.json`、`run.log`、`events.jsonl` 放在同一个 run 目录。报告只汇总状态、路径、错误、已配置生成的失败截图、失败 HTML、失败页面状态、下载和标准运行文件，不展开变量内容，便于 AI 终端和人工排查快速读取。
 
 ### 命令队列
 
@@ -314,7 +314,7 @@ AI 终端渐进式文本搜索只支持 `ripgrep` 的 `rg` 命令。缺失时必
 
 `self-check ai-tools` 不调用真实模型，但会真实构建 LangChain `StructuredTool`、验证共享 Pydantic schema 绑定、通过工具 invoke 执行 `validate_plan`，并确认受保护工具在没有 HITL approve resume 时被拒绝。
 
-`self-check ai-desktop-loop` 不调用真实模型，但会通过 AI 终端工具注册表完整走桌面工具链：`inspect_desktop`、创建 desktop plan、写入、校验、`review_plan_quality`、`run_plan`，并在 Windows WinForms 或 macOS Swift/Cocoa 受控窗口中验证 `desktop-annotations` JSON；失败分支会读取 `desktop_diagnostics` 和 `desktop_repair_suggestions`，创建 debug workspace，用 `propose_debug_fix` 基于 `selector_hints` 修正 Element Locator，运行 `run_debug_plan`，生成只包含 `plan.json` 的 debug patch，并验证未审批的 `apply_debug_patch_after_approval` 仍被拒绝。
+`self-check ai-desktop-loop` 不调用真实模型，但会通过 AI 终端工具注册表完整走桌面工具链：`inspect_desktop`、创建 desktop plan、写入、校验、`review_plan_quality`、`run_plan`，并在 Windows WinForms 或 macOS Swift/Cocoa 受控窗口中验证桌面 JSON 产物；失败分支会读取 `desktop_diagnostics` 和 `desktop_repair_suggestions`，创建 debug workspace，用 `propose_debug_fix` 基于 `selector_hints` 修正 Element Locator，运行 `run_debug_plan`，生成只包含 `plan.json` 的 debug patch，并验证未审批的 `apply_debug_patch_after_approval` 仍被拒绝。
 
 `self-check ai-real-desktop-loop` 调用真实模型，适合在有临时中转账户时跑端到端验收。它把密钥文件中的 URL 和 `sk-*` key 解析到当前进程环境变量，在临时项目根里让模型调用 `inspect_desktop`、创建 desktop smoke plan、校验、质量复查、运行并读取产物；连接、超时或中转服务瞬态错误默认最多尝试 5 次，每次外层重试按 `--retry-delay-seconds` 线性退避等待，可用 `--max-attempts` 和 `--retry-delay-seconds` 调整；缺密钥或非 Windows/macOS 时跳过。
 
@@ -341,7 +341,7 @@ AI 调试修复的详细隔离工作区、注入规则和用户协助流程见 [
 - 固定系统提示词。
 - 服务别名。
 - 输出解析和校验。
-- 失败产物保存到当前 plan 包 `output/ai/`；普通浏览器执行失败会保存失败截图、失败 HTML 和失败页面状态。
+- 失败产物保存到当前 plan 包 `output/ai/`；普通浏览器执行失败会保存失败 HTML 和失败页面状态，只有配置开启时才保存失败截图。
 
 专项 AI 不负责创建、运行、修复 plan。
 

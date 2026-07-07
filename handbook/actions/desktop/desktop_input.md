@@ -23,6 +23,7 @@
   "type": "type_text",
   "value": "hello",
   "method": "clipboard",
+  "replace_existing": true,
   "preserve_clipboard": true,
   "output": {"as": "typed"}
 }
@@ -34,6 +35,7 @@
 - `value`: 必填，待输入文本。
 - `method`: `auto`、`type`、`clipboard`，默认 `auto`。
 - `delay_ms`: 逐字符输入延迟，默认 `0`。
+- `replace_existing`: 可选，布尔值。为 `true` 时先在当前焦点控件内发送平台主快捷键全选，再输入 `value`。适合搜索框、输入框覆盖旧文本，避免把 `primary+a`、`delete` 拆成多个 plan 步骤。
 - `preserve_clipboard`: 使用剪贴板时是否恢复原内容，默认 `true`。
 - `output.as`: 可选，保存输入结果。
 
@@ -344,8 +346,6 @@ Open/Save 文件对话框优先按系统窗口处理，不要默认依赖文件�
 - 需要稳定操作控件时，优先使用 [desktop_element](./desktop_element.md)；控件树不可用时再考虑坐标、图像模板或人工确认兜底。
 - plan 不应为普通键盘/鼠标动作手写 `command` 或 Python 脚本；使用 `desktop_input type=hotkey/type_text/click/...`。macOS `hotkey` 和 `type_text method=clipboard` 由 System Events 发送按键，鼠标坐标动作仍使用系统级输入兜底；macOS 需要 Accessibility 权限。
 
-## 标注输出
+## 截图边界
 
-`click`、`double_click`、`right_click`、`scroll`、`drag` 成功后会尽力写入标注证据。读取 action payload 的 `annotation` 字段可获得标注截图和 JSON 路径。
-
-标注 JSON 包含 `schema_version`、`coordinate_space`、`coordinate_profile`、`coordinate_diagnostics`、`target`、`points`、`bounds`、`overlays`、`warnings` 和截图路径。标注失败不会让鼠标动作失败，payload 的 `annotation.ok=false` 会记录错误原因。
+`desktop_input` 不会自动截图，也不会隐式写入标注 PNG。需要截图证据时，显式调用 `desktop_capture type=screenshot/observe`；需要图像定位证据时，显式调用 `desktop_vision type=locate_image`。

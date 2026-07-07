@@ -31,6 +31,7 @@
 - 浏览器 `input` 只作用于 Playwright 页面，不是操作系统级键鼠。
 - 浏览器 `element` 使用 DOM/ARIA/文本等页面 locator，不读取桌面控件树。
 - 下载、文件选择器、popup、请求/响应捕获统一使用 `event` action。
+- 普通浏览器 action 不隐式截图；页面截图必须显式使用 `capture type=screenshot`。失败截图默认关闭，需要在 `config.failure_capture.browser_screenshot=true` 时才写入。
 - 需要读写文件、执行本机命令、人工确认、变量或控制流时，读 [common](../common/README.md)。
 
 ## 最小示例

@@ -43,9 +43,9 @@ def prepare_failure_debug_workspace(
     desktop = failure_desktop_session(analysis)
     presets = ["print", "variables"]
     if browser:
-        presets.extend(["screenshot", "html"])
+        presets.append("html")
     if desktop:
-        presets.extend(["desktop_screenshot", "desktop_snapshot", "desktop_observe", "desktop_windows"])
+        presets.extend(["desktop_snapshot", "desktop_observe", "desktop_windows"])
     if include_manual_confirm:
         presets.append("manual_confirm")
 

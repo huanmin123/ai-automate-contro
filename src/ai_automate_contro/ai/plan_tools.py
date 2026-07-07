@@ -17,6 +17,7 @@ from ai_automate_contro.plans.packages import (
 )
 from ai_automate_contro.plans.templates import create_plan_package_from_template
 from ai_automate_contro.plans.validator import ValidationIssue, validate_plan_file
+from ai_automate_contro.support.jsonc import loads_jsonc, load_jsonc
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
@@ -189,7 +190,7 @@ def write_plan_package_file_tool(
         serialized = str(content)
         if target_path.suffix.lower() == ".json":
             try:
-                parsed_json = json.loads(serialized)
+                parsed_json = loads_jsonc(serialized)
             except json.JSONDecodeError as error:
                 raise ValueError(f"JSON 文件内容格式不正确：{error}") from error
 
@@ -503,8 +504,7 @@ def list_package_files(root: Path, package_dir: Path) -> list[dict[str, Any]]:
 def read_json_if_exists(path: Path) -> Any | None:
     if not path.exists():
         return None
-    with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+    return load_jsonc(path)
 
 
 def read_plan_file_overview(path: Path, package_dir: Path) -> dict[str, Any]:

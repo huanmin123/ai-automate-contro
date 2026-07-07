@@ -142,7 +142,7 @@
 - 不要凭用户文字猜坐标。
 - 最终 plan 前先获取 `desktop_capture type=observe`、窗口列表、控件树、截图、定位结果或人工确认。
 - 能用 `automation_id/control_type/name` 时，不用绝对坐标。
-- 鼠标操作后保留截图或标注证据。
+- 需要截图证据时显式调用 `desktop_capture`；普通鼠标操作不会自动截图。
 - `desktop_vision type=locate_image` 适合稳定图标、图片按钮和模板图。
 - 桌面线不支持 OCR 或 `desktop_vision type=locate_text`；需要读文字时优先使用控件树、应用数据接口、文件读取或 `manual_confirm`。
 - 定位不稳定时使用 `manual_confirm`，不要扩大点击区域赌运气。

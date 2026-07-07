@@ -1,1 +1,5 @@
-{}
+{
+  "failure_capture": {
+    "browser_screenshot": true
+  }
+}

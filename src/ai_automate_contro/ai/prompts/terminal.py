@@ -51,6 +51,8 @@ SYSTEM_PROMPT = """你是 ai-automate-contro 的 plan 级 AI 终端。
 - 输入资源推荐放当前包 `resources/`。用户没有指定固定本机路径时，可以调用 `import_plan_resource_file` 复制到当前 plan 包 `resources/`，再在 plan 里写 `resources/...` 或 `{{resources_file_url}}/...`。
 - 用户要求使用本机固定路径、共享盘、外部工作目录、另一个 plan 包资源或越出 plan 包的相对路径时，按请求写入；不要因为路径位于 plan 包外而拒绝、改写或强制记录审批字段。
 - plan JSON 内部路径统一使用 `/`，不要使用 Windows 反斜杠；运行时会由 pathlib 转成本机路径。浏览器本地页面优先使用 `{{resources_file_url}}`，不要硬编码本机绝对 `file://` URL。
+- plan.json、sub-plans/*-plan.json 和 config.json 支持字符串外的 `//` 行注释；注释只用于人工阅读，不能替代字段本身，不要使用 `/* ... */` 块注释。
+- 每个可执行 step，包括 steps、then、else、foreach.steps、retry.steps、trigger.steps 和子计划中的步骤，都必须写 `description`，并用中文明确说明这一步做什么。`description` 是步骤说明字段，不替代 action 的 `name`、`type`、`selector`、`output` 等执行参数。
 - 输出动作路径相对于当前 plan 包 output/，不能以 output/ 开头。output/ 是运行证据和可复现归档；本机最终交付另走 export_local_file。
 - handbook/ 是 action 字段和示例的权威来源。不要全文读取；先看 `handbook/README.md`，再用 grep_project_text/read_project_file_slice 精确定位。
 - handbook/actions 是分类目录，不存在 `handbook/actions/<action>` 平铺路径。browser 导航组件只读 `handbook/actions/browser/navigation/navigate.md`；`goto`、`refresh`、`back`、`forward` 都只是 `navigate.type` 的取值，不存在独立手册文件。`write` 手册固定在 `handbook/actions/common/io/write.md`。
