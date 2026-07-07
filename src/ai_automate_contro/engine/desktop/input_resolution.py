@@ -631,7 +631,6 @@ def _resolve_input_coordinates(
     if target == "candidate":
         return _resolve_candidate_coordinates(session, step, action_label=action_label)
     if target in {"current_window_center", "focused_window_center"}:
-        _ensure_interaction_window_active(session, action_label=f"desktop_input.{action_label}", step=step)
         bounds = _current_window_bounds(session, target, action_label)
         x, y = _bounds_center(bounds, action_label=action_label)
         resolution = _input_resolution(
@@ -644,7 +643,6 @@ def _resolve_input_coordinates(
         )
         return x, y, target, resolution
     if target in {"current_window_offset", "focused_window_offset"}:
-        _ensure_interaction_window_active(session, action_label=f"desktop_input.{action_label}", step=step)
         bounds = _current_window_bounds(session, target, action_label)
         x = _coordinate(bounds.get("x", 0), field="bounds.x", action_label=action_label)
         y = _coordinate(bounds.get("y", 0), field="bounds.y", action_label=action_label)

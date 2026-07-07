@@ -86,5 +86,8 @@
 
 ## 建议
 
-- 优先使用 `selector`、`url`、`text`、`count` 这类显式等待。
-- `type: time` 只适合作为观察页面或兜底等待。
+- 优先使用 `selector`、`url`、`text`、`count`、`element_state`、`function` 这类条件等待，让流程等真实页面状态，不等固定时间。
+- `type: time` 只适合短动画、节流、人工观察或没有稳定条件的兜底。真实业务流程里不要用长 sleep 代替 selector、接口响应或业务状态。
+- `networkidle` 只适合没有长轮询、WebSocket、SSE、持续埋点或广告请求的页面。后台系统、聊天页、实时看板和埋点多的页面优先等目标元素、URL、文本、接口响应或 JS 状态。
+- 等待超时说明定位条件不满足，不要第一反应把时间加长。先检查 locator、iframe、登录态、权限页、遮罩层、接口失败和页面是否进入了不同状态。
+- 优化耗时时先看 `output/<run>/events.jsonl` 或 `run.log` 的 step 用时，再判断是导航、等待条件、接口响应、下载还是数据提取慢。

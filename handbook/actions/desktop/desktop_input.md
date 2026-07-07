@@ -211,6 +211,13 @@ Open/Save 文件对话框优先按系统窗口处理，不要默认依赖文件�
 - 窗口类 target 依赖最近一次 `desktop_window type=focus` 或 `desktop_wait type=window` 写入的 `session.current_window.bounds`。
 - `allow_outside_window`: 可选布尔值，默认 `false`。坐标落点必须在激活后的目标窗口 bounds 内，并且在支持的平台上必须命中目标窗口或其子控件；确实需要点窗口外弹层、跨窗口拖拽或系统区域时才显式设为 `true`。
 
+经验规则：
+
+- `current_window_offset` 和 `focused_window_offset` 适合窗口已经被 `desktop_window normalize/focus` 或 `desktop_wait window` 确认后的固定布局兜底。先归一化窗口，再使用窗口内偏移，比直接写绝对 `x/y` 稳定。
+- 不要在每个 `desktop_input` 前手写一个额外 `desktop_window focus`。真实输入前 runtime 会按 Window Query、候选窗口或当前 session 窗口做前台保护；连续同窗口输入时通过 `desktop.foreground_protection.cache_ttl_ms` 复用校验。
+- 如果同一桌面流程中连续多次键盘/鼠标操作都指向同一窗口，并且中途没有人工切换焦点，可以把 `cache_ttl_ms` 调到 `8000` 到 `10000`。如果会跨窗口、跨弹层或执行高风险点击，保持默认值或关闭缓存。
+- 看耗时时优先查 `events.jsonl` 中 `desktop input sent` 的 `elapsed_ms` 和 `guard_mode`。`restore_focus_verify` 表示执行了完整前台保护，`cached_restore_focus_verify` 表示命中缓存。
+
 `target=candidate` 只执行两类候选：
 
 - `strategy=semantic_locator`: 执行器重新用候选 `window_query + locator` 查找控件，再点击实时 bounds 中心。

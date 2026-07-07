@@ -13,6 +13,15 @@
 
 `selector` 不是唯一定位方式。除 `selector` 外，也可以使用语义定位字段：`role` + `name`、`text`、`label`、`placeholder`、`alt_text`、`title`、`test_id`。如果元素位于 iframe 内，可使用 `frame_selector`、`frame_name`、`frame_url`、`frame_url_contains` 或 `frame_index`。
 
+## 定位经验
+
+- 优先使用语义 locator：`role + name`、`label`、`placeholder`、`test_id`、稳定业务属性或短 CSS selector。真实页面里按钮、输入框、菜单项优先找可读名称，不优先写长 CSS、XPath、`nth-child` 或页面坐标。
+- 页面结构不稳定时先用 `inspect_web_page`、`extract type=aria_snapshot`、`extract type=frames` 或 headed 探索确认 locator。最终 plan 不能只凭用户描述猜 selector。
+- 多个元素命中时，先缩小 locator、补充容器 selector、补充 `role/name` 或进入正确 iframe；`index` 只适合同类列表有稳定排序的场景，不适合作为长期兜底。
+- 输入框优先使用 `type=fill`，下拉框优先使用 `type=select`，上传文件优先使用 `type=set_files`。只有需要模拟逐字输入、组合键、滚动、拖拽或页面级鼠标时才用 [input](./input.md)。
+- 点击前如果页面存在异步加载，先用 `wait type=selector/element_state/text/function` 等目标可见、可用或业务状态就绪。点击后用 `wait`、`assert` 或 `extract` 验证结果，不要只加固定等待。
+- `force`、`position` 和坐标类点击是兜底手段。使用前要先确认不是遮罩、禁用态、iframe 或 locator 过宽导致的问题。
+
 ## 类型说明
 
 | type | 额外字段 | 说明 |

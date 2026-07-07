@@ -138,6 +138,14 @@
 - `retry_delay_ms`: 非负整数。默认 `80`。
 - `cache_ttl_ms`: 非负整数。默认 `1500`。同一目标窗口连续真实输入时，在该时间窗内复用上一次前台校验结果，减少重复 `focus/active-window` 开销；设为 `0` 可关闭缓存。
 
+调参建议：
+
+- 默认值偏保守，适合跨窗口、弹窗多、用户可能中途抢焦点的流程。
+- 单窗口连续操作，例如聊天工具搜索联系人、粘贴消息、回车发送，通常可以设为 `8000` 到 `10000`，避免每个键鼠动作都重新做窗口聚焦和 active window 复查。
+- 缓存只复用已经成功的目标窗口校验，不跳过首次真实输入前的前台保护。
+- 如果计划中有跨窗口点击、系统弹层、文件对话框、付款/删除/发送前确认等高风险动作，不要为了速度盲目拉长缓存；应在跨窗口步骤前重新等待/聚焦/断言目标窗口。
+- 优化耗时时先看 `events.jsonl`：`guard_mode=restore_focus_verify` 是完整校验，`guard_mode=cached_restore_focus_verify` 是缓存命中，`guard_cache_age_ms` 能判断 TTL 是否过短。
+
 ## desktop_profiles
 
 配置桌面 App/窗口定位预设。plan 中用 `profile` 引用，见 [desktop app profile](../actions/desktop/app_profile.md)。

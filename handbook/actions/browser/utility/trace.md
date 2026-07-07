@@ -22,6 +22,12 @@
 - `snapshots`: 是否记录 DOM 快照，默认 `true`
 - `sources`: 是否记录源码，默认 `true`
 
+## 使用经验
+
+- trace 是调试工具，不是默认业务步骤。只在复杂页面失败、需要复盘 Playwright 动作或定位页面状态变化时开启。
+- `screenshots` 默认关闭。需要 trace 里包含画面时显式写 `true`，但不要把它当成普通流程的隐式截图。
+- trace 应尽量包住最小问题片段：`start` 后执行少量关键步骤，然后立刻 `stop`。长流程 trace 会变大，也会影响运行耗时。
+
 ## 示例
 
 ```json

@@ -32,6 +32,8 @@
 - 浏览器 `element` 使用 DOM/ARIA/文本等页面 locator，不读取桌面控件树。
 - 下载、文件选择器、popup、请求/响应捕获统一使用 `event` action。
 - 普通浏览器 action 不隐式截图；页面截图必须显式使用 `capture type=screenshot`。失败截图默认关闭，需要在 `config.failure_capture.browser_screenshot=true` 时才写入。
+- 浏览器稳定性优先靠语义 locator、条件等待和结果断言，不靠固定 sleep、截图识别、长 CSS 层级或页面坐标。
+- 批量流程优先复用同一个浏览器会话和页面；需要复用登录态时使用 `open_browser use_profile=true`，不要每条数据都重新启动、登录和关闭浏览器。
 - 需要读写文件、执行本机命令、人工确认、变量或控制流时，读 [common](../common/README.md)。
 
 ## 最小示例
@@ -40,11 +42,11 @@
 {
   "automation_type": "browser",
   "steps": [
-    {"action": "open_browser", "name": "main", "headed": true},
-    {"action": "navigate", "browser": "main", "type": "goto", "url": "https://example.com"},
-    {"action": "extract", "browser": "main", "type": "text", "selector": "h1", "output": {"as": "title"}},
-    {"action": "write", "type": "json", "path": "title.json", "value": "{{title}}"},
-    {"action": "close_browser", "browser": "main"}
+    {"description": "打开浏览器会话", "action": "open_browser", "name": "main", "headed": true},
+    {"description": "进入示例页面", "action": "navigate", "browser": "main", "type": "goto", "url": "https://example.com"},
+    {"description": "提取页面标题文本", "action": "extract", "browser": "main", "type": "text", "selector": "h1", "output": {"as": "title"}},
+    {"description": "把标题写入 JSON 文件", "action": "write", "type": "json", "path": "title.json", "value": "{{title}}"},
+    {"description": "关闭浏览器会话", "action": "close_browser", "browser": "main"}
   ]
 }
 ```

@@ -90,6 +90,14 @@
 - 你要给不同站点分配不同的会话
 - 你要在同一个 plan 包内复用登录态、Cookie、localStorage、IndexedDB 等浏览器状态
 
+## 稳定性和耗时经验
+
+- 真实网站建议显式固定 `viewport`、`locale`、`timezone_id`，必要时固定 `channel`、`user_agent` 和请求头。这样页面布局、语言、时区和站点分流更稳定。
+- 长期登录态优先使用 `use_profile: true`。同一个 plan 包只维护一套 `profiles/browser/`，适合后台系统、需要人工登录或二次验证后的重复执行。
+- 批量任务尽量一次打开浏览器并复用页面，不要每条数据都 `open_browser`、登录、关闭再重开。启动浏览器和首次导航通常是浏览器流程里最重的固定成本。
+- `slow_mo_ms` 只用于人工观察和调试，正式 plan 默认保持 `0`。需要等待页面状态时写 `wait` 条件，不要用 slow motion 代替等待。
+- HAR、视频和 trace 都是显式调试产物。默认不要开启 `record_har_path`、`record_video_dir` 或 trace screenshots，除非正在定位网络、渲染或失败复盘问题。
+
 ## 注意事项
 
 - `name` 不能重复。

@@ -27,6 +27,14 @@
 - `request`: `url`、`trigger`。捕获匹配请求。
 - `response`: `url`、`trigger`。捕获匹配响应。
 
+## 事件等待经验
+
+- 下载、文件选择器、popup、请求和响应必须把触发动作写进 `trigger`。执行器会先挂等待，再执行触发动作，避免事件已经发生后才开始等待。
+- `trigger` 里通常放一次 `element click`、`element press` 或 `input press`。不要先单独点击，再另起一个 `event` 等下载、popup 或响应。
+- `request/response` 的 `url` 要尽量匹配业务接口本身，不要写过宽的域名根路径。需要读取响应体时再开启 `include_body`，并优先用 `body_type=json`。
+- `start/stop` 是调试采集，不是常规业务步骤。只在排查 console、pageerror、失败请求、WebSocket、SSE、WebRTC 或 Service Worker 时开启，避免长期流程生成过多事件产物。
+- 捕获到事件后仍建议配套 `wait`、`assert` 或 `extract` 验证页面结果。例如下载后校验文件存在，响应后校验页面表格或状态文本更新。
+
 ## 可选字段
 
 - `page`: 页面名，默认当前页面

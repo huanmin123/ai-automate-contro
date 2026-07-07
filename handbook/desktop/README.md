@@ -90,6 +90,17 @@ desktop plan 默认串行占用当前项目的桌面控制资源；同一项目�
 
 真实键盘、鼠标、控件 fallback 输入前，runtime 会根据 Window Query、候选窗口或当前 session 窗口激活目标并复查前台窗口。plan 只需要写清目标 App/窗口/控件和结果断言，不需要额外拆“抢前台”步骤。配置见 [config.json](../reference/config.md)。
 
+## 稳定性和耗时经验
+
+- 真实桌面流程先做窗口定位归一化，再做键鼠输入。常见顺序是 `open_desktop` -> `desktop_app launch` -> `desktop_window normalize` -> 业务输入；不要直接依赖原始屏幕坐标。
+- 固定布局应用可以在 `desktop_window normalize` 后使用 `desktop_input target=current_window_offset` 点击窗口内固定位置。坐标偏移必须基于归一化后的窗口左上角，不基于上一次偶然窗口位置。
+- 连续输入同一个目标窗口时，前台保护会复用最近一次成功校验。聊天、批量填表、文件对话框这类短时间连续操作，可以在 `config.desktop.foreground_protection.cache_ttl_ms` 设为 `8000` 到 `10000`，减少重复 `focus/get_active_window` 成本。跨窗口、用户可能中途切换焦点或高风险点击时使用默认值或设为 `0` 关闭缓存。
+- 首次真实键鼠输入仍会执行完整前台保护；缓存只减少后续同窗口输入的重复校验。macOS 读取 active window 往往比 Windows 慢，连续操作更应该利用缓存和清晰 Window Query。
+- 固定 `sleep` 只保留业务上需要的短停顿，例如搜索结果刷新、聊天页打开、输入框焦点稳定。不要用长 sleep 掩盖定位不清；能用 `desktop_wait`、`desktop_assert`、控件读取或状态文件确认时优先用条件确认。
+- 没有主动要求截图时，不把截图动作内置到普通流程。需要截图证据时显式写 `desktop_capture`；失败截图只通过 `config.failure_capture` 显式开启。
+- 优化前先看 `output/<run>/events.jsonl` 或 `run.log`，按 step 计算耗时。重点看 `desktop input sent` 里的 `elapsed_ms`、`guard_mode`、`guard_attempt_count` 和 `guard_cache_age_ms`，不要凭感觉删等待或关保护。
+- 对外可复用 plan 要把每个 step 的中文 `description` 写清楚，方便从日志直接看出慢在哪个业务步骤。
+
 ## 能力边界
 
 桌面 plan 可以尽量模拟人类可见操作，但不承诺突破系统安全边界。以下场景应失败、跳过或交给 `manual_confirm`：
