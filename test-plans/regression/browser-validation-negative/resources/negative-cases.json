@@ -116,7 +116,8 @@
             "name": "main"
           },
           {
-            "action": "mouse",
+            "action": "input",
+            "device": "mouse",
             "type": "swipe",
             "browser": "main",
             "start_x": 0,
@@ -124,6 +125,47 @@
             "end_x": 100,
             "end_y": 0,
             "steps": 0
+          }
+        ],
+        "automation_type": "browser"
+      }
+    },
+    {
+      "name": "input-down-missing-device",
+      "expected_message": "input.type=down/up 需要显式设置 device 为 keyboard 或 mouse",
+      "plan": {
+        "name": "negative-input-down-missing-device",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "input",
+            "type": "down",
+            "browser": "main",
+            "key": "Shift"
+          }
+        ],
+        "automation_type": "browser"
+      }
+    },
+    {
+      "name": "input-device-type-mismatch",
+      "expected_message": "input.device=keyboard 不支持 type=wheel",
+      "plan": {
+        "name": "negative-input-device-type-mismatch",
+        "steps": [
+          {
+            "action": "open_browser",
+            "name": "main"
+          },
+          {
+            "action": "input",
+            "device": "keyboard",
+            "type": "wheel",
+            "browser": "main",
+            "delta_y": 100
           }
         ],
         "automation_type": "browser"

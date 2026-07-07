@@ -1,4 +1,4 @@
-# wait-for-network
+# event-popup
 
 ## 说明
 
@@ -15,5 +15,5 @@
 ## 运行
 
 ```powershell
-python .\cplan.py run --file .\test-plans\basic\wait-for-network\plan.json
+python .\cplan.py run --file .\test-plans\basic\event-popup\plan.json
 ```

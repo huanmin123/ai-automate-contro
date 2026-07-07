@@ -72,16 +72,16 @@ def validate_optional_field_values(
             _validate_string(step, "js", location, issues)
         _validate_int(step, "timeout_ms", location, issues, minimum=0)
         return
-    if action == "wait_for_network":
-        _validate_enum(step, "body_type", {"text", "json", "body"}, location, issues)
-        _validate_bool(step, "include_headers", location, issues)
-        _validate_bool(step, "include_post_data", location, issues)
-        _validate_bool(step, "include_body", location, issues)
-        return
     if action == "network":
         _validate_network_fields(step, step_type, location, issues)
         return
     if action == "event":
+        if step_type in {"request", "response"}:
+            _validate_enum(step, "body_type", {"text", "json", "body"}, location, issues)
+            _validate_bool(step, "include_headers", location, issues)
+            _validate_bool(step, "include_post_data", location, issues)
+            _validate_bool(step, "include_body", location, issues)
+        _validate_bool(step, "switch", location, issues)
         for field in (
             "console",
             "pageerror",
@@ -167,16 +167,43 @@ def validate_optional_field_values(
     if action == "assert":
         _validate_assert_fields(step, step_type, location, issues)
         return
-    if action == "mouse":
-        _validate_number(step, "x", location, issues)
-        _validate_number(step, "y", location, issues)
-        _validate_number(step, "delta_x", location, issues)
-        _validate_number(step, "delta_y", location, issues)
-        _validate_number(step, "start_x", location, issues)
-        _validate_number(step, "start_y", location, issues)
-        _validate_number(step, "end_x", location, issues)
-        _validate_number(step, "end_y", location, issues)
-        _validate_int(step, "steps", location, issues, minimum=1)
-        _validate_int(step, "duration_ms", location, issues, minimum=0)
-        _validate_bool(step, "touch", location, issues)
-        _validate_bool(step, "fallback_to_mouse", location, issues)
+    if action == "input":
+        _validate_browser_input_fields(step, step_type, location, issues)
+        return
+
+
+def _validate_browser_input_fields(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    _validate_enum(step, "device", {"keyboard", "mouse", "scroll"}, location, issues)
+    _validate_int(step, "delay_ms", location, issues, minimum=0)
+    for field in ("x", "y", "delta_x", "delta_y", "start_x", "start_y", "end_x", "end_y"):
+        _validate_number(step, field, location, issues)
+    _validate_int(step, "steps", location, issues, minimum=1)
+    _validate_int(step, "duration_ms", location, issues, minimum=0)
+    _validate_bool(step, "touch", location, issues)
+    _validate_bool(step, "fallback_to_mouse", location, issues)
+
+    raw_device = step.get("device")
+    if raw_device not in (None, "") and raw_device not in {"keyboard", "mouse", "scroll"}:
+        return
+    device = raw_device or _infer_browser_input_device(step_type)
+    if device == "keyboard" and step_type not in {"press", "type", "down", "up"}:
+        issues.append(ValidationIssue(location, f"input.device=keyboard 不支持 type={step_type}"))
+    elif device == "mouse" and step_type not in {"move", "click", "down", "up", "wheel", "tap", "swipe"}:
+        issues.append(ValidationIssue(location, f"input.device=mouse 不支持 type={step_type}"))
+    elif device == "scroll" and step_type not in {"into_view", "by"}:
+        issues.append(ValidationIssue(location, f"input.device=scroll 不支持 type={step_type}"))
+
+
+def _infer_browser_input_device(step_type: Any) -> str | None:
+    if step_type in {"press", "type"}:
+        return "keyboard"
+    if step_type in {"move", "click", "wheel", "tap", "swipe"}:
+        return "mouse"
+    if step_type in {"into_view", "by"}:
+        return "scroll"
+    return None

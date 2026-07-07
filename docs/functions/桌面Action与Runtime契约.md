@@ -47,6 +47,13 @@ Phase 0 基线明确不做：
 
 视觉定位契约见 [桌面视觉定位设计](./桌面视觉定位设计.md)。AI 只有在能力矩阵声明可用时才能生成 `desktop_vision type=locate_image`。桌面线不支持 OCR 或 `desktop_vision type=locate_text`。
 
+## 跨平台 Action 原则
+
+- 对外保持共享 action 名称。Windows/macOS 差异优先落到同一个 action 的参数、backend adapter、app profile 或底层别名，不新增 `windows_*`、`macos_*` 这类平行 action。
+- 应用启动名、进程名、窗口查询和默认等待参数放到 app profile 的 `platforms.windows/macos`。
+- 单个 step 的少量参数差异使用 `platform_overrides`，执行器按当前 desktop session 平台或本机系统合并覆盖；覆盖值不能切换 `action`。
+- 系统快捷键使用 `desktop_input.hotkey` 的 `primary`、`mod`、`shortcut`、`cmd_or_ctrl` 等别名，由输入后端映射为 macOS `command` 或 Windows/Linux `ctrl`。
+
 ## 顶层 Plan 契约
 
 主 `plan.json` 必须包含：
@@ -80,19 +87,13 @@ Phase 0 基线明确不做：
 - `page`
 - `navigate`
 - `element`
-- 浏览器 `mouse`
-- 浏览器 `keyboard`
-- `scroll`
+- 浏览器 `input`
 - 浏览器 `capture`
 - `storage`
 - `detect_challenge`
 - `dialog`
 - `network`
-- `wait_for_popup`
-- `wait_for_download`
-- `wait_for_file_chooser`
-- `wait_for_network`
-- `event`
+- `event`，包括运行事件采集以及 `download/file_chooser/popup/request/response` 触发等待
 - `coverage`
 - `trace`
 - `script`

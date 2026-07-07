@@ -124,7 +124,7 @@ def validate_type_field(
             )
         )
         return
-    if action in {"wait", "scroll"} and step_type is None:
+    if action == "wait" and step_type is None:
         return
     if not isinstance(step_type, str) or not step_type:
         issues.append(ValidationIssue(location, f"{action}.type 必须是非空字符串"))

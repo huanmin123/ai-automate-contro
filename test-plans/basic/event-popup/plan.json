@@ -1,5 +1,5 @@
 {
-  "name": "wait-for-popup",
+  "name": "event-popup",
   "automation_type": "browser",
   "variables": {
     "popup_demo_url": "{{resources_file_url}}/popup_parent.html"
@@ -17,7 +17,8 @@
       "type": "goto"
     },
     {
-      "action": "wait_for_popup",
+      "action": "event",
+      "type": "popup",
       "browser": "demo",
       "popup_page": "popup",
       "trigger": {

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -9,6 +11,7 @@ from ai_automate_contro.engine.conditions import ConditionEvaluator
 from ai_automate_contro.engine.runtime import RuntimeState
 from ai_automate_contro.engine.template import render_value
 from ai_automate_contro.plans.validation_rules import ACTIONS_BY_AUTOMATION_TYPE
+from ai_automate_contro.support.platforms import current_platform_name, normalize_platform_name, platform_lookup_keys
 
 from . import (
     ai_task,
@@ -69,6 +72,7 @@ class ActionExecutor:
             step = raw_step
         else:
             step = render_value(raw_step, self.state.variables)
+        step = self._apply_platform_overrides(step, action=str(action))
         step_number = self.state.next_step_number()
         step_name = step.get("name", action)
         step_summary = _step_progress_summary(action, step)
@@ -149,6 +153,42 @@ class ActionExecutor:
         if allowed_actions is None or action in allowed_actions:
             return
         raise ValueError(f"automation_type={automation_type} 不支持 action：{action}")
+
+    def _apply_platform_overrides(self, step: dict[str, Any], *, action: str) -> dict[str, Any]:
+        if "platform_overrides" not in step:
+            return step
+        overrides = step.get("platform_overrides")
+        base_step = {key: deepcopy(value) for key, value in step.items() if key != "platform_overrides"}
+        if overrides in (None, ""):
+            return base_step
+        if not isinstance(overrides, Mapping):
+            raise ValueError("platform_overrides 必须是对象，键为平台名，值为要覆盖的 step 字段。")
+        platform_name = self._step_platform_name(base_step)
+        selected_override: Any = None
+        for key in platform_lookup_keys(platform_name):
+            if key in overrides:
+                selected_override = overrides[key]
+                break
+        if selected_override is None and "default" in overrides:
+            selected_override = overrides["default"]
+        if selected_override is None:
+            return base_step
+        if not isinstance(selected_override, Mapping):
+            raise ValueError(f"platform_overrides.{platform_name} 必须是对象。")
+        if "action" in selected_override and selected_override["action"] != action:
+            raise ValueError("platform_overrides 不允许切换 action；请保持同一 action 名称并只覆盖参数。")
+        return _merge_platform_override(base_step, selected_override, action=action, top_level=True)
+
+    def _step_platform_name(self, step: dict[str, Any]) -> str:
+        desktop_name = step.get("desktop")
+        if isinstance(desktop_name, str) and desktop_name in self.state.desktop_sessions:
+            return normalize_platform_name(self.state.desktop_sessions[desktop_name].platform)
+        if step.get("action") == "open_desktop":
+            raw_platform = step.get("platform", "auto")
+            if str(raw_platform or "auto") == "auto":
+                return current_platform_name()
+            return normalize_platform_name(str(raw_platform))
+        return current_platform_name()
 
     @staticmethod
     def external_action_handlers() -> set[str]:
@@ -250,6 +290,31 @@ def _locator_options(step: dict[str, Any], *allowed_fields: str) -> dict[str, An
     return options
 
 
+def _merge_platform_override(
+    base: dict[str, Any],
+    override: Mapping[str, Any],
+    *,
+    action: str,
+    top_level: bool = False,
+) -> dict[str, Any]:
+    merged = deepcopy(base)
+    for key, value in override.items():
+        if key == "platform_overrides":
+            continue
+        if top_level and key == "action":
+            if value != action:
+                raise ValueError("platform_overrides 不允许切换 action；请保持同一 action 名称并只覆盖参数。")
+            continue
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, Mapping):
+            merged[key] = _merge_platform_override(current, value, action=action)
+        else:
+            merged[key] = deepcopy(value)
+    if top_level:
+        merged["action"] = action
+    return merged
+
+
 def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
     safe_fields_by_action = {
         "open_browser": ("name", "headed", "browser_type", "device", "use_profile"),
@@ -275,6 +340,23 @@ def _step_progress_summary(action: str, step: dict[str, Any]) -> str:
         "write": ("type", "path", "sheet", "sheets", "range", "start_cell", "formula_columns"),
         "assert": ("browser", "page", "type", "selector", "text", "url", "expected"),
         "extract": ("browser", "page", "type", "selector", "output"),
+        "input": (
+            "browser",
+            "page",
+            "device",
+            "type",
+            "selector",
+            "role",
+            "name",
+            "text",
+            "test_id",
+            "key",
+            "value",
+            "x",
+            "y",
+            "delta_x",
+            "delta_y",
+        ),
         "manual_confirm": ("browser", "prompt"),
         "run_sub_plan": ("path",),
         "trigger": ("type", "name", "every_seconds", "max_runs", "duration_seconds", "path", "output"),

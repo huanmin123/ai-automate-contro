@@ -98,7 +98,8 @@
       "mode": "equals"
     },
     {
-      "action": "mouse",
+      "action": "input",
+      "device": "mouse",
       "type": "swipe",
       "browser": "backlog",
       "start_x": 40,

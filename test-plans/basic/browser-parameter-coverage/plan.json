@@ -206,7 +206,8 @@
       "selector": "#clear-event"
     },
     {
-      "action": "wait_for_download",
+      "action": "event",
+      "type": "download",
       "browser": "coverage",
       "path": "coverage-download.txt",
       "trigger": {

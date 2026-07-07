@@ -58,16 +58,16 @@ def validate_type_specific_required_fields(
         required = ()
     elif action == "extract" and step_type == "css":
         required = ("property",)
-    elif action == "keyboard" and step_type in {"press", "down", "up"}:
-        required = ("key",)
-    elif action == "keyboard" and step_type == "type":
-        required = ("value",)
-    elif action == "mouse" and step_type in {"move", "click"}:
-        required = ("x", "y")
-    elif action == "mouse" and step_type == "tap":
-        required = ("x", "y")
-    elif action == "mouse" and step_type == "swipe":
-        required = ("start_x", "start_y", "end_x", "end_y")
+    elif action == "input":
+        input_device = _browser_input_device(step, step_type, location, issues)
+        if input_device == "keyboard" and step_type in {"press", "down", "up"}:
+            required = ("key",)
+        elif input_device == "keyboard" and step_type == "type":
+            required = ("value",)
+        elif input_device == "mouse" and step_type in {"move", "click", "tap"}:
+            required = ("x", "y")
+        elif input_device == "mouse" and step_type == "swipe":
+            required = ("start_x", "start_y", "end_x", "end_y")
     elif action == "assert" and step_type == "selector":
         required = ("selector",)
     elif action == "assert" and step_type in {"text", "value"}:
@@ -96,6 +96,14 @@ def validate_type_specific_required_fields(
         required = ("url",)
     elif action == "event" and step_type == "stop":
         required = ("path",)
+    elif action == "event" and step_type == "download":
+        required = ("path", "trigger")
+    elif action == "event" and step_type == "file_chooser":
+        required = ("files", "trigger")
+    elif action == "event" and step_type == "popup":
+        required = ("popup_page", "trigger")
+    elif action == "event" and step_type in {"request", "response"}:
+        required = ("url", "trigger")
     elif action == "coverage" and step_type == "stop":
         required = ("path",)
     elif action == "script" and step_type in {"evaluate", "add_init_script"}:
@@ -320,3 +328,26 @@ def validate_type_specific_required_fields(
         _validate_locator_fields(step, action, step_type, location, issues)
     elif action in {"element", "wait", "extract", "assert"}:
         _validate_frame_fields(step, location, issues)
+    elif action == "input" and step_type == "into_view":
+        _validate_frame_fields(step, location, issues)
+        _validate_locator_fields(step, action, step_type, location, issues)
+
+
+def _browser_input_device(
+    step: dict[str, Any],
+    step_type: Any,
+    location: str,
+    issues: list[ValidationIssue],
+) -> str | None:
+    raw_device = step.get("device")
+    if raw_device not in (None, ""):
+        return str(raw_device) if raw_device in {"keyboard", "mouse", "scroll"} else None
+    if step_type in {"press", "type"}:
+        return "keyboard"
+    if step_type in {"move", "click", "wheel", "tap", "swipe"}:
+        return "mouse"
+    if step_type in {"into_view", "by"}:
+        return "scroll"
+    if step_type in {"down", "up"}:
+        issues.append(ValidationIssue(location, "input.type=down/up 需要显式设置 device 为 keyboard 或 mouse"))
+    return None

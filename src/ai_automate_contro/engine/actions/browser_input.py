@@ -2,8 +2,12 @@ from __future__ import annotations
 
 from typing import Any
 
+KEYBOARD_INPUT_TYPES = {"press", "type", "down", "up"}
+MOUSE_INPUT_TYPES = {"move", "click", "down", "up", "wheel", "tap", "swipe"}
+SCROLL_INPUT_TYPES = {"into_view", "by"}
 
-def keyboard(executor: Any, step: dict[str, Any]) -> None:
+
+def _keyboard_input(executor: Any, step: dict[str, Any]) -> None:
     keyboard_type = step["type"]
     target_keyboard = executor._page(step).keyboard
     if keyboard_type == "press":
@@ -21,7 +25,7 @@ def keyboard(executor: Any, step: dict[str, Any]) -> None:
     raise ValueError(f"Unsupported keyboard type: {keyboard_type}")
 
 
-def scroll(executor: Any, step: dict[str, Any]) -> None:
+def _scroll_input(executor: Any, step: dict[str, Any]) -> None:
     scroll_type = step.get("type", "by")
     if scroll_type == "into_view":
         executor._locator(step).scroll_into_view_if_needed()
@@ -38,7 +42,7 @@ def scroll(executor: Any, step: dict[str, Any]) -> None:
     raise ValueError(f"Unsupported scroll type: {scroll_type}")
 
 
-def mouse(executor: Any, step: dict[str, Any]) -> None:
+def _mouse_input(executor: Any, step: dict[str, Any]) -> None:
     mouse_type = step["type"]
     target_page = executor._page(step)
     target_mouse = target_page.mouse
@@ -69,6 +73,40 @@ def mouse(executor: Any, step: dict[str, Any]) -> None:
         _swipe(executor, step)
         return
     raise ValueError(f"Unsupported mouse type: {mouse_type}")
+
+
+def browser_input(executor: Any, step: dict[str, Any]) -> None:
+    device = _input_device(step)
+    if device == "keyboard":
+        _keyboard_input(executor, step)
+        return
+    if device == "mouse":
+        _mouse_input(executor, step)
+        return
+    if device == "scroll":
+        _scroll_input(executor, step)
+        return
+    raise ValueError(f"Unsupported input device: {device}")
+
+
+def _input_device(step: dict[str, Any]) -> str:
+    raw_device = step.get("device")
+    if raw_device not in (None, ""):
+        device = str(raw_device)
+        if device in {"keyboard", "mouse", "scroll"}:
+            return device
+        raise ValueError(f"Unsupported input device: {device}")
+
+    input_type = step.get("type")
+    if input_type in {"press", "type"}:
+        return "keyboard"
+    if input_type in {"move", "click", "wheel", "tap", "swipe"}:
+        return "mouse"
+    if input_type in SCROLL_INPUT_TYPES:
+        return "scroll"
+    if input_type in {"down", "up"}:
+        raise ValueError("input.type=down/up 需要显式设置 device 为 keyboard 或 mouse。")
+    raise ValueError(f"Unsupported input type: {input_type}")
 
 
 def _swipe(executor: Any, step: dict[str, Any]) -> None:
@@ -239,7 +277,5 @@ def _dom_touch_swipe(
 
 
 ACTION_HANDLERS = {
-    "keyboard": keyboard,
-    "mouse": mouse,
-    "scroll": scroll,
+    "input": browser_input,
 }

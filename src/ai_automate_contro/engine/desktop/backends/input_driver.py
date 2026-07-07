@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import platform
 import subprocess
 import time
 from typing import Any
 
 from ai_automate_contro.engine.desktop.backends.base import DesktopBackendError
+from ai_automate_contro.support.platforms import current_platform_name, normalize_platform_name, primary_modifier_for_platform
 
 
 MACOS_KEY_CODES = {
@@ -78,6 +78,19 @@ MACOS_MODIFIER_KEYS = {
     "alt": "option down",
     "shift": "shift down",
 }
+PRIMARY_MODIFIER_ALIASES = {
+    "cmd_or_ctrl",
+    "command_or_control",
+    "control_or_command",
+    "mod",
+    "primary",
+    "shortcut",
+}
+OPTION_ALT_ALIASES = {"alt_or_option", "option_or_alt"}
+COMMON_KEY_ALIASES = {
+    "escape": "esc",
+    "return": "enter",
+}
 
 
 def require_pyautogui() -> Any:
@@ -104,11 +117,7 @@ def paste_text_with_clipboard(text: str, *, preserve_clipboard: bool) -> None:
             old_text = ""
     try:
         pyperclip.copy(text)
-        if platform.system() == "Darwin":
-            send_hotkey(["command", "v"])
-        else:
-            pyautogui = require_pyautogui()
-            pyautogui.hotkey("ctrl", "v")
+        send_hotkey(["primary", "v"])
         time.sleep(0.2)
     finally:
         if preserve_clipboard:
@@ -119,8 +128,9 @@ def paste_text_with_clipboard(text: str, *, preserve_clipboard: bool) -> None:
 
 
 def send_hotkey(keys: list[str]) -> dict[str, Any]:
-    normalized_keys = _normalize_hotkey_keys(keys)
-    if platform.system() == "Darwin":
+    platform_name = current_platform_name()
+    normalized_keys = _normalize_hotkey_keys(keys, platform_name=platform_name)
+    if platform_name == "macos":
         if _send_hotkey_macos(normalized_keys):
             return {"ok": True, "keys": normalized_keys, "method": "macos_system_events"}
     pyautogui = require_pyautogui()
@@ -128,17 +138,26 @@ def send_hotkey(keys: list[str]) -> dict[str, Any]:
     return {"ok": True, "keys": normalized_keys, "method": "pyautogui"}
 
 
-def _normalize_hotkey_keys(keys: list[str]) -> list[str]:
+def _normalize_hotkey_keys(keys: list[str], *, platform_name: str | None = None) -> list[str]:
     normalized: list[str] = []
     for key in keys:
         raw = str(key or "").strip().lower()
         if not raw:
             continue
         parts = [part.strip() for part in raw.replace("+", " ").split() if part.strip()]
-        normalized.extend(parts or [raw])
+        normalized.extend(_normalize_hotkey_alias(part, platform_name=platform_name) for part in (parts or [raw]))
     if not normalized:
         raise DesktopBackendError("desktop_input.hotkey keys 不能为空。")
     return normalized
+
+
+def _normalize_hotkey_alias(key: str, *, platform_name: str | None = None) -> str:
+    if key in PRIMARY_MODIFIER_ALIASES:
+        return primary_modifier_for_platform(platform_name)
+    if key in OPTION_ALT_ALIASES:
+        selected_platform = normalize_platform_name(platform_name) if platform_name else current_platform_name()
+        return "option" if selected_platform == "macos" else "alt"
+    return COMMON_KEY_ALIASES.get(key, key)
 
 
 def _send_hotkey_macos(keys: list[str]) -> bool:
@@ -194,9 +213,8 @@ def set_element_text_keyboard_fallback(
     preserve_clipboard: bool,
 ) -> dict[str, Any]:
     x, y = click_element_center(element, locator=locator)
-    select_key = "command" if platform.system() == "Darwin" else "ctrl"
     time.sleep(0.05)
-    send_hotkey([select_key, "a"])
+    send_hotkey(["primary", "a"])
     paste_text_with_clipboard(text, preserve_clipboard=preserve_clipboard)
     return {
         "method": "keyboard_clipboard_fallback",

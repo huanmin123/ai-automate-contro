@@ -54,7 +54,7 @@
 
 | 分区 | browser plan | desktop plan | 说明 |
 | --- | --- | --- | --- |
-| browser actions | 允许 | 禁止 | `open_browser`、`navigate`、`element`、浏览器 `mouse`/`keyboard`、浏览器 `capture` 等 |
+| browser actions | 允许 | 禁止 | `open_browser`、`navigate`、`element`、浏览器 `input`、浏览器 `capture` 等 |
 | desktop actions | 禁止 | 允许 | `open_desktop`、`desktop_app type=launch`、`desktop_window`、`desktop_element`、`desktop_input type_text/hotkey/click/double_click/right_click/scroll/drag`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等 |
 | common actions | 允许 | 允许 | `if`、`foreach`、`retry`、`trigger`、`run_sub_plan`、`read`、`write`、`http`、`command`、`print`、`sleep`、`manual_confirm`、受控专项 `ai` 等 |
 
@@ -103,7 +103,7 @@ load plan
 validator 必须在运行前拒绝跨线 action：
 
 - `automation_type=browser` 时，出现 `open_desktop` 或 `desktop_*` 必须失败。
-- `automation_type=desktop` 时，出现 `open_browser`、`navigate`、`element`、浏览器 `mouse`、浏览器 `keyboard`、浏览器 `capture` 必须失败。
+- `automation_type=desktop` 时，出现 `open_browser`、`navigate`、`element`、浏览器 `input`、浏览器 `capture` 必须失败。
 - 未声明 `automation_type` 的主 plan 必须失败。
 - 子计划声明不同 `automation_type` 必须失败。
 - `automation_type` 不在允许值内必须失败。
@@ -132,7 +132,7 @@ handbook/
     ...
 ```
 
-`browser/README.md` 是浏览器线入口，只链接浏览器 action 和通用 action。`desktop/README.md` 是桌面线入口，只链接桌面 action 设计和通用 action。现有 `actions/` 目录在迁移期仍承载已实现 action 文档，但入口必须按执行线过滤阅读，不能把浏览器 `mouse`/`keyboard` 当成桌面键鼠使用。
+`browser/README.md` 是浏览器线入口，只链接浏览器 action 和通用 action。`desktop/README.md` 是桌面线入口，只链接桌面 action 设计和通用 action。现有 `actions/` 目录在迁移期仍承载已实现 action 文档，但入口必须按执行线过滤阅读，不能把浏览器 `input` 当成桌面键鼠使用。
 
 新增或修改 action 文档时按执行线放置：浏览器专属 action 放入 `handbook/actions/browser/`，桌面专属 action 放入 `handbook/actions/desktop/`，两条执行线共享的 action 放入 `handbook/actions/common/`。
 

@@ -26,6 +26,7 @@
 - 创建、修改或修复 plan 时，优先使用本项目已有 JSON action、runtime 能力、变量、输出、断言、控制流、浏览器 action、桌面 action 和通用 action。
 - 不要为了单个需求绕过现有能力，把浏览器操作、桌面键鼠、窗口定位、文件读写、数据处理、等待、断言或取证逻辑写进 `command`、Python、PowerShell、AppleScript、JavaScript 或其他临时脚本。
 - 如果现有 action 不能直接表达流程，先尝试用已有 action 组合、变量、条件、循环、等待、断言、配置、profile、`manual_confirm` 或更明确的定位信息解决。
+- 跨平台差异优先收敛在同一个 action 里：应用启动和窗口查询用 app profile 的 `platforms`，单个 step 的参数差异用 `platform_overrides`，常见系统快捷键用 `primary` 等别名；不要为 Windows/macOS 拆出平行 action 名称。
 - `command` 和外部脚本只作为最后兜底：适合调用已有 CLI、执行确定性本地命令，或处理当前安装包尚未提供专用 action 的特殊步骤。兜底脚本必须边界清楚、输出可追踪，并且不能替代已有 action 的职责。
 - 临时验证写在 `.keygen/` 或 debug workspace 可以接受；最终可复用 plan 和示例应回到 action 编排，避免把一次性脚本固化成项目能力。
 
@@ -57,6 +58,7 @@
 
 - `navigate`: `actions/browser/navigation/navigate.md`
 - `element`: `actions/browser/interaction/element.md`
+- `input`: `actions/browser/interaction/input.md`，浏览器页面级键盘、鼠标、触控和滚动
 - `wait`: `actions/browser/navigation/wait.md`
 - `extract`: `actions/browser/data/extract.md`
 - `desktop_window`: `actions/desktop/desktop_window.md`
@@ -78,8 +80,11 @@
 ## 写 step 规则
 
 - 组件名就是 step 的 `action`。
-- 参数结构一致的能力用同一 action 的 `type` 区分，例如 `navigate`、`element`、`wait`、`extract`、`assert`、`read`、`write`、`desktop_window`。
-- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`、`http`、`sql`、`mongo`、`redis`、`command`。
+- 参数结构和生命周期相近的能力用同一 action 的 `type` 或少量分组字段区分，例如 `navigate`、`element`、`input`、`wait`、`extract`、`assert`、`read`、`write`、`desktop_window`。
+- 同一能力跨平台仍使用同一 action；平台差异写到 `platform_overrides`、app profile 或底层别名，不新增 `mac_*`、`windows_*` 这类重复 action。
+- 生命周期独立的能力保留独立 action，例如 `open_browser`、`open_desktop`、`run_sub_plan`、`trigger`、`foreach`、`retry`、`http`、`sql`、`mongo`、`redis`、`command`。
+- 浏览器页面级键盘、鼠标、触控和滚动统一使用 `input` action。
+- 浏览器中由某个 step 触发的一次性下载、文件选择器、popup、请求和响应等待，统一使用 `event` action 的不同 `type`，不要再优先新增或使用多个 `wait_for_*` action。
 - 专项 AI 统一使用 `ai` action，通过 `type` 区分抽取、分类、转换和摘要。
 - 变量使用 `{{变量名}}` 引用；业务变量放在 `plan.json.variables`，运行配置放在 `config.json`。
 - 跨节点数据由上游 step 使用 `output` 发布，声明 `as`、可选 `from`、`type` 和 `fields`；下游直接引用发布后的变量，不需要声明输入。

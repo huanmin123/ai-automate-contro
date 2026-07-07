@@ -2,7 +2,7 @@
 
 本入口只给 `automation_type: "desktop"` plan 使用。桌面线控制 Windows/macOS 真实桌面里的本机 App、窗口、控件、系统级键鼠、截图、图像模板证据和系统权限。
 
-浏览器 DOM、Playwright selector、浏览器网络事件、浏览器 storage state 和页面内 `mouse`/`keyboard` 进入 [浏览器自动化手册入口](../browser/README.md)。
+浏览器 DOM、Playwright selector、浏览器网络事件、浏览器 storage state 和页面内 `input` 进入 [浏览器自动化手册入口](../browser/README.md)。
 
 AI 写 desktop plan 时优先读取本手册的 action 文档。
 
@@ -51,7 +51,7 @@ AI 写 desktop plan 时优先读取本手册的 action 文档。
 - `ai`
 - `variable`
 
-禁止在 desktop plan 中使用 `open_browser`、`navigate`、`element`、浏览器 `mouse`、浏览器 `keyboard`、浏览器 `capture` 等浏览器专属 action。
+禁止在 desktop plan 中使用 `open_browser`、`navigate`、`element`、浏览器 `input`、浏览器 `capture` 等浏览器专属 action。
 
 ## 文档落点
 

@@ -41,7 +41,7 @@
 ```json
 {
   "desktop_profiles": {
-    "mock-chat": {
+    "chat": {
       "platforms": {
         "windows": {
           "launch": {
@@ -56,12 +56,28 @@
             "focus": true,
             "window_timeout_ms": 10000
           }
+        },
+        "macos": {
+          "launch": {
+            "app": "Mock Chat"
+          },
+          "window_query": {
+            "app": "Mock Chat",
+            "title_contains": "Mock Chat"
+          },
+          "defaults": {
+            "wait_for_window": true,
+            "focus": true,
+            "window_timeout_ms": 10000
+          }
         }
       }
     }
   }
 }
 ```
+
+`platforms` 的平台键支持 `windows`/`win32`/`win64` 和 `macos`/`darwin`/`mac`/`osx` 这些别名。对外仍引用同一个 `profile` 名称，不要拆成 `chat_windows`、`chat_macos` 两个 plan 分支。
 
 使用自定义 profile：
 
@@ -71,14 +87,14 @@
     "action": "desktop_app",
     "desktop": "desk",
     "type": "launch",
-    "profile": "mock-chat",
+    "profile": "chat",
     "output": {"as": "chat_launch"}
   },
   {
     "action": "desktop_window",
     "desktop": "desk",
     "type": "focus",
-    "profile": "mock-chat",
+    "profile": "chat",
     "output": {"as": "chat_window"}
   }
 ]

@@ -15,6 +15,7 @@
 - 架构边界、执行模型、action 契约、AI 终端能力或 plan 结构变化时，代码、手册、功能文档和验证说明要同步更新。
 - 本项目按本地调试原文优先处理。运行日志、报告、失败现场、截图、HTML、DOM、Cookie、storage state、token、api_key 等本机数据不得自动脱敏、遮罩、摘要化或拒写；是否提交由用户决定。
 - 保持 JSON plan、action 命名、参数风格和目录结构一致，不为单个需求引入平行体系。
+- 跨平台能力默认共享同一个 action 名称；平台差异优先通过 app profile 的 `platforms`、step 级 `platform_overrides`、底层快捷键/平台别名或 backend adapter 处理，不为 Windows/macOS 复制一套 action。
 
 ## Windows Shell 默认约定
 

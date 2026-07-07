@@ -24,33 +24,38 @@
       "type": "focus"
     },
     {
-      "action": "keyboard",
+      "action": "input",
+      "device": "keyboard",
       "browser": "demo",
       "value": "test-from-keyboard",
       "delay_ms": 50,
       "type": "type"
     },
     {
-      "action": "keyboard",
+      "action": "input",
+      "device": "keyboard",
       "browser": "demo",
       "key": "Tab",
       "type": "press"
     },
     {
-      "action": "keyboard",
+      "action": "input",
+      "device": "keyboard",
       "browser": "demo",
       "value": "keyboard-password",
       "delay_ms": 50,
       "type": "type"
     },
     {
-      "action": "scroll",
+      "action": "input",
+      "device": "scroll",
       "browser": "demo",
       "delta_y": 300,
       "type": "by"
     },
     {
-      "action": "mouse",
+      "action": "input",
+      "device": "mouse",
       "browser": "demo",
       "delta_y": -300,
       "type": "wheel"

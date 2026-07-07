@@ -5,6 +5,7 @@ from typing import Any
 
 from ai_automate_contro.engine.actions import SUPPORTED_ACTIONS
 from ai_automate_contro.engine.output_contract import validate_output_contract_spec
+from ai_automate_contro.plans.validation_field_helpers import _is_template
 from ai_automate_contro.plans.validation_fields import (
     validate_type_field,
     validate_type_specific_required_fields,
@@ -18,12 +19,14 @@ from ai_automate_contro.plans.validation_rules import (
     OUTPUT_ACTION_CATEGORIES,
     REQUIRED_FIELDS,
 )
+from ai_automate_contro.support.platforms import PLATFORM_OVERRIDE_ALIASES
 from ai_automate_contro.support.paths import is_absolute_path_text, path_from_text
 
 
 OUTPUT_REQUIRED_ACTIONS = {"ai", "extract", "read", "table"}
 OUTPUT_REMOVED_FIELDS_BY_ACTION = {"detect_challenge": {"save_detected_as", "save_label_as"}, "read": {"save_meta_as"}}
 RESERVED_OUTPUT_VARIABLES = {"last"}
+EVENT_OUTPUT_TYPES = {"stop", "download", "file_chooser", "popup", "request", "response"}
 OUTPUT_CAPABLE_ACTIONS = {
     "ai",
     "command",
@@ -49,10 +52,12 @@ OUTPUT_CAPABLE_ACTIONS = {
     "storage",
     "table",
     "trigger",
-    "wait_for_download",
-    "wait_for_file_chooser",
-    "wait_for_network",
-    "wait_for_popup",
+}
+PLATFORM_OVERRIDE_KEYS = {
+    "default",
+    "linux",
+    *PLATFORM_OVERRIDE_ALIASES["windows"],
+    *PLATFORM_OVERRIDE_ALIASES["macos"],
 }
 
 
@@ -193,6 +198,7 @@ def validate_step(
     validate_type_field(step, action, location, issues)
     validate_step_output_contract(step, location, issues)
     validate_step_output_publication(step, action, location, issues)
+    validate_step_platform_overrides(step, action, location, issues)
     validate_action_specific_fields(step, action, location, package_root, issues, stack, automation_type)
 
 
@@ -237,6 +243,41 @@ def validate_step_output_publication(
         issues.append(ValidationIssue(location, f"{action} 必须使用 output 发布结果。"))
 
 
+def validate_step_platform_overrides(
+    step: dict[str, Any],
+    action: str,
+    location: str,
+    issues: list[ValidationIssue],
+) -> None:
+    if "platform_overrides" not in step:
+        return
+    overrides = step.get("platform_overrides")
+    if _is_template(overrides):
+        return
+    if not isinstance(overrides, dict):
+        issues.append(ValidationIssue(location, "platform_overrides 必须是对象"))
+        return
+    for raw_platform, override in overrides.items():
+        override_location = f"{location}.platform_overrides.{raw_platform}"
+        platform_key = str(raw_platform or "").strip().lower()
+        if not platform_key:
+            issues.append(ValidationIssue(override_location, "platform_overrides 平台名不能为空"))
+        elif platform_key not in PLATFORM_OVERRIDE_KEYS:
+            allowed = ", ".join(sorted(PLATFORM_OVERRIDE_KEYS))
+            issues.append(
+                ValidationIssue(
+                    override_location,
+                    f"platform_overrides 平台名不支持：{raw_platform}；可选值：{allowed}",
+                )
+            )
+        if not isinstance(override, dict):
+            issues.append(ValidationIssue(override_location, "platform_overrides 的平台覆盖值必须是对象"))
+            continue
+        override_action = override.get("action")
+        if override_action not in (None, action):
+            issues.append(ValidationIssue(override_location, "platform_overrides 不允许切换 action，只能覆盖同一 action 的参数"))
+
+
 def _step_can_publish_output(step: dict[str, Any], action: str) -> bool:
     if action not in OUTPUT_CAPABLE_ACTIONS:
         return False
@@ -245,7 +286,9 @@ def _step_can_publish_output(step: dict[str, Any], action: str) -> bool:
         return step_type == "evaluate"
     if action == "storage":
         return step_type in {"cookies", "local_storage", "session_storage"}
-    if action in {"event", "coverage"}:
+    if action == "event":
+        return step_type in EVENT_OUTPUT_TYPES
+    if action == "coverage":
         return step_type == "stop"
     return True
 
@@ -307,7 +350,6 @@ def validate_action_specific_fields(
     if action in {
         "capture",
         "write",
-        "wait_for_download",
         "ai",
         "trace",
         "event",
@@ -318,7 +360,7 @@ def validate_action_specific_fields(
         "desktop_vision",
         "desktop_assert",
     }:
-        output_type = str(step.get("type", "")) if action != "wait_for_download" else ""
+        output_type = str(step.get("type", ""))
         category = OUTPUT_ACTION_CATEGORIES.get((action, output_type))
         if category and "path" in step:
             validate_output_path(step["path"], category, location, package_root, issues)
@@ -353,7 +395,7 @@ def validate_action_specific_fields(
             must_exist=False,
         )
 
-    if action == "wait_for_file_chooser" and step.get("type") == "set_files":
+    if action == "event" and step.get("type") == "file_chooser":
         validate_package_input_paths(
             step.get("files"),
             f"{location}.files",

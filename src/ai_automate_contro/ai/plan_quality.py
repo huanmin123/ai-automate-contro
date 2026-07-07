@@ -187,8 +187,8 @@ CREDENTIAL_VALUE_STOPWORDS = {
     "明文",
     "星号",
 }
-FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "wait_for_download", "ai", "trace", "event", "coverage"}
-BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "wait_for_download", "read", "table"}
+FINAL_BROWSER_OUTPUT_ACTIONS = {"write", "capture", "event", "ai", "trace", "coverage"}
+BROWSER_DATA_COLLECTION_ACTIONS = {"extract", "script", "ai", "storage", "event", "read", "table"}
 FINAL_DESKTOP_OUTPUT_ACTIONS = {"write", "desktop_capture", "desktop_assert", "desktop_vision", "ai", "command"}
 DESKTOP_DATA_COLLECTION_ACTIONS = {"desktop_capture", "desktop_wait", "desktop_assert", "desktop_vision", "ai", "command", "read", "table"}
 DESKTOP_COORDINATE_INPUT_TYPES = {"click", "double_click", "right_click", "scroll", "drag"}
@@ -200,7 +200,7 @@ DESKTOP_COORDINATE_TARGETS = {
     "current_window_offset",
     "focused_window_offset",
 }
-BROWSER_POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "wait_for_download", "ai"}
+BROWSER_POST_MANUAL_ACTIONS = {"extract", "write", "capture", "assert", "script", "storage", "event", "ai"}
 DESKTOP_POST_MANUAL_ACTIONS = {
     "desktop_app",
     "desktop_element",
@@ -2209,12 +2209,14 @@ def _is_login_progression_step(record: dict[str, Any], automation_type: str = "b
             return True
         if step_type == "press":
             return "enter" in str(step.get("key", "")).lower()
-    if action == "keyboard" and step_type == "press":
+    if action == "input" and step_type == "press" and str(step.get("device", "keyboard")).lower() == "keyboard":
         return "enter" in str(step.get("key", "")).lower()
     if action == "script" and step_type == "evaluate":
         script_text = str(step.get("js", "")).lower()
         return "submit" in script_text or ".click(" in script_text
-    return action in {"wait_for_network", "wait_for_popup"}
+    if action == "event":
+        return step_type in {"request", "response", "popup"}
+    return False
 
 
 def _output_fix_hint(automation_type: str) -> str:

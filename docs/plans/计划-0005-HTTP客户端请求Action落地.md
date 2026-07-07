@@ -2,7 +2,7 @@
 
 ## 背景
 
-当前 `network` 和 `wait_for_network` 只能处理浏览器上下文中的网络行为。用户需要在 plan 里直接发起 HTTP 请求，覆盖 GET、PUT、表单、本地文件上传、响应保存和断言等接口自动化场景。
+当前 `network` 和 `event type=request/response` 只能处理浏览器上下文中的网络行为。用户需要在 plan 里直接发起 HTTP 请求，覆盖 GET、PUT、表单、本地文件上传、响应保存和断言等接口自动化场景。
 
 该能力应作为执行器级 `http` action 落地，不依赖 Playwright 浏览器。
 

@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from ai_automate_contro.engine.desktop.locators import WINDOW_QUERY_FIELDS
+from ai_automate_contro.support.platforms import PLATFORM_OVERRIDE_ALIASES, platform_lookup_keys
 
 
 BUILTIN_DESKTOP_APP_PROFILES: dict[str, dict[str, Any]] = {
@@ -168,11 +169,18 @@ def _builtin_profile_id(profile_id: str) -> str:
 
 def _profile_for_platform(raw_profile: dict[str, Any], *, platform_name: str) -> dict[str, Any]:
     platform_profile: dict[str, Any] = {}
-    shared = {key: value for key, value in raw_profile.items() if key not in {"aliases", "platforms", "windows", "macos"}}
+    platform_section_keys = {"aliases", "platforms", *PLATFORM_OVERRIDE_ALIASES["windows"], *PLATFORM_OVERRIDE_ALIASES["macos"]}
+    shared = {key: value for key, value in raw_profile.items() if key not in platform_section_keys}
     platform_profile.update(shared)
     platforms = raw_profile.get("platforms") if isinstance(raw_profile.get("platforms"), dict) else {}
-    direct_platform = raw_profile.get(platform_name) if isinstance(raw_profile.get(platform_name), dict) else {}
-    selected = platforms.get(platform_name) if isinstance(platforms.get(platform_name), dict) else direct_platform
+    selected: dict[str, Any] = {}
+    direct_platform: dict[str, Any] = {}
+    for key in platform_lookup_keys(platform_name):
+        if not selected and isinstance(platforms.get(key), dict):
+            selected = platforms[key]
+        if not direct_platform and isinstance(raw_profile.get(key), dict):
+            direct_platform = raw_profile[key]
+    selected = selected or direct_platform
     platform_profile.update(selected)
     return platform_profile
 

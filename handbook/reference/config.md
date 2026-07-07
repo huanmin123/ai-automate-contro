@@ -121,7 +121,7 @@
 ```json
 {
   "desktop_profiles": {
-    "mock-chat": {
+    "chat": {
       "platforms": {
         "windows": {
           "launch": {
@@ -129,6 +129,20 @@
           },
           "window_query": {
             "process_name": "mock-chat.exe",
+            "title_contains": "Mock Chat"
+          },
+          "defaults": {
+            "wait_for_window": true,
+            "focus": true,
+            "window_timeout_ms": 10000
+          }
+        },
+        "macos": {
+          "launch": {
+            "app": "Mock Chat"
+          },
+          "window_query": {
+            "app": "Mock Chat",
             "title_contains": "Mock Chat"
           },
           "defaults": {
@@ -148,6 +162,7 @@
 - `launch`: 可选，提供 `app`、`path`、`command`、`args`。
 - `window_query`: 可选，提供 `title`、`title_contains`、`title_regex`、`app`、`process`、`process_name`、`class_name`、`window_id`、`match_index`。
 - `defaults`: 可选，提供常用默认参数，例如 `wait_for_window`、`focus`、`timeout_ms`、`window_timeout_ms`、`interval_ms`。
+- `platforms`: 可选，按平台保存差异配置；平台键支持 `windows`/`win32`/`win64` 和 `macos`/`darwin`/`mac`/`osx`。plan 中仍引用同一个 `profile` 名称。
 - `platforms.windows` / `platforms.macos`: 可选，按平台覆盖 profile。
 
 step 上显式字段优先级高于 profile。

@@ -400,7 +400,7 @@ def _browser_parameter_coverage_evidence(project_root: Path, started_at: float) 
             ),
         ),
         _expect(
-            "wait_for_download_saved",
+            "event_download_saved",
             download_path.endswith("coverage-download.txt") and _file_nonempty_after(download_file, started_at),
         ),
         _expect("download_content", download_text == "coverage download ok\n"),

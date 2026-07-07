@@ -22,6 +22,7 @@
 | `open_browser` | `actions/browser/open_browser.md` | 创建 Playwright 浏览器会话 |
 | `navigate` | `actions/browser/navigation/navigate.md` | 页面跳转、刷新、前进后退 |
 | `element` | `actions/browser/interaction/element.md` | 浏览器 DOM 元素点击、填写、选择 |
+| `input` | `actions/browser/interaction/input.md` | 浏览器页面级键盘、鼠标、触控、滚动 |
 | `extract` | `actions/browser/data/extract.md` | 从页面提取文本、表格、属性、ARIA |
 | `open_desktop` | `actions/desktop/open_desktop.md` | 创建桌面控制 session |
 | `desktop_window` | `actions/desktop/desktop_window.md` | 列出、聚焦、固定坐标尺寸、关闭、最小化、最大化窗口 |

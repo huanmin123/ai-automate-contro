@@ -4,6 +4,7 @@ import base64
 import json
 from typing import Any
 
+from ai_automate_contro.engine.actions.browser_events import BROWSER_TRIGGER_EVENT_TYPES, browser_trigger_event
 from ai_automate_contro.engine.output_contract import publish_step_output
 
 
@@ -152,6 +153,9 @@ def trace(executor: Any, step: dict[str, Any]) -> None:
 
 def event(executor: Any, step: dict[str, Any]) -> None:
     event_type = step["type"]
+    if event_type in BROWSER_TRIGGER_EVENT_TYPES:
+        browser_trigger_event(executor, step)
+        return
     if event_type == "start":
         session = executor.state.require_session(step["browser"])
         page = executor._page(step)

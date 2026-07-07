@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import platform
 import re
 import time
 from pathlib import Path
@@ -62,6 +61,7 @@ from ai_automate_contro.engine.desktop.vision import (
     _source_coordinate_profile,
 )
 from ai_automate_contro.engine.output_contract import publish_step_output
+from ai_automate_contro.support.platforms import current_platform_name, normalize_platform_name
 
 
 WINDOW_CONTROL_TYPES = {"close", "minimize", "maximize", "restore"}
@@ -1505,19 +1505,15 @@ def _create_backend(
 
 def _resolve_platform_name(raw_platform: str) -> str:
     if raw_platform == "auto":
-        return _current_platform_name()
-    if raw_platform in {"windows", "macos"}:
-        return raw_platform
+        return current_platform_name()
+    platform_name = normalize_platform_name(raw_platform)
+    if platform_name in {"windows", "macos"}:
+        return platform_name
     raise DesktopBackendError(f"不支持的 desktop platform：{raw_platform}")
 
 
 def _current_platform_name() -> str:
-    system = platform.system()
-    if system == "Windows":
-        return "windows"
-    if system == "Darwin":
-        return "macos"
-    return system.lower() or "unknown"
+    return current_platform_name()
 
 
 

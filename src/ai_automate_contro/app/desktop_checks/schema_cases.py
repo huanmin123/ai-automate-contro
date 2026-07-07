@@ -95,6 +95,51 @@ def _schema_case_definitions() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "desktop-platform-overrides-validates",
+            "expected_ok": True,
+            "plan": {
+                "name": "valid platform overrides",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "hotkey",
+                        "keys": ["primary", "f"],
+                        "platform_overrides": {
+                            "windows": {"keys": ["ctrl", "f"]},
+                            "macos": {"keys": ["command", "f"]},
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            "name": "desktop-platform-overrides-rejects-action-switch",
+            "expected_message": "platform_overrides 不允许切换 action",
+            "plan": {
+                "name": "bad platform override action",
+                "automation_type": "desktop",
+                "steps": [
+                    {"action": "open_desktop", "name": "desktop"},
+                    {
+                        "action": "desktop_input",
+                        "desktop": "desktop",
+                        "type": "hotkey",
+                        "keys": ["primary", "f"],
+                        "platform_overrides": {
+                            "windows": {
+                                "action": "command",
+                                "type": "run",
+                                "command": "echo bad",
+                            }
+                        },
+                    },
+                ],
+            },
+        },
+        {
             "name": "desktop-window-profile-validates",
             "expected_ok": True,
             "plan": {

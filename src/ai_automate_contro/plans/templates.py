@@ -154,7 +154,7 @@ def _templates() -> tuple[PlanTemplate, ...]:
             ),
             risk_notes=(
                 "真实网站下载前仍需要先用 headed 探索或 manual_confirm 处理登录、验证码和权限。",
-                "下载后的读取路径来自 wait_for_download 输出，不要手写 output/downloads 绝对路径。",
+                "下载后的读取路径来自 event type=download 输出，不要手写 output/downloads 绝对路径。",
             ),
             offline_runnable=True,
             run_by_default=True,
@@ -658,7 +658,8 @@ def _write_browser_download_process_template(package_dir: Path, plan_name: str) 
                 {"action": "navigate", "type": "goto", "browser": "web", "url": "{{download_page_url}}"},
                 {"action": "wait", "type": "selector", "browser": "web", "selector": "#download-orders"},
                 {
-                    "action": "wait_for_download",
+                    "action": "event",
+                    "type": "download",
                     "browser": "web",
                     "path": "browser-download-process/orders.csv",
                     "trigger": {
@@ -727,7 +728,7 @@ def _write_browser_download_process_template(package_dir: Path, plan_name: str) 
 ## 修改位置
 
 - `plan.json.variables.download_page_url`: 改成真实下载页。
-- `wait_for_download.trigger`: 改成真实页面的下载按钮或链接操作。
+- `event type=download.trigger`: 改成真实页面的下载按钮或链接操作。
 - `target_status` 和后续 `table` 步骤：按真实 CSV 表头和筛选规则调整。
 
 ## 运行方式

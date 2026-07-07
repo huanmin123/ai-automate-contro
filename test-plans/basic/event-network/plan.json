@@ -1,5 +1,5 @@
 {
-  "name": "wait-for-network",
+  "name": "event-network",
   "automation_type": "browser",
   "variables": {
     "network_demo_url": "data:text/html,<html><body><button id='request-btn'>Send Request</button><button id='response-btn'>Send Response</button><script>document.getElementById('request-btn').addEventListener('click',()=>fetch('https://httpbin.org/get?case=request-demo'));document.getElementById('response-btn').addEventListener('click',()=>fetch('https://httpbin.org/get?case=response-demo'));</script></body></html>"
@@ -17,7 +17,7 @@
       "type": "goto"
     },
     {
-      "action": "wait_for_network",
+      "action": "event",
       "browser": "demo",
       "url": "https://httpbin.org/get?case=request-demo",
       "trigger": {
@@ -32,7 +32,7 @@
       }
     },
     {
-      "action": "wait_for_network",
+      "action": "event",
       "browser": "demo",
       "url": "https://httpbin.org/get?case=response-demo",
       "trigger": {

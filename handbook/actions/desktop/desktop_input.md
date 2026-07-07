@@ -44,7 +44,7 @@
   "action": "desktop_input",
   "desktop": "desk",
   "type": "hotkey",
-  "keys": ["ctrl", "s"]
+  "keys": ["primary", "s"]
 }
 ```
 
@@ -54,10 +54,13 @@
 
 常用键名：
 
-- Windows: `ctrl`、`alt`、`shift`、`win`、`enter`、`esc`、`tab`。
-- macOS: `command`、`cmd`、`option`、`ctrl`、`shift`、`enter`、`esc`、`tab`。
+- 跨平台别名：`primary`、`mod`、`shortcut`、`cmd_or_ctrl` 都表示系统主快捷键；macOS 映射为 `command`，Windows/Linux 映射为 `ctrl`。
+- 跨平台别名：`option_or_alt`、`alt_or_option` 在 macOS 映射为 `option`，其他平台映射为 `alt`。
+- 通用键名：`enter`、`esc`、`tab`、`space`、`delete`、`backspace`、`left`、`right`、`up`、`down`。
+- Windows 明确键：`ctrl`、`alt`、`shift`、`win`。
+- macOS 明确键：`command`、`cmd`、`option`、`ctrl`、`shift`。
 
-plan 应按目标平台写明确快捷键；runtime 不把业务含义自动翻译成平台快捷键。
+跨平台 plan 优先使用 `primary`，例如搜索写 `["primary", "f"]`，全选写 `["primary", "a"]`，粘贴写 `["primary", "v"]`。确实只有某个平台不同的快捷键，再用 step 级 `platform_overrides` 覆盖 `keys`。
 
 ## 系统文件对话框
 

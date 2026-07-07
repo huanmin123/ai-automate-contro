@@ -57,8 +57,8 @@
 - 新建或大改 plan 前必须明确 `automation_type`，只能是 `browser` 或 `desktop`。不明确时先问用户，不能通过 action 名称猜测。
 - 主 `plan.json` 必须声明 `automation_type`；子计划继承主 plan 类型，显式声明时必须一致。
 - 参数级别一致的组件必须收敛为单个 action，并通过 `type` 区分具体操作，例如 `navigate`、`page`、`element`、`wait`、`extract`、`assert`、`capture`、`read`、`write`。
-- 只有参数结构或执行生命周期无法统一时才新增独立组件，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download`。
-- 桌面自动化是独立执行线，不能并入 `command`、浏览器 `element`、浏览器 `mouse` 或浏览器 `keyboard`；桌面流程使用 `open_desktop`、`desktop_app`、`desktop_window`、`desktop_element`、`desktop_input`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等独立 action。
+- 只有参数结构或执行生命周期无法统一时才新增独立组件，例如 `open_browser`、`run_sub_plan`、`foreach`、`retry`。浏览器一次性下载、文件选择器、popup、请求和响应等待统一使用 `event` 的不同 `type`。
+- 桌面自动化是独立执行线，不能并入 `command`、浏览器 `element` 或浏览器 `input`；桌面流程使用 `open_desktop`、`desktop_app`、`desktop_window`、`desktop_element`、`desktop_input`、`desktop_capture`、`desktop_wait`、`desktop_assert` 等独立 action。
 - 新增或修改桌面 action、desktop runtime、backend payload、桌面输出分区、失败采集或 self-check 时，必须先对照 [桌面Action与Runtime契约](../functions/桌面Action与Runtime契约.md)，不要在代码里临时发明字段。
 - `automation_type: "browser"` 只能使用浏览器专属 action 和通用 action；`automation_type: "desktop"` 只能使用桌面专属 action 和通用 action。跨线 action 必须在校验阶段失败。
 - `write` 统一使用 `value` 表示要写出的内容；`type: variables` 不需要 `value`。

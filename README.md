@@ -173,7 +173,7 @@ python .\cplan.py self-check data-components
 
 常见组合场景可以先用 `cplan template list --verbose` 或 `cplan template show <id>` 查看官方模板，再用 `cplan create --template <id>` 生成普通 plan 包；创建时可用 `--param KEY=VALUE` 覆盖模板变量并按模板声明类型校验。当前模板覆盖网页登录表格抽取、Excel 清洗报表、HTTP API 到 Excel、浏览器下载处理、SQLite 导入导出和桌面文件对话框批处理脚手架。
 
-`open_browser`、`run_sub_plan`、`foreach`、`retry`、`wait_for_popup`、`wait_for_download` 这类参数或生命周期明显不同的能力保持独立组件。
+`open_browser`、`run_sub_plan`、`foreach`、`retry` 这类参数或生命周期明显不同的能力保持独立组件；下载、文件选择器、popup、请求和响应等待统一收敛到 `event`。
 
 ## 边界
 

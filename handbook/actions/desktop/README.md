@@ -21,7 +21,7 @@
 ## 使用规则
 
 - 桌面 action 不接受浏览器 DOM selector。
-- 桌面键鼠是操作系统级输入，不等同于浏览器 `mouse`/`keyboard`。
+- 桌面键鼠是操作系统级输入，不等同于浏览器页面内 `input`。
 - desktop plan 默认受运行互斥和前台保护约束：同一项目内一次只运行一个 desktop plan，真实输入前 runtime 会激活并复查目标窗口。
 - 常用 App、系统文件对话框和业务客户端优先用 [app_profile](./app_profile.md) 复用启动参数和 Window Query；step 上显式字段会覆盖 profile 默认值。
 - 坐标级鼠标输入只作兜底；优先使用 `desktop_window` 和 `desktop_element` 的语义定位。表格、树、菜单和滚动容器优先使用 `desktop_element` 的语义 type；上下文菜单项优先使用 `desktop_element type=invoke_menu open_context_menu=true`；控件树不可用或只需要系统级鼠标事件时再用 `desktop_input target=element_center` 或坐标滚轮。定位选择见 [桌面定位策略](./locator_strategy.md)。
