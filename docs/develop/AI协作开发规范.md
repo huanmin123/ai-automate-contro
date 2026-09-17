@@ -69,7 +69,7 @@
 
 ## AI 终端与工具
 
-- AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。
+- AI 终端属于 plan 级能力，用于创建、管理、运行、调试、修复和报告 plan，不允许作为普通 plan action 写入 `steps`。`run_local_command` 是 AI 终端直接调用本机命令的工具，不是 plan action；它可执行任意命令、包管理器、路径和环境变量，不做危险关键词或路径过滤。
 - Textual 交互客户端使用 AI-first UI，不再保留 `plan>`/`ai>` 交互模式或 `AI>`/`你>` 文本前缀。无 AI 的 plan list/create/validate/run/debug 统一放到 `cplan`。
 - AI 终端、LangChain `StructuredTool` 和 `python .\main.py tool call` 必须共享同一套 Pydantic 工具参数模型。
 - 新增 AI 终端工具时，必须在 `src/ai_automate_contro/ai/tool_schemas.py` 新增显式 Pydantic 参数模型，并在 `src/ai_automate_contro/ai/terminal_tool_registry.py` 的 `AI_TERMINAL_TOOL_SPECS` 单表登记处理函数、参数模型、描述、是否需要 `project_root` 和是否受保护。

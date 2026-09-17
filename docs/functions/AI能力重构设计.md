@@ -129,23 +129,16 @@ AI 服务注册进入当前 plan 集合配置或 plan 局部配置：
       "model": "model-name",
       "api_key_env": "TEXT_EXTRACTOR_API_KEY",
       "timeout_seconds": 60,
-      "max_retries": 2,
-      "stream": false,
-      "temperature": 0.2,
-      "top_p": 0.9,
       "max_output_tokens": 2048,
-      "stop": ["\\n\\n"],
-      "reasoning_effort": "medium",
-      "response_format": "json_schema",
-      "strict_schema": true
+      "response_format": "json_schema"
     }
   }
 }
 ```
 
-`protocol` 省略时默认为 `openai_chat_completions`，可选 `openai_responses`、`anthropic_messages` 和 `google_generate_content`。四个协议分别对应 OpenAI Chat Completions、OpenAI Responses API、Anthropic Messages API 和 Google Gemini GenerateContent API。统一服务字段为 `model`、`api_key`、`api_key_env`、`base_url`、`timeout_seconds`、`max_retries`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`stop`、`reasoning_effort`、`response_format` 和 `strict_schema`，由适配层转换成协议请求。
+`protocol` 省略时默认为 `openai_chat_completions`，可选 `openai_responses`、`anthropic_messages` 和 `google_generate_content`。四个协议分别对应 OpenAI Chat Completions、OpenAI Responses API、Anthropic Messages API 和 Google Gemini GenerateContent API。统一字段会通过适配层映射为协议字段，但不产生“所有模型均支持”的假设。
 
-`reasoning_effort` 默认不设置。OpenAI 支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，Anthropic 支持 `low`、`medium`、`high`、`xhigh`、`max`，Gemini 支持 `minimal`、`low`、`medium`、`high`。模型不支持所选级别时直接暴露上游错误。`response_format` 可选 `json_schema`、`json_object` 或 `plain`，四种协议都进行适配，但上游模型能力仍可能拒绝；`strict_schema` 仅映射到 OpenAI，其他协议依赖本地 schema 校验。`openai_responses` 不能配置 `stop`，`anthropic_messages` 不能配置 `temperature`、`top_p`，这些组合在请求前明确报错；不跨协议自动降级。专项 AI 不对服务欠费、503、协议不兼容、返回内容为空或不符合 schema 做手动重试或兼容兜底；SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
+配置字段的完整默认值、用途、协议映射、推理限制、结构化输出差异和不可用组合以 [handbook 的 ai_services 参考](../../handbook/reference/config.md#ai_services) 为唯一准则。设计约束是：配置错误和模型能力不兼容直接暴露；不跨协议自动降级、不改写格式、不手动重试。SDK/LangChain 的传输重试只能通过 `max_retries` 显式配置。
 
 `stream` 是统一服务字段，由所选协议适配器映射；需要 streaming 时必须在配置中显式设置 `"stream": true`。专项 AI 会按对应协议的 streaming 结构还原文本，再执行 JSON 解析和 schema 校验；模型或服务不支持时直接报告上游错误。
 
@@ -177,6 +170,10 @@ output/ai/
 禁止写入源码目录、`resources/`、`docs/` 或其他 plan 包。
 
 ## AI 终端工作流
+
+### 本机命令
+
+AI 终端可通过 `run_local_command` 直接执行任意本机命令，用于安装依赖、运行包管理器、检查环境或执行项目命令。工具接受 shell 命令或 `argv`，支持任意工作目录、环境变量和 stdin；不做危险命令、路径或输出内容过滤。结果保留实际 `argv`、工作目录、退出码、stdout 和 stderr；非零退出码和超时作为结构化失败结果返回，便于 AI 根据原始错误继续处理。它是 AI 终端能力，不写入 plan 的 `steps`。
 
 ### 创建 plan
 
@@ -222,5 +219,6 @@ output/ai/
 - AI 终端可以运行 plan 并解释失败原因。
 - AI 终端可以生成修复补丁，并在用户确认后应用。
 - AI 终端可以通过结构化工具读取 plan、运行 plan、读取日志和输出产物。
+- AI 终端可以直接执行本机命令，并取得未截断的 stdout/stderr 与退出码。
 - 专项 AI 组件输出可被 schema 校验。
 - 所有专项 AI 调试产物都落在当前 plan 包 `output/ai/`。

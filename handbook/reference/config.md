@@ -211,40 +211,88 @@ step 上显式字段优先级高于 profile。
       "base_url": "https://your-openai-compatible-endpoint/v1",
       "model": "your-model",
       "api_key_env": "OPENAI_API_KEY",
-      "stream": true,
       "timeout_seconds": 90,
-      "max_retries": 2,
-      "temperature": 0.2,
-      "top_p": 0.9,
       "max_output_tokens": 2048,
-      "stop": ["\\n\\n"],
-      "reasoning_effort": "medium",
-      "strict_schema": true,
       "response_format": "json_schema"
     }
   }
 }
 ```
 
-`protocol` 是服务配置的规范协议字段，省略时默认为 `openai_chat_completions`。当前支持：
+`protocol` 是规范协议字段，省略时默认为 `openai_chat_completions`。同一个配置集合可以注册多个服务；专项 `ai` action 通过 `service` 选择服务，AI 终端使用 `ai_services.default`。服务配置按集合级和 plan 局部 `config.json` 合并，局部同名字段覆盖集合级字段。
 
-| `protocol` | 对应协议 |
-| --- | --- |
-| `openai_chat_completions` | OpenAI Chat Completions |
-| `openai_responses` | OpenAI Responses API |
-| `anthropic_messages` | Anthropic Messages API |
-| `google_generate_content` | Google Gemini GenerateContent API |
+| `protocol` | 上游协议 | `base_url` 的常见官方根地址 | 适合场景 |
+| --- | --- | --- | --- |
+| `openai_chat_completions` | OpenAI Chat Completions | `https://api.openai.com/v1` | 默认值；OpenAI-compatible 网关通常优先使用此协议 |
+| `openai_responses` | OpenAI Responses API | `https://api.openai.com/v1` | 使用 Responses 专有能力或模型时 |
+| `anthropic_messages` | Anthropic Messages API | `https://api.anthropic.com` | Claude 原生服务或兼容服务 |
+| `google_generate_content` | Google Gemini GenerateContent API | `https://generativelanguage.googleapis.com` | Gemini 原生服务或兼容服务 |
 
-除 `protocol` 外，服务配置使用统一字段：`model`、`api_key`、`api_key_env`、`base_url`、`timeout_seconds`、`max_retries`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`stop`、`reasoning_effort`、`response_format` 和 `strict_schema`。字段统一命名不代表每个协议都接受全部字段；未填写的可选字段不发送给上游。
+`base_url` 必须与所选协议匹配。OpenAI 的 URL 通常包含 `/v1`，Anthropic 根地址不包含 `/v1`，Gemini 客户端会自行追加 API 版本和 `models/...:generateContent` 路径。不要把 Chat Completions 的网关地址填给 Anthropic、Gemini 或 Responses，项目不会试探、转换或自动降级。
 
-`reasoning_effort` 默认不设置。OpenAI 两种协议支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；Anthropic 支持 `low`、`medium`、`high`、`xhigh`、`max`；Gemini 支持 `minimal`、`low`、`medium`、`high`。模型不支持所选级别时保留并报告上游原始错误。
+### 参数参考
 
-`response_format` 可选 `json_schema`、`json_object` 或 `plain`，四种协议都会进行对应适配，但具体模型能力仍可能拒绝该配置。`strict_schema` 是 OpenAI JSON Schema 请求的严格模式；Anthropic/Gemini 由返回后的本地 schema 校验保证输出形状。协议选择固定后不会自动切换或降级到其他协议。配置可以直接写 `api_key`，也可以通过 `api_key_env` 读取环境变量。
+下表是 `ai_services.<服务名>` 的完整参数参考。统一字段的名字相同，不表示所有协议均支持；未填写的可选字段不会发送给上游，`anthropic_messages` 的 `max_tokens` 例外，见 `max_output_tokens`。
 
-| 字段 | 不可用的协议 | 行为 |
-| --- | --- | --- |
-| `stop` | `openai_responses` | 配置校验失败 |
-| `temperature`、`top_p` | `anthropic_messages` | 配置校验失败 |
+| 字段 | 类型与默认值 | 用途 | 注意事项 |
+| --- | --- | --- | --- |
+| `protocol` | 字符串；默认 `openai_chat_completions` | 选择请求和响应协议。 | 新配置只使用该字段。选择后固定使用该协议，失败时不切换供应商。 |
+| `model` | 非空字符串；必填 | 上游模型 ID。 | 模型能力不是协议能力的一部分；例如某个 reasoning 档位、JSON Schema 或采样参数是否可用，最终由模型决定。 |
+| `api_key` | 非空字符串；可选 | 直接提供服务密钥。 | 有值时优先于 `api_key_env`。适合本地临时调试；提交配置前自行决定是否保留。 |
+| `api_key_env` | 非空字符串；可选 | 指定承载密钥的环境变量名。 | 仅当没有 `api_key` 时读取。变量缺失或为空会在本地报错，不会发起请求。 |
+| `base_url` | 非空 URL 字符串；可选 | 覆盖供应商 SDK 的服务根地址。 | 用于代理、兼容网关或私有部署；路径格式必须符合上表说明。省略时由各 SDK 使用官方默认地址。 |
+| `timeout_seconds` | 正数；默认 `60` | 单次 HTTP 请求的超时。 | OpenAI/Anthropic 直接使用秒；Gemini 适配器转换为毫秒。它不限制整个 plan 的执行时间。 |
+| `max_retries` | 非负整数；默认由 SDK 决定 | 配置 SDK/LangChain 的传输重试次数。 | `0` 关闭重试；Gemini 适配为总尝试 `1` 次。只处理传输层可重试错误，不会重写提示词、换协议或修复格式错误。 |
+| `stream` | 布尔；默认 `false` | 让专项 `ai` action 使用协议原生流式调用。 | AI 终端始终流式渲染，本字段不改变终端行为。上游模型或网关不支持流式时保留原始错误。 |
+| `temperature` | 数字；默认不发送 | 控制采样随机性，值越低通常越稳定。 | `anthropic_messages` 当前 SDK 不接受，配置会失败。对 reasoning 模型，供应商可能禁止非默认采样值；项目不静默删除，须按模型文档选择或接受上游错误。 |
+| `top_p` | 数字；默认不发送 | 核采样阈值，通常与 `temperature` 二选一调节。 | `anthropic_messages` 当前 SDK 不接受，配置会失败。reasoning 模型可能另有限制。 |
+| `max_output_tokens` | 正整数；默认不发送 | 限制生成上限。 | 映射为 Chat Completions 的 `max_completion_tokens`、Responses/Gemini 的 `max_output_tokens`、Anthropic 的 `max_tokens`。Anthropic 要求该字段，省略时适配器发送 `4096`。 |
+| `stop` | 非空字符串或非空字符串数组；默认不发送 | 指定生成到达的停止序列。 | 单个字符串会规范化为数组。映射到 Chat 的 `stop`、Anthropic 的 `stop_sequences`、Gemini 的 `stop_sequences`；`openai_responses` 不支持，配置会失败。 |
+| `reasoning_effort` | 字符串；默认不发送 | 请求模型使用指定的思考强度。 | 这是跨协议的有限抽象，详见“思考级别”。不是完整的模型推理/预算设置。 |
+| `response_format` | `json_schema`、`json_object` 或 `plain`；默认 `json_schema` | 控制专项 AI 的上游输出格式约束。 | 专项 AI 无论取值如何都会解析 JSON 并做本地 schema 校验；`plain` 仅表示不向上游发送格式约束，不表示 action 可以返回任意文本。AI 终端不使用此字段。 |
+| `strict_schema` | 布尔；默认 `true` | OpenAI JSON Schema 请求的 strict 标记。 | 仅在 `response_format=json_schema` 时对 OpenAI 两种协议发送。Anthropic/Gemini 不接收该字段，但四协议的专项 AI 返回值都会经过本地 schema 校验。 |
+| `provider` | 字符串；兼容校验字段 | 可选地声明服务提供方。 | 新配置不需要填写，`protocol` 已足够。填写时只校验组合是否合法：OpenAI 协议为 `openai`/`openai-compatible`，Anthropic 为 `anthropic`，Gemini 为 `google`/`gemini`。它不改变实际客户端。 |
+| `api` | 字符串；旧配置兼容字段 | 兼容旧的 `chat_completions`/`responses`。 | 新配置不要使用；请迁移为 `protocol: openai_chat_completions` 或 `protocol: openai_responses`。同时写入时以 `protocol` 为准。 |
+
+### 思考级别
+
+`reasoning_effort` 只在填写时发送，未填写即保持供应商或模型默认值。允许值和实际映射如下：
+
+| 协议 | 可配置值 | 上游字段 | 重要限制 |
+| --- | --- | --- | --- |
+| `openai_chat_completions` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | `reasoning_effort` | 值集合来自当前 OpenAI SDK；每个模型并不保证支持所有值。 |
+| `openai_responses` | `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` | `reasoning: {"effort": "..."}` | 不会错误地发送顶层 `reasoning_effort`。模型能力不足时保留上游错误。 |
+| `anthropic_messages` | `low`、`medium`、`high`、`xhigh`、`max` | `output_config.effort` | 不等同于 Anthropic 的 `thinking` / `budget_tokens` extended thinking；当前配置没有暴露预算参数。 |
+| `google_generate_content` | `minimal`、`low`、`medium`、`high` | `thinking_config.thinking_level`，转换为大写 | Gemini 模型是否支持 thinking level 及档位由上游模型决定。 |
+
+不要因为需要“更强思考”就同时填入供应商私有 `thinking`、`budget_tokens` 或网关自定义字段；这些字段不在统一契约中，会被拒绝或不被发送。需要新增此类能力时，应先扩展配置契约、适配器和 mock 上游验证。
+
+### 协议能力矩阵
+
+| 通用字段 | Chat Completions | Responses | Anthropic Messages | Gemini GenerateContent |
+| --- | --- | --- | --- | --- |
+| `temperature` / `top_p` | 支持 | 支持 | 本地拒绝 | 支持 |
+| `max_output_tokens` | `max_completion_tokens` | `max_output_tokens` | `max_tokens`，默认 `4096` | `max_output_tokens` |
+| `stop` | `stop` | 本地拒绝 | `stop_sequences` | `stop_sequences` |
+| `reasoning_effort` | `reasoning_effort` | `reasoning.effort` | `output_config.effort` | `thinking_config.thinking_level` |
+| `response_format=json_schema` | `response_format.json_schema` | `text.format` | `output_config.format` | `response_mime_type` + `response_json_schema` |
+| `response_format=json_object` | `response_format.json_object` | `text.format.json_object` | 空对象 JSON Schema | `application/json` MIME 类型 |
+| `stream=true` | Chat Completion SSE | Responses SSE | Messages SSE | GenerateContent SSE |
+
+JSON Schema 的供应商支持范围不同。`strict_schema` 不能把 Anthropic 或 Gemini 变成 OpenAI strict mode；所有专项 AI 结果仍会在本地进行 JSON 解析和 schema 校验。协议选择固定后不会自动切换、手动重试、改写格式或降级到其他协议。
+
+需要启用思考级别时，在最小配置上只增加 `reasoning_effort`，并先不要同时设置 `temperature` 或 `top_p`：
+
+```json
+{
+  "protocol": "openai_responses",
+  "model": "your-reasoning-model",
+  "api_key_env": "OPENAI_API_KEY",
+  "reasoning_effort": "high"
+}
+```
+
+待模型文档确认支持采样参数后，再单独增加 `temperature` 或 `top_p`。项目不会为了兼容模型而静默删除用户配置。
 
 需要同时注册多个协议时，可以在同一个 `ai_services` 集合中分别配置服务：
 

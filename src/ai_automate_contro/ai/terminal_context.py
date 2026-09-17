@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+from uuid import uuid4
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import wrap_model_call
@@ -49,6 +50,8 @@ class AITerminalState(AgentState):
     latest_desktop_failure_screenshots: NotRequired[str]
     work_plan_items: NotRequired[list[dict[str, str]]]
     work_plan_summary: NotRequired[str]
+    work_plan_id: NotRequired[str]
+    work_plan_lifecycle: NotRequired[str]
 
 
 @wrap_model_call(state_schema=AITerminalState, name="AITerminalContextMiddleware")
@@ -161,6 +164,8 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     desktop_failure_repair_suggestions = state.get("latest_desktop_failure_repair_suggestions")
     desktop_failure_state_files = state.get("latest_desktop_failure_state_files")
     desktop_failure_screenshots = state.get("latest_desktop_failure_screenshots")
+    work_plan_id = state.get("work_plan_id")
+    work_plan_lifecycle = state.get("work_plan_lifecycle")
     if isinstance(desktop_platform, str) and desktop_platform:
         lines.append(f"- latest_desktop_inspection_platform: {desktop_platform}")
         added = True
@@ -194,6 +199,12 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     if isinstance(desktop_failure_screenshots, str) and desktop_failure_screenshots:
         lines.append(f"- latest_desktop_failure_screenshots: {desktop_failure_screenshots}")
         added = True
+    if isinstance(work_plan_id, str) and work_plan_id:
+        lines.append(f"- work_plan_id: {work_plan_id}")
+        added = True
+    if isinstance(work_plan_lifecycle, str) and work_plan_lifecycle:
+        lines.append(f"- work_plan_lifecycle: {work_plan_lifecycle}")
+        added = True
     if not added:
         plan_context = format_work_plan_for_context(
             state.get("work_plan_items"),
@@ -208,7 +219,7 @@ def format_ai_terminal_context(state: dict[str, Any]) -> str:
     )
     if plan_context:
         lines.extend(["", plan_context])
-    lines.append("如果用户没有指定路径，优先使用这些上下文；如果上下文不足，再询问或调用工具确认。需要历史细节时，先读取压缩摘要，再按需读取归档消息文件的相关行段。")
+    lines.append("如果用户没有指定路径，优先使用这些上下文。用户在 active 工作计划期间发送的后续消息都是对当前计划的引导或纠正，不要新建第二份待办。只有当前计划 completed/canceled，或用户明确要求放弃后，才能 start 新计划。需要历史细节时，先读取压缩摘要，再按需读取归档消息文件的相关行段。")
     return "\n".join(lines)
 
 
@@ -309,13 +320,28 @@ def context_update_from_tool_result(
 
 def work_plan_update_from_tool_result(
     tool_name: str,
+    arguments: dict[str, Any],
     result: dict[str, Any],
+    current_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if tool_name != "update_work_plan" or not isinstance(result, dict) or result.get("ok") is False:
         return {}
+    operation = str(result.get("operation") or arguments.get("operation") or "continue")
+    previous_id = ""
+    if isinstance(current_state, dict):
+        previous_id = str(current_state.get("work_plan_id") or current_state.get("id") or "")
+    lifecycle = {
+        "start": "active",
+        "continue": "active",
+        "complete": "completed",
+        "cancel": "canceled",
+    }.get(operation, "active")
+    work_plan_id = f"work-plan-{uuid4().hex[:12]}" if operation == "start" else previous_id or f"work-plan-{uuid4().hex[:12]}"
     return {
         "work_plan_items": normalize_work_plan_items(result.get("items")),
         "work_plan_summary": normalize_work_plan_summary(result.get("summary", "")),
+        "work_plan_id": work_plan_id,
+        "work_plan_lifecycle": lifecycle,
     }
 
 

@@ -52,21 +52,26 @@ class FakeAgentBackend:
     def __init__(self, *, response: str | None = None, delay: float = 0.0) -> None:
         self.response = response or "你好，我在。\n\n我可以帮你创建、运行、校验和调试 plan。"
         self.delay = delay
+        self._context_state: dict[str, Any] = {}
 
     async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
         yield ClientEvent("status", text="正在处理")
         if "计划" in message or "todo" in message.lower():
+            self._context_state = {
+                "work_plan_summary": "演示复杂任务计划",
+                "work_plan_items": [
+                    {"title": "确认目标", "status": "completed"},
+                    {"title": "检查工具输出", "status": "in_progress"},
+                    {"title": "总结结果", "status": "pending"},
+                ],
+            }
             yield ClientEvent("activity", text="更新工作计划", data={"category": "plan", "phase": "done"})
             yield ClientEvent(
                 "work_plan_updated",
                 text="当前工作计划：0/3 完成",
                 data={
                     "summary": "演示复杂任务计划",
-                    "items": [
-                        {"title": "确认目标", "status": "completed"},
-                        {"title": "检查工具输出", "status": "in_progress"},
-                        {"title": "总结结果", "status": "pending"},
-                    ],
+                    "items": self._context_state["work_plan_items"],
                 },
             )
         if "工具" in message or "weather" in message.lower() or "天气" in message:
@@ -112,7 +117,7 @@ class FakeAgentBackend:
             "thread_id": "fake",
             "busy": False,
             "pending_approval": False,
-            "context_state": {},
+            "context_state": copy.deepcopy(self._context_state),
         }
 
     async def check_service(self, message: str = "只回复 ok") -> dict[str, Any]:
@@ -132,7 +137,7 @@ class FakeAgentBackend:
 class AITerminalBackend:
     """Event backend that feeds the Textual client from the LangGraph AI runtime."""
 
-    def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
+    def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "") -> None:
         self.project_root = project_root
         self.service = service
         self._base_thread_id = thread_id
@@ -147,6 +152,7 @@ class AITerminalBackend:
         self._thread_fork_count = 0
         self._last_stable_state: dict[str, Any] | None = None
         self._fork_seed_state: dict[str, Any] | None = None
+        self._last_status_snapshot: dict[str, Any] | None = None
 
     async def stream(self, message: str) -> AsyncIterator[ClientEvent]:
         await self._prepare_interrupted_terminal_for_next_turn()
@@ -164,7 +170,20 @@ class AITerminalBackend:
             try:
                 terminal = self._require_terminal()
                 self._last_stable_state = _terminal_state_snapshot(terminal)
-                terminal.run_event_turn(message, lambda event: emit(_client_event_from_terminal_event(event)))
+
+                def emit_terminal_event(event: AITerminalEvent) -> None:
+                    # Refresh the fork seed after graph-backed state has been
+                    # committed, so an intervention continues the latest plan
+                    # and context rather than the turn's initial snapshot.
+                    if event.kind in {"context_updated", "work_plan_updated", "tool_finished"}:
+                        stable_state = _terminal_state_snapshot(terminal)
+                        if stable_state is not None:
+                            self._last_stable_state = stable_state
+                    if event.kind == "context_updated":
+                        self._last_status_snapshot = copy.deepcopy(dict(event.data))
+                    emit(_client_event_from_terminal_event(event))
+
+                terminal.run_event_turn(message, emit_terminal_event)
             except SystemExit:
                 emit(ClientEvent("exit_requested", text="已收到退出命令。"))
             except Exception as error:
@@ -174,6 +193,8 @@ class AITerminalBackend:
                     error_text = format_error_for_terminal(error, project_root=self.project_root)
                 emit(ClientEvent("error", text=error_text))
             finally:
+                if terminal is not None and not self._turn_interrupted:
+                    self._last_stable_state = _terminal_state_snapshot(terminal)
                 loop.call_soon_threadsafe(queue.put_nowait, None)
 
         worker = asyncio.create_task(asyncio.to_thread(run_turn))
@@ -273,6 +294,9 @@ class AITerminalBackend:
         terminal = self._terminal
         if terminal is not None:
             terminal_cancelled = await asyncio.to_thread(terminal._cancel_agent_turn)
+            latest_state = await asyncio.to_thread(_terminal_state_snapshot, terminal)
+            if latest_state is not None:
+                self._last_stable_state = latest_state
         self._turn_interrupted = True
         queue = self._active_queue
         if queue is not None:
@@ -290,6 +314,7 @@ class AITerminalBackend:
             from ai_automate_contro.ai.terminal import AITerminal
 
             self._terminal = AITerminal(self.project_root, service=self.service, thread_id=self.thread_id)
+            self.thread_id = str(getattr(self._terminal, "thread_id", self.thread_id) or self.thread_id)
             seed_state = self._fork_seed_state
             self._fork_seed_state = None
             if seed_state is not None:
@@ -332,17 +357,37 @@ class AITerminalBackend:
         self._needs_intervention_fork = False
 
     def _fork_thread_for_intervention(self) -> None:
+        parent_terminal = self._terminal
+        latest_state = _terminal_state_snapshot(parent_terminal) if parent_terminal is not None else None
+        if latest_state is not None:
+            self._last_stable_state = latest_state
         self._thread_fork_count += 1
-        self.thread_id = f"{self._base_thread_id}-intervention-{self._thread_fork_count}"
+        parent_thread_id = str(
+            getattr(parent_terminal, "thread_id", "")
+            or self.thread_id
+            or self._base_thread_id
+            or "default"
+        )
+        self.thread_id = f"{parent_thread_id}-intervention-{self._thread_fork_count}"
         self._fork_seed_state = copy.deepcopy(self._last_stable_state or {})
         self._terminal = None
 
     def _status_snapshot_sync(self) -> dict[str, Any]:
-        terminal_data: dict[str, Any] = {}
-        if self._terminal is not None:
-            terminal_data = dict(self._terminal.client_status_snapshot())
-        elif self.thread_id:
-            terminal_data = {"thread_id": self.thread_id, "service": self.service}
+        if self._terminal is None and self._needs_intervention_fork:
+            # The interrupted worker may still be closing its terminal. Return
+            # the last committed UI snapshot without opening a second terminal
+            # on the parent thread; the next stream will create the fork.
+            if self._last_status_snapshot is not None:
+                snapshot = copy.deepcopy(self._last_status_snapshot)
+                snapshot["thread_id"] = self.thread_id
+                snapshot["busy"] = False
+                return snapshot
+            return {"thread_id": self.thread_id, "service": self.service, "busy": False}
+        terminal = self._terminal or self._require_terminal()
+        terminal_data = dict(terminal.client_status_snapshot())
+        resolved_thread_id = str(terminal_data.get("thread_id") or "").strip()
+        if resolved_thread_id:
+            self.thread_id = resolved_thread_id
         return terminal_data
 
     def _try_require_terminal(self) -> Any | None:

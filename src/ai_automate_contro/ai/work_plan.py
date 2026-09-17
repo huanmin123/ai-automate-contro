@@ -4,6 +4,8 @@ from typing import Any
 
 
 WORK_PLAN_STATUSES = {"pending", "in_progress", "completed"}
+WORK_PLAN_LIFECYCLES = {"active", "completed", "canceled"}
+WORK_PLAN_OPERATIONS = {"start", "continue", "complete", "cancel"}
 MAX_WORK_PLAN_ITEMS = 12
 MAX_WORK_PLAN_TITLE_CHARS = 120
 MAX_WORK_PLAN_NOTE_CHARS = 180
@@ -37,6 +39,50 @@ def normalize_work_plan_items(items: Any) -> list[dict[str, str]]:
 
 def normalize_work_plan_summary(summary: Any) -> str:
     return _compact_text(summary, limit=160)
+
+
+def normalize_work_plan_operation(operation: Any) -> str:
+    normalized = str(operation or "continue").strip()
+    if normalized not in WORK_PLAN_OPERATIONS:
+        raise ValueError("work plan operation 只能是 start、continue、complete 或 cancel。")
+    return normalized
+
+
+def work_plan_lifecycle_for_operation(operation: Any) -> str:
+    normalized = normalize_work_plan_operation(operation)
+    return {
+        "start": "active",
+        "continue": "active",
+        "complete": "completed",
+        "cancel": "canceled",
+    }[normalized]
+
+
+def normalize_work_plan_lifecycle(lifecycle: Any) -> str:
+    normalized = str(lifecycle or "").strip()
+    if normalized not in WORK_PLAN_LIFECYCLES:
+        raise ValueError("work plan lifecycle 只能是 active、completed 或 canceled。")
+    return normalized
+
+
+def validate_work_plan_transition(
+    current_lifecycle: Any,
+    *,
+    operation: Any,
+    items: Any,
+) -> str:
+    """Reject opening another visible plan before the current one is closed."""
+    normalized_operation = normalize_work_plan_operation(operation)
+    normalized_items = normalize_work_plan_items(items)
+    current = str(current_lifecycle or "").strip()
+    has_active_plan = current == "active"
+    if normalized_operation == "start" and has_active_plan:
+        raise ValueError("当前工作计划仍在进行中；用户后续消息必须作为该计划的引导。请继续、完成或取消当前计划后再开始新计划。")
+    if normalized_operation in {"complete", "cancel"} and not has_active_plan:
+        raise ValueError("当前没有进行中的工作计划，不能结束或取消。")
+    if normalized_operation == "complete" and any(item["status"] != "completed" for item in normalized_items):
+        raise ValueError("完成工作计划前，所有待办项必须标记为 completed。")
+    return normalized_operation
 
 
 def format_work_plan_for_terminal(items: Any, *, summary: Any = "") -> str:

@@ -133,7 +133,7 @@ python .\main.py ai --thread login-debug
 
 模型请求边界保持 OpenAI-compatible：AI 终端不向模型请求体塞自定义事件、thread metadata、附件 metadata 或项目内部上下文字段。线程上下文在模型调用前作为普通 system message 文本追加；图片附件在发送前临时转换为 Chat Completions 兼容的 `content` 列表，形态为 `text` 加 `image_url`；工具调用交给 LangChain/OpenAI 原生 `tool_calls`。本地 checkpoint、会话索引和附件 metadata 只服务恢复与归档，不作为自定义协议字段发给模型厂商。
 
-会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`，用户可以用 `--thread <id>` 进入或恢复同一个 AI 会话。Textual 客户端面向用户只暴露统一 `/status`、`/sessions [limit|all]`、`/resume <thread-id-or-index>` 和 `/new` 这几个会话入口。会话列表摘要维护在 `.keygen/ai-terminal-sessions/index.json`，只保存线程、时间、计数、最近消息预览和上下文路径摘要；`/sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
+会话状态由 LangGraph `SqliteSaver` 持久化到本地 `.keygen/ai-terminal-checkpoints.sqlite`。未传 `--thread` 时，终端恢复 `.keygen/ai-terminal-sessions/index.json` 中记录的活动线程；显式 `--thread <id>` 和 `/resume <thread-id-or-index>` 才切换线程，并立即更新活动线程指针。会话索引只是可恢复摘要，启动和列举时都会以 checkpoint 合并校正，不能用旧索引覆盖较新的图状态。Textual 客户端面向用户只暴露统一 `/status`、`/sessions [limit|all]`、`/resume <thread-id-or-index>` 和 `/new` 这几个会话入口；`/sessions` 不打印完整消息历史。`.keygen/` 属于本地运行状态，由 Git 忽略。
 
 AI 客户端回合由后台 worker 执行，输入区保持可用。用户发送自然语言后，LangGraph `stream_mode=["messages", "values"]` 持续把 AI token 转成客户端事件；期间继续发送的普通消息进入队列，当前轮完成后继续处理。服务端 503、欠费、协议不兼容或 schema 错误会直接展示，不做本地兼容兜底。
 
@@ -147,8 +147,12 @@ AI 终端还有线程级业务上下文状态，和消息历史一起进入 Lang
 - `latest_compression_summary_path`
 - `latest_compression_messages_path`
 - `latest_compression_archive_dir`
+- `work_plan_id`
+- `work_plan_lifecycle`
 
 线程状态会在选择、运行、调试 plan 或结构化工具返回 plan、debug workspace、run output 时自动更新；Textual 客户端通过统一状态快照展示 `/status`，并保留 `/new`、`/sessions` 和 `/resume` 管理会话。模型调用前，`AITerminalContextMiddleware` 会把这些上下文追加到 system message，让用户可以说“当前 plan”“最近失败输出”“这个 debug workspace”，不必每次重复路径。
+
+复杂任务另有一份线程级、用户可见的主工作计划。`update_work_plan` 的 `start` 只能在不存在活动计划时使用；`continue` 更新同一计划；`complete` 要求全部事项已完成；`cancel` 表示用户明确放弃。活动计划期间的任何后续自然语言、队列消息或中断后的介入消息都属于该计划的引导或纠正，运行时会拒绝再次 `start`，而不是依赖模型自行遵守。`/new` 会先把仍处于活动状态的计划标记为取消，再创建新线程；同一线程在计划完成或取消后才允许开始下一份计划。
 
 长会话压缩使用 LangChain `SummarizationMiddleware`。项目按 128k token 作为通用上下文标准，约 64k tokens 自动触发压缩，压缩后保留约 32k tokens 的近期上下文；完整消息、摘要和 manifest 归档到 `.keygen/ai-terminal-sessions/<thread>/compressions/`，实时模型上下文只保留摘要和归档位置。摘要生成依赖当前模型服务，服务侧报错会直接暴露给用户，不做项目内兼容兜底。
 
@@ -279,7 +283,7 @@ LangGraph 只编排 AI 工作流，不接管浏览器执行器。浏览器执行
 
 ## 工具边界
 
-AI 终端只能通过工具操作项目。
+AI 终端通过工具操作项目和本机环境。除 plan/read/debug 等结构化工具外，`run_local_command` 是直接本机终端工具：可执行任意命令、包管理器、路径和环境变量，不做命令内容过滤；工具结果保留命令、工作目录、退出码和未截断的 stdout/stderr。它不属于 plan action，不能写入 `steps`。
 
 当前工具清单以 `src/ai_automate_contro/ai/terminal_tool_registry.py` 里的 `AI_TERMINAL_TOOL_SPECS` 为准，也可以用 `python .\main.py tool list` 查看；文档不再维护容易过期的完整静态枚举。工具按职责分为几类：
 

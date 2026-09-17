@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import json
+import platform
 import tempfile
 import time
 from pathlib import Path
@@ -102,6 +103,71 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
             name="handler_signatures_match_schema",
             passed=not registry_result.get("schema_signature_mismatches"),
             detail={"mismatches": registry_result.get("schema_signature_mismatches", [])},
+        )
+    )
+
+    local_command_tool = tool_by_name.get("run_local_command")
+    local_command_ok = False
+    local_command_detail: dict[str, Any] = {}
+    if local_command_tool is not None:
+        try:
+            marker = "ai-terminal-local-command"
+            if platform.system() == "Windows":
+                command = (
+                    "$env:AI_TERMINAL_LOCAL_COMMAND_MARKER; "
+                    "[Console]::Error.WriteLine('stderr-line'); "
+                    "Write-Output ('x' * 70000); exit 7"
+                )
+                timeout_command = "Start-Sleep -Milliseconds 200"
+            else:
+                command = (
+                    "printf '%s\\n' \"$AI_TERMINAL_LOCAL_COMMAND_MARKER\"; "
+                    "printf 'stderr-line\\n' >&2; "
+                    "yes x | tr -d '\\n' | head -c 70000; printf '\\n'; exit 7"
+                )
+                timeout_command = "sleep 0.2"
+            raw_result = local_command_tool.invoke(
+                {
+                    "command": command,
+                    "cwd": str(root),
+                    "env": {"AI_TERMINAL_LOCAL_COMMAND_MARKER": marker},
+                }
+            )
+            result = json.loads(raw_result)
+            expected_stdout = marker + "\n" + ("x" * 70000) + "\n"
+            timeout_result = json.loads(
+                local_command_tool.invoke(
+                    {
+                        "command": timeout_command,
+                        "timeout_seconds": 0.01,
+                    }
+                )
+            )
+            local_command_ok = (
+                result.get("ok") is False
+                and result.get("exit_code") == 7
+                and result.get("timed_out") is False
+                and str(result.get("stdout", "")).replace("\r\n", "\n") == expected_stdout
+                and str(result.get("stderr", "")).replace("\r\n", "\n") == "stderr-line\n"
+                and result.get("cwd") == str(root)
+                and result.get("env") == {"AI_TERMINAL_LOCAL_COMMAND_MARKER": marker}
+                and timeout_result.get("ok") is False
+                and timeout_result.get("timed_out") is True
+                and captured_calls[-1]["name"] == "run_local_command"
+            )
+            local_command_detail = {
+                "exit_code": result.get("exit_code"),
+                "stdout_bytes": len(str(result.get("stdout", "")).encode("utf-8")),
+                "stderr": result.get("stderr"),
+                "timeout_error_type": timeout_result.get("error_type"),
+            }
+        except Exception as error:
+            local_command_detail = {"error": str(error)}
+    checks.append(
+        _self_check_result(
+            name="run_local_command_unrestricted_result",
+            passed=local_command_ok,
+            detail=local_command_detail,
         )
     )
 
@@ -635,6 +701,7 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     update_work_plan_tool.invoke(
                         {
                             "summary": "self-check plan",
+                            "operation": "start",
                             "items": [
                                 {"title": "确认目标", "status": "completed"},
                                 {"title": "更新计划", "status": "in_progress"},

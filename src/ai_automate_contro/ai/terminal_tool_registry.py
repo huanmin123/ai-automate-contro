@@ -51,6 +51,7 @@ from ai_automate_contro.ai.tool_schemas import (
     ReadRunLogArgs,
     ReviewPlanQualityArgs,
     RunDebugPlanArgs,
+    RunLocalCommandArgs,
     RunPlanArgs,
     ScheduleIdArgs,
     UpdateWorkPlanArgs,
@@ -249,7 +250,7 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
     "update_work_plan": ToolSpec(
         terminal_tools.update_work_plan_tool,
         UpdateWorkPlanArgs,
-        "更新当前用户可见工作计划；复杂、多步骤、改文件或运行 plan 前使用，简单问答可省略。",
+        "维护当前唯一用户可见工作计划；首次 start，进行中 continue，完成 complete，放弃 cancel。active 计划未结束时禁止 start 第二份待办。",
     ),
     "read_run_events": ToolSpec(
         terminal_tools.read_run_events_tool,
@@ -271,6 +272,12 @@ AI_TERMINAL_TOOL_SPECS: dict[str, ToolSpec] = {
         terminal_tools.run_debug_plan_tool,
         RunDebugPlanArgs,
         "运行调试工作区内的 injected-plan/plan.json。",
+        requires_project_root=True,
+    ),
+    "run_local_command": ToolSpec(
+        terminal_tools.run_local_command_tool,
+        RunLocalCommandArgs,
+        "直接执行任意本机命令，用于安装依赖、调用包管理器、检查环境或运行项目命令。不会拦截命令内容、路径、环境变量或 stdout/stderr；非零退出码和超时也返回原始结果供继续处理。",
         requires_project_root=True,
     ),
     "run_plan": ToolSpec(

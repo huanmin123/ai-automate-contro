@@ -40,24 +40,22 @@ AI 服务注册在集合级或局部 `config.json`：
       "base_url": "https://example.com/v1",
       "model": "model-name",
       "api_key_env": "AI_TEST_API_KEY",
-      "stream": false,
       "timeout_seconds": 90,
-      "max_retries": 2,
-      "temperature": 0.2,
-      "top_p": 0.9,
       "max_output_tokens": 2048,
-      "stop": ["\\n\\n"],
-      "reasoning_effort": "medium",
-      "response_format": "json_schema",
-      "strict_schema": true
+      "response_format": "json_schema"
     }
   }
 }
 ```
 
-`protocol` 省略时默认为 `openai_chat_completions`。可选协议为 `openai_chat_completions`（OpenAI Chat Completions）、`openai_responses`（OpenAI Responses API）、`anthropic_messages`（Anthropic Messages API）和 `google_generate_content`（Google Gemini GenerateContent API）。服务配置的通用字段为 `model`、`api_key`、`api_key_env`、`base_url`、`timeout_seconds`、`max_retries`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`stop`、`reasoning_effort`、`response_format` 和 `strict_schema`，适配层会把它们映射到选定协议。
+`protocol` 省略时默认为 `openai_chat_completions`。可选协议为 `openai_chat_completions`（OpenAI Chat Completions）、`openai_responses`（OpenAI Responses API）、`anthropic_messages`（Anthropic Messages API）和 `google_generate_content`（Google Gemini GenerateContent API）。`service` 固定选择其中一个服务，不会在失败时改用另一个协议。
 
-`reasoning_effort` 默认不设置。OpenAI 两种协议支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；Anthropic 支持 `low`、`medium`、`high`、`xhigh`、`max`；Gemini 支持 `minimal`、`low`、`medium`、`high`。模型不支持所选级别时直接报告上游原始错误。`response_format` 可选 `json_schema`、`json_object` 或 `plain`，四种协议都会适配，但具体模型能力仍可能拒绝；`strict_schema` 仅映射到 OpenAI 请求，其他协议由本地 schema 校验兜底。`openai_responses` 不接受 `stop`，`anthropic_messages` 不接受 `temperature` 或 `top_p`，填写时会在本地配置校验失败；不会跨协议自动降级、手动重试或格式兜底。需要调整传输重试时在服务配置里设置 `max_retries`。
+服务配置属于跨 action 的运行配置，而不是本 action 的字段。`model`、密钥、URL、超时、重试、流式、采样、输出上限、停止序列、思考级别和结构化输出的完整用途、默认值、字段映射、模型限制及不可用组合，请以 [配置参考的 ai_services](../../../reference/config.md#ai_services) 为准。尤其注意：
+
+- `stream` 只控制专项 `ai` action；AI 终端始终流式渲染。
+- `response_format` 仅控制专项 action 的上游格式约束；本 action 最终仍必须解析为 JSON 并通过 `schema` 校验。
+- `openai_responses` 不能设置 `stop`；`anthropic_messages` 不能设置 `temperature` 或 `top_p`，都会在请求前失败。
+- `reasoning_effort` 是有限统一抽象，模型不支持某一档位时会保留上游错误，不做自动降级。
 
 配置可以直接写真实密钥，也可以通过 `api_key_env` 引用环境变量。plan 会按配置调用模型服务。
 

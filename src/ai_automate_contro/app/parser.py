@@ -67,7 +67,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="不带子命令时启动 Textual AI 客户端；带 check/ask 时执行一次性 AI 诊断或脚本化请求。",
     )
     ai_parser.add_argument("--service", default="default", help="配置中的 AI 服务名称。")
-    ai_parser.add_argument("--thread", default="default", help="持久化 AI 会话线程 id。")
+    ai_parser.add_argument("--thread", default="", help="持久化 AI 会话线程 id；省略时恢复最近活动会话。")
     ai_subparsers = ai_parser.add_subparsers(dest="ai_command")
     ai_check_parser = ai_subparsers.add_parser("check", help="发送真实模型请求，诊断 AI 服务连通性。")
     ai_check_parser.add_argument("--message", default="只回复 ok", help="用于诊断的测试消息。")

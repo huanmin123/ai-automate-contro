@@ -95,9 +95,13 @@ class WorkPlanItemArgs(ToolArgsModel):
 class UpdateWorkPlanArgs(ToolArgsModel):
     items: list[WorkPlanItemArgs] = Field(
         ...,
-        description="完整替换可见工作计划；复杂任务通常 3-7 步，最多一个 in_progress。",
+        description="当前唯一可见工作计划的完整快照；复杂任务通常 3-7 步，最多一个 in_progress。",
     )
     summary: str = Field(default="", description="可选一句话目标/阶段；items 为空可清空计划。")
+    operation: Literal["start", "continue", "complete", "cancel"] = Field(
+        default="continue",
+        description="计划生命周期操作：start 仅在没有进行中计划时创建；continue 更新当前计划；complete/cancel 结束当前计划。用户后续消息默认是当前计划的引导。",
+    )
 
 
 class ReadPlanPackageArgs(ToolArgsModel):
@@ -158,6 +162,16 @@ class RunPlanArgs(ToolArgsModel):
         default_factory=dict,
         description="本次运行的临时变量覆盖。",
     )
+
+
+class RunLocalCommandArgs(ToolArgsModel):
+    command: str = Field(default="", description="通过 shell 执行的任意本机命令文本；与 argv 二选一。")
+    argv: list[str] = Field(default_factory=list, description="直接执行的任意本机程序及参数；与 command 二选一。")
+    shell: str = Field(default="auto", description="command 使用的 shell：auto、pwsh、powershell、cmd、bash、sh 或 zsh；任意程序可使用 argv。")
+    cwd: str = Field(default="", description="工作目录；空使用当前项目根目录，支持任意本机绝对或相对路径。")
+    env: dict[str, str] = Field(default_factory=dict, description="追加或覆盖的本机环境变量，保留原文。")
+    stdin: str | None = Field(default=None, description="可选标准输入文本，按 UTF-8 原样传入。")
+    timeout_seconds: float = Field(default=0, description="命令超时秒数；0 或负数表示不设超时。")
 
 
 class ListSchedulesArgs(ToolArgsModel):

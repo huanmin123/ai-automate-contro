@@ -50,6 +50,8 @@ CONTEXT_STATE_KEYS = (
     "latest_desktop_failure_repair_suggestions",
     "latest_desktop_failure_state_files",
     "latest_desktop_failure_screenshots",
+    "work_plan_id",
+    "work_plan_lifecycle",
 )
 
 
@@ -94,10 +96,6 @@ def list_ai_terminal_sessions(
     with _SESSION_INDEX_LOCK:
         indexed_sessions = _read_session_index(project_root)
         checkpoint_sessions = _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=SESSION_LIST_LIMIT_MAX)
-        if indexed_sessions and not _has_missing_index_entries(indexed_sessions, checkpoint_sessions):
-            return _reindex_sessions(indexed_sessions[:resolved_limit])
-        if not checkpoint_sessions:
-            return _reindex_sessions(indexed_sessions[:resolved_limit])
         merged_sessions = _merge_session_entries(indexed_sessions, checkpoint_sessions)
         _write_session_index(project_root, merged_sessions)
     return _reindex_sessions(merged_sessions[:resolved_limit])
@@ -109,15 +107,42 @@ def current_ai_terminal_session(
     *,
     project_root: str | Path | None = None,
 ) -> AITerminalSessionSummary | None:
-    if project_root is not None:
-        indexed = _session_from_index(project_root, thread_id)
-        if indexed is not None:
-            return indexed
     summary = _current_ai_terminal_session_from_checkpoint(checkpointer, thread_id)
     if summary is not None and project_root is not None:
         with _SESSION_INDEX_LOCK:
-            _write_session_index(project_root, _merge_session_entries(_read_session_index(project_root), [summary]))
+            merged = _merge_session_entries(_read_session_index(project_root), [summary])
+            _write_session_index(project_root, merged)
+            return _session_from_summaries(merged, thread_id)
+    if project_root is not None:
+        return _session_from_index(project_root, thread_id)
     return summary
+
+
+def resolve_active_ai_terminal_thread(
+    checkpointer: Any,
+    *,
+    project_root: str | Path,
+    requested_thread_id: str = "",
+) -> str:
+    """Resolve one durable active session; an explicit thread always wins."""
+    requested = requested_thread_id.strip()
+    if requested:
+        return requested
+    active_thread_id = _active_thread_id_from_index(project_root)
+    if active_thread_id and ai_terminal_session_exists(checkpointer, active_thread_id, project_root=project_root):
+        return active_thread_id
+    sessions = _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=1)
+    if sessions:
+        return sessions[0].thread_id
+    return "default"
+
+
+def set_active_ai_terminal_thread(project_root: str | Path, thread_id: str) -> None:
+    normalized = str(thread_id or "").strip()
+    if not normalized:
+        return
+    with _SESSION_INDEX_LOCK:
+        _write_session_index(project_root, _read_session_index(project_root), active_thread_id=normalized)
 
 
 def resolve_ai_terminal_session(
@@ -188,7 +213,7 @@ def update_ai_terminal_session_index(
             )
     with _SESSION_INDEX_LOCK:
         sessions = _merge_session_entries(_read_session_index(project_root), [summary])
-        _write_session_index(project_root, sessions)
+        _write_session_index(project_root, sessions, active_thread_id=thread_id)
     return summary
 
 
@@ -315,15 +340,8 @@ def format_sessions_table(sessions: list[AITerminalSessionSummary]) -> str:
 
 
 def _read_session_index(project_root: str | Path) -> list[AITerminalSessionSummary]:
-    index_path = session_index_path(project_root)
-    if not index_path.exists():
-        return []
-    try:
-        raw_text = index_path.read_text(encoding="utf-8")
-    except OSError:
-        return []
-    payload = _load_json_payload(raw_text)
-    if not isinstance(payload, dict) or payload.get("version") != SESSION_INDEX_SCHEMA_VERSION:
+    payload = _read_session_index_payload(project_root)
+    if payload is None:
         return []
     sessions = payload.get("sessions", [])
     if not isinstance(sessions, list):
@@ -338,12 +356,34 @@ def _read_session_index(project_root: str | Path) -> list[AITerminalSessionSumma
     return _reindex_sessions(_sort_sessions(result))
 
 
-def _write_session_index(project_root: str | Path, sessions: list[AITerminalSessionSummary]) -> None:
+def _read_session_index_payload(project_root: str | Path) -> dict[str, Any] | None:
+    index_path = session_index_path(project_root)
+    if not index_path.exists():
+        return None
+    try:
+        raw_text = index_path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    payload = _load_json_payload(raw_text)
+    if not isinstance(payload, dict) or payload.get("version") != SESSION_INDEX_SCHEMA_VERSION:
+        return None
+    return payload
+
+
+def _write_session_index(
+    project_root: str | Path,
+    sessions: list[AITerminalSessionSummary],
+    *,
+    active_thread_id: str | None = None,
+) -> None:
     index_path = session_index_path(project_root)
     index_path.parent.mkdir(parents=True, exist_ok=True)
+    previous_payload = _read_session_index_payload(project_root) or {}
+    active = active_thread_id if active_thread_id is not None else str(previous_payload.get("active_thread_id") or "")
     payload = {
         "version": SESSION_INDEX_SCHEMA_VERSION,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "active_thread_id": active,
         "sessions": [replace(summary, index=0).to_dict() for summary in _sort_sessions(sessions)],
     }
     serialized = json.dumps(payload, ensure_ascii=False, indent=2)
@@ -355,10 +395,19 @@ def _write_session_index(project_root: str | Path, sessions: list[AITerminalSess
 
 
 def _session_from_index(project_root: str | Path, thread_id: str) -> AITerminalSessionSummary | None:
-    for summary in _read_session_index(project_root):
+    return _session_from_summaries(_read_session_index(project_root), thread_id)
+
+
+def _session_from_summaries(summaries: list[AITerminalSessionSummary], thread_id: str) -> AITerminalSessionSummary | None:
+    for summary in summaries:
         if summary.thread_id == thread_id:
             return replace(summary, index=0)
     return None
+
+
+def _active_thread_id_from_index(project_root: str | Path) -> str:
+    payload = _read_session_index_payload(project_root) or {}
+    return str(payload.get("active_thread_id") or "").strip()
 
 
 def _merge_session_entries(

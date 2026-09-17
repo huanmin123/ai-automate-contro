@@ -23,6 +23,7 @@ from ai_automate_contro.ai.session_store import (
     list_ai_terminal_sessions,
     resolve_ai_terminal_session,
     session_index_path,
+    set_active_ai_terminal_thread,
     update_ai_terminal_session_index,
 )
 from ai_automate_contro.ai.work_plan import format_work_plan_for_terminal
@@ -70,7 +71,11 @@ class AITerminalCommandsMixin:
         state = state_provider() if callable(state_provider) else {}
         items = state.get("items") if isinstance(state, dict) else []
         summary = state.get("summary") if isinstance(state, dict) else ""
-        self._emit_system_output(format_work_plan_for_terminal(items, summary=summary))
+        lifecycle = state.get("lifecycle") if isinstance(state, dict) else ""
+        rendered = format_work_plan_for_terminal(items, summary=summary)
+        if lifecycle:
+            rendered = f"计划状态：{lifecycle}\n{rendered}"
+        self._emit_system_output(rendered)
 
     def do_sessions(self, arg: str) -> None:
         """列出已保存的 AI 会话：/sessions [limit|all] [--json]"""
@@ -108,6 +113,7 @@ class AITerminalCommandsMixin:
             self._emit_error(error)
             return
         self.thread_id = next_thread_id
+        set_active_ai_terminal_thread(self.project_root, self.thread_id)
         self._current_turn_text = None
         self._approval_resume_active = False
         self._last_error = ""
@@ -123,8 +129,13 @@ class AITerminalCommandsMixin:
 
     def do_new(self, arg: str) -> None:
         """新建 AI 会话线程：/new [thread-id]"""
+        current_plan = self._work_plan_state()
+        if current_plan.get("lifecycle") == "active":
+            self._update_context_state({"work_plan_lifecycle": "canceled"})
+            self._sync_current_session_index()
         next_thread_id = arg.strip() or make_thread_id("thread")
         self.thread_id = next_thread_id
+        set_active_ai_terminal_thread(self.project_root, self.thread_id)
         self._current_turn_text = None
         self._approval_resume_active = False
         self._last_error = ""

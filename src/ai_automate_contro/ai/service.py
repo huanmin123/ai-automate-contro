@@ -25,6 +25,7 @@ from ai_automate_contro.ai.schemas import validate_with_schema
 from ai_automate_contro.ai.service_config import (
     AIServiceOptions,
     resolve_common_model_options,
+    validate_ai_service_config,
 )
 
 
@@ -51,6 +52,10 @@ def run_ai_task(
 ) -> AIResult:
     if not isinstance(service_config, dict):
         raise UserFacingError(f"AI 服务配置必须是对象：{service_name}")
+    try:
+        validate_ai_service_config(service_config)
+    except (TypeError, ValueError) as error:
+        raise UserFacingError(f"AI 服务配置无效：{service_name}", details=[str(error)]) from error
     model = service_config.get("model")
     if not isinstance(model, str) or not model.strip():
         raise UserFacingError(

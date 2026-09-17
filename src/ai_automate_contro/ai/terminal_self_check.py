@@ -33,7 +33,9 @@ from ai_automate_contro.ai.session_store import (
     count_images_in_messages,
     list_ai_terminal_sessions,
     remove_ai_terminal_session_from_index,
+    resolve_active_ai_terminal_thread,
     resolve_ai_terminal_session,
+    set_active_ai_terminal_thread,
     session_index_path,
     update_ai_terminal_session_index,
 )
@@ -198,6 +200,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(_check_terminal_context_suffix_contract())
         checks.append(_check_terminal_context_updates_from_quality_review())
         checks.extend(_check_session_listing(human_message))
+        checks.append(_check_single_work_plan_lifecycle())
         checks.extend(_check_terminal_command_flow(storage_root, human_message))
         checks.extend(_check_terminal_input_widgets(attachment))
         checks.append(_check_terminal_streaming_output())
@@ -602,7 +605,11 @@ def _check_terminal_context_suffix_contract() -> dict[str, Any]:
     positions = {field: context.find(field) for field in expected_order}
     order_ok = all(position >= 0 for position in positions.values()) and list(positions.values()) == sorted(positions.values())
     ignored_unknown = "ignored_dynamic_noise" not in context and "should not appear" not in context
-    guidance_ok = "优先使用这些上下文" in context and "先读取压缩摘要" in context
+    guidance_ok = (
+        "active 工作计划期间" in context
+        and "不要新建第二份待办" in context
+        and "先读取压缩摘要" in context
+    )
     work_plan_ok = (
         "当前可见工作计划" in context
         and "修复登录计划" in context
@@ -920,6 +927,16 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
             }
             update_ai_terminal_session_index(index_root, checkpointer, "alpha", context_state=quality_context)
             update_ai_terminal_session_index(index_root, checkpointer, "alpha")
+            set_active_ai_terminal_thread(index_root, "alpha")
+            restored_active_thread = resolve_active_ai_terminal_thread(
+                checkpointer,
+                project_root=index_root,
+            )
+            explicitly_requested_thread = resolve_active_ai_terminal_thread(
+                checkpointer,
+                project_root=index_root,
+                requested_thread_id="image-thread",
+            )
             indexed_sessions = list_ai_terminal_sessions(checkpointer, project_root=index_root, limit=10)
             indexed_resolved = resolve_ai_terminal_session(checkpointer, "alpha", project_root=index_root)
             indexed_alpha = next((session for session in indexed_sessions if session.thread_id == "alpha"), None)
@@ -963,6 +980,14 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
                 },
             ),
             _self_check_result(
+                name="session_startup_restores_active_thread",
+                passed=restored_active_thread == "alpha" and explicitly_requested_thread == "image-thread",
+                detail={
+                    "restored_active_thread": restored_active_thread,
+                    "explicitly_requested_thread": explicitly_requested_thread,
+                },
+            ),
+            _self_check_result(
                 name="session_index_round_trip",
                 passed=(
                     index_exists_after_remove
@@ -990,6 +1015,73 @@ def _check_session_listing(human_message: HumanMessage) -> list[dict[str, Any]]:
         ]
     finally:
         connection.close()
+
+
+def _check_single_work_plan_lifecycle() -> dict[str, Any]:
+    from ai_automate_contro.ai.terminal import AITerminal
+    from ai_automate_contro.ai.terminal_context import work_plan_update_from_tool_result
+    from ai_automate_contro.ai.work_plan import validate_work_plan_transition
+
+    active_items = [
+        {"title": "读取已有上下文", "status": "completed"},
+        {"title": "继续当前计划", "status": "in_progress"},
+    ]
+    started = work_plan_update_from_tool_result(
+        "update_work_plan",
+        {"operation": "start", "items": active_items, "summary": "恢复已有计划"},
+        {"ok": True, "operation": "start", "items": active_items, "summary": "恢复已有计划"},
+    )
+    duplicate_start_error = ""
+    incomplete_complete_error = ""
+    try:
+        validate_work_plan_transition("active", operation="start", items=active_items)
+    except ValueError as error:
+        duplicate_start_error = str(error)
+    try:
+        validate_work_plan_transition("active", operation="complete", items=active_items)
+    except ValueError as error:
+        incomplete_complete_error = str(error)
+    completed_items = [{"title": "读取已有上下文", "status": "completed"}]
+    completed = work_plan_update_from_tool_result(
+        "update_work_plan",
+        {"operation": "complete", "items": completed_items, "summary": "完成计划"},
+        {"ok": True, "operation": "complete", "items": completed_items, "summary": "完成计划"},
+        {
+            "id": started.get("work_plan_id", ""),
+            "lifecycle": started.get("work_plan_lifecycle", ""),
+            "items": started.get("work_plan_items", []),
+            "summary": started.get("work_plan_summary", ""),
+        },
+    )
+    terminal = object.__new__(AITerminal)
+    terminal._work_plan_state = lambda: {
+        "id": started.get("work_plan_id", ""),
+        "lifecycle": started.get("work_plan_lifecycle", ""),
+        "summary": started.get("work_plan_summary", ""),
+        "items": started.get("work_plan_items", []),
+    }
+    guidance = AITerminal._format_current_plan_guidance(terminal, "改为先读取上一轮的 plan")
+    passed = (
+        started.get("work_plan_lifecycle") == "active"
+        and bool(started.get("work_plan_id"))
+        and "仍在进行中" in duplicate_start_error
+        and "所有待办项" in incomplete_complete_error
+        and completed.get("work_plan_id") == started.get("work_plan_id")
+        and completed.get("work_plan_lifecycle") == "completed"
+        and "用户对当前工作计划的引导" in guidance
+        and "改为先读取上一轮的 plan" in guidance
+    )
+    return _self_check_result(
+        name="terminal_keeps_one_work_plan_and_marks_guidance",
+        passed=passed,
+        detail={
+            "started": started,
+            "completed": completed,
+            "duplicate_start_error": duplicate_start_error,
+            "incomplete_complete_error": incomplete_complete_error,
+            "guidance": guidance,
+        },
+    )
 
 
 def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage) -> list[dict[str, Any]]:
@@ -1522,6 +1614,7 @@ def _check_ai_ask_once_emits_jsonl_ready_events() -> dict[str, Any]:
     terminal._prepare_input_attachments = lambda text: (text, [])
     terminal._sync_current_session_index = lambda: None
     terminal._context_state = lambda: {"current_plan_path": "plans/demo/plan.json"}
+    terminal._work_plan_state = lambda: {"id": "", "lifecycle": "", "summary": "", "items": []}
     terminal.client_status_snapshot = lambda: {
         "thread_id": terminal.thread_id,
         "busy": False,
@@ -1985,9 +2078,11 @@ def _check_terminal_work_plan_events() -> dict[str, Any]:
     terminal._client_event_sink = terminal.events.append
     terminal._update_context_state = lambda update: terminal.context_updates.append(update)
     terminal._sync_current_session_index = lambda: setattr(terminal, "synced", terminal.synced + 1)
+    terminal._work_plan_state = lambda: {"id": "", "lifecycle": "", "summary": "", "items": []}
 
     result = {
         "ok": True,
+        "operation": "start",
         "summary": "创建真实网站 plan",
         "items": [
             {"title": "探测入口页面", "status": "completed"},
@@ -1998,7 +2093,12 @@ def _check_terminal_work_plan_events() -> dict[str, Any]:
         "completed": 1,
         "active": "运行可见浏览器探索",
     }
-    AITerminal._after_tool_call(terminal, "update_work_plan", {"summary": "创建真实网站 plan"}, result)
+    AITerminal._after_tool_call(
+        terminal,
+        "update_work_plan",
+        {"operation": "start", "summary": "创建真实网站 plan", "items": result["items"]},
+        result,
+    )
 
     tool_events = [event for event in terminal.events if event.kind in {"tool_started", "tool_finished"}]
     plan_events = [event for event in terminal.events if event.kind == "work_plan_updated"]

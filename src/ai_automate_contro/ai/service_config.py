@@ -172,6 +172,9 @@ def validate_ai_service_config(service_config: dict[str, Any]) -> None:
     if max_output_tokens is not None and max_output_tokens <= 0:
         raise ValueError("AI 服务 max_output_tokens 必须大于 0。")
     stop = _optional_stop(service_config)
+    _optional_string(service_config, "api_key")
+    _optional_string(service_config, "api_key_env")
+    _optional_string(service_config, "base_url")
     _validate_protocol_capabilities(
         protocol=protocol,
         temperature=temperature,

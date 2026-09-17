@@ -132,6 +132,9 @@ def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     else:
         raw_text = content or ""
     if not raw_text:
+        refusal = _get_response_field(message, message if isinstance(message, dict) else {}, "refusal")
+        if refusal:
+            raise ValueError(f"AI 服务拒绝了请求：{refusal}")
         raise ValueError("AI 服务响应消息没有文本内容。")
     return str(raw_text), raw_response
 
@@ -194,6 +197,15 @@ def self_check_chat_completion_stream_parser() -> dict[str, Any]:
     except ValueError:
         empty_stream_rejected = True
     checks.append(_self_check_result(name="empty_stream_rejected", passed=empty_stream_rejected))
+
+    refusal_preserved = False
+    try:
+        extract_chat_completion_text(
+            {"choices": [{"message": {"role": "assistant", "content": None, "refusal": "policy"}}]}
+        )
+    except ValueError as error:
+        refusal_preserved = "policy" in str(error)
+    checks.append(_self_check_result(name="chat_completion_refusal_preserved", passed=refusal_preserved))
 
     failures = [check for check in checks if not check["passed"]]
     return {

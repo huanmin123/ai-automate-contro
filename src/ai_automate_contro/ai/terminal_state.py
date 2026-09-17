@@ -89,6 +89,8 @@ class AITerminalStateMixin:
             "latest_desktop_failure_repair_suggestions",
             "latest_desktop_failure_state_files",
             "latest_desktop_failure_screenshots",
+            "work_plan_id",
+            "work_plan_lifecycle",
         ):
             value = values.get(key)
             if isinstance(value, str) and value:
@@ -130,7 +132,16 @@ class AITerminalStateMixin:
         self._print_tool_progress("start", tool_name, arguments)
 
     def _after_tool_call(self, tool_name: str, arguments: dict[str, Any], result: dict[str, Any]) -> None:
-        work_plan_update = work_plan_update_from_tool_result(tool_name, result)
+        try:
+            current_work_plan = self._work_plan_state()
+        except (AttributeError, RuntimeError):
+            current_work_plan = {}
+        work_plan_update = work_plan_update_from_tool_result(
+            tool_name,
+            arguments,
+            result,
+            current_work_plan,
+        )
         if work_plan_update:
             self._update_context_state(work_plan_update)
             self._sync_current_session_index()
@@ -150,6 +161,8 @@ class AITerminalStateMixin:
         return {
             "items": items if isinstance(items, list) else [],
             "summary": summary if isinstance(summary, str) else "",
+            "id": values.get("work_plan_id") if isinstance(values.get("work_plan_id"), str) else "",
+            "lifecycle": values.get("work_plan_lifecycle") if isinstance(values.get("work_plan_lifecycle"), str) else "",
         }
 
     def _emit_work_plan_updated(self, items: list[dict[str, str]], summary: str = "") -> None:
@@ -495,6 +508,19 @@ def _tool_result_summary(tool_name: str, result: dict[str, Any]) -> str:
         summary_parts.append(f"status={status}")
         if result.get("output_dir"):
             summary_parts.append(f"output={_compact_path(result.get('output_dir'))}")
+        if result.get("error"):
+            summary_parts.append(f"error={_compact_tool_value(result.get('error'), limit=120)}")
+    elif tool_name == "run_local_command":
+        if result.get("command"):
+            summary_parts.append(f"command={_compact_tool_value(result.get('command'), limit=120)}")
+        elif result.get("argv"):
+            summary_parts.append(f"argv={_compact_tool_value(result.get('argv'), limit=120)}")
+        if result.get("cwd"):
+            summary_parts.append(f"cwd={_compact_path(result.get('cwd'))}")
+        if result.get("timed_out"):
+            summary_parts.append("timed_out=true")
+        elif result.get("exit_code") is not None:
+            summary_parts.append(f"exit_code={result.get('exit_code')}")
         if result.get("error"):
             summary_parts.append(f"error={_compact_tool_value(result.get('error'), limit=120)}")
     elif tool_name in {"validate_plan", "validate_debug_plan"}:

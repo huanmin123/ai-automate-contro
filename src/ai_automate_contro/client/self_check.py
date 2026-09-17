@@ -169,6 +169,8 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
     markdown_result = _check_textual_markdown_does_not_emit_terminal_hyperlinks()
     approval_guidance_result = _check_textual_approval_guidance_is_not_duplicated()
     transcript_export_result = _check_textual_transcript_export_keeps_raw_text()
+    transcript_context_export_result = _check_textual_transcript_export_includes_session_context()
+    plan_refresh_result = await _check_textual_plan_refresh_clears_stale_panel()
     duplicate_tool_result = await _check_textual_duplicate_tool_transcript_records()
     interrupt_result = await _check_textual_escape_interrupts_without_queue()
     queued_batch_result = await _check_textual_busy_messages_stay_queued_until_batch_consumed()
@@ -215,6 +217,8 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             and markdown_result["passed"]
             and approval_guidance_result["passed"]
             and transcript_export_result["passed"]
+            and transcript_context_export_result["passed"]
+            and plan_refresh_result["passed"]
             and duplicate_tool_result["passed"]
             and interrupt_result["passed"]
             and queued_batch_result["passed"]
@@ -336,6 +340,8 @@ async def _self_check_textual_client_async(project_root: Path) -> dict[str, Any]
             markdown_result,
             approval_guidance_result,
             transcript_export_result,
+            transcript_context_export_result,
+            plan_refresh_result,
             duplicate_tool_result,
             interrupt_result,
             queued_batch_result,
@@ -461,6 +467,84 @@ def _check_textual_transcript_export_keeps_raw_text() -> dict[str, Any]:
         "name": "textual_client_export_keeps_raw_inline_text",
         "passed": passed,
         "detail": {"export_text": export_text},
+    }
+
+
+def _check_textual_transcript_export_includes_session_context() -> dict[str, Any]:
+    export_text = _format_transcript_markdown(
+        [("user", "继续当前计划")],
+        session_context={
+            "thread_id": "active-thread",
+            "context_state": {
+                "current_plan_path": "plans/demo/plan.json",
+                "work_plan_id": "work-plan-123",
+                "work_plan_lifecycle": "active",
+            },
+        },
+    )
+    passed = (
+        "## Session Context" in export_text
+        and "active-thread" in export_text
+        and "work_plan_id: work-plan-123" in export_text
+        and "继续当前计划" in export_text
+    )
+    return {
+        "name": "textual_client_export_includes_session_context",
+        "passed": passed,
+        "detail": {"export_text": export_text},
+    }
+
+
+async def _check_textual_plan_refresh_clears_stale_panel() -> dict[str, Any]:
+    class EmptySnapshotBackend(FakeAgentBackend):
+        def __init__(self) -> None:
+            super().__init__(response="")
+            self.status_calls = 0
+
+        async def status_snapshot(self) -> dict[str, Any]:
+            self.status_calls += 1
+            return {
+                "thread_id": "empty-thread",
+                "service": "fake",
+                "busy": False,
+                "pending_approval": False,
+                "context_state": {},
+            }
+
+    backend = EmptySnapshotBackend()
+    app = AICTextualApp(backend)
+    async with app.run_test(size=(80, 24)) as pilot:
+        await pilot.pause(0.05)
+        calls_before_plan = backend.status_calls
+        app._backend_status = {
+            "thread_id": "planned-thread",
+            "context_state": {
+                "work_plan_items": [{"title": "旧计划", "status": "in_progress"}],
+                "work_plan_summary": "旧计划摘要",
+            },
+        }
+        app._sync_work_plan_from_status()
+        visible_before = bool(app.query_one("#work_plan_panel", WorkPlanPanel).display)
+        await app._handle_local_command("/plan")
+        panel = app.query_one("#work_plan_panel", WorkPlanPanel)
+        plan_message = [
+            message.text
+            for message in app.query(MessageBlock)
+            if message.has_class("meta")
+        ]
+        visible_after = bool(panel.display)
+        refreshed = backend.status_calls > calls_before_plan
+    passed = visible_before and not visible_after and refreshed and any("当前没有工作计划" in text for text in plan_message)
+    return {
+        "name": "textual_client_plan_refresh_clears_stale_work_plan",
+        "passed": passed,
+        "detail": {
+            "visible_before": visible_before,
+            "visible_after": visible_after,
+            "status_calls": backend.status_calls,
+            "calls_before_plan": calls_before_plan,
+            "plan_messages": plan_message,
+        },
     }
 
 
@@ -1678,7 +1762,12 @@ async def _check_textual_pending_approval_status_survives_idle() -> dict[str, An
 
 
 async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: Path) -> dict[str, Any]:
-    import ai_automate_contro.ai.terminal as terminal_module
+    import sys
+    from types import ModuleType
+
+    terminal_module_name = "ai_automate_contro.ai.terminal"
+    original_terminal_module = sys.modules.get(terminal_module_name)
+    terminal_module = original_terminal_module or ModuleType(terminal_module_name)
 
     class FakeGraph:
         def __init__(self) -> None:
@@ -1689,6 +1778,8 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
                 values={
                     "messages": ["stable-before-interrupt"],
                     "current_plan_path": "plans/demo/plan.json",
+                    "work_plan_items": [{"title": "继续当前计划", "status": "in_progress"}],
+                    "work_plan_summary": "活动计划",
                 }
             )
 
@@ -1703,7 +1794,9 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
         def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
             self.project_root = project_root
             self.service = service
-            self.thread_id = thread_id
+            # Deliberately differ from the original base id: intervention must
+            # fork from the terminal's resolved/current thread.
+            self.thread_id = "resolved-active" if thread_id == "self-check" else thread_id
             self.graph = FakeGraph()
             self.closed = False
             FakeTerminal.created.append(self)
@@ -1735,7 +1828,17 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
             return []
 
         def client_status_snapshot(self) -> dict[str, Any]:
-            return {"thread_id": self.thread_id, "service": self.service, "pending_approval": False}
+            values = self.graph.get_state(self._graph_config()).values
+            return {
+                "thread_id": self.thread_id,
+                "service": self.service,
+                "pending_approval": False,
+                "context_state": {
+                    "current_plan_path": values.get("current_plan_path", ""),
+                    "work_plan_items": values.get("work_plan_items", []),
+                    "work_plan_summary": values.get("work_plan_summary", ""),
+                },
+            }
 
         def _update_context_state(self, update: dict[str, Any]) -> None:
             return None
@@ -1749,12 +1852,20 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
         def close(self) -> None:
             self.closed = True
 
-    original_terminal = terminal_module.AITerminal
+    original_terminal = getattr(terminal_module, "AITerminal", None)
     original_grace = backend_module.INTERRUPT_GRACE_SECONDS
+    sys.modules[terminal_module_name] = terminal_module
     terminal_module.AITerminal = FakeTerminal
     backend_module.INTERRUPT_GRACE_SECONDS = 0.01
     try:
         backend = AITerminalBackend(project_root, thread_id="self-check")
+        cold_snapshot = await backend.status_snapshot()
+        cold_status_materialized = (
+            cold_snapshot.get("thread_id") == "resolved-active"
+            and cold_snapshot.get("context_state", {}).get("current_plan_path") == "plans/demo/plan.json"
+            and cold_snapshot.get("context_state", {}).get("work_plan_items")
+            and len(FakeTerminal.created) == 1
+        )
         slow_events: list[ClientEvent] = []
 
         async def collect_slow() -> None:
@@ -1772,11 +1883,12 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
         fork_seeded = bool(fork_terminal and fork_terminal.graph.updated_states)
         assistant_messages = [event.text for event in intervention_events if event.kind == "assistant_delta"]
         passed = (
-            interrupt_event.kind == "interrupted"
-            and created_threads[:2] == ["self-check", "self-check-intervention-1"]
-            and backend.thread_id == "self-check-intervention-1"
+            cold_status_materialized
+            and interrupt_event.kind == "interrupted"
+            and created_threads[:2] == ["resolved-active", "resolved-active-intervention-1"]
+            and backend.thread_id == "resolved-active-intervention-1"
             and fork_seeded
-            and assistant_messages == ["介入 thread=self-check-intervention-1"]
+            and assistant_messages == ["介入 thread=resolved-active-intervention-1"]
         )
         return {
             "name": "ai_terminal_backend_interrupt_forks_stuck_worker_checkpoint",
@@ -1785,6 +1897,8 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
                 "interrupt_event": {"kind": interrupt_event.kind, "text": interrupt_event.text},
                 "created_threads": created_threads,
                 "backend_thread": backend.thread_id,
+                "cold_snapshot": cold_snapshot,
+                "cold_status_materialized": cold_status_materialized,
                 "fork_seeded": fork_seeded,
                 "slow_events": [{"kind": event.kind, "text": event.text} for event in slow_events],
                 "intervention_events": [{"kind": event.kind, "text": event.text} for event in intervention_events],
@@ -1799,11 +1913,20 @@ async def _check_ai_terminal_backend_interrupt_forks_stuck_worker(project_root: 
     finally:
         FakeTerminal.slow_release.set()
         terminal_module.AITerminal = original_terminal
+        if original_terminal_module is None:
+            sys.modules.pop(terminal_module_name, None)
+        else:
+            sys.modules[terminal_module_name] = original_terminal_module
         backend_module.INTERRUPT_GRACE_SECONDS = original_grace
 
 
 async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path) -> dict[str, Any]:
-    from ai_automate_contro.ai import terminal as terminal_module
+    import sys
+    from types import ModuleType
+
+    terminal_module_name = "ai_automate_contro.ai.terminal"
+    original_terminal_module = sys.modules.get(terminal_module_name)
+    terminal_module = original_terminal_module or ModuleType(terminal_module_name)
 
     class FakeTerminal:
         def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
@@ -1851,7 +1974,8 @@ async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path)
         def close(self) -> None:
             return None
 
-    original_terminal = terminal_module.AITerminal
+    original_terminal = getattr(terminal_module, "AITerminal", None)
+    sys.modules[terminal_module_name] = terminal_module
     terminal_module.AITerminal = FakeTerminal
     try:
         backend = AITerminalBackend(project_root, thread_id="confirmation-feedback")
@@ -1888,6 +2012,10 @@ async def _check_backend_confirmation_feedback_not_swallowed(project_root: Path)
         }
     finally:
         terminal_module.AITerminal = original_terminal
+        if original_terminal_module is None:
+            sys.modules.pop(terminal_module_name, None)
+        else:
+            sys.modules[terminal_module_name] = original_terminal_module
 
 
 async def _check_textual_activity_stream_stays_high_level() -> dict[str, Any]:

@@ -1420,6 +1420,7 @@ class AICTextualApp(App[None]):
             return
         context_state = data.get("context_state") if isinstance(data.get("context_state"), dict) else {}
         if "work_plan_items" not in context_state and "work_plan_summary" not in context_state:
+            self._update_work_plan([], summary="")
             return
         self._update_work_plan(
             context_state.get("work_plan_items"),
@@ -1484,6 +1485,7 @@ class AICTextualApp(App[None]):
             self._backend_status = await self.backend.status_snapshot()
         except Exception:
             return
+        self._sync_work_plan_from_status()
         self._render_status()
 
     def _sync_composer_height(self) -> None:
@@ -1582,6 +1584,7 @@ class AICTextualApp(App[None]):
             )
             return True
         if command == "plan":
+            await self._refresh_backend_status()
             await self._add_message(self._current_work_plan_text(), role="meta")
             return True
         if command == "clear":
@@ -1603,6 +1606,7 @@ class AICTextualApp(App[None]):
             return True
         if command == "export":
             try:
+                await self._refresh_backend_status()
                 path = self._export_transcript(arg)
             except Exception as error:
                 await self._add_message(str(error), role="error")
@@ -1733,7 +1737,11 @@ class AICTextualApp(App[None]):
             timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             path = self.project_root / ".keygen" / "client-exports" / f"transcript-{timestamp}.md"
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_format_transcript_markdown(self._transcript_records), encoding="utf-8")
+        context_snapshot = dict(self._backend_status) if isinstance(self._backend_status, dict) else {}
+        path.write_text(
+            _format_transcript_markdown(self._transcript_records, session_context=context_snapshot),
+            encoding="utf-8",
+        )
         return path
 
     def _write_last_assistant_message(self, arg: str) -> Path:
@@ -1769,7 +1777,7 @@ class AICTextualApp(App[None]):
         self.exit()
 
 
-def run_textual_client(project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
+def run_textual_client(project_root: Path, *, service: str = "default", thread_id: str = "") -> None:
     app = AICTextualApp(
         AITerminalBackend(project_root, service=service, thread_id=thread_id),
         project_root=project_root,
@@ -2319,8 +2327,20 @@ GROUPABLE_TRANSCRIPT_ROLES = frozenset(
 )
 
 
-def _format_transcript_markdown(records: list[tuple[str, str]]) -> str:
+def _format_transcript_markdown(
+    records: list[tuple[str, str]],
+    *,
+    session_context: dict[str, Any] | None = None,
+) -> str:
     lines = ["# AI Client Transcript", ""]
+    if isinstance(session_context, dict) and session_context:
+        context_state = session_context.get("context_state")
+        lines.extend(["## Session Context", "", f"- thread_id: {session_context.get('thread_id', '')}"])
+        if isinstance(context_state, dict) and context_state:
+            lines.append("- context_state:")
+            for key, value in context_state.items():
+                lines.append(f"  - {key}: {value}")
+        lines.append("")
     index = 0
     while index < len(records):
         role, text = records[index]

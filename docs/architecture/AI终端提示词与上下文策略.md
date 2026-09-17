@@ -120,8 +120,10 @@ AI 终端应按下面顺序决策：
 - `latest_compression_summary_path`
 - `latest_compression_messages_path`
 - `latest_compression_archive_dir`
+- `work_plan_id`
+- `work_plan_lifecycle`
 
-动态上下文只保存路径和短摘要，不保存完整日志、完整 HTML、完整事件流或完整图片内容。
+动态上下文只保存路径和短摘要，不保存完整日志、完整 HTML、完整事件流或完整图片内容。工作计划事项和摘要与这些标识同存在线程 checkpoint 中；活动计划存在时，用户后续消息被标记为该计划的“引导/纠正”，不能被当作新计划开端。
 
 ## 缓存策略
 
@@ -151,6 +153,8 @@ AI 终端应按下面顺序决策：
 - 明确只有关键缺口才问用户，且应在开始执行前一次性问清楚。
 - 保留真实网页最终 plan 创建前必须 `inspect_web_page` 取入口证据、必要时运行 headed 探索 plan 的硬规则；同时新增 desktop plan 创建前优先 `inspect_desktop` 探测，以及 `capability_matrix`、窗口、控件、控件树 dump、控件断言、截图、权限和状态证据规则，质量门禁按 `automation_type` 分流；缺少桌面探测证据或运行证据时 fail，`desktop_element click/set_text/select/invoke/select_cell/expand_tree/collapse_tree/select_tree/invoke_menu/scroll_element` 只算操作推进，不算识别证据，`desktop_element get_table/get_tree` 算控件读取证据。
 - 新增执行线判定规则：创建 plan 前必须明确 `automation_type`，不明确时先问用户；browser 和 desktop 分别读取对应 handbook 入口。
+- 会话启动默认恢复活动线程，显式 `--thread` 或 `/resume` 才切换；会话索引与 checkpoint 合并，索引不作为覆盖图状态的真相源。
+- 工作计划使用 `start`、`continue`、`complete`、`cancel` 生命周期；活动计划期间拒绝第二次 `start`，用户引导、中断介入和队列消息均延续同一计划。
 
 中期改造：
 
@@ -175,5 +179,6 @@ AI 终端应按下面顺序决策：
 - 对用户提供的本机输入文件，推荐导入当前 plan 包 `resources/` 以便复现；用户要求固定本机路径时可以直接写绝对输入路径。
 - 对真实 URL plan，仍要求先拿页面证据。
 - 对真实 desktop plan，仍要求先拿 `inspect_desktop`/`capability_matrix`/窗口或控件探测证据，并在 plan 内保留桌面运行证据。
+- 重启客户端后会恢复活动线程的 checkpoint、当前 plan 和工作计划；活动工作计划不能被第二份待办替换。
 - 修改 Python prompt 文件后至少运行 `python -m py_compile`。
 - 修改工具、上下文注入、会话、压缩或图片附件逻辑后运行 `python .\main.py self-check ai-terminal`。

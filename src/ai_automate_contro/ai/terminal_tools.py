@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+import platform
 import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -27,7 +30,7 @@ from ai_automate_contro.ai.run_failure_analysis import (
 )
 from ai_automate_contro.ai.desktop_inspection import inspect_desktop_tool as _inspect_desktop_tool
 from ai_automate_contro.ai.web_inspection import inspect_web_page_tool as _inspect_web_page_tool
-from ai_automate_contro.ai.work_plan import normalize_work_plan_items, normalize_work_plan_summary
+from ai_automate_contro.ai.work_plan import normalize_work_plan_items, normalize_work_plan_summary, normalize_work_plan_operation
 from ai_automate_contro.app import schedule_manager
 from ai_automate_contro.support.paths import path_from_text
 
@@ -207,6 +210,73 @@ def run_schedule_now_tool(project_root: str | Path, *, schedule_id: str) -> dict
     return schedule_manager.run_schedule_now(project_root, schedule_id)
 
 
+def run_local_command_tool(
+    project_root: str | Path,
+    *,
+    command: str = "",
+    argv: list[str] | None = None,
+    shell: str = "auto",
+    cwd: str = "",
+    env: dict[str, str] | None = None,
+    stdin: str | None = None,
+    timeout_seconds: float = 0,
+) -> dict[str, Any]:
+    """Run an arbitrary local command for the AI terminal without policy filtering."""
+    command_args, resolved_shell = _build_local_command_args(command, argv, shell)
+    resolved_cwd = _resolve_local_command_cwd(project_root, cwd)
+    process_env = dict(os.environ)
+    process_env.update({str(key): str(value) for key, value in (env or {}).items()})
+    timeout = None if float(timeout_seconds) <= 0 else float(timeout_seconds)
+    payload = {
+        "command": command,
+        "argv": command_args,
+        "shell": resolved_shell,
+        "cwd": str(resolved_cwd),
+        "env": dict(env or {}),
+        "timeout_seconds": timeout_seconds,
+    }
+    try:
+        completed = subprocess.run(
+            command_args,
+            cwd=str(resolved_cwd),
+            env=process_env,
+            input=None if stdin is None else stdin.encode("utf-8"),
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        return {
+            **payload,
+            "ok": False,
+            "exit_code": None,
+            "timed_out": True,
+            "stdout": _decode_local_command_output(error.stdout),
+            "stderr": _decode_local_command_output(error.stderr),
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+    except OSError as error:
+        return {
+            **payload,
+            "ok": False,
+            "exit_code": None,
+            "timed_out": False,
+            "stdout": "",
+            "stderr": "",
+            "error": str(error),
+            "error_type": type(error).__name__,
+        }
+    return {
+        **payload,
+        "ok": completed.returncode == 0,
+        "exit_code": completed.returncode,
+        "timed_out": False,
+        "stdout": _decode_local_command_output(completed.stdout),
+        "stderr": _decode_local_command_output(completed.stderr),
+    }
+
+
 def export_local_file_tool(
     project_root: str | Path,
     *,
@@ -347,9 +417,11 @@ def update_work_plan_tool(
     *,
     items: list[dict[str, Any]],
     summary: str = "",
+    operation: str = "continue",
 ) -> dict[str, Any]:
     normalized_items = normalize_work_plan_items(items)
     normalized_summary = normalize_work_plan_summary(summary)
+    normalized_operation = normalize_work_plan_operation(operation)
     completed = sum(1 for item in normalized_items if item["status"] == "completed")
     active = next((item["title"] for item in normalized_items if item["status"] == "in_progress"), "")
     return {
@@ -359,6 +431,7 @@ def update_work_plan_tool(
         "total": len(normalized_items),
         "completed": completed,
         "active": active,
+        "operation": normalized_operation,
     }
 
 
@@ -524,6 +597,54 @@ def _resolve_run_output_dir(plan_path: str | Path, output_dir: str | Path | None
     if latest_output is None:
         return resolved_plan_path.parent / "output"
     return latest_output
+
+
+def _build_local_command_args(
+    command: str,
+    argv: list[str] | None,
+    shell: str,
+) -> tuple[list[str], str]:
+    normalized_argv = [str(item) for item in (argv or [])]
+    has_command = bool(command.strip())
+    has_argv = bool(normalized_argv)
+    if has_command == has_argv:
+        raise ValueError("run_local_command 需要 command 或 argv 之一，且只能提供一种。")
+    if has_argv:
+        return normalized_argv, ""
+
+    shell_name = str(shell or "auto").strip().lower()
+    if shell_name == "auto":
+        shell_name = "pwsh" if platform.system() == "Windows" else "sh"
+    shell_args = {
+        "pwsh": ["pwsh", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+        "powershell": ["powershell", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command"],
+        "cmd": ["cmd.exe", "/d", "/s", "/c"],
+        "bash": ["bash", "-lc"],
+        "sh": ["sh", "-c"],
+        "zsh": ["zsh", "-c"],
+    }
+    if shell_name not in shell_args:
+        supported = ", ".join(sorted(shell_args))
+        raise ValueError(f"run_local_command.shell 不支持：{shell_name}。支持：auto、{supported}；任意可执行程序请使用 argv。")
+    return [*shell_args[shell_name], command], shell_name
+
+
+def _resolve_local_command_cwd(project_root: str | Path, cwd: str) -> Path:
+    root = Path(project_root).resolve()
+    if not cwd:
+        return root
+    raw_cwd = path_from_text(cwd).expanduser()
+    if raw_cwd.is_absolute():
+        return raw_cwd.resolve()
+    return (root / raw_cwd).resolve()
+
+
+def _decode_local_command_output(value: bytes | str | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
 
 
 def _resolve_local_export_target(project_root: str | Path, target_path: str | Path) -> Path:

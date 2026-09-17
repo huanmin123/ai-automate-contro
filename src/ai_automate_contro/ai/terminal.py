@@ -37,7 +37,11 @@ from ai_automate_contro.ai.image_attachments import (
 )
 from ai_automate_contro.ai.langgraph_tools import build_langchain_tools
 from ai_automate_contro.ai.file_search import assert_ripgrep_available
-from ai_automate_contro.ai.session_store import current_ai_terminal_session
+from ai_automate_contro.ai.session_store import (
+    current_ai_terminal_session,
+    resolve_active_ai_terminal_thread,
+    set_active_ai_terminal_thread,
+)
 from ai_automate_contro.ai.terminal_approval import AITerminalApprovalMixin
 from ai_automate_contro.ai.terminal_commands import AITerminalCommandsMixin
 from ai_automate_contro.ai.terminal_config import build_chat_model, load_ai_terminal_config
@@ -80,13 +84,12 @@ class AITerminal(
     AITerminalCommandsMixin,
     AITerminalStateMixin,
 ):
-    def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "default") -> None:
+    def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "") -> None:
         self.project_root = project_root.resolve()
         assert_ripgrep_available()
         self.config = load_ai_terminal_config(self.project_root, service_name=service)
         self.model_name = str(self.config.service_config["model"])
         self.graph_recursion_limit = int(self.config.service_config.get("graph_recursion_limit", 128))
-        self.thread_id = thread_id
         self._current_turn_text: str | None = None
         self._current_turn_id: int = 0
         self._cancelled_turn_ids: set[int] = set()
@@ -104,6 +107,12 @@ class AITerminal(
         self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
         self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
         self.checkpointer = SqliteSaver(self._checkpoint_connection)
+        self.thread_id = resolve_active_ai_terminal_thread(
+            self.checkpointer,
+            project_root=self.project_root,
+            requested_thread_id=thread_id,
+        )
+        set_active_ai_terminal_thread(self.project_root, self.thread_id)
         session_summary = current_ai_terminal_session(
             self.checkpointer,
             self.thread_id,
@@ -120,6 +129,7 @@ class AITerminal(
             inspection_confirmation_handler=lambda prompt: self._wait_for_ai_confirmation(prompt, wait_type="post_run_inspection"),
             run_event_handler=self._handle_plan_run_event,
             quality_gate_provider=self._context_state,
+            work_plan_state_provider=self._work_plan_state,
         )
         self.model = build_chat_model(self.config.service_config, service_name=self.config.service_name)
         self.summary_middleware = build_summarization_middleware(
@@ -248,6 +258,7 @@ class AITerminal(
             "active_wait": active_wait,
             "pending_attachments": len(self._pending_attachments),
             "context_state": self._context_state(),
+            "context_state_loaded": True,
             "last_error": self._last_error,
         }
 
@@ -299,7 +310,22 @@ class AITerminal(
         if self._current_interrupts():
             self._emit_error("当前有补丁审批等待处理；请先输入 /approve 或 /reject <原因>。")
             return
-        self._run_agent_turn(text)
+        guidance_formatter = getattr(self, "_format_current_plan_guidance", lambda value: value)
+        self._run_agent_turn(guidance_formatter(text))
+
+    def _format_current_plan_guidance(self, text: str) -> str:
+        try:
+            plan = self._work_plan_state()
+        except (AttributeError, RuntimeError):
+            return text
+        if plan.get("lifecycle") != "active":
+            return text
+        plan_id = str(plan.get("id") or "当前计划")
+        summary = str(plan.get("summary") or "")
+        label = f"用户对当前工作计划的引导（{plan_id}"
+        if summary:
+            label += f"；{summary}"
+        return f"{label}）：\n{text}"
 
     def _wait_for_ai_confirmation(self, prompt: str, *, wait_type: str) -> bool:
         wait = AIConfirmationWait(prompt=str(prompt), wait_type=wait_type)
@@ -588,8 +614,10 @@ class AITerminal(
             self._emit_activity("开始处理脚本化 AI 请求", category="thinking", phase="start", source_kind="turn")
             try:
                 normalized, attachments = self._prepare_input_attachments(normalized)
-                self._set_agent_turn_text(turn_id, normalized)
-                final_state = self._invoke_agent_text(normalized, attachments)
+                guidance_formatter = getattr(self, "_format_current_plan_guidance", lambda value: value)
+                agent_text = guidance_formatter(normalized)
+                self._set_agent_turn_text(turn_id, agent_text)
+                final_state = self._invoke_agent_text(agent_text, attachments)
             except Exception as error:
                 self._finish_agent_turn(turn_id, error=str(error))
                 self._last_error = str(error)

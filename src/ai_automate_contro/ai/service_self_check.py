@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
+import httpx2
+from anthropic import Anthropic
+from google import genai
+from google.genai import types as google_types
 from langchain_anthropic import ChatAnthropic
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
+from openai import OpenAI
 
 from ai_automate_contro.ai.providers import (
     call_anthropic_messages,
@@ -117,6 +124,7 @@ def self_check_ai_services() -> dict[str, Any]:
     )
 
     checks.extend(_stream_checks(schema=schema, messages=messages))
+    checks.extend(_upstream_contract_checks(schema=schema, messages=messages))
     checks.extend(_terminal_model_checks())
     checks.append(_validation_check())
     checks.append(
@@ -136,6 +144,344 @@ def self_check_ai_services() -> dict[str, Any]:
         )
     )
     return {"ok": all(check["passed"] for check in checks), "check": "ai_services", "checks": checks}
+
+
+def _upstream_contract_checks(
+    *, schema: dict[str, Any], messages: list[dict[str, str]]
+) -> list[dict[str, Any]]:
+    """Run adapters through the installed provider SDKs and a local HTTP transport.
+
+    The handler never leaves the process. This catches SDK parameter and wire-shape
+    regressions that permissive fake endpoints cannot detect.
+    """
+
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content) if request.content else {}
+        requests.append((request.url.path, payload))
+        if request.url.path.endswith("/chat/completions"):
+            if payload.get("stream"):
+                return _sse_response(
+                    [
+                        (
+                            "message",
+                            {
+                                "id": "chatcmpl_self_check",
+                                "object": "chat.completion.chunk",
+                                "created": 0,
+                                "model": "test-model",
+                                "choices": [{"index": 0, "delta": {"content": '{"ok":'}}],
+                            },
+                        ),
+                        (
+                            "message",
+                            {
+                                "id": "chatcmpl_self_check",
+                                "object": "chat.completion.chunk",
+                                "created": 0,
+                                "model": "test-model",
+                                "choices": [{"index": 0, "delta": {"content": "true}"}}],
+                            },
+                        ),
+                    ],
+                    done=True,
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "id": "chatcmpl_self_check",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "test-model",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {
+                                "role": "assistant",
+                                "content": '{"ok":true}',
+                                "refusal": None,
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ],
+                },
+            )
+        if request.url.path.endswith("/responses"):
+            if payload.get("stream"):
+                return _sse_response(
+                    [
+                        ("response.output_text.delta", {"type": "response.output_text.delta", "delta": '{"ok":'}),
+                        ("response.output_text.delta", {"type": "response.output_text.delta", "delta": "true}"}),
+                        ("response.completed", {"type": "response.completed"}),
+                    ]
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "id": "resp_self_check",
+                    "object": "response",
+                    "created_at": 0,
+                    "model": "test-model",
+                    "output": [
+                        {
+                            "id": "msg_self_check",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {
+                                    "type": "output_text",
+                                    "text": '{"ok":true}',
+                                    "annotations": [],
+                                }
+                            ],
+                        }
+                    ],
+                },
+            )
+        if request.url.path.endswith("/messages"):
+            if payload.get("stream"):
+                return _sse_response(
+                    [
+                        (
+                            "content_block_delta",
+                            {
+                                "type": "content_block_delta",
+                                "index": 0,
+                                "delta": {"type": "text_delta", "text": '{"ok":'},
+                            },
+                        ),
+                        (
+                            "content_block_delta",
+                            {
+                                "type": "content_block_delta",
+                                "index": 0,
+                                "delta": {"type": "text_delta", "text": "true}"},
+                            },
+                        ),
+                    ]
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "id": "msg_self_check",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": "test-model",
+                    "content": [{"type": "text", "text": '{"ok":true}'}],
+                    "stop_reason": "end_turn",
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 1, "output_tokens": 1},
+                },
+            )
+        if ":generateContent" in request.url.path:
+            return httpx.Response(
+                200,
+                json={
+                    "candidates": [
+                        {
+                            "content": {
+                                "role": "model",
+                                "parts": [{"text": '{"ok":true}'}],
+                            },
+                            "finishReason": "STOP",
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 1,
+                        "candidatesTokenCount": 1,
+                        "totalTokenCount": 2,
+                    },
+                },
+            )
+        if ":streamGenerateContent" in request.url.path:
+            return _sse_response(
+                [
+                    (
+                        None,
+                        {
+                            "candidates": [
+                                {"content": {"role": "model", "parts": [{"text": '{"ok":'}]}}
+                            ]
+                        },
+                    ),
+                    (
+                        None,
+                        {
+                            "candidates": [
+                                {"content": {"role": "model", "parts": [{"text": "true}"}]}}
+                            ]
+                        },
+                    ),
+                ]
+            )
+        return httpx.Response(404, json={"error": {"message": "unexpected path"}})
+
+    transport = httpx.MockTransport(handler)
+    openai_http = httpx.Client(transport=transport)
+    anthropic_http = httpx2.Client(
+        transport=httpx2.MockTransport(
+            lambda request: _httpx2_response_from_httpx(handler, request)
+        )
+    )
+    google_http = httpx.Client(transport=transport)
+    try:
+        options_by_protocol = {
+            protocol: _options(protocol)
+            for protocol in (
+                "openai_chat_completions",
+                "openai_responses",
+                "anthropic_messages",
+                "google_generate_content",
+            )
+        }
+        openai_client = OpenAI(
+            api_key="test-key",
+            base_url="https://mock.openai/v1",
+            http_client=openai_http,
+        )
+        chat_text, _ = call_openai_chat_completions(
+            client=openai_client,
+            options=options_by_protocol["openai_chat_completions"],
+            messages=messages,
+            schema=schema,
+            schema_name="result",
+        )
+        responses_text, _ = call_openai_responses(
+            client=openai_client,
+            options=options_by_protocol["openai_responses"],
+            messages=messages,
+            schema=schema,
+            schema_name="result",
+        )
+        anthropic_client = Anthropic(
+            api_key="test-key",
+            base_url="https://mock.anthropic",
+            http_client=anthropic_http,
+        )
+        anthropic_text, _ = call_anthropic_messages(
+            client=anthropic_client,
+            options=options_by_protocol["anthropic_messages"],
+            messages=messages,
+            schema=schema,
+            schema_name="result",
+        )
+        google_client = genai.Client(
+            api_key="test-key",
+            http_options=google_types.HttpOptions(
+                base_url="https://mock.google",
+                httpx_client=google_http,
+            ),
+        )
+        google_text, _ = call_google_generate_content(
+            client=google_client,
+            options=options_by_protocol["google_generate_content"],
+            messages=messages,
+            schema=schema,
+            schema_name="result",
+        )
+        stream_texts = [
+            call_openai_chat_completions(
+                client=openai_client,
+                options=_options("openai_chat_completions", stream=True),
+                messages=messages,
+                schema=schema,
+                schema_name="result",
+            )[0],
+            call_openai_responses(
+                client=openai_client,
+                options=_options("openai_responses", stream=True),
+                messages=messages,
+                schema=schema,
+                schema_name="result",
+            )[0],
+            call_anthropic_messages(
+                client=anthropic_client,
+                options=_options("anthropic_messages", stream=True),
+                messages=messages,
+                schema=schema,
+                schema_name="result",
+            )[0],
+            call_google_generate_content(
+                client=google_client,
+                options=_options("google_generate_content", stream=True),
+                messages=messages,
+                schema=schema,
+                schema_name="result",
+            )[0],
+        ]
+    except Exception as error:
+        return [_result("installed_sdk_http_mock_contract", False, error=str(error))]
+    finally:
+        openai_http.close()
+        anthropic_http.close()
+        google_http.close()
+
+    by_path = {path: payload for path, payload in requests}
+    chat_payload = by_path.get("/v1/chat/completions", {})
+    responses_payload = by_path.get("/v1/responses", {})
+    anthropic_payload = by_path.get("/v1/messages", {})
+    google_payload = next(
+        (payload for path, payload in requests if ":generateContent" in path), {}
+    )
+    generation = google_payload.get("generationConfig", {})
+    passed = (
+        chat_text == responses_text == anthropic_text == google_text == '{"ok":true}'
+        and stream_texts == ['{"ok":true}'] * 4
+        and chat_payload.get("reasoning_effort") == "high"
+        and chat_payload.get("max_completion_tokens") == 123
+        and chat_payload.get("response_format", {}).get("type") == "json_schema"
+        and responses_payload.get("reasoning") == {"effort": "high"}
+        and "reasoning_effort" not in responses_payload
+        and responses_payload.get("max_output_tokens") == 123
+        and responses_payload.get("text", {}).get("format", {}).get("type")
+        == "json_schema"
+        and anthropic_payload.get("output_config", {}).get("effort") == "high"
+        and anthropic_payload.get("output_config", {}).get("format", {}).get("type")
+        == "json_schema"
+        and anthropic_payload.get("max_tokens") == 123
+        and generation.get("thinkingConfig", {}).get("thinking_level") == "HIGH"
+        and generation.get("responseMimeType") == "application/json"
+        and generation.get("responseJsonSchema") == schema
+    )
+    return [
+        _result(
+            "installed_sdk_http_mock_contract",
+            passed,
+            request_paths=[path for path, _ in requests],
+        )
+    ]
+
+
+def _httpx2_response_from_httpx(
+    handler: Any, request: Any
+) -> Any:
+    response = handler(request)
+    return httpx2.Response(
+        response.status_code,
+        headers=dict(response.headers),
+        content=response.content,
+        request=request,
+    )
+
+
+def _sse_response(
+    events: list[tuple[str | None, dict[str, Any]]], *, done: bool = False
+) -> httpx.Response:
+    body = "".join(
+        "".join(
+            part
+            for part in (
+                f"event: {event_name}\n" if event_name else "",
+                f"data: {json.dumps(event)}\n\n",
+            )
+        )
+        for event_name, event in events
+    )
+    if done:
+        body += "event: message\ndata: [DONE]\n\n"
+    return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=body)
 
 
 def _stream_checks(*, schema: dict[str, Any], messages: list[dict[str, str]]) -> list[dict[str, Any]]:

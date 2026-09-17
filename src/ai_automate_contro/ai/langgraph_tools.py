@@ -15,6 +15,7 @@ from ai_automate_contro.ai.terminal_tool_registry import (
 )
 from ai_automate_contro.ai.plan_quality import compute_plan_signature, review_plan_quality_tool as review_plan_quality_direct
 from ai_automate_contro.ai.plan_tools import resolve_plan_path
+from ai_automate_contro.ai.work_plan import validate_work_plan_transition
 
 
 def build_langchain_tools(
@@ -28,6 +29,7 @@ def build_langchain_tools(
     inspection_confirmation_handler: Callable[[str], bool] | None = None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None = None,
     quality_gate_provider: Callable[[], dict[str, Any]] | None = None,
+    work_plan_state_provider: Callable[[], dict[str, Any]] | None = None,
 ) -> list[StructuredTool]:
     _ensure_langchain_tool_registry_consistent()
     return [
@@ -42,6 +44,7 @@ def build_langchain_tools(
             inspection_confirmation_handler=inspection_confirmation_handler,
             run_event_handler=run_event_handler,
             quality_gate_provider=quality_gate_provider,
+            work_plan_state_provider=work_plan_state_provider,
         )
         for tool_name in AI_TERMINAL_TOOL_SPECS
     ]
@@ -65,6 +68,7 @@ def _build_structured_tool(
     inspection_confirmation_handler: Callable[[str], bool] | None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None,
     quality_gate_provider: Callable[[], dict[str, Any]] | None,
+    work_plan_state_provider: Callable[[], dict[str, Any]] | None,
 ) -> StructuredTool:
     spec = AI_TERMINAL_TOOL_SPECS[tool_name]
     return StructuredTool.from_function(
@@ -79,6 +83,7 @@ def _build_structured_tool(
             inspection_confirmation_handler=inspection_confirmation_handler,
             run_event_handler=run_event_handler,
             quality_gate_provider=quality_gate_provider,
+            work_plan_state_provider=work_plan_state_provider,
         ),
         name=tool_name,
         description=spec.description,
@@ -98,6 +103,7 @@ def _make_tool_function(
     inspection_confirmation_handler: Callable[[str], bool] | None,
     run_event_handler: Callable[[str, dict[str, Any]], None] | None,
     quality_gate_provider: Callable[[], dict[str, Any]] | None,
+    work_plan_state_provider: Callable[[], dict[str, Any]] | None,
 ) -> Callable[..., str]:
     def _tool(**kwargs: Any) -> str:
         kwargs = _json_safe_tool_payload(kwargs)
@@ -126,6 +132,13 @@ def _make_tool_function(
             except Exception:
                 pass
         try:
+            if tool_name == "update_work_plan":
+                current_plan = work_plan_state_provider() if work_plan_state_provider is not None else {}
+                validate_work_plan_transition(
+                    current_plan.get("lifecycle", "") if isinstance(current_plan, dict) else "",
+                    operation=kwargs.get("operation", "continue"),
+                    items=kwargs.get("items"),
+                )
             if tool_name == "run_plan":
                 _enforce_run_plan_quality_gate(project_root, kwargs, quality_gate_provider)
             result = call_ai_terminal_tool(
