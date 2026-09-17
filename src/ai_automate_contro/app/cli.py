@@ -163,6 +163,12 @@ def _run_cli(project_root: Path, argv: list[str] | None = None) -> int:
             result = self_check_chat_completion_stream_parser()
             print_json(result)
             return 0 if result.get("ok") else 1
+        if args.self_check_command == "ai-services":
+            from ai_automate_contro.ai.service_self_check import self_check_ai_services
+
+            result = self_check_ai_services()
+            print_json(result)
+            return 0 if result.get("ok") else 1
         if args.self_check_command == "ai-terminal":
             from ai_automate_contro.ai.terminal_self_check import self_check_ai_terminal_state
 

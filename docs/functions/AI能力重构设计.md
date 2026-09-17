@@ -124,21 +124,30 @@ AI 服务注册进入当前 plan 集合配置或 plan 局部配置：
 {
   "ai_services": {
     "text_extractor": {
-      "provider": "openai-compatible",
+      "protocol": "openai_chat_completions",
       "base_url": "http://127.0.0.1:18733/v1",
       "model": "model-name",
       "api_key_env": "TEXT_EXTRACTOR_API_KEY",
-      "response_format": "json_schema",
+      "timeout_seconds": 60,
+      "max_retries": 2,
       "stream": false,
-      "timeout_seconds": 60
+      "temperature": 0.2,
+      "top_p": 0.9,
+      "max_output_tokens": 2048,
+      "stop": ["\\n\\n"],
+      "reasoning_effort": "medium",
+      "response_format": "json_schema",
+      "strict_schema": true
     }
   }
 }
 ```
 
-`response_format` 可选 `json_schema`、`json_object` 或 `plain`，默认 `json_schema`。专项 AI 不对用户提供的模型服务做自动降级、手动重试或兼容兜底；服务欠费、503、协议不兼容、返回内容为空或不符合 schema 时，执行会直接失败。SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
+`protocol` 省略时默认为 `openai_chat_completions`，可选 `openai_responses`、`anthropic_messages` 和 `google_generate_content`。四个协议分别对应 OpenAI Chat Completions、OpenAI Responses API、Anthropic Messages API 和 Google Gemini GenerateContent API。统一服务字段为 `model`、`api_key`、`api_key_env`、`base_url`、`timeout_seconds`、`max_retries`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`stop`、`reasoning_effort`、`response_format` 和 `strict_schema`，由适配层转换成协议请求。
 
-`stream` 只影响 `chat_completions` 模式。需要 streaming 时必须在配置中显式设置 `"stream": true`，专项 AI 会从 streaming chunks 中还原文本，再执行 JSON 解析和 schema 校验。
+`reasoning_effort` 默认不设置。OpenAI 支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`，Anthropic 支持 `low`、`medium`、`high`、`xhigh`、`max`，Gemini 支持 `minimal`、`low`、`medium`、`high`。模型不支持所选级别时直接暴露上游错误。`response_format` 可选 `json_schema`、`json_object` 或 `plain`，四种协议都进行适配，但上游模型能力仍可能拒绝；`strict_schema` 仅映射到 OpenAI，其他协议依赖本地 schema 校验。`openai_responses` 不能配置 `stop`，`anthropic_messages` 不能配置 `temperature`、`top_p`，这些组合在请求前明确报错；不跨协议自动降级。专项 AI 不对服务欠费、503、协议不兼容、返回内容为空或不符合 schema 做手动重试或兼容兜底；SDK/LangChain 自身的传输重试可以通过 `max_retries` 显式配置。
+
+`stream` 是统一服务字段，由所选协议适配器映射；需要 streaming 时必须在配置中显式设置 `"stream": true`。专项 AI 会按对应协议的 streaming 结构还原文本，再执行 JSON 解析和 schema 校验；模型或服务不支持时直接报告上游错误。
 
 修改 streaming 解析逻辑后运行 `python .\main.py self-check ai-stream`，先用本地 chunk、reasoning chunk 忽略、SDK 对象 chunk 和空流拒绝夹具验证解析器；真实模型回归按开发验证文档选择对应 plan。
 

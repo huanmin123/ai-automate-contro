@@ -273,27 +273,20 @@ class AITerminal(
         if callable(handle_confirmation) and handle_confirmation(text):
             return False
         parsed_command = _parse_slash_command(text)
-        if parsed_command is None:
-            if text.startswith("/"):
-                self._emit_error("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
-                return False
+        command_spec = _registered_slash_command(parsed_command)
+        if command_spec is None:
             if self._is_agent_busy():
                 self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
                 return False
             self.handle_user_request(text)
             return False
-        command, arg = parsed_command
-        normalized = command.lower()
+        _, arg = parsed_command
+        normalized = command_spec[0]
         if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
             self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return False
-        command_spec = SLASH_COMMANDS.get(normalized)
-        method_name = command_spec["method"] if command_spec else None
-        if method_name:
-            method = getattr(self, method_name)
-            method(arg)
-            return False
-        self.handle_user_request(text)
+        method = getattr(self, command_spec[1]["method"])
+        method(arg)
         return False
 
     def handle_user_request(self, line: str) -> None:
@@ -524,22 +517,15 @@ class AITerminal(
 
     def _handle_slash_command(self, text: str) -> bool:
         parsed_command = _parse_slash_command(text)
-        if parsed_command is None:
-            if str(text).startswith("/"):
-                self._emit_error("AI 命令格式：必须写在行首，格式为 /command 或 /command <args>，命令名必须以英文字母开头。")
-                return True
+        command_spec = _registered_slash_command(parsed_command)
+        if command_spec is None:
             return False
-        command, arg = parsed_command
-        normalized = command.lower()
-        command_spec = SLASH_COMMANDS.get(normalized)
-        method_name = command_spec["method"] if command_spec else None
-        if method_name:
-            if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
-                self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
-                return True
-            getattr(self, method_name)(arg)
+        _, arg = parsed_command
+        normalized, spec = command_spec
+        if self._is_agent_busy() and normalized not in BUSY_ALLOWED_COMMANDS:
+            self._emit_error("AI 正在处理上一轮请求；请等待当前回复完成。")
             return True
-        self._emit_error(f"未知 AI 会话命令：/{command}")
+        getattr(self, spec["method"])(arg)
         return True
 
     def _run_agent_turn(self, text: str) -> None:
@@ -825,9 +811,10 @@ class AITerminal(
         if not text:
             return True
         parsed_command = _parse_slash_command(text)
-        if parsed_command is None:
+        command_spec = _registered_slash_command(parsed_command)
+        if command_spec is None:
             return False
-        command = parsed_command[0].lower()
+        command = command_spec[0]
         return command in BUSY_ALLOWED_COMMANDS
 
     def can_handle_input_during_turn(self, line: str) -> bool:
@@ -1180,6 +1167,18 @@ def _parse_slash_command(text: str) -> tuple[str, str] | None:
     if match is None:
         return None
     return match.group(1), (match.group(2) or "").strip()
+
+
+def _registered_slash_command(
+    parsed_command: tuple[str, str] | None,
+) -> tuple[str, dict[str, str]] | None:
+    if parsed_command is None:
+        return None
+    command = parsed_command[0].lower()
+    command_spec = SLASH_COMMANDS.get(command)
+    if command_spec is None:
+        return None
+    return command, command_spec
 
 
 def reconcile_image_placeholders(

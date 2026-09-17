@@ -93,6 +93,16 @@ def client_command_suggestions(text: str, *, limit: int = 40) -> list[ClientComm
     return candidates[:limit]
 
 
+def is_client_command_input(text: str) -> bool:
+    raw = str(text).rstrip()
+    if not raw.startswith("/") or "\n" in raw:
+        return False
+    command, _, _ = raw[1:].partition(" ")
+    command, _, _ = command.partition("\t")
+    normalized = command.lower()
+    return any(item.name == normalized for item in all_client_commands())
+
+
 def format_client_command_help() -> str:
     lines = [
         "可用命令：",

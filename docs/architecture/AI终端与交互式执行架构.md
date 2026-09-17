@@ -54,7 +54,7 @@ CLI
 
 Textual 客户端是面向自然语言的默认入口。它不再展示 `plan>`、`ai>`、`AI>` 或 `你>` 前缀，而是把用户消息、AI 回复、工具进度、系统输出、审批和错误分别渲染成块。工具开始和完成会更新同一个工具块，审批和错误不混入普通工具输出。输入区是灰底无边框的多行 composer，Enter 发送；`Shift+Enter`、`Alt+Enter` 或行尾 `\` 后 Enter 插入换行；多行粘贴保留换行。高度随内容在 4 到 8 行内增长。AI 忙碌时继续发送会进入队列；按 Esc 会中断当前 AI/plan，已有队列时把排队内容合并为下一轮介入消息并优先处理。
 
-客户端采用主流 agent CLI/TUI 的命令发现方式：在输入行输入 `/` 会打开常用命令候选，继续输入前缀实时过滤，Up / Down 选择候选，Tab 或 Enter 补全命令；带参数的命令继续由 Enter 发送。候选只展示 AI 会话入口，常用命令收敛为 `/status`、`/plan`、`/sessions`、`/resume`、`/new`、`/image`、`/approve`、`/reject`、`/export`、`/copy-last`、`/clear` 和 `/exit`。`/plan` 表示 AI 当前工作计划，不是 plan 包管理命令；无 AI 的 list/create/validate/run/schedule/debug 统一由 `cplan` 处理。命令入口不再提供重复别名；模型连通性诊断使用一次性命令 `python .\main.py ai check --json`。
+客户端采用主流 agent CLI/TUI 的命令发现方式：在输入行输入 `/` 会打开常用命令候选，继续输入前缀实时过滤，Up / Down 选择候选，Tab 或 Enter 补全命令；带参数的命令继续由 Enter 发送。只有候选中已注册的命令才会被命令路由处理，未知 `/xxx` 和 `/Users/...` 一类路径仍作为普通消息发送给 AI。候选只展示 AI 会话入口，常用命令收敛为 `/status`、`/plan`、`/sessions`、`/resume`、`/new`、`/image`、`/approve`、`/reject`、`/export`、`/copy-last`、`/clear` 和 `/exit`。`/plan` 表示 AI 当前工作计划，不是 plan 包管理命令；无 AI 的 list/create/validate/run/schedule/debug 统一由 `cplan` 处理。命令入口不再提供重复别名；模型连通性诊断使用一次性命令 `python .\main.py ai check --json`。
 
 底部状态条持续显示当前服务、thread、AI 上下文里的 plan/debug workspace/最近 output、排队数量、审批状态和待发送图片数量。plan 的确定性管理状态不再塞进 Textual 客户端。
 

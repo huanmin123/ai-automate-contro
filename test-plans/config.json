@@ -4,7 +4,7 @@
     "default": {
       "provider": "openai-compatible",
       "api": "chat_completions",
-      "base_url": "https://vsllm.com/v1",
+      "base_url": "https://aijh.huanmin.top/v1",
       "model": "gpt-5.5",
       "stream": true,
       "timeout_seconds": 90,

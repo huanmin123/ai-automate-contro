@@ -65,6 +65,55 @@ def extract_responses_text(raw_response: dict[str, Any]) -> str:
     return "".join(chunks)
 
 
+def extract_responses_stream_text(response: Any) -> tuple[str, dict[str, Any]]:
+    chunks: list[str] = []
+    raw_chunks: list[dict[str, Any]] = []
+    for event in response:
+        raw_event = model_dump(event)
+        raw_chunks.append(raw_event)
+        if raw_event.get("type") == "response.output_text.delta" and raw_event.get("delta"):
+            chunks.append(str(raw_event["delta"]))
+    raw_text = "".join(chunks)
+    if not raw_text:
+        raise ValueError("OpenAI Responses 返回了流式响应，但没有文本内容。")
+    return raw_text, {"stream": True, "chunks": raw_chunks}
+
+
+def extract_anthropic_stream_text(response: Any) -> tuple[str, dict[str, Any]]:
+    chunks: list[str] = []
+    raw_chunks: list[dict[str, Any]] = []
+    for event in response:
+        raw_event = model_dump(event)
+        raw_chunks.append(raw_event)
+        delta = raw_event.get("delta")
+        if (
+            raw_event.get("type") == "content_block_delta"
+            and isinstance(delta, dict)
+            and delta.get("type") == "text_delta"
+            and delta.get("text")
+        ):
+            chunks.append(str(delta["text"]))
+    raw_text = "".join(chunks)
+    if not raw_text:
+        raise ValueError("Anthropic Messages 返回了流式响应，但没有文本内容。")
+    return raw_text, {"stream": True, "chunks": raw_chunks}
+
+
+def extract_google_stream_text(response: Any) -> tuple[str, dict[str, Any]]:
+    chunks: list[str] = []
+    raw_chunks: list[dict[str, Any]] = []
+    for event in response:
+        raw_event = model_dump(event)
+        raw_chunks.append(raw_event)
+        text = getattr(event, "text", "") or _extract_google_event_text(raw_event)
+        if text:
+            chunks.append(str(text))
+    raw_text = "".join(chunks)
+    if not raw_text:
+        raise ValueError("Google GenerateContent 返回了流式响应，但没有文本内容。")
+    return raw_text, {"stream": True, "chunks": raw_chunks}
+
+
 def extract_chat_completion_text(response: Any) -> tuple[str, dict[str, Any]]:
     if isinstance(response, str):
         raw_text = response
@@ -162,6 +211,16 @@ def model_dump(value: Any) -> dict[str, Any]:
     if hasattr(value, "dict"):
         return value.dict()
     raise TypeError(f"Unsupported AI SDK response object: {type(value).__name__}")
+
+
+def _extract_google_event_text(raw_event: dict[str, Any]) -> str:
+    chunks: list[str] = []
+    for candidate in raw_event.get("candidates", []):
+        content = candidate.get("content", {}) if isinstance(candidate, dict) else {}
+        for part in content.get("parts", []):
+            if isinstance(part, dict) and part.get("text") and not part.get("thought"):
+                chunks.append(str(part["text"]))
+    return "".join(chunks)
 
 
 def _get_choice_message(choice: Any) -> Any:

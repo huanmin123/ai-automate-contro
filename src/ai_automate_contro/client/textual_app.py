@@ -31,6 +31,7 @@ from ai_automate_contro.client.commands import (
     SCOPE_LABELS,
     client_command_suggestions,
     format_client_command_help,
+    is_client_command_input,
 )
 from ai_automate_contro.client.events import ClientEvent
 from ai_automate_contro.app.errors import format_error_for_terminal
@@ -2271,13 +2272,8 @@ def _strip_bracketed_label(text: str) -> str:
     return rest.strip()
 
 
-def _is_single_line_slash_input(text: str) -> bool:
-    stripped = str(text).strip()
-    return stripped.startswith("/") and "\n" not in stripped
-
-
 def _is_command_input(text: str) -> bool:
-    return str(text).lstrip().startswith("/")
+    return is_client_command_input(text)
 
 
 def _is_busy_direct_command(text: str) -> bool:
@@ -2308,7 +2304,7 @@ def _is_newline_key_event(event: Any) -> bool:
 
 
 def _parse_local_command(text: str) -> tuple[str | None, str]:
-    stripped = text.strip()
+    stripped = str(text).rstrip()
     if not stripped.startswith("/"):
         return None, ""
     command, _, arg = stripped[1:].partition(" ")

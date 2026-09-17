@@ -383,6 +383,10 @@ pyinstaller_args=(
   --collect-data "textual"
   --collect-submodules "langchain"
   --collect-submodules "langchain_openai"
+  --collect-submodules "langchain_anthropic"
+  --collect-submodules "langchain_google_genai"
+  --collect-submodules "anthropic"
+  --collect-submodules "google.genai"
   --collect-submodules "langgraph"
   --collect-submodules "langgraph.checkpoint.sqlite"
   --collect-submodules "rich"
@@ -478,6 +482,7 @@ if [ "$smoke_test" -eq 1 ]; then
       run_checked "./$cplan_executable_name" install-browser --help
     fi
     run_checked "./$executable_name" self-check ai-stream
+    run_checked "./$executable_name" self-check ai-services
     run_checked "./$executable_name" self-check textual-client
     run_checked "./$executable_name" self-check ai-terminal
     run_checked "./$cplan_executable_name" self-check cli
@@ -513,6 +518,7 @@ if [ "$smoke_test" -eq 1 ]; then
       run_checked "./$cplan_executable_name" install-browser --help
     fi
     run_checked "./$executable_name" self-check ai-stream
+    run_checked "./$executable_name" self-check ai-services
     run_checked "./$cplan_executable_name" self-check cli
     run_checked "./$cplan_executable_name" self-check runtime
     run_checked "./$executable_name" self-check textual-client

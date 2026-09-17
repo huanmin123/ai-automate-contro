@@ -1075,35 +1075,36 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             AITerminal.handle_input(terminal, " /status") is False
             and terminal.forwarded_messages[-1] == " /status"
         )
-        bad_slash_format = AITerminal.handle_input(terminal, "/键盘") is False
-        bad_slash_error = terminal.errors[-1] if terminal.errors else ""
-        slash_attach_unknown = AITerminal._handle_slash_command(terminal, "/attach list") is True
-        slash_attach_error = terminal.errors[-1] if terminal.errors else ""
-        slash_paste_unknown = AITerminal._handle_slash_command(terminal, "/paste-image") is True
-        slash_paste_error = terminal.errors[-1] if terminal.errors else ""
-        slash_run_context_unknown = AITerminal._handle_slash_command(terminal, "/run_context output/run") is True
-        slash_run_context_error = terminal.errors[-1] if terminal.errors else ""
-        slash_context_unknown = AITerminal._handle_slash_command(terminal, "/context") is True
-        slash_context_error = terminal.errors[-1] if terminal.errors else ""
-        removed_command_errors: dict[str, str] = {}
-        removed_commands_unknown = True
-        removed_command_expectations = {
-            "/ai hello": "/ai",
-            "/compress": "/compress",
-            "/exit": "/exit",
-            "/help": "/help",
-            "/history": "/history",
-            "/keyboard": "/keyboard",
-            "/pending": "/pending",
-        }
-        for removed_command, expected_name in removed_command_expectations.items():
-            handled = AITerminal._handle_slash_command(terminal, removed_command)
-            removed_command_errors[removed_command] = terminal.errors[-1] if terminal.errors else ""
-            removed_commands_unknown = (
-                removed_commands_unknown
-                and handled is True
-                and f"未知 AI 会话命令：{expected_name}" in removed_command_errors[removed_command]
+        slash_path_message_ok = (
+            AITerminal.handle_input(terminal, "/Users/anminhu/Downloads/config.json 用这个配置测试") is False
+            and terminal.forwarded_messages[-1] == "/Users/anminhu/Downloads/config.json 用这个配置测试"
+        )
+        unknown_slash_message_ok = (
+            AITerminal.handle_input(terminal, "/unknown 用普通消息处理") is False
+            and terminal.forwarded_messages[-1] == "/unknown 用普通消息处理"
+        )
+        malformed_slash_message_ok = (
+            AITerminal.handle_input(terminal, "/键盘") is False
+            and terminal.forwarded_messages[-1] == "/键盘"
+        )
+        unknown_slash_not_handled = (
+            AITerminal._handle_slash_command(terminal, "/attach list") is False
+            and AITerminal._handle_slash_command(terminal, "/paste-image") is False
+            and AITerminal._handle_slash_command(terminal, "/run_context output/run") is False
+            and AITerminal._handle_slash_command(terminal, "/context") is False
+        )
+        removed_commands_not_handled = all(
+            AITerminal._handle_slash_command(terminal, removed_command) is False
+            for removed_command in (
+                "/ai hello",
+                "/compress",
+                "/exit",
+                "/help",
+                "/history",
+                "/keyboard",
+                "/pending",
             )
+        )
         image_surface_ok = (
             "attach list" not in backend_command_text
             and "plan" in backend_command_names
@@ -1131,17 +1132,11 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
             and plain_status_message_ok
             and mid_slash_message_ok
             and leading_space_message_ok
-            and bad_slash_format
-            and "命令名必须以英文字母开头" in bad_slash_error
-            and slash_attach_unknown
-            and "未知 AI 会话命令：/attach" in slash_attach_error
-            and slash_paste_unknown
-            and "未知 AI 会话命令：/paste-image" in slash_paste_error
-            and slash_run_context_unknown
-            and "未知 AI 会话命令：/run_context" in slash_run_context_error
-            and slash_context_unknown
-            and "未知 AI 会话命令：/context" in slash_context_error
-            and removed_commands_unknown
+            and slash_path_message_ok
+            and unknown_slash_message_ok
+            and malformed_slash_message_ok
+            and unknown_slash_not_handled
+            and removed_commands_not_handled
         )
 
         busy_guard_ok, busy_guard_detail = _check_busy_command_guard()
@@ -1211,12 +1206,11 @@ def _check_terminal_command_flow(project_root: Path, human_message: HumanMessage
                     "backend_mentions_plan": "plan" in backend_command_names,
                     "plan_empty_text": plan_empty_text,
                     "plain_status_messages": terminal.forwarded_messages,
-                    "bad_slash_error": bad_slash_error,
-                    "slash_attach_error": slash_attach_error,
-                    "slash_paste_error": slash_paste_error,
-                    "slash_run_context_error": slash_run_context_error,
-                    "slash_context_error": slash_context_error,
-                    "removed_command_errors": removed_command_errors,
+                    "slash_path_message_ok": slash_path_message_ok,
+                    "unknown_slash_message_ok": unknown_slash_message_ok,
+                    "malformed_slash_message_ok": malformed_slash_message_ok,
+                    "unknown_slash_not_handled": unknown_slash_not_handled,
+                    "removed_commands_not_handled": removed_commands_not_handled,
                 },
             ),
             _self_check_result(

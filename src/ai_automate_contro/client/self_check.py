@@ -1985,17 +1985,26 @@ async def _check_textual_ui_snapshot_layout() -> dict[str, Any]:
 
 
 def _check_textual_slash_command_routing(project_root: Path) -> dict[str, Any]:
-    from ai_automate_contro.client.commands import client_command_suggestions
+    from ai_automate_contro.client.commands import client_command_suggestions, is_client_command_input
 
     slash_names = [command.name for command in client_command_suggestions("/")]
     forbidden = {"list", "use", "run", "continue", "close", "stop", "validate", "debug"}
-    passed = not forbidden.intersection(slash_names)
+    routing_cases = {
+        "registered_status": is_client_command_input("/status"),
+        "registered_sessions": is_client_command_input("/sessions 10"),
+        "leading_space": not is_client_command_input(" /status"),
+        "unix_path": not is_client_command_input("/Users/anminhu/Downloads/config.json 用这个配置测试"),
+        "unknown_slash": not is_client_command_input("/unknown 用普通消息处理"),
+        "multiline_message": not is_client_command_input("/status\n继续处理"),
+    }
+    passed = not forbidden.intersection(slash_names) and all(routing_cases.values())
     return {
         "name": "textual_client_has_no_plan_management_commands",
         "passed": passed,
         "detail": {
             "slash_names": slash_names,
             "forbidden_hits": sorted(forbidden.intersection(slash_names)),
+            "routing_cases": routing_cases,
         },
     }
 

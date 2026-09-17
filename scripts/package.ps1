@@ -455,6 +455,10 @@ try {
         "--collect-data", "textual",
         "--collect-submodules", "langchain",
         "--collect-submodules", "langchain_openai",
+        "--collect-submodules", "langchain_anthropic",
+        "--collect-submodules", "langchain_google_genai",
+        "--collect-submodules", "anthropic",
+        "--collect-submodules", "google.genai",
         "--collect-submodules", "langgraph",
         "--collect-submodules", "langgraph.checkpoint.sqlite",
         "--collect-submodules", "rich",
@@ -597,6 +601,7 @@ if ($SmokeTest) {
             Invoke-Checked $CPlanExecutablePath @("install-browser", "--help")
         }
         Invoke-Checked $ExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExecutablePath @("self-check", "ai-services")
         Invoke-Checked $ExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExecutablePath @("self-check", "ai-tools")
@@ -653,6 +658,7 @@ if ($SmokeTest -and -not $SkipZip) {
             Invoke-Checked $ExtractedCPlanExecutablePath @("install-browser", "--help")
         }
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-stream")
+        Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-services")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "textual-client")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-terminal")
         Invoke-Checked $ExtractedExecutablePath @("self-check", "ai-tools")

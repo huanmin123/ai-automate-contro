@@ -207,13 +207,18 @@ step 上显式字段优先级高于 profile。
 {
   "ai_services": {
     "default": {
-      "provider": "openai-compatible",
-      "api": "chat_completions",
+      "protocol": "openai_chat_completions",
       "base_url": "https://your-openai-compatible-endpoint/v1",
       "model": "your-model",
       "api_key_env": "OPENAI_API_KEY",
       "stream": true,
       "timeout_seconds": 90,
+      "max_retries": 2,
+      "temperature": 0.2,
+      "top_p": 0.9,
+      "max_output_tokens": 2048,
+      "stop": ["\\n\\n"],
+      "reasoning_effort": "medium",
       "strict_schema": true,
       "response_format": "json_schema"
     }
@@ -221,4 +226,55 @@ step 上显式字段优先级高于 profile。
 }
 ```
 
-配置可以直接写 `api_key`，也可以通过 `api_key_env` 读取环境变量。
+`protocol` 是服务配置的规范协议字段，省略时默认为 `openai_chat_completions`。当前支持：
+
+| `protocol` | 对应协议 |
+| --- | --- |
+| `openai_chat_completions` | OpenAI Chat Completions |
+| `openai_responses` | OpenAI Responses API |
+| `anthropic_messages` | Anthropic Messages API |
+| `google_generate_content` | Google Gemini GenerateContent API |
+
+除 `protocol` 外，服务配置使用统一字段：`model`、`api_key`、`api_key_env`、`base_url`、`timeout_seconds`、`max_retries`、`stream`、`temperature`、`top_p`、`max_output_tokens`、`stop`、`reasoning_effort`、`response_format` 和 `strict_schema`。字段统一命名不代表每个协议都接受全部字段；未填写的可选字段不发送给上游。
+
+`reasoning_effort` 默认不设置。OpenAI 两种协议支持 `none`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max`；Anthropic 支持 `low`、`medium`、`high`、`xhigh`、`max`；Gemini 支持 `minimal`、`low`、`medium`、`high`。模型不支持所选级别时保留并报告上游原始错误。
+
+`response_format` 可选 `json_schema`、`json_object` 或 `plain`，四种协议都会进行对应适配，但具体模型能力仍可能拒绝该配置。`strict_schema` 是 OpenAI JSON Schema 请求的严格模式；Anthropic/Gemini 由返回后的本地 schema 校验保证输出形状。协议选择固定后不会自动切换或降级到其他协议。配置可以直接写 `api_key`，也可以通过 `api_key_env` 读取环境变量。
+
+| 字段 | 不可用的协议 | 行为 |
+| --- | --- | --- |
+| `stop` | `openai_responses` | 配置校验失败 |
+| `temperature`、`top_p` | `anthropic_messages` | 配置校验失败 |
+
+需要同时注册多个协议时，可以在同一个 `ai_services` 集合中分别配置服务：
+
+```json
+{
+  "ai_services": {
+    "default": {
+      "protocol": "openai_chat_completions",
+      "base_url": "https://api.openai.com/v1",
+      "model": "your-chat-model",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "responses": {
+      "protocol": "openai_responses",
+      "base_url": "https://api.openai.com/v1",
+      "model": "your-responses-model",
+      "api_key_env": "OPENAI_API_KEY"
+    },
+    "anthropic": {
+      "protocol": "anthropic_messages",
+      "base_url": "https://api.anthropic.com",
+      "model": "your-anthropic-model",
+      "api_key_env": "ANTHROPIC_API_KEY"
+    },
+    "gemini": {
+      "protocol": "google_generate_content",
+      "base_url": "https://generativelanguage.googleapis.com",
+      "model": "your-gemini-model",
+      "api_key_env": "GEMINI_API_KEY"
+    }
+  }
+}
+```

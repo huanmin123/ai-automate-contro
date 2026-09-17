@@ -6,10 +6,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from langchain_anthropic import ChatAnthropic
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import ChatOpenAI
 
 from ai_automate_contro.app.errors import UserFacingError
 from ai_automate_contro.app.runtime_config import default_ai_config_dir_for_project
+from ai_automate_contro.ai.service_config import resolve_common_model_options, validate_ai_service_config
 from ai_automate_contro.plans.config import load_plan_config
 
 
@@ -63,23 +67,81 @@ def load_ai_terminal_config(project_root: Path, *, service_name: str = "default"
             fix=f"在 ai_services.{service_name}.model 填入模型名。",
             verify=[_verify_command("self-check env")],
         )
+    try:
+        validate_ai_service_config(service_config)
+    except (TypeError, ValueError) as error:
+        raise UserFacingError(
+            f"AI 终端服务配置无效：{service_name}",
+            details=[str(error), f"配置文件：{config_path}"],
+            fix=f"修正 ai_services.{service_name} 的 protocol 和通用模型参数。",
+            verify=[_verify_command("self-check env")],
+        ) from error
     resolve_ai_terminal_api_key(service_name, service_config)
     return AITerminalConfig(service_name=service_name, service_config=service_config)
 
 
-def build_chat_model(service_config: dict[str, Any], *, service_name: str = "default") -> ChatOpenAI:
+def build_chat_model(service_config: dict[str, Any], *, service_name: str = "default") -> BaseChatModel:
+    options = resolve_common_model_options(
+        service_config,
+        api_key=resolve_ai_terminal_api_key(service_name, service_config),
+    )
     kwargs: dict[str, Any] = {
-        "model": str(service_config["model"]),
-        "api_key": resolve_ai_terminal_api_key(service_name, service_config),
-        "timeout": float(service_config.get("timeout_seconds", 90)),
-        "temperature": float(service_config.get("temperature", 0.2)),
+        "model": options.model,
+        # The terminal renders token events continuously; service-level stream
+        # controls the standalone ai action, while terminal streaming remains on.
         "streaming": True,
     }
-    if service_config.get("base_url"):
-        kwargs["base_url"] = str(service_config["base_url"])
-    if service_config.get("max_retries") is not None:
-        kwargs["max_retries"] = int(service_config["max_retries"])
-    return ChatOpenAI(**kwargs)
+    if options.temperature is not None:
+        kwargs["temperature"] = options.temperature
+    if options.top_p is not None:
+        kwargs["top_p"] = options.top_p
+    if options.max_output_tokens is not None:
+        kwargs["max_tokens"] = options.max_output_tokens
+    if options.stop is not None:
+        kwargs["stop"] = options.stop
+    if options.reasoning_effort is not None:
+        kwargs["reasoning_effort"] = options.reasoning_effort
+    if options.max_retries is not None:
+        kwargs["max_retries"] = options.max_retries
+
+    if options.protocol in {"openai_chat_completions", "openai_responses"}:
+        kwargs.update(
+            {
+                "api_key": options.api_key,
+                "timeout": options.timeout_seconds,
+                "use_responses_api": options.protocol == "openai_responses",
+            }
+        )
+        if options.base_url:
+            kwargs["base_url"] = options.base_url
+        return ChatOpenAI(**kwargs)
+
+    if options.protocol == "anthropic_messages":
+        kwargs.update(
+            {
+                "api_key": options.api_key,
+                "timeout": options.timeout_seconds,
+            }
+        )
+        if options.base_url:
+            kwargs["base_url"] = options.base_url
+        return ChatAnthropic(**kwargs)
+
+    if options.protocol == "google_generate_content":
+        if "max_tokens" in kwargs:
+            kwargs["max_output_tokens"] = kwargs.pop("max_tokens")
+        kwargs.setdefault("temperature", None)
+        kwargs.update(
+            {
+                "google_api_key": options.api_key,
+                "timeout": options.timeout_seconds,
+            }
+        )
+        if options.base_url:
+            kwargs["base_url"] = options.base_url
+        return ChatGoogleGenerativeAI(**kwargs)
+
+    raise ValueError(f"Unsupported AI protocol: {options.protocol}")
 
 
 def resolve_ai_terminal_api_key(service_name: str, service_config: dict[str, Any]) -> str:

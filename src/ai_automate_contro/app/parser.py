@@ -88,6 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     self_check_subparsers.add_parser("env", help="检查本地客户端环境依赖。")
     self_check_subparsers.add_parser("textual-client", help="检查 Textual AI 客户端渲染、队列和工具进度。")
     self_check_subparsers.add_parser("ai-stream", help="检查本地 chat completions 流式解析。")
+    self_check_subparsers.add_parser("ai-services", help="检查四种 AI 协议、通用参数和流式解析。")
     self_check_subparsers.add_parser("ai-terminal", help="检查 AI 会话、压缩和图片状态。")
     self_check_subparsers.add_parser("ai-tools", help="检查 LangChain StructuredTool 接线。")
     self_check_subparsers.add_parser("ai-plan-generation", help="模拟服务端 AI 的执行线识别和 plan 生成工具调用。")

@@ -61,6 +61,7 @@ def action_ai(executor: Any, step: dict[str, Any]) -> None:
         "instruction": instruction,
         "input": input_value,
         "schema": result.schema,
+        "protocol": result.protocol,
         "response_format": result.response_format,
         "attempts": result.attempts,
         "parsed": result.parsed,

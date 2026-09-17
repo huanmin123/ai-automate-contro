@@ -119,11 +119,15 @@ def _check_imports() -> dict[str, Any]:
         "ai_automate_contro": "ai-automate-contro",
         "playwright": "playwright",
         "openai": "openai",
+        "anthropic": "anthropic",
+        "google.genai": "google-genai",
         "jsonschema": "jsonschema",
         "langchain": "langchain",
         "langgraph": "langgraph",
         "langgraph.checkpoint.sqlite": "langgraph-checkpoint-sqlite",
         "langchain_openai": "langchain-openai",
+        "langchain_anthropic": "langchain-anthropic",
+        "langchain_google_genai": "langchain-google-genai",
         "pydantic": "pydantic",
         "PIL": "Pillow",
         "rich": "rich",
@@ -231,6 +235,8 @@ def _check_runtime_config(project_root: Path) -> dict[str, Any]:
 
 
 def _check_ai_config(project_root: Path) -> dict[str, Any]:
+    from ai_automate_contro.ai.service_config import validate_ai_service_config
+
     try:
         ai_config_dir = default_ai_config_dir_for_project(project_root)
         plan_config = load_plan_config(project_root, ai_config_dir)
@@ -282,19 +288,27 @@ def _check_ai_config(project_root: Path) -> dict[str, Any]:
     api_key_env = default_service.get("api_key_env")
     has_api_key = bool(default_service.get("api_key"))
     env_ready = isinstance(api_key_env, str) and bool(os.environ.get(api_key_env))
+    config_error = ""
+    try:
+        validate_ai_service_config(default_service)
+    except (TypeError, ValueError) as error:
+        config_error = str(error)
+    ready = bool(model) and (has_api_key or env_ready) and not config_error
     return _check_result(
         "ai_config",
-        bool(model) and (has_api_key or env_ready),
+        ready,
         configured=True,
-        ready=bool(model) and (has_api_key or env_ready),
+        ready=ready,
         service="default",
         config_dir=str(ai_config_dir),
         model=str(model) if model else "",
         has_inline_api_key=has_api_key,
         api_key_env=str(api_key_env) if api_key_env else "",
         api_key_env_ready=env_ready,
-        detail="AI 配置只做本地检查，不会发送真实模型请求。",
-        fix="在配置目录中设置 model，并设置 api_key 或 api_key_env。",
+        protocol=str(default_service.get("protocol") or default_service.get("api") or "openai_chat_completions"),
+        config_error=config_error,
+        detail=config_error or "AI 配置只做本地检查，不会发送真实模型请求。",
+        fix="在配置目录中设置有效的 protocol、model、通用模型参数，并设置 api_key 或 api_key_env。",
     )
 
 
