@@ -11,18 +11,26 @@
 - `action`: 固定写成 `detect_challenge`
 - `browser`: 浏览器会话名
 - `output.as`: 发布检测结果的变量名
-- `rules`: 检测规则数组
 
 ## 可选字段
 
 - `page`: 指定页面名
+- `rules`: 检测规则数组，可选。缺省或为空数组时直接输出未命中：`matched` 为 `false`，`labels` 和 `matches` 为空数组
+
+输出结构：`matched`（布尔，是否有任一规则命中）、`labels`（命中规则的 label 数组）、`matches`（命中规则明细数组，每项含 `label`、`type`、`selector`、`text`、`value`，未提供的字段为 `null`）。
 
 ## 规则类型
 
-- `selector_visible`: 元素存在并可见
-- `selector_exists`: 元素存在
-- `text_contains`: 指定元素文本包含目标文本
-- `url_contains`: 当前 URL 包含目标文本
+规则是对象数组，`type` 缺省时按 `selector_visible` 处理；不支持的 `type` 会让步骤直接报错。
+
+| rule.type | 必填字段 | 可选字段 | 判断逻辑 |
+| --- | --- | --- | --- |
+| `selector_visible` | `selector` | `index`（整数，命中多个时取第几个，从 `0` 开始，默认取第一个）、`label` | 元素存在且可见 |
+| `selector_exists` | `selector` | `label` | 元素存在即可，不要求可见 |
+| `text_contains` | `text` | `selector`（默认 `body`）、`label` | 目标元素的文本包含 `text`；选择器无匹配时按未命中处理 |
+| `url_contains` | `value` | `label` | 当前页面 URL 包含 `value` |
+
+`label` 是规则的自定义标识，缺省等于 rule 的 `type`，用于在 `labels` 和 `matches` 里区分是哪条规则命中。
 
 ## 示例
 
@@ -30,7 +38,8 @@
 {
   "action": "detect_challenge",
   "browser": "demo",
-  "output": {"as": "challenge"},  "rules": [
+  "output": {"as": "challenge"},
+  "rules": [
     {
       "type": "selector_visible",
       "selector": "#verification-panel",

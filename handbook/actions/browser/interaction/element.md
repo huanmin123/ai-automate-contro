@@ -9,7 +9,7 @@
 - `action`: 固定写成 `element`
 - `type`: 元素操作类型
 - `browser`: 浏览器会话名
-- `selector`: Playwright 选择器
+- 元素定位：`selector` 或一种语义定位字段（见下），二选一
 
 `selector` 不是唯一定位方式。除 `selector` 外，也可以使用语义定位字段：`role` + `name`、`text`、`label`、`placeholder`、`alt_text`、`title`、`test_id`。如果元素位于 iframe 内，可使用 `frame_selector`、`frame_name`、`frame_url`、`frame_url_contains` 或 `frame_index`。
 
@@ -53,12 +53,17 @@
 - `frame_url_contains`: 通过 URL 片段定位
 - `frame_index`: 通过 `page.frames` 顺序定位，从 `0` 开始
 - `index`: 当选择器匹配多个元素时选择第几个，从 `0` 开始
-- `delay_ms`: 仅 `type: type` 有效，默认 `50`
-- `force`: 强制执行点击、悬停或拖拽
-- `timeout`: 本次元素操作超时时间，单位毫秒
-- `position`: 点击或悬停的位置，例如 `{"x": 10, "y": 8}`
-- `modifiers`: 修饰键数组，例如 `["ControlOrMeta"]`
-- `no_wait_after`: `tap` 可用，是否跳过后续等待
+- `delay_ms`: 整数，默认不设置。`type` 表示逐字输入间隔（默认 `50`）；`click`、`dblclick`、`right_click` 表示连续点击之间的间隔
+- `force`: 布尔，默认 `false`，跳过可操作性检查强制执行，适用 `click`、`dblclick`、`right_click`、`hover`、`tap`、`drag_to`
+- `trial`: 布尔，默认 `false`，只做元素可操作性检查，不产生实际点击、悬停或拖拽，适用 `click`、`dblclick`、`right_click`、`hover`、`tap`、`drag_to`
+- `timeout`: 整数，本次元素操作超时时间，单位毫秒，不设置时使用会话默认超时（见 `open_browser.timeout_ms`）
+- `position`: 对象，点击、悬停或触控时相对元素左上角的偏移坐标，例如 `{"x": 10, "y": 8}`，适用 `click`、`dblclick`、`right_click`、`hover`、`tap`
+- `button`: 字符串，鼠标键，`left`、`right`、`middle`，默认 `left`，适用 `click`、`dblclick`；`right_click` 固定为 `right`，该字段会被忽略
+- `click_count`: 整数，最小 `1`，默认 `1`，点击次数，`click`、`right_click` 有效（`dblclick` 已等价于 2 次点击）；需要双击时优先用 `type: dblclick`
+- `modifiers`: 修饰键数组，例如 `["ControlOrMeta"]`，适用 `click`、`dblclick`、`right_click`、`hover`、`tap`
+- `no_wait_after`: 布尔，是否跳过操作后的默认等待，仅 `tap` 可用
+- `source_position`: 对象，拖拽起点相对源元素左上角的偏移坐标，例如 `{"x": 10, "y": 10}`，仅 `drag_to` 有效
+- `target_position`: 对象，拖拽终点相对目标元素左上角的偏移坐标，仅 `drag_to` 有效
 - `target_index`: `drag_to` 目标选择器匹配多个元素时选择第几个
 
 ## 示例

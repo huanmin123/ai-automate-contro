@@ -48,8 +48,9 @@
 - `state`: 仅 `source_target=element` 可用，`exists`、`enabled`、`disabled`、`focused`，默认 `exists`。
 - `match_index`: 可选，选择第几个命中，默认 `0`；它不作为窗口候选索引。
 - `max_matches`: 可选，最多保存候选数量，默认 `10`。
-- `timeout_ms`、`interval_ms`: 没有 `source_path` 时等待屏幕目标出现。
-- `max_depth`、`max_elements`: `source_target=element` 的控件树遍历限制。
+- `include_cursor`: 可选，布尔值，默认 `false`。仅在执行器现场抓取截图作为 source（`source_target=screen/window/element`）时生效，请求截图包含鼠标指针；使用 `source_path` 离线图片时无意义。是否实际包含以 backend 截图能力为准。
+- `timeout_ms`、`interval_ms`: 单位毫秒。没有 `source_path` 时等待屏幕目标出现：模板匹配轮询的 `timeout_ms` 默认 `3000`、`interval_ms` 默认 `250`；超时后抛出 `TimeoutError`（报错信息包含模板路径和 `match_index`），payload 已先写入 `path` 指向的 JSON。`source_target=window/element` 的窗口/控件查找等待读取同一组字段，但未显式提供时内部默认 `timeout_ms=1000`、`interval_ms=100`；显式提供时查找等待和模板匹配轮询共用同一个值。使用 `source_path` 离线图片时不轮询，只匹配一次，不涉及这两个参数。
+- `max_depth`、`max_elements`: `source_target=element` 的控件树遍历限制，默认分别为 `6` 和 `200`。
 - `path`: 必填，相对于 `output/desktop-vision/`。
 - `output.as`: 可选，保存 payload。
 

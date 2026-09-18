@@ -204,7 +204,7 @@ Open/Save 文件对话框优先按系统窗口处理，不要默认依赖文件�
 - `offset_x` / `offset_y`: `current_window_offset`、`focused_window_offset` 必填，表示相对窗口左上角的像素偏移。
 - `target_candidates`: `candidate` 可用，传入 `desktop_capture type=observe`、`desktop_vision` 或 `inspect_desktop` 的 `target_candidates` 对象；推荐用完整模板引用，例如 `{{obs.target_candidates}}`。
 - `candidate_source`: `candidate` 可用。写 `latest`、`last`、`session` 或 `latest_target_candidates` 时，使用当前 desktop session 最近一次 `desktop_capture type=observe` 或 `desktop_vision` 保存的候选；适合紧接上一步使用，避免复制大对象。
-- `candidate_id`: `candidate` 必填，候选 ID；推荐用 `{{obs.target_candidates.best_candidate.candidate_id}}` 或显式候选 ID。
+- `candidate_id`: `candidate` 必填，候选 ID；推荐用 `{{obs.target_candidates.best_candidate.candidate_id}}` 或显式候选 ID。兼容别名 `target_candidate_id`：两者都写时 `candidate_id` 优先，只有 `candidate_id` 缺失时才读取 `target_candidate_id`；新 plan 统一写 `candidate_id`。
 - `min_confidence`: `candidate` 可选，默认 `medium`。低于该置信度会失败。
 - `bounds`: `bounds_center` 必填，形如 `{"x": 10, "y": 10, "width": 120, "height": 32}`；`width/height` 必须大于 `0`。
 - `element_center`: 必须同时提供窗口定位字段和控件定位字段，字段同 [desktop_element](./desktop_element.md)。窗口定位可用 [app_profile](./app_profile.md) 的 `profile`。

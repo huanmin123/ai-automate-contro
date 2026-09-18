@@ -508,6 +508,23 @@
 - `agg`: `count`、`sum`、`avg`、`min`、`max`，不提供时按 `values` 自动选择计数或求和。
 - `fill_value`: 没有数据的交叉格默认填充值，默认 `0`。
 
+## `split_column` 规则
+
+- `column`: 必填字符串；要拆分的源列名。源值是 `null` 时按空字符串处理。
+- `into`: 必填，输出列名数组（或单个列名字符串）；拆分结果按顺序写入这些列，超出列数的部分丢弃，不足的部分补空字符串。
+- `separator`: 必填非空字符串；分隔符；空字符串会报错。
+- `regex`: 布尔，默认 `false`；`true` 时 `separator` 按正则表达式拆分，例如 `"\\s+"` 按任意空白拆分；`false` 时按字面字符串拆分。
+- `maxsplit`: 非负整数，默认 `into` 列数减 1；最大拆分次数，默认刚好填满输出列。语义随 `regex` 变化：`regex: false`（默认，按字面字符串分割）时 `0` 表示完全不拆分；`regex: true`（按正则分割）时 `0` 表示不限制拆分次数（多出的段仍会丢弃到 `into` 之外）。
+- `remove_source`: 布尔，默认 `false`；`true` 时拆分完成后删除源列。
+
+## `merge_columns` 规则
+
+- `columns`: 必填，参与合并的列名数组（或单个列名字符串）；源值是 `null` 时按空字符串处理，其余值转成字符串。
+- `into`: 必填字符串；合并结果写入的目标列名。
+- `separator`: 字符串，默认空字符串 `""`；拼接时使用的连接符。
+- `skip_empty`: 布尔，默认 `false`；`true` 时跳过空白值（去除首尾空白后为空的值）再拼接，避免结果里出现连续分隔符。
+- `remove_sources`: 布尔，默认 `false`；`true` 时删除参与合并的源列；源列与 `into` 同名时保留。
+
 ## `lookup` 规则
 
 - `right` 是右侧查找表，通常写完整变量引用，例如 `{{departments}}`。
@@ -518,8 +535,10 @@
 ## `normalize_headers` 规则
 
 - `columns` 是可选的旧列名到新列名映射，优先级高于自动归一化。
-- `case` 支持 `keep`、`lower`、`upper`、`snake`，默认 `keep`。
+- `case` 支持 `keep`、`lower`、`upper`、`snake`，默认 `keep`；`snake` 会把非字母数字下划线字符替换成分隔符并转小写。
 - `separator` 默认 `_`，用于替换列名中的空白或分隔符。
+- `strip` 布尔，默认 `true`；归一化前是否先去掉列名首尾空白；无论取值如何，列名中间的空白始终会被 `separator` 替换。
+- 归一化后为空的列名会变成 `column`。
 - 重名列会自动追加 `_2`、`_3` 后缀。
 
 ## `union` 规则

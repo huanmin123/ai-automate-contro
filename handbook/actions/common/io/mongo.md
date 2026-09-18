@@ -36,7 +36,7 @@ pip install -e '.[db-mongodb]'
 }
 ```
 
-也可以使用 `host`、`port`、`username`、`password`、`auth_source` 和 `database` 组合连接。
+也可以使用 `host`、`port`、`username`、`password`、`auth_source` 和 `database` 组合连接；`host` 默认 `127.0.0.1`，`port` 默认 `27017`。`uri`/`url`/`dsn` 提供时优先使用，不再读取分字段默认值。`database` 不写时使用 URI 自带的默认数据库，URI 也没有时步骤报错。
 
 ## 类型
 
@@ -197,6 +197,90 @@ pip install -e '.[db-mongodb]'
 }
 ```
 
+### find_one
+
+```json
+{
+  "action": "mongo",
+  "type": "find_one",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "filter": {
+    "_id": "{{article_id}}"
+  },
+  "projection": ["title", "status"],
+  "output": {
+    "as": "article"
+  }
+}
+```
+
+命中返回单个文档，未命中 `result` 为 `null`。
+
+### insert_one
+
+```json
+{
+  "action": "mongo",
+  "type": "insert_one",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "document": {
+    "title": "{{title}}",
+    "status": "draft"
+  },
+  "output": {
+    "as": "insert_result"
+  }
+}
+```
+
+返回 `inserted_id` 和 `acknowledged`。
+
+### update_many
+
+```json
+{
+  "action": "mongo",
+  "type": "update_many",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "filter": {
+    "status": "draft"
+  },
+  "update": {
+    "$set": {
+      "status": "archived"
+    }
+  },
+  "upsert": false,
+  "output": {
+    "as": "update_result"
+  }
+}
+```
+
+返回 `matched_count`、`modified_count`、`upserted_id` 和 `acknowledged`；`update_one` 字段相同，只更新第一条匹配文档。
+
+### delete_one / delete_many
+
+```json
+{
+  "action": "mongo",
+  "type": "delete_many",
+  "connection": "content_mongo",
+  "collection": "articles",
+  "filter": {
+    "status": "archived"
+  },
+  "output": {
+    "as": "delete_result"
+  }
+}
+```
+
+两者都只需要 `filter`，返回 `deleted_count` 和 `acknowledged`；`delete_one` 至多删除一条匹配文档。
+
 ## 常用字段
 
 - `database`: 覆盖连接里的默认数据库。
@@ -208,12 +292,17 @@ pip install -e '.[db-mongodb]'
 - `pipeline`: `aggregate` 管道数组。
 - `projection`: 查询投影，对象或字段数组。
 - `sort`: 排序，对象或 `[field, direction]` 数组。
+- `command`: `command` 类型的命令名或命令对象。
+- `args`: `command` 类型的额外位置参数数组，默认空数组；按顺序透传给 MongoDB 驱动，例如 `command` 用对象写法时补 `{$db: "..."}` 之类的尾参。
 - `keys`: `create_index` 的索引键。
 - `name` / `index`: 索引名称；`create_index` 可用 `name` 指定，`drop_index` 使用 `name` 或 `index` 删除。
-- `unique`、`sparse`、`background`、`expire_after_seconds`、`partial_filter_expression`、`collation`、`weights`: `create_index` 可选参数，透传给 MongoDB 驱动。
-- `limit` / `max_docs`: 最大返回文档数，默认 1000。
+- `unique`、`sparse`、`background`、`collation`、`weights`: `create_index` 可选参数，透传给 MongoDB 驱动。
+- `expire_after_seconds` / `expireAfterSeconds`: TTL 索引秒数，两种写法等价，非负整数。
+- `partial_filter_expression` / `partialFilterExpression`: 部分索引过滤条件对象，两种写法等价。
+- `limit` / `max_docs`: 最大返回文档数，默认 1000；`find` 和 `aggregate` 都生效。
 - `upsert`: `update_one`/`update_many` 是否 upsert，默认 `false`。
 - `ordered`: `insert_many` 是否按顺序写入，默认 `true`。
+- `timeout_ms`: 正整数，默认 `30000`；同时作为服务器选择、连接和 socket 超时传给驱动。
 - `result_path`: 执行摘要写入 `output/mongo/`。
 - `output`: 发布响应摘要的声明；`output.as` 是变量名。
 

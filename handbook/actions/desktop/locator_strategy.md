@@ -26,14 +26,19 @@
 
 ## Window Query
 
-常用字段：
+窗口定位字段以 [desktop_window](./desktop_window.md) 的 Window Query 为准，常用字段：
 
 - `title`
 - `title_contains`
-- `class_name`
+- `title_regex`
+- `app`
+- `process`
 - `process_name`
-- `pid`
-- `handle`
+- `class_name`
+- `window_id`
+- `match_index`（候选索引，不能单独作为定位字段）
+
+不存在 `pid` 或 `handle` 定位字段；需要按进程缩小范围时使用 `app`、`process` 或 `process_name`。
 
 示例：
 
@@ -50,14 +55,16 @@
 
 ## Element Locator
 
-常用字段：
+控件定位字段以 [desktop_element](./desktop_element.md) 的 Element Locator 为准，常用字段：
 
 - `automation_id`
 - `name`
 - `name_contains`
 - `control_type`
-- `class_name`
-- `index`
+- `element_class_name`
+- `element_match_index`（候选索引，不能单独作为定位字段）
+
+窗口用 `class_name`、控件用 `element_class_name`，两者不是同一个字段；没有单独的 `index` 字段，控件候选索引用 `element_match_index`。
 
 先用 `desktop_capture type=observe include_elements=true`、`desktop_element type=dump` 或 `type=list` 取证，再写稳定 locator。
 

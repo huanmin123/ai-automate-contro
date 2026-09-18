@@ -46,7 +46,10 @@
 - `steps`: `swipe` 分段数量，默认 `10`
 - `duration_ms`: `swipe` 持续时间，默认 `300`
 - `touch`: `swipe` 是否优先使用 Chromium CDP 触摸事件，默认 `true`
-- `fallback_to_mouse`: 触摸事件不可用时是否回退鼠标拖动，默认 `true`
+- `dom_touch_fallback`: `swipe` 的 CDP 触摸事件成功后，是否再向页面派发一轮 DOM 级 `touchstart` / `touchmove` / `touchend` 事件，默认 `true`。部分页面只监听 DOM touch 事件而不响应 CDP 输入层事件，关闭后这类页面可能收不到滑动
+- `fallback_to_mouse`: 触摸事件不可用时是否回退鼠标拖动，默认 `true`；设为 `false` 且触摸事件失败时步骤直接报错
+
+`swipe` 的触摸链路依赖 Chromium CDP（`Input.dispatchTouchEvent`），只有 `browser_type: chromium` 可用；Firefox 和 WebKit 上触摸事件会失败并按 `fallback_to_mouse` 回退为鼠标按下、逐步移动、释放的模拟拖动。
 
 ## 示例
 

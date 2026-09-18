@@ -55,7 +55,7 @@
 - `type`: 必填，固定为 `list`。
 - Window Query: 可选；提供时只返回匹配窗口。
 - `include_invisible`: 可选，Windows 下是否包含不可见窗口，默认 `false`。macOS 当前后端不支持不可见窗口枚举；传入 `true` 时 payload 会在 `diagnostics` 里说明该限制。
-- `max_windows`: 可选，限制返回窗口数量。
+- `max_windows`: 可选，限制返回或写入的窗口数量。不提供时不限制（返回全部匹配）；显式提供时校验要求大于等于 `1`，超出部分被截断丢弃，payload 的 `truncated` 置为 `true`，`total_count`/`match_count` 仍记录截断前的总数。不存在"0 表示无限制"的写法，要全量返回就省略该字段。
 - `path`: 可选，相对于 `output/desktop-windows/` 写出窗口列表 JSON。
 - `output.as`: 可选，保存 payload。
 
@@ -122,7 +122,7 @@ payload 主要字段：
 - `type`: 必填，固定为 `find`。
 - Window Query: 必填；除 `match_index` 外至少提供一种定位字段。
 - `include_invisible`: 可选，是否包含不可见窗口；Windows 支持，macOS 当前后端会返回 `diagnostics.include_invisible_supported=false`。
-- `max_windows`: 可选，限制写入和返回的匹配窗口数量。
+- `max_windows`: 可选，限制写入和返回的匹配窗口数量。不提供时不限制；显式提供时校验要求大于等于 `1`，超出部分被截断丢弃，`truncated` 置为 `true`，`match_count` 仍记录截断前的总数。
 - `path`: 可选，相对于 `output/desktop-windows/` 写出 JSON。
 - `output.as`: 可选，保存 payload。
 

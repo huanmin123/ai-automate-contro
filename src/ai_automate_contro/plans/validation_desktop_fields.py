@@ -50,8 +50,6 @@ def _validate_open_desktop_fields(
         issues,
     )
     _validate_bool(step, "request_permissions", location, issues)
-    _validate_list(step, "permissions", location, issues)
-    _validate_int(step, "timeout_ms", location, issues, minimum=1)
 
 
 def _validate_desktop_app_fields(

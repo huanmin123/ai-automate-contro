@@ -48,6 +48,7 @@
 ## 文档地图
 
 - `reference/config.md`: `config.json`、AI 服务、运行后检查配置。
+- `reference/ai-terminal-tools.md`: AI 终端工具完整参考，覆盖全部注册工具的参数、权限、门禁、行为和示例；AI 终端工具不能写入普通 plan 的 `steps`。
 - `browser/README.md`: browser 执行线入口。
 - `desktop/README.md`: desktop 执行线入口。
 - `actions/README.md`: action 分类索引。
@@ -77,6 +78,14 @@
 - `redis`: `actions/common/io/redis.md`
 - `command`: `actions/common/utility/command.md`
 - `manual_confirm`: `actions/common/utility/manual_confirm.md`
+
+## 文档准入规则
+
+- 任何 action、AI 终端工具或配置参数进入 handbook 时，必须做到实现、schema/校验器、手册、验证说明四方一致；只改其中一方的内容不允许合入。
+- 每个参数必须写清用途、类型、默认值、适用条件和注意事项；手册不得只写默认值或示例。
+- 新增或变更能力时，同步更新对应手册章节和项目的验证说明，并在交付前运行对应的验证命令确认一致。
+- 手册面向使用者和 AI 编排，保持可观察行为表达；不写实现源码路径、本地运行状态或一次性调试记录。
+- 文档内链接只指向 handbook 内真实存在的文件；引用项目其他文档时用相对项目根的路径原文列出。
 
 ## 写 step 规则
 

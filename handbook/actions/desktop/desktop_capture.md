@@ -81,8 +81,8 @@
 - Window Query: `target=window/element` 必填至少一种窗口定位字段，例如 `profile`、`title_contains`、`title_regex`、`process_name`、`class_name`、`window_id`。profile 见 [app_profile](./app_profile.md)。
 - Element Locator: `target=element` 必填至少一种控件定位字段，例如 `automation_id`、`name_contains`、`text_contains`、`control_type`、`role`、`element_id`。
 - `state`: 仅 `target=element` 可用，`exists`、`enabled`、`disabled`、`focused`，默认 `exists`。
-- `timeout_ms`、`interval_ms`: 等待窗口或控件的超时与轮询间隔。
-- `max_depth`、`max_elements`: `target=element` 的控件树遍历限制。
+- `timeout_ms`、`interval_ms`: 仅 `target=window/element` 生效，等待窗口或控件出现的超时与轮询间隔，单位毫秒；默认分别为 `1000` 和 `100`。等待超时或未找到目标时步骤失败并抛错（报错信息包含使用的 Window Query 或 Element Locator）。`target=screen/region` 不等待，不读取这两个字段。
+- `max_depth`、`max_elements`: 仅 `target=element` 生效的控件树遍历限制，默认分别为 `6` 和 `200`；显式提供时校验要求 `max_depth >= 0`、`max_elements >= 1`。
 - `include_cursor`: 可选，请求截图包含鼠标指针，默认 `false`。是否实际包含由 backend 返回的 `cursor_included` 判断。
 - `output.as`: 可选，保存 payload。
 
@@ -155,7 +155,7 @@
 - `include_screenshot`: 可选，是否额外保存全屏截图；截图文件与 JSON 同名、扩展名为 `.png`，默认 `false`。
 - Window Query: 可选，用于选择目标窗口，例如 `profile`、`title_contains`、`process_name`、`window_id`。省略时使用当前窗口、聚焦窗口或第一个可见窗口。
 - Element Locator: 可选，`include_elements=true` 时过滤控件，例如 `automation_id`、`name_contains`、`text_contains`、`control_type`。
-- `max_windows`、`max_depth`、`max_elements`、`text_limit`: 可选，限制返回窗口数、控件树深度、控件数和文本长度。
+- `max_windows`、`max_depth`、`max_elements`、`text_limit`: 可选，限制返回窗口数、控件树深度、控件数和文本长度，默认分别为 `20`、`4`、`120`、`120`。显式提供时校验要求 `max_windows >= 1`、`max_elements >= 1`、`max_depth >= 0`、`text_limit >= 0`；这些参数不存在"0 表示无限制"的语义（低值会被 runtime 钳制到最小值，上限分别钳制到 `50`、`300`、`8`、`500`）。
 - `output.as`: 可选。
 
 输出：

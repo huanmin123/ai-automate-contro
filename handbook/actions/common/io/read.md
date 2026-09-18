@@ -27,7 +27,7 @@
 
 - `split_lines`: 仅 `type: text` 有效，设置为 `true` 时按行拆分，并过滤空行。
 - `sheet`: 仅 `type: excel` 有效，工作表名称或从 0 开始的索引，默认第一个工作表。
-- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode`、`offset_rows`、`limit_rows`、`preview_rows`、`max_cells` 等读取选项的对象。
+- `sheets`: 仅 `type: excel` 有效，多工作表读取数组；每项可以是 sheet 名称、从 0 开始的索引，或包含 `sheet`、`name`、`range`、`headers`、`mode`、`offset_rows`、`limit_rows`、`preview_rows`、`max_cells`、`date_format` 等读取选项的对象。注意 `formula_mode` 只能在顶层设置，写在 `sheets[]` 单项里无效。
 - `range`: 仅 `type: excel` 有效，A1 范围，例如 `A1:F100`。
 - `header_row`: 仅 `type: excel` 且 `mode=records` 有效，表头所在行号。
 - `headers`: 仅 `type: excel` 且 `mode=records` 有效，自定义表头数组。
@@ -38,6 +38,22 @@
 - `offset_rows`: 仅 `type: excel` 有效，从数据区跳过 N 行后开始读；`records` 模式从表头后的数据行开始计算，`matrix`/`cells` 从 `range` 首行开始计算。
 - `limit_rows`: 仅 `type: excel` 有效，本次最多读取 N 行；适合分页处理大表。
 - `preview_rows`: 仅 `type: excel` 有效，只预览前 N 行数据；适合先看结构、避免一次读入超大表。
+- `formula_mode`: 仅 `type: excel` 有效，公式单元格读取模式，`cached` 或 `formula`，默认 `cached`。
+- `date_format`: 仅 `type: excel` 有效，日期/时间单元格输出格式，`iso` 或 `text`，默认 `iso`。
+
+## Excel 公式与日期读取
+
+- `formula_mode`:
+  - 类型：字符串枚举；默认 `cached`。
+  - 用途：控制公式单元格读到的内容。`cached` 读上次被 Excel 计算并保存的缓存值；`formula` 读公式原文，例如 `=SUM(B2:B10)`。
+  - 适用条件：仅顶层 step 生效；它决定工作簿加载方式（整个文件只加载一次），写在 `sheets[]` 单项里无效、会被忽略。`date_format` 才支持顶层默认加 `sheets[]` 单项覆盖。
+  - 注意：`cached` 依赖文件里已保存的计算结果；文件由程序生成、或生成后从未在 Excel 中打开保存过时，公式单元格可能读到 `null`，容易被误判成"没有数据"。需要判断单元格是否公式或提取公式文本时用 `formula`；要拿数值继续计算时用 `cached`，并把"缓存值可能是 null"当成一种边界情况处理。
+- `date_format`:
+  - 类型：字符串枚举；默认 `iso`。
+  - 用途：控制 date/datetime/time 类型单元格读取后的文本形态。`iso` 输出 ISO 8601 文本，例如 `2026-09-17`、`2026-09-17T08:30:00`；`text` 输出普通字符串形式，日期和时间之间是空格而不是 `T`。
+  - 适用条件：对 `records`、`matrix`、`cells` 三种 mode 都生效。
+  - 注意：只影响读入变量的文本形态，与 Excel 文件里的显示格式无关；时间差（timedelta）单元格不受该参数影响，始终转成总秒数。
+
 ## 示例
 
 读取资源 JSON：
@@ -195,6 +211,26 @@
   }
 }
 ```
+
+读取公式原文而不是缓存值：
+
+```json
+{
+  "action": "read",
+  "type": "excel",
+  "path": "resources/预算.xlsx",
+  "sheet": "汇总",
+  "range": "B2:F20",
+  "mode": "matrix",
+  "formula_mode": "formula",
+  "output": {
+    "as": "formula_matrix",
+    "type": "array!"
+  }
+}
+```
+
+`formula_mode: "formula"` 时公式单元格返回 `=SUM(B2:B10)` 这样的公式文本；默认 `cached` 返回 Excel 上次保存的计算值。读取日期列时可用 `date_format: "text"` 把 `2026-09-17T08:30:00` 换成 `2026-09-17 08:30:00` 形态。
 
 读取浏览器状态文件路径：
 

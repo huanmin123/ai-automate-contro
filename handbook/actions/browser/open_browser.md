@@ -22,7 +22,7 @@
 - `args`: 浏览器启动参数数组
 - `device`: Playwright 设备预设名，例如 `iPhone 12`；预设会填充 viewport、user_agent、device_scale_factor、is_mobile、has_touch
 - `proxy`: 代理配置对象
-- `storage_state_path`: 从文件加载登录态或上下文状态，默认使用 `resources/...` 或当前 plan 包已生成的 `output/storage-states/...`
+- `storage_state_path`: 从文件加载登录态或上下文状态，仅在显式填写时生效，没有自动默认路径。支持绝对路径和相对路径：以 `resources/`、`output/`、`docs/` 开头的相对路径基于当前 plan 包根解析，其他相对路径基于当前 `plan.json` 所在目录解析
 - `viewport`: 视口尺寸，例如 `{"width": 1280, "height": 720}`
 - `screen`: 屏幕尺寸
 - `user_agent`: 自定义 User-Agent

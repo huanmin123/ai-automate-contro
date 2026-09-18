@@ -31,14 +31,16 @@
 - `seconds`: 仅 `type: time` 有效，默认 `1`
 - `state`: `selector` / `text` 使用，默认 `visible`
 - `mode`: `text` 支持 `contains`、`equals`；`count` 支持 `equals`、`gte`、`lte`
-- `timeout_ms`: 仅 `type: count` 有效，默认 `15000`
-- `index`: `selector` / `text` 使用，当选择器匹配多个元素时选择第几个
+- `timeout_ms`: `text`、`count`、`function` 读取该字段，默认 `15000`，超时抛出断言错误；`selector`、`element_state`、`url`、`load_state` 不读取该字段，按会话默认超时执行（由 `open_browser.timeout_ms` 设置，默认 `15000`）
+- `index`: `selector` / `text` / `element_state` 使用，当选择器匹配多个元素时选择第几个
 - `frame_selector`: iframe 选择器
 - `frame_name`: 通过 frame name 定位
 - `frame_url`: 通过完整 frame URL 定位
 - `frame_url_contains`: 通过 URL 片段定位
 - `frame_index`: 通过 `page.frames` 顺序定位，从 `0` 开始
 - `arg`: `type: function` 的 JS 参数
+
+超时行为细节：`text` 先等元素进入目标状态（会话默认超时），再在 `timeout_ms` 内轮询文本内容；`count` 在 `timeout_ms` 内轮询元素数量；`function` 把 `timeout_ms` 直接传给 Playwright `wait_for_function`。
 
 ## 示例
 

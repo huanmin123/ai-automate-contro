@@ -99,7 +99,6 @@ def _validate_write_fields(
     _validate_bool(step, "extend_conditional_formatting", location, issues)
     _validate_int(step, "style_source_row", location, issues, minimum=1)
     _validate_enum(step, "write_mode", {"create", "replace_sheet", "append_rows", "overlay_cells"}, location, issues)
-    _validate_string(step, "date_format", location, issues)
     _validate_excel_cells(step.get("cells"), location, "cells", issues)
     _validate_excel_formula_columns(step.get("formula_columns"), location, "formula_columns", issues)
     if "named_range" in step and "range" in step:
