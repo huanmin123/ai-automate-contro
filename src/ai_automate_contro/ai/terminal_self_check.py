@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import tempfile
 import threading
@@ -217,6 +218,7 @@ def self_check_ai_terminal_state(project_root: str | Path) -> dict[str, Any]:
         checks.append(_check_terminal_file_change_followup_events())
         checks.append(_check_terminal_plan_run_progress_output())
         checks.append(_check_missing_ai_config_is_user_facing(temp_dir))
+        checks.append(_check_diagnostic_terminal_keeps_active_thread(temp_dir))
         checks.append(_check_terminal_error_formatting(storage_root))
 
     return {
@@ -813,6 +815,188 @@ def _check_missing_ai_config_is_user_facing(temp_dir: Path) -> dict[str, Any]:
     )
 
 
+def _write_session_self_check_project_config(project_root: Path) -> None:
+    (project_root / "handbook").mkdir(parents=True, exist_ok=True)
+    plans_dir = project_root / "plans"
+    plans_dir.mkdir(parents=True, exist_ok=True)
+    (project_root / "plan.config").write_text(
+        json.dumps(
+            {
+                "handbook_path": "handbook",
+                "plan_roots": ["plans"],
+                "default_ai_config_dir": "plans",
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (plans_dir / "config.json").write_text(
+        json.dumps(
+            {
+                "ai_services": {
+                    "default": {
+                        "provider": "openai-compatible",
+                        "api": "chat_completions",
+                        "base_url": "https://example.test/v1",
+                        "model": "self-check-model",
+                        "api_key_env": "AIC_AI_TERMINAL_SELF_CHECK_KEY",
+                        "timeout_seconds": 30,
+                    }
+                }
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _check_diagnostic_terminal_keeps_active_thread(temp_dir: Path) -> dict[str, Any]:
+    from ai_automate_contro.ai import terminal as terminal_module
+
+    project_root = temp_dir / "diagnostic-session-project"
+    fresh_root = temp_dir / "diagnostic-fresh-project"
+    _write_session_self_check_project_config(project_root)
+    _write_session_self_check_project_config(fresh_root)
+    previous_key = os.environ.get("AIC_AI_TERMINAL_SELF_CHECK_KEY")
+    os.environ["AIC_AI_TERMINAL_SELF_CHECK_KEY"] = "self-check-dummy-key"
+    checkpoint_path = project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
+    checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(str(checkpoint_path), check_same_thread=False)
+    terminals: list[Any] = []
+    try:
+        checkpointer = SqliteSaver(connection)
+        _put_checkpoint(
+            checkpointer,
+            thread_id="user-active-thread",
+            checkpoint_id="0001",
+            messages=[HumanMessage(content="用户真实会话"), AIMessage(content="ok")],
+        )
+        _put_checkpoint(
+            checkpointer,
+            thread_id="persist-control-thread",
+            checkpoint_id="0002",
+            messages=[HumanMessage(content="对照线程"), AIMessage(content="ok")],
+        )
+        set_active_ai_terminal_thread(project_root, "user-active-thread")
+        diagnostic_terminal = terminal_module.AITerminal(
+            project_root,
+            thread_id="diagnostic-service-check",
+            durable_session=False,
+        )
+        terminals.append(diagnostic_terminal)
+        _put_checkpoint(
+            diagnostic_terminal.checkpointer,
+            thread_id="diagnostic-service-check",
+            checkpoint_id="0003",
+            messages=[HumanMessage(content="只回复 ok"), AIMessage(content="ok")],
+        )
+        diagnostic_terminal._sync_current_session_index()
+        active_after_diagnostic = resolve_active_ai_terminal_thread(
+            checkpointer,
+            project_root=project_root,
+        )
+        index_payload = json.loads(session_index_path(project_root).read_text(encoding="utf-8"))
+        indexed_threads = [
+            str(session.get("thread_id"))
+            for session in index_payload.get("sessions", [])
+            if isinstance(session, dict)
+        ]
+        cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM checkpoints WHERE thread_id = ?", ("diagnostic-service-check",))
+        diagnostic_rows = int(cursor.fetchone()[0])
+        fresh_checkpoint_path = fresh_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
+        fresh_terminal = terminal_module.AITerminal(
+            fresh_root,
+            thread_id="fresh-diagnostic-check",
+            durable_session=False,
+        )
+        terminals.append(fresh_terminal)
+        _put_checkpoint(
+            fresh_terminal.checkpointer,
+            thread_id="fresh-diagnostic-check",
+            checkpoint_id="0001",
+            messages=[HumanMessage(content="只回复 ok"), AIMessage(content="ok")],
+        )
+        fresh_terminal._sync_current_session_index()
+        fresh_durable_db_existed = fresh_checkpoint_path.exists()
+        fresh_index_existed = session_index_path(fresh_root).exists()
+        fresh_checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+        fresh_connection = sqlite3.connect(str(fresh_checkpoint_path), check_same_thread=False)
+        try:
+            fresh_resolved = resolve_active_ai_terminal_thread(
+                SqliteSaver(fresh_connection),
+                project_root=fresh_root,
+            )
+        finally:
+            fresh_connection.close()
+        control_terminal = terminal_module.AITerminal(
+            project_root,
+            thread_id="persist-control-thread",
+            durable_session=True,
+        )
+        terminals.append(control_terminal)
+        active_after_control = resolve_active_ai_terminal_thread(
+            checkpointer,
+            project_root=project_root,
+        )
+        recorded_construction: list[dict[str, Any]] = []
+        original_terminal_class = terminal_module.AITerminal
+
+        class _RecordingTerminal(original_terminal_class):  # type: ignore[misc, valid-type]
+            def __init__(self, *args: Any, **kwargs: Any) -> None:
+                recorded_construction.append(dict(kwargs))
+                raise RuntimeError("self-check 拦截：不发起真实服务请求")
+
+        terminal_module.AITerminal = _RecordingTerminal
+        try:
+            wiring_result = terminal_module.check_ai_terminal_service(
+                project_root,
+                service="default",
+                thread_id="diagnostic-wiring-thread",
+            )
+        finally:
+            terminal_module.AITerminal = original_terminal_class
+        wiring_flags = [entry.get("durable_session") for entry in recorded_construction]
+        return _self_check_result(
+            name="diagnostic_terminal_keeps_active_thread",
+            passed=(
+                active_after_diagnostic == "user-active-thread"
+                and "diagnostic-service-check" not in indexed_threads
+                and diagnostic_rows == 0
+                and not fresh_durable_db_existed
+                and not fresh_index_existed
+                and fresh_resolved == "default"
+                and active_after_control == "persist-control-thread"
+                and wiring_flags == [False]
+                and wiring_result.get("ok") is False
+            ),
+            detail={
+                "active_after_diagnostic": active_after_diagnostic,
+                "indexed_threads": indexed_threads,
+                "diagnostic_checkpoint_rows": diagnostic_rows,
+                "fresh_project_durable_db_existed": fresh_durable_db_existed,
+                "fresh_project_index_existed": fresh_index_existed,
+                "fresh_project_resolved_thread": fresh_resolved,
+                "active_after_control": active_after_control,
+                "service_check_wiring_flags": wiring_flags,
+                "service_check_error": str(wiring_result.get("error", ""))[:120],
+            },
+        )
+    finally:
+        for terminal in terminals:
+            try:
+                terminal._checkpoint_connection.close()
+            except Exception:
+                pass
+        connection.close()
+        if previous_key is None:
+            os.environ.pop("AIC_AI_TERMINAL_SELF_CHECK_KEY", None)
+        else:
+            os.environ["AIC_AI_TERMINAL_SELF_CHECK_KEY"] = previous_key
+
+
 def _check_terminal_error_formatting(project_root: Path) -> dict[str, Any]:
     from ai_automate_contro.ai.terminal import AITerminal, check_ai_terminal_service
 
@@ -1033,6 +1217,7 @@ def _check_single_work_plan_lifecycle() -> dict[str, Any]:
     )
     duplicate_start_error = ""
     incomplete_complete_error = ""
+    reopened_completed_error = ""
     try:
         validate_work_plan_transition("active", operation="start", items=active_items)
     except ValueError as error:
@@ -1053,7 +1238,17 @@ def _check_single_work_plan_lifecycle() -> dict[str, Any]:
             "summary": started.get("work_plan_summary", ""),
         },
     )
+    try:
+        validate_work_plan_transition("completed", operation="continue", items=completed_items)
+    except ValueError as error:
+        reopened_completed_error = str(error)
     terminal = object.__new__(AITerminal)
+    terminal.context_updates = []
+    terminal.events = []
+    terminal.synced = 0
+    terminal._client_event_sink = terminal.events.append
+    terminal._update_context_state = lambda update: terminal.context_updates.append(update)
+    terminal._sync_current_session_index = lambda: setattr(terminal, "synced", terminal.synced + 1)
     terminal._work_plan_state = lambda: {
         "id": started.get("work_plan_id", ""),
         "lifecycle": started.get("work_plan_lifecycle", ""),
@@ -1061,13 +1256,28 @@ def _check_single_work_plan_lifecycle() -> dict[str, Any]:
         "items": started.get("work_plan_items", []),
     }
     guidance = AITerminal._format_current_plan_guidance(terminal, "改为先读取上一轮的 plan")
+    continuation_result = {
+        "ok": True,
+        "operation": "continue",
+        "items": active_items,
+        "summary": "按引导继续",
+    }
+    AITerminal._after_tool_call(
+        terminal,
+        "update_work_plan",
+        {"operation": "continue", "items": active_items, "summary": "按引导继续"},
+        continuation_result,
+    )
+    runtime_continuation = terminal.context_updates[-1] if terminal.context_updates else {}
     passed = (
         started.get("work_plan_lifecycle") == "active"
         and bool(started.get("work_plan_id"))
         and "仍在进行中" in duplicate_start_error
         and "所有待办项" in incomplete_complete_error
+        and "已经结束" in reopened_completed_error
         and completed.get("work_plan_id") == started.get("work_plan_id")
         and completed.get("work_plan_lifecycle") == "completed"
+        and runtime_continuation.get("work_plan_id") == started.get("work_plan_id")
         and "用户对当前工作计划的引导" in guidance
         and "改为先读取上一轮的 plan" in guidance
     )
@@ -1079,7 +1289,9 @@ def _check_single_work_plan_lifecycle() -> dict[str, Any]:
             "completed": completed,
             "duplicate_start_error": duplicate_start_error,
             "incomplete_complete_error": incomplete_complete_error,
+            "reopened_completed_error": reopened_completed_error,
             "guidance": guidance,
+            "runtime_continuation": runtime_continuation,
         },
     )
 

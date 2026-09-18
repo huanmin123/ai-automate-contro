@@ -724,6 +724,31 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                 )
                 duplicate_active_error = str(duplicate_active_result)
                 duplicate_active_rejected = not bool(duplicate_active_result.get("ok")) and "最多只能有一个" in duplicate_active_error
+                gated_start_error = ""
+                gated_start_rejected = False
+                gated_tools = build_langchain_tools(
+                    root,
+                    latest_user_approved=lambda: False,
+                    work_plan_state_provider=lambda: {
+                        "id": "work-plan-gated",
+                        "lifecycle": "active",
+                        "summary": "自检活动计划",
+                        "items": [{"title": "继续当前计划", "status": "in_progress"}],
+                    },
+                )
+                gated_plan_tool = next((tool for tool in gated_tools if tool.name == "update_work_plan"), None)
+                if gated_plan_tool is not None:
+                    gated_result = json.loads(
+                        gated_plan_tool.invoke(
+                            {
+                                "summary": "重复开始",
+                                "operation": "start",
+                                "items": [{"title": "另一份计划", "status": "pending"}],
+                            }
+                        )
+                    )
+                    gated_start_error = str(gated_result)
+                    gated_start_rejected = not bool(gated_result.get("ok")) and "仍在进行中" in gated_start_error
                 work_plan_tool_ok = (
                     bool(plan_result.get("ok"))
                     and plan_result.get("total") == 3
@@ -731,12 +756,14 @@ def self_check_langchain_tools(project_root: str | Path) -> dict[str, Any]:
                     and plan_result.get("active") == "更新计划"
                     and captured_calls[-2]["name"] == "update_work_plan"
                     and duplicate_active_rejected
+                    and gated_start_rejected
                 )
                 work_plan_tool_detail = {
                     "total": plan_result.get("total"),
                     "completed": plan_result.get("completed"),
                     "active": plan_result.get("active"),
                     "duplicate_active_error": duplicate_active_error,
+                    "gated_start_error": gated_start_error,
                 }
             except Exception as error:
                 work_plan_tool_error = str(error)

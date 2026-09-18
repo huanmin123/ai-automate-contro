@@ -129,7 +129,7 @@ def resolve_active_ai_terminal_thread(
     if requested:
         return requested
     active_thread_id = _active_thread_id_from_index(project_root)
-    if active_thread_id and ai_terminal_session_exists(checkpointer, active_thread_id, project_root=project_root):
+    if active_thread_id and ai_terminal_session_exists(checkpointer, active_thread_id):
         return active_thread_id
     sessions = _list_ai_terminal_sessions_from_checkpoints(checkpointer, limit=1)
     if sessions:
@@ -379,6 +379,7 @@ def _write_session_index(
     index_path = session_index_path(project_root)
     index_path.parent.mkdir(parents=True, exist_ok=True)
     previous_payload = _read_session_index_payload(project_root) or {}
+    # active_thread_id=None 是"保留现有活动指针"的约定；诊断/自检线程依赖它不变更用户会话。
     active = active_thread_id if active_thread_id is not None else str(previous_payload.get("active_thread_id") or "")
     payload = {
         "version": SESSION_INDEX_SCHEMA_VERSION,

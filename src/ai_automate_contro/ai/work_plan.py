@@ -78,6 +78,8 @@ def validate_work_plan_transition(
     has_active_plan = current == "active"
     if normalized_operation == "start" and has_active_plan:
         raise ValueError("当前工作计划仍在进行中；用户后续消息必须作为该计划的引导。请继续、完成或取消当前计划后再开始新计划。")
+    if normalized_operation == "continue" and current in {"completed", "canceled"}:
+        raise ValueError("当前工作计划已经结束；请用 start 创建新的工作计划，不能用 continue 重新打开旧计划。")
     if normalized_operation in {"complete", "cancel"} and not has_active_plan:
         raise ValueError("当前没有进行中的工作计划，不能结束或取消。")
     if normalized_operation == "complete" and any(item["status"] != "completed" for item in normalized_items):

@@ -84,8 +84,16 @@ class AITerminal(
     AITerminalCommandsMixin,
     AITerminalStateMixin,
 ):
-    def __init__(self, project_root: Path, *, service: str = "default", thread_id: str = "") -> None:
+    def __init__(
+        self,
+        project_root: Path,
+        *,
+        service: str = "default",
+        thread_id: str = "",
+        durable_session: bool = True,
+    ) -> None:
         self.project_root = project_root.resolve()
+        self._durable_session = durable_session
         assert_ripgrep_available()
         self.config = load_ai_terminal_config(self.project_root, service_name=service)
         self.model_name = str(self.config.service_config["model"])
@@ -104,15 +112,19 @@ class AITerminal(
         self._pending_attachments: list[ImageAttachment] = []
         self._pending_attachment_placeholder_required: list[bool] = []
         self.checkpoint_path = self.project_root / ".keygen" / "ai-terminal-checkpoints.sqlite"
-        self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
-        self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
+        if self._durable_session:
+            self.checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+            self._checkpoint_connection = sqlite3.connect(str(self.checkpoint_path), check_same_thread=False)
+        else:
+            self._checkpoint_connection = sqlite3.connect(":memory:", check_same_thread=False)
         self.checkpointer = SqliteSaver(self._checkpoint_connection)
         self.thread_id = resolve_active_ai_terminal_thread(
             self.checkpointer,
             project_root=self.project_root,
             requested_thread_id=thread_id,
         )
-        set_active_ai_terminal_thread(self.project_root, self.thread_id)
+        if self._durable_session:
+            set_active_ai_terminal_thread(self.project_root, self.thread_id)
         session_summary = current_ai_terminal_session(
             self.checkpointer,
             self.thread_id,
@@ -649,7 +661,7 @@ class AITerminal(
             "approval_requests": interrupt_action_requests(interrupts),
             "assistant_message": self._last_assistant_message(messages),
             "messages": len(messages),
-            "checkpoint_path": str(self.checkpoint_path),
+            "checkpoint_path": str(self.checkpoint_path) if getattr(self, "_durable_session", True) else "",
             "context_state": self._context_state(),
         }
 
@@ -875,7 +887,7 @@ def check_ai_terminal_service(
     """Send one real AI request through the same terminal path used by the Textual client."""
     terminal: AITerminal | None = None
     try:
-        terminal = AITerminal(project_root, service=service, thread_id=thread_id)
+        terminal = AITerminal(project_root, service=service, thread_id=thread_id, durable_session=False)
         result = terminal.ask_once(message)
         return {
             "ok": True,

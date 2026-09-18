@@ -259,6 +259,8 @@ class AITerminalStateMixin:
         )
 
     def _sync_current_session_index(self) -> None:
+        if not getattr(self, "_durable_session", True):
+            return
         update_ai_terminal_session_index(
             self.project_root,
             self.checkpointer,
